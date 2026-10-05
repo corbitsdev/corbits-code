@@ -23,6 +23,7 @@ export const coderPackage: DirectorPackage = {
   spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "implement",
+  optionalSkills: ["typescript"],
   systemPrompt: `You are CoderDirector (Coder), a specialist in Corbits Code.
 
 PRIMARY INTENT: implement the brief in product code. Edit, verify, report.

@@ -157,11 +157,11 @@ export type RunSubAgentParams = {
   requiresTools?: readonly string[];
   /**
    * Skill allowlist for the worker's skill_search + use_skill mounts,
-   * resolved by the caller (agent-fleet.ts) as the union of
-   * DirectorPackage.attachedSkills and optionalSkills. When set, both tools
-   * only see these names (the allowlist cannot widen: unknown names refuse).
-   * When unset (non-director plugin profiles), the worker sees every
-   * discovered skill.
+   * resolved by the caller (agent-fleet.ts) as the union of attachedSkills
+   * and optionalSkills on the director package or plugin profile. When set,
+   * both tools only see these names (the allowlist cannot widen: unknown
+   * names refuse). Empty means match nothing. Unset (legacy callers) still
+   * sees every discovered skill.
    */
   allowedSkillNames?: readonly string[];
   /**

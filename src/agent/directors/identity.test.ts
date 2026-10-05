@@ -26,14 +26,23 @@ describe("formatDirectorSystemPrompt", () => {
 });
 
 describe("packageAllowedSkillNames", () => {
-  test("returns undefined for universal skill access when unconfigured", () => {
-    expect(packageAllowedSkillNames(DIRECTOR_REGISTRY.coder)).toBeUndefined();
-    expect(
-      packageAllowedSkillNames(DIRECTOR_REGISTRY.dispatch),
-    ).toBeUndefined();
-    expect(
-      packageAllowedSkillNames(DIRECTOR_REGISTRY.explorer),
-    ).toBeUndefined();
+  test("returns empty allowlist when neither field is declared", () => {
+    expect(packageAllowedSkillNames(undefined)).toBeUndefined();
+    expect(packageAllowedSkillNames(DIRECTOR_REGISTRY.dispatch)).toEqual([]);
+    expect(packageAllowedSkillNames(DIRECTOR_REGISTRY.explorer)).toEqual([]);
+  });
+
+  test("coder optionalSkills is typescript", () => {
+    expect(packageAllowedSkillNames(DIRECTOR_REGISTRY.coder)).toEqual([
+      "typescript",
+    ]);
+  });
+
+  test("designer optionalSkills include better-ui and emil-design-eng", () => {
+    expect(packageAllowedSkillNames(DIRECTOR_REGISTRY.designer)).toEqual([
+      "emil-design-eng",
+      "better-ui",
+    ]);
   });
 
   test("unions attached then optional without duplicating when configured", () => {

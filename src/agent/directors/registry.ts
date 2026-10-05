@@ -131,6 +131,12 @@ export function packageToProfile(pkg: DirectorPackage): AgentProfile {
     // Dispatch maySpawn marks intent; leaves stay non-orchestrator.
     orchestrator: pkg.spawn.maySpawn,
     ...(capabilities !== undefined ? { capabilities } : {}),
+    ...(pkg.attachedSkills !== undefined
+      ? { attachedSkills: [...pkg.attachedSkills] }
+      : {}),
+    ...(pkg.optionalSkills !== undefined
+      ? { optionalSkills: [...pkg.optionalSkills] }
+      : {}),
   };
 }
 

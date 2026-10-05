@@ -146,33 +146,46 @@ describe("resolveAgentPluginProfiles", () => {
     ).toEqual([]);
   });
 
-  test("skips profiles whose id collides with a closed DIRECTOR_IDS entry", async () => {
+  test("replaces profiles whose id collides with a closed DIRECTOR_IDS entry", async () => {
     const warnings: string[] = [];
     const { mod, config } = agentModule("p1", [
       validProfile,
       {
         id: "explorer",
-        description: "Collides with closed director",
-        systemPromptRole: "Should be skipped.",
+        description: "Overlay closed director",
+        systemPromptRole: "Plugin explorer prompt.",
       },
       {
-        id: "coder",
-        description: "Also reserved",
-        systemPromptRole: "Should be skipped.",
+        id: "designer",
+        description: "Also overlay",
+        systemPromptRole: "Plugin designer prompt.",
       },
     ]);
     const profiles = await resolveAgentPluginProfiles([mod], config, (msg) =>
       warnings.push(msg),
     );
-    expect(profiles.map((p) => p.id)).toEqual(["scout"]);
+    expect(profiles.map((p) => p.id).sort()).toEqual([
+      "designer",
+      "explorer",
+      "scout",
+    ]);
+    expect(
+      defined(profiles.find((p) => p.id === "designer")).systemPromptRole,
+    ).toBe("Plugin designer prompt.");
     expect(
       warnings.some(
-        (w) => w.includes('agent "explorer"') && w.includes("reserved"),
+        (w) =>
+          w.includes('plugin "p1"') &&
+          w.includes("agent explorer") &&
+          w.includes("replaces closed director"),
       ),
     ).toBe(true);
     expect(
       warnings.some(
-        (w) => w.includes('agent "coder"') && w.includes("reserved"),
+        (w) =>
+          w.includes('plugin "p1"') &&
+          w.includes("agent designer") &&
+          w.includes("replaces closed director"),
       ),
     ).toBe(true);
   });

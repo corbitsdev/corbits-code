@@ -140,10 +140,9 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
     const useSkillArgs = captured.useSkillArgs[0];
     expect(searchArgs).toBeDefined();
     expect(searchArgs?.allowedNames).toEqual(["style"]);
-    expect(searchArgs?.skills.map((s) => s.name).sort()).toEqual([
-      "off-lane",
-      "style",
-    ]);
+    const discovered = searchArgs?.skills.map((s) => s.name) ?? [];
+    expect(discovered).toContain("off-lane");
+    expect(discovered).toContain("style");
     expect(useSkillArgs?.[0]).toBe(cwd);
     expect(useSkillArgs?.[1]).toEqual([]);
     expect(useSkillArgs?.[3]).toEqual(["style"]);
@@ -349,5 +348,35 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
       'Attached skill "philosophy" could not be resolved. Proceed under AGENTS.md.',
     );
     expect(joined).not.toContain("### philosophy");
+  }, 15_000);
+
+  test("empty allowedSkillNames fail-closes: use_skill cannot load typescript", async () => {
+    const cwd = await tmpSubAgentCwd("cl9917-skill-fail-closed-");
+    await writeSkill(
+      cwd,
+      "typescript",
+      "TypeScript conventions.",
+      "Prefer explicit types.",
+    );
+
+    const { captured, withCapturedMounts } = captureSkillMounts();
+    await runWithFailingInference((baseURL) =>
+      withCapturedMounts(() =>
+        probeRun(cwd, baseURL, { allowedSkillNames: [] }),
+      ),
+    );
+
+    expect(captured.searchArgs[0]?.allowedNames).toEqual([]);
+    expect(captured.useSkillArgs[0]?.[3]).toEqual([]);
+    const refused = await captured.useSkillTool?.handler(
+      { name: "typescript" },
+      new AbortController().signal,
+    );
+    expect(refused).toBe('No skill named "typescript" is available.');
+    const search = await captured.searchTool?.handler(
+      { query: "typescript" },
+      new AbortController().signal,
+    );
+    expect(search).toContain("No skills matched");
   }, 15_000);
 });

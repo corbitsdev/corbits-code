@@ -126,6 +126,15 @@ describe("director registry", () => {
     expect(c.spawn.allowlist).toBeUndefined();
     expect(c.tier).toBe("leaf");
     expect(packageToProfile(c).orchestrator).toBe(false);
+    expect(c.optionalSkills).toEqual(["typescript"]);
+    expect(packageToProfile(c).optionalSkills).toEqual(["typescript"]);
+  });
+
+  test("designer optionalSkills are names only", () => {
+    expect(DIRECTOR_REGISTRY.designer.optionalSkills).toEqual([
+      "emil-design-eng",
+      "better-ui",
+    ]);
   });
 
   test("dispatch is the only maySpawn:true closed director", () => {

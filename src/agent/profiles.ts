@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { type } from "arktype";
 
 import { defaultAgentsPlugin as defaultPlugin } from "./default-agents.js";
-import { isDirectorId } from "./directors/registry.js";
 import { REASONING_EFFORTS } from "./profile-types.js";
 
 export type {
@@ -54,6 +53,8 @@ const AgentProfileSchema = type({
   "systemPromptRole?": "string",
   "systemPromptPath?": "string",
   "orchestrator?": "boolean",
+  "attachedSkills?": "string[]",
+  "optionalSkills?": "string[]",
 });
 
 function isENOENT(err: unknown): boolean {
@@ -67,8 +68,8 @@ function isENOENT(err: unknown): boolean {
 
 // Mutable registry seeded with the default plugin. Plugin-provided profiles
 // are overridable: a profile with the same id loaded later (or from the local
-// .agents/agents/ directory) replaces the earlier one — except closed
-// DIRECTOR_IDS, which are reserved and skipped at load (CL-7015).
+// .agents/agents/ directory) replaces the earlier one, including closed
+// director ids — last enabled plugin / local file wins (CL-9917).
 const registry: AgentProfile[] = [...defaultPlugin.agents];
 
 // Load diagnostics: additive over loadAgentProfiles. `revision` stamps the
@@ -104,18 +105,12 @@ function mergeProfileInto(list: AgentProfile[], profile: AgentProfile): void {
   else list.push(profile);
 }
 
-/** Skip profiles whose id collides with a closed director (no override/alias). */
-function isReservedDirectorProfile(profile: AgentProfile): boolean {
-  return isDirectorId(profile.id);
-}
-
 // Load and merge profiles from three sources, in ascending precedence:
 //   1. The built-in default registry
 //   2. `extraProfiles` — profiles contributed by enabled agent-kind plugins
 //   3. JSON/YAML files in the local .agents/agents/ directory
 // A profile with a duplicate id loaded from a higher-precedence source replaces
-// the earlier one. Closed DIRECTOR_IDS are reserved: colliding plugin/local
-// profiles are skipped so the fleet cannot be overridden or aliased.
+// the earlier one, including closed director ids (plugin/local overlay wins).
 export async function loadAgentProfiles(
   dir: string,
   extraProfiles: AgentProfile[] = [],
@@ -148,10 +143,7 @@ export async function loadAgentProfilesWithDiagnostics(
   } catch (err) {
     if (isENOENT(err)) {
       const merged = [...registry];
-      for (const p of extraProfiles) {
-        if (isReservedDirectorProfile(p)) continue;
-        mergeProfileInto(merged, p);
-      }
+      for (const p of extraProfiles) mergeProfileInto(merged, p);
       return done(merged);
     }
     throw err;
@@ -187,7 +179,7 @@ export async function loadAgentProfilesWithDiagnostics(
       continue;
     }
     const profile = result as AgentProfile;
-    if (isReservedDirectorProfile(profile)) continue;
+    if (profile.source === undefined) profile.source = "local";
     // Resolve systemPromptPath relative to this directory. The file content
     // becomes systemPromptRole; an explicit systemPromptRole takes precedence.
     if (
@@ -208,10 +200,7 @@ export async function loadAgentProfilesWithDiagnostics(
   }
 
   const merged = [...registry];
-  for (const profile of extraProfiles) {
-    if (isReservedDirectorProfile(profile)) continue;
-    mergeProfileInto(merged, profile);
-  }
+  for (const profile of extraProfiles) mergeProfileInto(merged, profile);
   for (const profile of local) mergeProfileInto(merged, profile);
   return done(merged);
 }

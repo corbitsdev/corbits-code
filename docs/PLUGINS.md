@@ -272,7 +272,8 @@ shape.
 - **Skill refs on agent frontmatter / body.** A skill name is either:
   - **Bare** — `typescript`, `plan`, or a namespaced `plugin:typescript`. Resolved by
     searching the plugin's `skills/` dir first, then project-local fallbacks
-    (`.agents/skills`, `.claude/skills`, `.codex/skills`). Prefer bare names for
+    (`.corbits/skills`, `.agents/skills`, `.claude/skills`, `.codex/skills`),
+    then the same relative dirs under `homedir()`. Prefer bare names for
     co-located skills; they are the portable, discoverable form.
   - **Path-like** — `./skills/typescript`, `skills/typescript`, `../sibling-skill`, or any
     ref containing `/` (including a trailing `SKILL.md`). Resolved only under the
@@ -283,7 +284,8 @@ shape.
   (same gating as command plugins — no consent needed, since profiles are
   configuration data, not in-process code).
 - Profile precedence: built-in defaults < plugin profiles < local
-  `.agents/agents/*.json` (most specific wins on same-id conflicts).
+  `.agents/agents/*.json` (most specific wins on same-id conflicts, including
+  closed director ids — a plugin `id: designer` replaces the shipped designer).
 - Per-kind verify in `/plugins` (agent = profile count check).
 - Add-by-path (Alt+A) uses the same path suggestion UX as `@` mentions
   (`listPathSuggestions`) so registering a plugin from disk can browse directories.

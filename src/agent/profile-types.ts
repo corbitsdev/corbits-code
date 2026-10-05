@@ -66,6 +66,12 @@ export interface AgentProfile {
   // rejects profile orchestrators because only built-in director packages carry
   // trusted fleet semantics. Leaf workers should leave this unset.
   orchestrator?: boolean;
+  // Skill names whose bodies are injected once at spawn. Same contract as
+  // DirectorPackage.attachedSkills.
+  attachedSkills?: string[];
+  // Optional skill names the worker may skill_search / use_skill. When both
+  // this and attachedSkills are omitted, the worker allowlist is empty.
+  optionalSkills?: string[];
   // Where the profile came from, for search_agents labeling (e.g. "claude",
   // "plugin:<id>", "local"). Omitted for built-in defaults.
   source?: string;

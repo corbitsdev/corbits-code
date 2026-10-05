@@ -22,6 +22,7 @@ export const designerPackage: DirectorPackage = {
   spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "implement",
+  optionalSkills: ["emil-design-eng", "better-ui"],
   systemPrompt: `You are DesignerDirector (Designer), a specialist in Corbits Code.
 
 PRIMARY INTENT: own interface design, design tokens, styling, and DESIGN.md. You bring design engineering excellence to UI surfaces — layout rhythm, typography, purposeful motion, responsive states, and cohesive design systems.

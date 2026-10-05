@@ -48,27 +48,34 @@ export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
 
 /**
  * Allowlist for a worker's skill_search + use_skill: union of attached and
- * optional names, first-wins, order-preserving. Undefined when the package
- * declares neither field (plugin profiles / directors with no skill scope).
+ * optional names, first-wins, order-preserving. Empty when neither field is
+ * declared so workers fail closed (search/use_skill match nothing).
  */
-export function packageAllowedSkillNames(
-  pkg: DirectorPackage | undefined,
-): readonly string[] | undefined {
-  if (pkg === undefined) return undefined;
-  if (pkg.attachedSkills === undefined && pkg.optionalSkills === undefined) {
-    return undefined;
-  }
+export function skillNamesFromFields(
+  attached: readonly string[] | undefined,
+  optional: readonly string[] | undefined,
+): readonly string[] {
+  if (attached === undefined && optional === undefined) return [];
   const seen = new Set<string>();
   const names: string[] = [];
-  for (const name of [
-    ...(pkg.attachedSkills ?? []),
-    ...(pkg.optionalSkills ?? []),
-  ]) {
+  for (const name of [...(attached ?? []), ...(optional ?? [])]) {
     if (seen.has(name)) continue;
     seen.add(name);
     names.push(name);
   }
   return names;
+}
+
+/**
+ * Allowlist for a director package. Undefined only when `pkg` itself is
+ * undefined (plugin path handles skill fields separately). A defined package
+ * with neither skill field yields `[]`, not the full catalog.
+ */
+export function packageAllowedSkillNames(
+  pkg: DirectorPackage | undefined,
+): readonly string[] | undefined {
+  if (pkg === undefined) return undefined;
+  return skillNamesFromFields(pkg.attachedSkills, pkg.optionalSkills);
 }
 
 /**

@@ -421,6 +421,38 @@ describe("spawn_agent", () => {
     expect(captured?.tier).toBe("leaf");
     expect(captured?.orchestrator).toBeUndefined();
   });
+
+  test("plugin profile with closed director id replaces the closed package prompt", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const deps = createFleetDeps(
+      async (params) => {
+        captured = params;
+        return { report: "done" };
+      },
+      {
+        profiles: [
+          {
+            id: "designer",
+            source: "plugin:p1",
+            systemPromptRole: "You are the plugin designer.",
+            optionalSkills: ["better-ui"],
+          },
+        ],
+      },
+    );
+    const spawn = createSpawnAgentTool(deps);
+
+    const result = await callFleetTool(spawn, {
+      description: "design job",
+      prompt: "style this",
+      agent: "designer",
+    });
+
+    expect(result.status).toBe("running");
+    expect(captured?.directorId).toBe("designer");
+    expect(captured?.systemPromptRole).toBe("You are the plugin designer.");
+    expect(captured?.allowedSkillNames).toEqual(["better-ui"]);
+  });
 });
 
 describe("spawn_agent + wait_agents", () => {

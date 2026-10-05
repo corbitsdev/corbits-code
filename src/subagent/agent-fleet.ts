@@ -53,11 +53,13 @@ import {
   isDirectorId,
   packageToCapabilities,
   resolveDirector,
+  DIRECTOR_REGISTRY,
 } from "../agent/directors/registry.js";
 import {
   defaultEffortForDirector,
   formatDirectorSystemPrompt,
   packageAllowedSkillNames,
+  skillNamesFromFields,
 } from "../agent/directors/identity.js";
 import type { Settings } from "../config/settings.js";
 import { resolveInferenceWithPolicy } from "../config/settings.js";
@@ -752,6 +754,8 @@ interface ResolvedAgentDispatch {
   orchestratorTier?: DirectorPackage["tier"];
   nestedSpawnAllowlist?: readonly string[];
   effortPin?: ReasoningEffort;
+  attachedSkills?: readonly string[];
+  optionalSkills?: readonly string[];
 }
 
 function resolveAgentDispatch(input: {
@@ -778,12 +782,19 @@ function resolveAgentDispatch(input: {
     applyResolvedProvider,
   } = input;
   if (agentId !== undefined && agentId.length > 0) {
-    if (isDirectorId(agentId)) {
+    const overlayProfile = profiles?.find((p) => p.id === agentId);
+    // Plugin/local overlay (source set) replaces the closed package. Default
+    // directorProfiles() entries omit source, so they stay on the closed path.
+    const useClosedDirector =
+      isDirectorId(agentId) &&
+      (overlayProfile === undefined || overlayProfile.source === undefined);
+
+    if (useClosedDirector) {
       const resolved = resolveDirector({ agentId });
       if (!resolved.ok)
         return { error: `Error: ${resolved.error} ${resolved.hint}` };
       const pkg = resolved.package;
-      const profile = profiles?.find((p) => p.id === agentId);
+      const profile = overlayProfile;
       let effortPin: ReasoningEffort | undefined;
       if (profile?.inference !== undefined && settings !== undefined) {
         const outcome = resolveInferenceWithPolicy(profile.inference, settings);
@@ -826,7 +837,7 @@ function resolveAgentDispatch(input: {
         error: `Error: agent "${agentId}" requested but no agent profiles are loaded. Omit agent to use intent=, or ensure profiles are available.`,
       };
     }
-    const profile = profiles.find((p) => p.id === agentId);
+    const profile = overlayProfile;
     if (profile === undefined) {
       const known = profiles.map((p) => p.id).sort();
       const hint =
@@ -868,6 +879,15 @@ function resolveAgentDispatch(input: {
         : {}),
       orchestrator: false,
       ...(effortPin !== undefined ? { effortPin } : {}),
+      ...(isDirectorId(agentId)
+        ? { roleDefault: defaultEffortForDirector(DIRECTOR_REGISTRY[agentId]) }
+        : {}),
+      ...(profile.attachedSkills !== undefined
+        ? { attachedSkills: profile.attachedSkills }
+        : {}),
+      ...(profile.optionalSkills !== undefined
+        ? { optionalSkills: profile.optionalSkills }
+        : {}),
     };
   }
 
@@ -1468,7 +1488,14 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             modelRole: laneModelRole,
           });
 
-          const allowedSkillNames = packageAllowedSkillNames(resolved.pkg);
+          const allowedSkillNames =
+            packageAllowedSkillNames(resolved.pkg) ??
+            skillNamesFromFields(
+              resolved.attachedSkills,
+              resolved.optionalSkills,
+            );
+          const attachedSkills =
+            resolved.pkg?.attachedSkills ?? resolved.attachedSkills;
           const params: RunSubAgentParams = {
             // Name the trace directory after the session-store id so the
             // descendant-scoping check behind read_agent_trace can resolve this
@@ -1527,10 +1554,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               ? { capabilities: resolved.capabilities }
               : {}),
             ...(requiresTools !== undefined ? { requiresTools } : {}),
-            ...(allowedSkillNames !== undefined ? { allowedSkillNames } : {}),
-            ...(resolved.pkg?.attachedSkills !== undefined &&
-            resolved.pkg.attachedSkills.length > 0
-              ? { attachedSkills: resolved.pkg.attachedSkills }
+            allowedSkillNames,
+            ...(attachedSkills !== undefined && attachedSkills.length > 0
+              ? { attachedSkills }
               : {}),
             ...(deps.skillDirs !== undefined
               ? { skillDirs: deps.skillDirs }

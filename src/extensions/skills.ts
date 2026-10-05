@@ -1,9 +1,11 @@
+import { homedir } from "node:os";
 import { realpath } from "node:fs/promises";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { pathIsInsideOrEqual } from "../util/path-contain.js";
 
-const FALLBACK_SKILL_DIRS = [
+const SKILL_RELATIVE_DIRS = [
+  ".corbits/skills",
   ".agents/skills",
   ".claude/skills",
   ".codex/skills",
@@ -22,15 +24,15 @@ export interface ResolveSkillBodyOptions {
    */
   pluginRoot?: string;
   /**
-   * Skip project-local `.agents/.claude/.codex/skills` fallbacks. Attached
-   * bundled product skills use this so a repo SKILL.md cannot
-   * become system-prompt constraints.
+   * Skip project-local and user-global skill dirs. Attached bundled product
+   * skills use this so a repo SKILL.md cannot become system-prompt constraints.
    */
   pluginDirsOnly?: boolean;
 }
 
-// Skill subfolders live under enabled plugin dirs first, then project-local dirs
-// unless the caller opts out of the fallback.
+// Skill subfolders live under enabled plugin dirs first, then project-local
+// dirs, then user-global dirs, unless the caller opts out of those fallbacks.
+// First-wins: plugin > project (.corbits, .agents, .claude, .codex) > user.
 function skillBaseDirs(
   cwd: string,
   pluginDirs: string[],
@@ -38,7 +40,16 @@ function skillBaseDirs(
 ): string[] {
   const pluginBases = pluginDirs.map((dir) => join(dir, "skills"));
   if (!includeProjectFallback) return pluginBases;
-  return [...pluginBases, ...FALLBACK_SKILL_DIRS.map((rel) => join(cwd, rel))];
+  const projectBases = SKILL_RELATIVE_DIRS.map((rel) => join(cwd, rel));
+  const home = homedir();
+  const userBases: string[] = [];
+  for (const rel of SKILL_RELATIVE_DIRS) {
+    const userPath = join(home, rel);
+    const projectPath = join(cwd, rel);
+    if (resolve(userPath) === resolve(projectPath)) continue;
+    userBases.push(userPath);
+  }
+  return [...pluginBases, ...projectBases, ...userBases];
 }
 
 function parseSkillRef(ref: string): string {
@@ -146,9 +157,9 @@ async function resolvePathLikeSkillBody(
 // frontmatter is stripped, leaving the instructions to inject into context.
 //
 // Bare names search `skillBaseDirs` (plugin dirs then, unless pluginDirsOnly,
-// project-local fallbacks). Path-like refs (`./skills/style`, `skills/foo`)
-// resolve only under `options.pluginRoot` with containment checks; absolute
-// and escape paths fail.
+// project-local then user-global fallbacks). Path-like refs (`./skills/style`,
+// `skills/foo`) resolve only under `options.pluginRoot` with containment
+// checks; absolute and escape paths fail.
 export async function resolveSkillBody(
   cwd: string,
   ref: string,

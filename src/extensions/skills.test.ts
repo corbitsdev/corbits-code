@@ -5,6 +5,7 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 
 import { discoverSkills, resolveSkillBody } from "./skills.js";
 import { defined } from "../../testkit/defined.js";
+import { withMockedHomedir } from "../../testkit/mock-module.js";
 
 const fixtureCwd = join(import.meta.dirname, "../../fixtures/skill-workspace");
 const exampleAgentPlugin = join(
@@ -80,6 +81,92 @@ describe("skill discovery", () => {
       await rm(plugin, { recursive: true, force: true });
     }
   });
+
+  test("discovers a project .corbits/skills skill", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "skill-corbits-project-"));
+    try {
+      await mkdir(join(cwd, ".corbits", "skills", "local-playbook"), {
+        recursive: true,
+      });
+      await writeFile(
+        join(cwd, ".corbits", "skills", "local-playbook", "SKILL.md"),
+        "---\nname: local-playbook\ndescription: project corbits skill\n---\nProject body.\n",
+        "utf8",
+      );
+      const skills = await discoverSkills(cwd, []);
+      expect(skills.find((s) => s.name === "local-playbook")).toEqual({
+        name: "local-playbook",
+        description: "project corbits skill",
+      });
+      const body = await resolveSkillBody(cwd, "local-playbook", []);
+      expect(body).toContain("Project body.");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("discovers a user-global ~/.corbits/skills skill (tmp HOME)", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "skill-corbits-cwd-"));
+    const home = await mkdtemp(join(tmpdir(), "skill-corbits-home-"));
+    try {
+      await mkdir(join(home, ".corbits", "skills", "user-playbook"), {
+        recursive: true,
+      });
+      await writeFile(
+        join(home, ".corbits", "skills", "user-playbook", "SKILL.md"),
+        "---\nname: user-playbook\ndescription: user global skill\n---\nUser body.\n",
+        "utf8",
+      );
+      await withMockedHomedir(home, async () => {
+        const skills = await discoverSkills(cwd, []);
+        expect(skills.find((s) => s.name === "user-playbook")).toEqual({
+          name: "user-playbook",
+          description: "user global skill",
+        });
+        const body = await resolveSkillBody(cwd, "user-playbook", []);
+        expect(body).toContain("User body.");
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("project .corbits/skills shadows the same name in user-global", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "skill-corbits-shadow-cwd-"));
+    const home = await mkdtemp(join(tmpdir(), "skill-corbits-shadow-home-"));
+    try {
+      await mkdir(join(cwd, ".corbits", "skills", "shared"), {
+        recursive: true,
+      });
+      await mkdir(join(home, ".corbits", "skills", "shared"), {
+        recursive: true,
+      });
+      await writeFile(
+        join(cwd, ".corbits", "skills", "shared", "SKILL.md"),
+        "---\nname: shared\ndescription: project wins\n---\nProject shared.\n",
+        "utf8",
+      );
+      await writeFile(
+        join(home, ".corbits", "skills", "shared", "SKILL.md"),
+        "---\nname: shared\ndescription: user should lose\n---\nUser shared.\n",
+        "utf8",
+      );
+      await withMockedHomedir(home, async () => {
+        const skills = await discoverSkills(cwd, []);
+        expect(skills.find((s) => s.name === "shared")).toEqual({
+          name: "shared",
+          description: "project wins",
+        });
+        const body = await resolveSkillBody(cwd, "shared", []);
+        expect(body).toContain("Project shared.");
+        expect(body).not.toContain("User shared.");
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("skill resolution", () => {
@@ -111,11 +198,20 @@ describe("skill resolution", () => {
         "---\nname: git-worktrees\nuser-invocable: false\ndisable-model-invocation: true\ndescription: bg\n---\nCreate worktree recipe.\n",
         "utf8",
       );
-      expect(await discoverSkills(plugin, [plugin])).toEqual([]);
-      const body = await resolveSkillBody(plugin, "git-worktrees", [plugin]);
-      expect(body).toBeDefined();
-      expect(body).toContain("Create worktree recipe.");
-      expect(defined(body, "skill body").startsWith("---")).toBe(false);
+      const emptyHome = await mkdtemp(join(tmpdir(), "skill-dmi-home-"));
+      try {
+        await withMockedHomedir(emptyHome, async () => {
+          expect(await discoverSkills(plugin, [plugin])).toEqual([]);
+          const body = await resolveSkillBody(plugin, "git-worktrees", [
+            plugin,
+          ]);
+          expect(body).toBeDefined();
+          expect(body).toContain("Create worktree recipe.");
+          expect(defined(body, "skill body").startsWith("---")).toBe(false);
+        });
+      } finally {
+        await rm(emptyHome, { recursive: true, force: true });
+      }
     } finally {
       await rm(plugin, { recursive: true, force: true });
     }
