@@ -50,6 +50,18 @@ const [route, escalate] = result.decisions;
 
 Register `createSystemOneAdapter()` under `SYSTEM_ONE_PROVIDER`. Pass questions per call with `inferenceOptions.providerOptions.systemOne = { state?, questions? }`. The adapter emits one `inference.text.delta` per decision (the token is decision JSON). A malformed body on this path is a `ProtocolMismatchError`, not a fallback.
 
+## Local Ollama shim (CL-9925)
+
+`createOllamaSystemOneEvaluator({ rootURL, model, fetchFn? })` in
+`src/tools/decide-ollama.ts` is the local-SystemOne evaluator seam the decide
+tool accepts as its `evaluate` dep. It POSTs `{ model, state, questions }` to
+`{rootURL}/v1/systemone` and maps timeout, non-2xx, refused, and invalid
+answers to `fallback: true`. Do not route this through the chat adapter or
+`/api/chat` and `/api/generate`: the local clef-flash model rejects both.
+The TYPESAFE endpoint stays the decide default; never mix backends in one
+call. Sibling note: `@corbits/ollama-adapter` (not a dependency of this repo)
+is chat-only and unrelated to this SystemOne path.
+
 ## Good uses
 
 - A permission or escalation gate before a risky tool call (from the package's own examples).
