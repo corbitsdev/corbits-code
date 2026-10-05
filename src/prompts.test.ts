@@ -31,6 +31,14 @@ test("dispatch card is spawn-first with no parallelization cap", () => {
   expect(prompt).not.toMatch(/single explorer worker/i);
 });
 
+test("dispatch card routes direct answers vs targeted investigation", () => {
+  const prompt = buildChatSystemPrompt();
+  expect(prompt).toMatch(/answer directly/i);
+  expect(prompt).toMatch(/missing evidence/i);
+  expect(prompt).toMatch(/never guess/i);
+  expect(prompt).toMatch(/targeted investigation/i);
+});
+
 const envBase: EnvironmentInfo = {
   cwd: "/tmp/proj",
   platform: "test",

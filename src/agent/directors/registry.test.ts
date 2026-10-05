@@ -226,6 +226,40 @@ describe("director registry", () => {
     expect(lanes).toMatch(/spawn explorer/i);
   });
 
+  test("dispatch card routes direct answers vs targeted explorer vs specialist", () => {
+    const card = DIRECTOR_REGISTRY.dispatch.systemPrompt;
+    // Known context: answer directly when existing context supports it.
+    expect(card).toMatch(/answer directly/i);
+    expect(card).toMatch(/existing context/i);
+    // Genuinely investigative: bounded missing evidence goes explorer/question.
+    expect(card).toMatch(/missing evidence/i);
+    expect(card).toMatch(/spawn explorer/i);
+    // Implementation stays with the owning specialist.
+    expect(card).toMatch(/spawn coder/i);
+    // Boundary examples: conflicting/stale context, explanation-plus-implementation.
+    expect(card).toMatch(/conflicting or stale/i);
+    expect(card).toMatch(/explanation plus implementation/i);
+  });
+
+  test("dispatch card forbids guessing unknown facts to avoid a spawn", () => {
+    const card = DIRECTOR_REGISTRY.dispatch.systemPrompt;
+    expect(card).toMatch(/never guess/i);
+    expect(card).toMatch(/targeted investigation/i);
+  });
+
+  test("dispatch direct-answer clarification adds no new card section", () => {
+    const card = DIRECTOR_REGISTRY.dispatch.systemPrompt;
+    const headings = [...card.matchAll(/^# .+$/gm)].map((m) => m[0]);
+    expect(headings).toEqual([
+      "# Role",
+      "# Route",
+      "# Delegation boundary",
+      "# Rules",
+      "# Spawn",
+      "# Style",
+    ]);
+  });
+
   test("every director profile declares matching agent id in system prompt", () => {
     for (const id of DIRECTOR_IDS) {
       const profile = packageToProfile(DIRECTOR_REGISTRY[id]);
