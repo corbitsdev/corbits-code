@@ -7,6 +7,7 @@
     "paths": {
       "@corbits/code-agent-artist": ["./agents/artist/src/index.ts"],
       "@corbits/code-agent-shakespeare": ["./agents/shakespeare/src/index.ts"],
+      "@corbits/agent-prober": ["./agents/prober/src/index.ts"],
       "@corbits/provider-opencode-go": ["./packages/opencode-go/src/index.ts"],
       "@corbits/first-class-providers": [
         "./packages/first-class-providers/src/index.ts"

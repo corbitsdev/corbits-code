@@ -1,12 +1,49 @@
-import type { DirectorPackage } from "../types.js";
-import { REVIEW_TOOLS } from "../tool-sets.js";
-
 /**
  * Prober worker (CL-7656).
  * Measure-only latency/behavior prober — report distributions per
  * family/model; never ship product code, never tune prompts or policy.
+ *
+ * Ships as the @corbits/agent-prober workspace package: the tool allowlist
+ * lives here so the package stays importable without the app. Drift against
+ * the app build surface fails src/agent/directors/prober/package.test.ts.
  */
-export const proberPackage: DirectorPackage = {
+export type AgentPackage = {
+  readonly id: "prober";
+  readonly primaryIntent: string;
+  readonly outOfLane: readonly string[];
+  readonly description: string;
+  readonly systemPrompt: string;
+  /** Unset — prober never attaches skill bodies at spawn. */
+  readonly attachedSkills?: readonly string[];
+  /** Unset — prober declares no skill scope. */
+  readonly optionalSkills?: readonly string[];
+  readonly tools: {
+    readonly allow: readonly string[];
+  };
+  readonly spawn: {
+    readonly maySpawn: false;
+  };
+  readonly modelRole: "test";
+  readonly tier: "leaf";
+};
+
+const PROBER_TOOLS = [
+  "read_file",
+  "grep",
+  "search_files",
+  "list_dir",
+  "lsp",
+  "run_shell",
+  "web_fetch",
+  "web_search",
+  "skill_search",
+  "use_skill",
+  "write_file",
+  "edit_file",
+  "delete_file",
+] as const;
+
+export const proberPackage: AgentPackage = {
   id: "prober",
   primaryIntent:
     "Measure latency and behavior distributions per family/model; never ship product code, never tune prompts or policy",
@@ -68,7 +105,7 @@ retunes, or orchestration.
 OUT OF LANE: shipping product code, tuning prompts or model-family
 policy (route to follow-up tickets), building a new harness, fleet
 orchestration, architecture essays without measurements.`,
-  tools: { allow: REVIEW_TOOLS },
+  tools: { allow: [...PROBER_TOOLS] },
   spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "test",
