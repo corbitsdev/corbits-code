@@ -60,6 +60,10 @@
       "name": "@corbits/code-agent-prober",
       "version": "0.1.0",
     },
+    "agents/dispatch": {
+      "name": "@corbits/agent-dispatch",
+      "version": "0.1.0",
+    },
     "packages/first-class-providers": {
       "name": "@corbits/first-class-providers",
       "version": "0.1.0",
@@ -254,6 +258,7 @@
     "@corbits/code-agent-artist": ["@corbits/code-agent-artist@workspace:agents/artist"],
     "@corbits/code-agent-shakespeare": ["@corbits/code-agent-shakespeare@workspace:agents/shakespeare"],
     "@corbits/code-agent-prober": ["@corbits/code-agent-prober@workspace:agents/prober"],
+    "@corbits/agent-dispatch": ["@corbits/agent-dispatch@workspace:agents/dispatch"],
 
     "@corbits/codex-provider": ["@corbits/codex-provider@0.1.1", "", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.2.0", "@corbits/openai-responses": "^0.2.0", "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-MiGA5djQNtRpHqLvJAGdFgHEbUl808AbveMPwt7krLjOH0i20DyElpitHPZF3ltCXkFMhcKIoyTAEpRDqeB/Rw=="],
 
