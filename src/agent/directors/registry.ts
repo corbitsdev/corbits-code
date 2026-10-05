@@ -5,7 +5,7 @@ import { director as wardenDirector } from "@corbits/code-agent-warden";
 import type { AgentProfile, CapabilityFilter } from "../profile-types.js";
 import { director as artistDirector } from "@corbits/code-agent-artist";
 import { coderPackage } from "./coder/package.js";
-import { designerPackage } from "./designer/package.js";
+import { designerPackage } from "@corbits/agent-designer";
 import { explorerPackage } from "./explorer/package.js";
 import { plannerPackage } from "./planner/package.js";
 import { qaLeadPackage } from "./qa-lead/package.js";
