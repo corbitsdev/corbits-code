@@ -89,8 +89,17 @@ export function occupancyShouldYieldWait(
   return false;
 }
 
+export function mailboxMailReportUnavailableHint(): string {
+  return "report_unavailable means the worker produced no retrievable report — treat its decision as unknown, not as success.";
+}
+
 export function buildMailboxMailPrompt<
-  T extends { agent_id: string; report_uri?: string; error_uri?: string },
+  T extends {
+    agent_id: string;
+    report_uri?: string;
+    error_uri?: string;
+    report_unavailable?: true;
+  },
 >(reports: readonly T[]): string {
   const unique = dedupeByAgentId(reports);
   const lines = [mailboxMailWakeLine()];
@@ -99,6 +108,9 @@ export function buildMailboxMailPrompt<
   }
   if (unique.some((report) => report.error_uri !== undefined)) {
     lines.push(mailboxMailErrorUriHint());
+  }
+  if (unique.some((report) => report.report_unavailable === true)) {
+    lines.push(mailboxMailReportUnavailableHint());
   }
   lines.push(JSON.stringify(unique));
   return lines.join("\n");

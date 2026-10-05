@@ -9,6 +9,11 @@ import {
   truncationNotice,
   truncateWithReservedNotice,
 } from "../plugins/result-truncation-plugin.js";
+import {
+  parseWorkerDecision,
+  toDigestDecision,
+  type DigestDecisionCheck,
+} from "./decision-digest.js";
 import { isLiveWaitStatus, type WaitJSONStatus } from "./lifecycle.js";
 import { parseSubAgentReport } from "./report.js";
 
@@ -20,6 +25,9 @@ export const MAILBOX_DIGEST_SECTION_CHARS = 2_048;
 
 /** Unstructured reports have no envelope; keep the inline teaser short. */
 export const UNSTRUCTURED_DIGEST_CHARS = 280;
+
+/** Finite total cap for one digest batch; overflow drops low-priority workers with a visible signal. */
+export const MAILBOX_DIGEST_TOTAL_CHARS = 12_000;
 
 export const FLEET_DRY_CONTINUATION_PREFIX =
   "The fleet has gone dry. Remaining open tasks:";
@@ -123,13 +131,37 @@ export interface CollectedWorkerReport {
 /** Mailbox parent payload: envelope digest plus a blob pointer, not the full report. */
 export interface MailboxWorkerDigest {
   agent_id: string;
+  /**
+   * Harness execution status (done/failed/...). Never a worker verdict:
+   * done means the worker exited, not that it passed.
+   */
   status: string;
   description?: string;
+  /**
+   * Worker-claimed outcome from the optional versioned decision block.
+   * Unknown covers legacy reports (missing) and schema-invalid blocks —
+   * prose is never inferred into a verdict.
+   */
+  decision_verdict: "pass" | "fail" | "blocked" | "unknown";
+  decision_source: "worker-v1" | "missing" | "invalid";
+  /** Highest-priority next step claimed by the worker, when present. */
+  required_action?: string;
+  /** Bounded critical findings claimed by the worker, when present. */
+  critical_findings?: string;
+  /**
+   * Worker-claimed check outcomes. Always worker-reported/unverified —
+   * no trustworthy execution evidence is wired yet.
+   */
+  checks?: readonly DigestDecisionCheck[];
   summary?: string;
   findings?: string;
   blockers?: string;
   report?: string;
   report_uri?: string;
+  /** Explicit when the worker produced no retrievable report. */
+  report_unavailable?: true;
+  /** Visible overflow signal when the total cap drops workers. */
+  overflow?: string;
   error?: string;
   error_uri?: string;
   hint?: string;
@@ -318,17 +350,33 @@ export async function digestCollectedReport(
       : clipDigestSection(
           parsed.blockers.length > 0 ? parsed.blockers : "None.",
         );
+  // Worker decision block: strict schema at the boundary, never prose inference.
+  // Harness `status` above stays the execution fact; `decision_verdict` below
+  // is only the worker's claim.
+  const decision = toDigestDecision(parseWorkerDecision(report.report));
   return {
     agent_id: report.agent_id,
     status: report.status,
     ...(report.description !== undefined && report.description.length > 0
-      ? { description: report.description }
+      ? { description: clipDigestSection(report.description) }
       : {}),
+    decision_verdict: decision.verdict,
+    decision_source: decision.source,
+    ...(decision.required_action !== undefined
+      ? { required_action: decision.required_action }
+      : {}),
+    ...(decision.critical_findings !== undefined
+      ? { critical_findings: decision.critical_findings }
+      : {}),
+    ...(decision.checks !== undefined ? { checks: decision.checks } : {}),
     ...(summary !== undefined ? { summary } : {}),
     ...(findings !== undefined ? { findings } : {}),
     ...(blockers !== undefined ? { blockers } : {}),
     ...(reportInline !== undefined ? { report: reportInline } : {}),
     ...(reportUri !== undefined ? { report_uri: reportUri } : {}),
+    ...(report.report === undefined
+      ? { report_unavailable: true as const }
+      : {}),
     ...(errorInline !== undefined ? { error: errorInline } : {}),
     ...(errorUri !== undefined ? { error_uri: errorUri } : {}),
     ...(report.hint !== undefined ? { hint: report.hint } : {}),
@@ -351,11 +399,94 @@ export async function digestCollectedReports(
   reports: readonly CollectedWorkerReport[],
   writeBlob?: FleetDryBlobWriter,
 ): Promise<MailboxWorkerDigest[]> {
-  const out: MailboxWorkerDigest[] = [];
+  const digested: MailboxWorkerDigest[] = [];
   for (const report of dedupeByAgentId(reports)) {
-    out.push(await digestCollectedReport(report, writeBlob));
+    digested.push(await digestCollectedReport(report, writeBlob));
   }
-  return out;
+  // Failures and required actions first so a bounded digest preserves what the
+  // parent must act on. Stable for equal rank (dedupe order wins).
+  const ranked = digested
+    .map((digest, index) => ({ digest, index }))
+    .sort(
+      (a, b) =>
+        digestPriority(a.digest) - digestPriority(b.digest) ||
+        a.index - b.index,
+    )
+    .map((entry) => entry.digest);
+  return boundDigestTotal(ranked);
+}
+
+/**
+ * Priority rank: harness failures first, then worker fail/blocked claims,
+ * then any claimed required action, then the rest.
+ */
+function digestPriority(digest: MailboxWorkerDigest): number {
+  if (digest.status === "failed") return 0;
+  if (digest.decision_verdict === "fail") return 1;
+  if (digest.decision_verdict === "blocked") return 2;
+  if (digest.required_action !== undefined) return 3;
+  if (digest.status === "cancelled") return 4;
+  return 5;
+}
+
+/**
+ * Finite total cap with a visible overflow signal. Drops lowest-priority
+ * digests until the batch fits; the last kept digest names the drop count.
+ */
+function boundDigestTotal(
+  digested: MailboxWorkerDigest[],
+): MailboxWorkerDigest[] {
+  if (digested.length === 0) return digested;
+  if (JSON.stringify(digested).length <= MAILBOX_DIGEST_TOTAL_CHARS) {
+    return digested;
+  }
+  const kept = [...digested];
+  let dropped = 0;
+  while (
+    kept.length > 1 &&
+    JSON.stringify(kept).length > MAILBOX_DIGEST_TOTAL_CHARS
+  ) {
+    kept.pop();
+    dropped += 1;
+  }
+  // Single survivor still over cap: shed its inline body first, keeping the
+  // decision (verdict/action/findings/checks) which is the actionable core.
+  const last = kept[kept.length - 1];
+  if (
+    last !== undefined &&
+    JSON.stringify(kept).length > MAILBOX_DIGEST_TOTAL_CHARS
+  ) {
+    const {
+      summary: _summary,
+      findings: _findings,
+      blockers: _blockers,
+      report: _report,
+      description: _description,
+      ...core
+    } = last;
+    kept[kept.length - 1] = core;
+  }
+  if (dropped > 0 && kept.length > 0) {
+    const tail = kept[kept.length - 1];
+    if (tail !== undefined) {
+      kept[kept.length - 1] = {
+        ...tail,
+        overflow: `+${dropped} more worker(s) omitted (digest total cap ${MAILBOX_DIGEST_TOTAL_CHARS.toLocaleString()} chars)`,
+      };
+    }
+  } else if (
+    kept.length > 0 &&
+    JSON.stringify(kept).length > MAILBOX_DIGEST_TOTAL_CHARS
+  ) {
+    const tail = kept[kept.length - 1];
+    if (tail !== undefined) {
+      kept[kept.length - 1] = {
+        ...tail,
+        overflow: `digest exceeds total cap ${MAILBOX_DIGEST_TOTAL_CHARS.toLocaleString()} chars; inline body shed`,
+      };
+    }
+  }
+  return kept;
 }
 
 export function collectAlreadyCollectedStubs(

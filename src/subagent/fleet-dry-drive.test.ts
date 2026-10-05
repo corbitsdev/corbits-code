@@ -531,12 +531,16 @@ describe("driveOpenTasksAfterFleetDry", () => {
       description?: string;
       summary?: string;
       report?: string;
+      decision_verdict?: string;
+      decision_source?: string;
     }[];
     expect(parsed).toEqual([
       {
         agent_id: "fresh",
         status: "done",
         description: "new lane",
+        decision_verdict: "unknown",
+        decision_source: "missing",
         summary: "fresh report",
         report: "fresh report",
       },
