@@ -486,6 +486,21 @@ There is no skill `type` field required for model invocation — a skill body is
 
 Which plugin skill directories are in scope is decided in `runner.ts` / `skillDirsFromEnabledPlugins`, which passes the enabled plugins' dirs to both `discoverSkills` (for the listing) and the `use_skill` tool (for resolution). Project-local `.agents`/`.claude`/`.codex/skills` are always searched. Slash-command registration is first-wins (built-ins, then plugins in discovery order), so a first-party `/implement` stays first-party if a marketplace plugin of the same slash name is also enabled.
 
+#### Decision CL-9805: first-party skills stay SKILL.md, not npm packages
+
+First-party skills remain Markdown capability packages (`SKILL.md`) shipped
+in the bundled data-only `corbits-skills` plugin and scoped per director via
+`attachedSkills` / `optionalSkills` (CL-9917). They do not become npm packages.
+
+Skills are prompt-time instruction text with no executable code, no build
+step, and no versioned API surface, so an npm release and versioning
+pipeline would have no consumer. Distribution and trust already ride the
+plugin system (repo-origin auto-trust, `defaultEnabled`, the
+`corbits-skills` id-collision guard). Director personas stay TypeScript
+packages under `src/agent/directors/<id>/`; skill playbooks stay Markdown.
+Revisit only if skills gain executable code or a versioned cross-repo
+consumer.
+
 ## Data Flow
 
 ```
