@@ -234,9 +234,11 @@ plugin slash commands in the picker.
 ### Web providers
 
 Manifest type, `kind`, `settings.plugins` / `web` / `pluginPaths`, web
-resolution, tool-name branding, `/plugins` UI, and add-by-path. Web is the
+resolution, provider-backed tools, tool-name branding, `/plugins` UI, and add-by-path. Web is the
 first kind-selector surface; other kinds share the same discovery and settings
-shape.
+shape. When a web plugin is selected its `WebProvider` backs `web_search`/`web_fetch`
+(injected via `createAgentToolset({ webProvider })`); with none selected the
+always-on core backends serve the tools.
 
 ### Command plugins and enable gating
 

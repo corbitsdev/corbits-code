@@ -103,6 +103,7 @@ import {
   createWebSearchTool,
   disposeWebSearchClients,
 } from "../tools/web-search.js";
+import type { WebProvider } from "../web/types.js";
 import { createApplyPatchTool } from "./apply-patch-tool.js";
 import { createUseSkillTool } from "./use-skill.js";
 import { searchSkillCatalog } from "./skill-search.js";
@@ -275,6 +276,11 @@ export interface AgentToolsetArgs {
     outerRetryDelayMs?: number;
     retryPolicy?: RetryPolicy;
   };
+  // Selected kind:"web" plugin backend. When present, web_search/web_fetch
+  // delegate to it (CL-9885); when omitted the always-on core backends serve
+  // them. TUI sessions pass the resolved active provider; every other caller
+  // omits it and keeps core behavior.
+  webProvider?: WebProvider;
   /**
    * Retained so callers that still pass the Codex family flag do not break.
    * Proxies are no longer mounted; hidden aliases dispatch onto engine tools.
@@ -673,10 +679,14 @@ export async function createAgentToolset(
         ? { extraDeniedPaths: args.secretGuardExtraDeniedPaths }
         : {}),
     }),
-    builtinExaEnabled
+    builtinExaEnabled && args.webProvider === undefined
       ? createExaMCPWebFetchTool({ connect: waitForBuiltinExaConnection })
-      : createWebFetchTool(),
-    createWebSearchTool(),
+      : createWebFetchTool(
+          args.webProvider !== undefined
+            ? { provider: args.webProvider }
+            : undefined,
+        ),
+    createWebSearchTool(args.webProvider),
     ...orchestratorTools,
     stringTool({
       definition: manageTasksDefinition,
@@ -974,11 +984,16 @@ export async function createAgentToolset(
   };
 
   const swapBuiltinExaToNative = (): void => {
+    // A selected web plugin owns web_fetch — the Exa/native swap must not
+    // clobber the plugin-backed tool.
+    if (args.webProvider !== undefined) return;
     failBuiltinExaWaiters("built-in Exa MCP was disconnected");
     mountWebFetch(createWebFetchTool());
   };
 
   const remountBuiltinExaAlias = (): void => {
+    // A selected web plugin owns web_fetch — see swapBuiltinExaToNative.
+    if (args.webProvider !== undefined) return;
     failBuiltinExaWaiters("built-in Exa MCP was disconnected");
     builtinExaConnection = new Promise<MCPConnectResult>((resolve) => {
       resolveBuiltinExaConnection = resolve;

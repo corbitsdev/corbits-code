@@ -7,6 +7,7 @@ import { checkUrlForSsrf } from "./ssrf-guard.js";
 import { htmlToMarkdown, htmlToText } from "./html-convert.js";
 import { COMMAND_NAME } from "../branding.js";
 import type { MCPClient } from "../mcp/client.js";
+import type { WebProvider } from "../web/types.js";
 import pkg from "../../package.json" with { type: "json" };
 
 export const MAX_FETCH_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -260,12 +261,27 @@ export async function runWebFetch(
   };
 }
 
-export function createWebFetchTool(options?: WebFetchTimingOptions): AgentTool {
+export function createWebFetchTool(
+  options?: WebFetchTimingOptions & { provider?: WebProvider },
+): AgentTool {
   return stringTool({
     definition: webFetchDefinition,
-    handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+    handler: async (
+      rawArgs: Record<string, unknown>,
+      signal: AbortSignal,
+    ): Promise<string> => {
       const parsed = parseWebFetchArgs(rawArgs);
       if (!parsed.ok) return parsed.error;
+      // A selected kind:"web" plugin backs the tool; the in-process native
+      // fetch below is the always-on fallback when none is selected.
+      if (options?.provider !== undefined) {
+        const provider = options.provider;
+        try {
+          return await provider.fetch(parsed.url, signal);
+        } catch (err) {
+          return `Error: web_fetch (${provider.name}) failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
       const outcome = await runWebFetch(
         parsed.url,
         parsed.format,

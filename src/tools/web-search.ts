@@ -6,6 +6,7 @@ import type { ToolDefinition } from "@intx/types/runtime";
 import { connectMCPServer, type MCPClient } from "../mcp/client.js";
 import type { MCPServerConfig } from "../config/settings.js";
 import { EXA_MCP_URL } from "../mcp/exa.js";
+import type { WebProvider, WebResult } from "../web/types.js";
 
 export { EXA_MCP_URL } from "../mcp/exa.js";
 
@@ -144,7 +145,16 @@ function toolNameFor(provider: WebSearchProviderId): string {
   return provider === "parallel" ? "web_search" : "web_search_exa";
 }
 
-export function createWebSearchTool(): AgentTool {
+// Render plugin provider results in the same plain-text shape the core MCP
+// backends return, so callers cannot tell which backend served the query.
+export function formatWebResults(results: WebResult[]): string {
+  if (results.length === 0) return "No results.";
+  return results
+    .map((r) => `- ${r.title} (${r.url})\n  ${r.snippet}`)
+    .join("\n");
+}
+
+export function createWebSearchTool(provider?: WebProvider): AgentTool {
   return stringTool({
     definition: webSearchDefinition,
     handler: async (
@@ -155,15 +165,24 @@ export function createWebSearchTool(): AgentTool {
       if (parsed instanceof type.errors) {
         return "Error: web_search requires a non-empty query.";
       }
-      const provider = resolveWebSearchProvider();
+      // A selected kind:"web" plugin backs the tool; the keyless hosted MCP
+      // backends below are the always-on fallback when none is selected.
+      if (provider !== undefined) {
+        try {
+          return formatWebResults(await provider.search(parsed.query, signal));
+        } catch (err) {
+          return `Error: web_search (${provider.name}) failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+      const backend = resolveWebSearchProvider();
       try {
-        const client = await getClient(provider);
+        const client = await getClient(backend);
         const args =
-          provider === "parallel" ? parallelArgs(parsed) : exaArgs(parsed);
-        const result = await client.call(toolNameFor(provider), args, signal);
+          backend === "parallel" ? parallelArgs(parsed) : exaArgs(parsed);
+        const result = await client.call(toolNameFor(backend), args, signal);
         return result.length > 0 ? result : "No results.";
       } catch (err) {
-        return `Error: web_search (${provider}) failed: ${err instanceof Error ? err.message : String(err)}`;
+        return `Error: web_search (${backend}) failed: ${err instanceof Error ? err.message : String(err)}`;
       }
     },
   });

@@ -371,6 +371,9 @@ export async function assembleTUISession(
     isWorkflowActive: () => workflowHostHolder.instance?.isActive() === true,
     completeWorkflowStep: (stepId) =>
       workflowHostHolder.instance?.complete(stepId) ?? "not-current",
+    // CL-9885: the resolved web plugin backs web_search/web_fetch instead of
+    // being brand-display only; omitted keeps the always-on core backends.
+    ...(activeWeb !== undefined ? { webProvider: activeWeb.provider } : {}),
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     onOperatorGate: (question, options) =>
       new Promise<OperatorResult>((resolve) => {
