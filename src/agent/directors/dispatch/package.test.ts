@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { dispatchPackage } from "@corbits/agent-dispatch";
+import { dispatchPackage as inTreeDispatchPackage } from "./package.js";
 import { DISPATCH_TOOLS } from "../tool-sets.js";
 import { DIRECTOR_REGISTRY } from "../registry.js";
 import type { DirectorPackage } from "../types.js";
@@ -31,5 +32,11 @@ describe("dispatchPackage", () => {
     ]);
     expect(dispatchPackage.tier).toBe("orchestrator");
     expect(dispatchPackage.modelRole).toBe("orchestrator");
+  });
+
+  test("workspace card matches retained in-tree card until removal", () => {
+    expect(dispatchPackage.systemPrompt).toBe(
+      inTreeDispatchPackage.systemPrompt,
+    );
   });
 });
