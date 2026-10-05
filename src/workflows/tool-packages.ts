@@ -1,8 +1,9 @@
 import { readFile, realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { ArkErrors, type } from "arktype";
 
 import { isContainedEntryPath, PackageJSON } from "@intx/types/package-json";
+import { ToolPackagePinName } from "@intx/types/tool-packages";
 
 // A workflow package declares the tool packages its steps need as npm
 // dependencies (CL-4473). Resolution reads the laid-out `node_modules/` tree,
@@ -52,6 +53,15 @@ async function resolveOne(
   declared: ReadonlySet<string>,
   name: string,
 ): Promise<WorkflowToolPackage> {
+  // A declared dep key is joined onto `node_modules/` below, so the name must
+  // satisfy npm's package-name rules first — otherwise a key like
+  // `../../evil` resolves outside the workflow package. Same rule the hub
+  // enforces on tool-package pins (`ToolPackagePinName`).
+  if (ToolPackagePinName(name) instanceof ArkErrors) {
+    throw new Error(
+      `tool package ${JSON.stringify(name)} is not a valid npm package name`,
+    );
+  }
   if (!declared.has(name)) {
     throw new Error(
       `tool package ${JSON.stringify(name)} is not a dependency of the workflow package at ${workflowDir}; declare it as an npm dep`,
@@ -89,11 +99,34 @@ async function resolveOne(
       `tool package ${JSON.stringify(name)} at ${dir} declares an "interchange.tools" entry ${JSON.stringify(entryRel)} that escapes its directory`,
     );
   }
+  // Realpath containment, mirroring the vendored workflow-definition-loader:
+  // the string check above rejects `..`/absolute paths, and this check
+  // rejects an escape through a file or directory symlink inside the package.
+  // Both sides are realpath'd so the comparison holds under a symlinked
+  // parent (e.g. macOS `/tmp` -> `/private/tmp`).
+  const entryAbs = join(dir, entryRel);
+  let realDir: string;
+  let realEntry: string;
+  try {
+    realDir = await realpath(dir);
+    realEntry = await realpath(entryAbs);
+  } catch (cause) {
+    throw new Error(
+      `tool package ${JSON.stringify(name)} at ${dir} declares an "interchange.tools" entry ${JSON.stringify(entryRel)} that could not be resolved`,
+      { cause },
+    );
+  }
+  const containmentRoot = realDir.endsWith(sep) ? realDir : realDir + sep;
+  if (realEntry !== realDir && !realEntry.startsWith(containmentRoot)) {
+    throw new Error(
+      `tool package ${JSON.stringify(name)} at ${dir} declares an "interchange.tools" entry ${JSON.stringify(entryRel)} that escapes its directory via a symlink`,
+    );
+  }
   return {
     name,
     version: parsed.version,
     dir,
-    toolsEntry: join(dir, entryRel),
+    toolsEntry: entryAbs,
   };
 }
 

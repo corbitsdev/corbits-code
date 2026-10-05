@@ -170,6 +170,56 @@ describe("resolveWorkflowToolPackages", () => {
     ).rejects.toThrow(/escapes its directory/);
   });
 
+  test("rejects an interchange.tools entry that escapes via a file symlink", async () => {
+    const workflowDir = await makeWorkflow(root, {
+      [TOOL_NAME]: "workspace:*",
+    });
+    const toolDir = await layOutTool(workflowDir, {
+      name: TOOL_NAME,
+      version: "1.2.3",
+      interchange: { tools: "./dist/tools.js" },
+    });
+    const outside = join(root, "evil.js");
+    await writeFile(outside, "export const tools = [];\n");
+    await rm(join(toolDir, "dist", "tools.js"));
+    await symlink(outside, join(toolDir, "dist", "tools.js"));
+    await expect(
+      resolveWorkflowToolPackages(workflowDir, [TOOL_NAME]),
+    ).rejects.toThrow(/escapes its directory via a symlink/);
+  });
+
+  test("rejects an interchange.tools entry that escapes via a directory symlink", async () => {
+    const workflowDir = await makeWorkflow(root, {
+      [TOOL_NAME]: "workspace:*",
+    });
+    const outsideDir = join(root, "evil-dir");
+    await mkdir(outsideDir, { recursive: true });
+    await writeFile(
+      join(outsideDir, "tools.js"),
+      "export const tools = [];\n",
+    );
+    const toolDir = join(workflowDir, "node_modules", TOOL_NAME);
+    await mkdir(toolDir, { recursive: true });
+    await writeJSON(join(toolDir, "package.json"), {
+      name: TOOL_NAME,
+      version: "1.2.3",
+      interchange: { tools: "./linked/tools.js" },
+    });
+    await symlink(outsideDir, join(toolDir, "linked"));
+    await expect(
+      resolveWorkflowToolPackages(workflowDir, [TOOL_NAME]),
+    ).rejects.toThrow(/escapes its directory via a symlink/);
+  });
+
+  test("rejects a tool package name that is not a valid npm package name", async () => {
+    const workflowDir = await makeWorkflow(root, {
+      [TOOL_NAME]: "workspace:*",
+    });
+    await expect(
+      resolveWorkflowToolPackages(workflowDir, ["../../evil"]),
+    ).rejects.toThrow(/not a valid npm package name/);
+  });
+
   test("rejects a resolved directory whose package.json names another package", async () => {
     const workflowDir = await makeWorkflow(root, {
       [TOOL_NAME]: "workspace:*",
