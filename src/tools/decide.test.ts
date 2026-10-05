@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   createDecideTool,
+  createDefaultDecideEvaluator,
   decideDefinition,
   DECIDE_DEFAULT_TIMEOUT_MS,
   isDecideEnabled,
@@ -129,6 +130,154 @@ describe("decide tool", () => {
     expect(parsed.fallback).toBe(true);
     expect(parsed.reason).toBe("no-key");
     expect(parsed.error).toContain("Fail closed");
+    expect(output).toContain("AI_GATEWAY_API_KEY");
+  });
+
+  test("fails closed when an evaluator returns an unknown choice", async () => {
+    const output = await runTool(
+      async () => ({
+        ok: true,
+        decisions: [{ id: "route", choice: "teleport", confidence: 0.9 }],
+        latencyMs: 7,
+      }),
+      validArgs(),
+    );
+    const parsed = JSON.parse(output) as {
+      fallback: boolean;
+      reason: string;
+      error: string;
+    };
+    expect(parsed.fallback).toBe(true);
+    expect(parsed.reason).toBe("parse-error");
+    expect(parsed.error).toContain("Fail closed");
+  });
+
+  test("fails closed when an evaluator returns an out-of-range score", async () => {
+    const args: Record<string, unknown> = {
+      state: { risk: "high" },
+      questions: [
+        {
+          id: "risk",
+          type: "score",
+          instructions: "Rate the risk.",
+          criteria: ["low", "medium", "high"],
+        },
+      ],
+    };
+    const output = await runTool(
+      async () => ({
+        ok: true,
+        decisions: [{ id: "risk", score: 99 }],
+        latencyMs: 7,
+      }),
+      args,
+    );
+    const parsed = JSON.parse(output) as {
+      fallback: boolean;
+      reason: string;
+      error: string;
+    };
+    expect(parsed.fallback).toBe(true);
+    expect(parsed.reason).toBe("parse-error");
+    expect(parsed.error).toContain("Fail closed");
+  });
+
+  test("fails closed when an evaluator returns an out-of-range noul", async () => {
+    const args: Record<string, unknown> = {
+      state: {},
+      questions: [{ id: "escalate", type: "noul", instructions: "Escalate?" }],
+    };
+    const output = await runTool(
+      async () => ({
+        ok: true,
+        decisions: [{ id: "escalate", noul: 2 }],
+        latencyMs: 7,
+      }),
+      args,
+    );
+    const parsed = JSON.parse(output) as {
+      fallback: boolean;
+      reason: string;
+    };
+    expect(parsed.fallback).toBe(true);
+    expect(parsed.reason).toBe("parse-error");
+  });
+
+  test("fails closed when an evaluator returns a malformed boolean", async () => {
+    const args: Record<string, unknown> = {
+      state: {},
+      questions: [
+        { id: "escalate", type: "boolean", instructions: "Escalate?" },
+      ],
+    };
+    const output = await runTool(
+      async () => ({
+        ok: true,
+        decisions: [{ id: "escalate", choice: "yes" }],
+        latencyMs: 7,
+      }),
+      args,
+    );
+    const parsed = JSON.parse(output) as {
+      fallback: boolean;
+      reason: string;
+    };
+    expect(parsed.fallback).toBe(true);
+    expect(parsed.reason).toBe("parse-error");
+  });
+
+  test("default evaluator fails closed on an unknown choice from the endpoint", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({ answers: { route: { choice: "teleport" } } }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+    try {
+      const evaluate = createDefaultDecideEvaluator({
+        env: { TYPESAFE_API_KEY: "test-key" },
+      });
+      const result = await evaluate({
+        state: {},
+        questions: [{ ...routeQuestion }],
+        timeoutMs: 1000,
+      });
+      if (result.ok) throw new Error("expected a parse-error fallback");
+      expect(result.fallback).toBe(true);
+      expect(result.reason).toBe("parse-error");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("default evaluator fails closed on an out-of-range score from the endpoint", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ answers: { risk: { score: 99 } } }), {
+        status: 200,
+      })) as unknown as typeof fetch;
+    try {
+      const evaluate = createDefaultDecideEvaluator({
+        env: { TYPESAFE_API_KEY: "test-key" },
+      });
+      const result = await evaluate({
+        state: {},
+        questions: [
+          {
+            id: "risk",
+            type: "score",
+            instructions: "Rate the risk.",
+            criteria: ["low", "medium", "high"],
+          },
+        ],
+        timeoutMs: 1000,
+      });
+      if (result.ok) throw new Error("expected a parse-error fallback");
+      expect(result.fallback).toBe(true);
+      expect(result.reason).toBe("parse-error");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test.each([

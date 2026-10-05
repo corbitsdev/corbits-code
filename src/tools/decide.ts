@@ -179,6 +179,49 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function validateDecisionAnswer(
+  question: DecideQuestionInput,
+  answer: Record<string, unknown>,
+): string | undefined {
+  if (question.type === "choice") {
+    if (!isRecord(question.criteria)) {
+      return `TypeSafe endpoint returned a choice answer for question "${question.id}" without choice criteria.`;
+    }
+    const options = Object.keys(question.criteria);
+    if (typeof answer.choice !== "string" || !options.includes(answer.choice)) {
+      return `TypeSafe endpoint returned unknown choice for question "${question.id}".`;
+    }
+    return undefined;
+  }
+  if (question.type === "score") {
+    if (!Array.isArray(question.criteria)) {
+      return `TypeSafe endpoint returned a score answer for question "${question.id}" without score criteria.`;
+    }
+    if (
+      typeof answer.score !== "number" ||
+      !Number.isInteger(answer.score) ||
+      answer.score < 0 ||
+      answer.score >= question.criteria.length
+    ) {
+      return `TypeSafe endpoint returned out-of-range score for question "${question.id}".`;
+    }
+    return undefined;
+  }
+  // boolean and noul both arrive on the wire as noul: probability 0 to 1.
+  // A boolean field is also accepted for boolean questions.
+  const noul = answer.noul;
+  if (typeof noul === "number") {
+    if (!Number.isFinite(noul) || noul < 0 || noul > 1) {
+      return `TypeSafe endpoint returned out-of-range noul for question "${question.id}".`;
+    }
+    return undefined;
+  }
+  if (question.type === "boolean" && typeof answer.boolean === "boolean") {
+    return undefined;
+  }
+  return `TypeSafe endpoint returned a malformed yes/no answer for question "${question.id}".`;
+}
+
 export function createDefaultDecideEvaluator(deps?: {
   env?: NodeJS.ProcessEnv;
   endpoint?: string;
@@ -194,7 +237,7 @@ export function createDefaultDecideEvaluator(deps?: {
         fallback: true,
         reason: "no-key",
         detail:
-          "No API key: set TYPESAFE_API_KEY (or SYSTEM_ONE_API_KEY as an alias).",
+          "No API key: set TYPESAFE_API_KEY (SYSTEM_ONE_API_KEY and AI_GATEWAY_API_KEY also work).",
         latencyMs: 0,
       };
     }
@@ -254,6 +297,16 @@ export function createDefaultDecideEvaluator(deps?: {
             fallback: true,
             reason: "parse-error",
             detail: `TypeSafe endpoint returned no answer for question "${question.id}".`,
+            latencyMs,
+          };
+        }
+        const invalid = validateDecisionAnswer(question, answer);
+        if (invalid !== undefined) {
+          return {
+            ok: false,
+            fallback: true,
+            reason: "parse-error",
+            detail: invalid,
             latencyMs,
           };
         }
@@ -372,6 +425,43 @@ export function createDecideTool(deps?: DecideToolDeps): AgentTool {
         timeoutMs,
       });
       if (!result.ok) return failClosedBody(result);
+      const byId = new Map(
+        questions.map((question) => [question.id, question]),
+      );
+      if (result.decisions.length !== questions.length) {
+        return failClosedBody({
+          ok: false,
+          fallback: true,
+          reason: "parse-error",
+          detail: `Evaluator returned ${result.decisions.length} decisions for ${questions.length} questions.`,
+          latencyMs: result.latencyMs,
+        });
+      }
+      for (const decision of result.decisions) {
+        const question = byId.get(decision.id);
+        if (question === undefined) {
+          return failClosedBody({
+            ok: false,
+            fallback: true,
+            reason: "parse-error",
+            detail: `Evaluator returned an answer for unknown question "${decision.id}".`,
+            latencyMs: result.latencyMs,
+          });
+        }
+        const invalid = validateDecisionAnswer(
+          question,
+          decision as Record<string, unknown>,
+        );
+        if (invalid !== undefined) {
+          return failClosedBody({
+            ok: false,
+            fallback: true,
+            reason: "parse-error",
+            detail: invalid,
+            latencyMs: result.latencyMs,
+          });
+        }
+      }
       return JSON.stringify({
         fallback: false,
         decisions: result.decisions,
