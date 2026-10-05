@@ -1,4 +1,5 @@
 import { director as shakespeareDirector } from "@corbits/code-agent-shakespeare";
+import { proberPackage } from "@corbits/agent-prober";
 import type { AgentProfile, CapabilityFilter } from "../profile-types.js";
 import { director as artistDirector } from "@corbits/code-agent-artist";
 import { coderPackage } from "./coder/package.js";
@@ -6,7 +7,6 @@ import { designerPackage } from "./designer/package.js";
 import { dispatchPackage } from "./dispatch/package.js";
 import { explorerPackage } from "./explorer/package.js";
 import { plannerPackage } from "./planner/package.js";
-import { proberPackage } from "./prober/package.js";
 import { qaLeadPackage } from "./qa-lead/package.js";
 import { reviewerPackage } from "./reviewer/package.js";
 import { wardenPackage } from "./warden/package.js";
