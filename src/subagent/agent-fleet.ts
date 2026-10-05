@@ -60,7 +60,11 @@ import {
   packageAllowedSkillNames,
 } from "../agent/directors/identity.js";
 import type { Settings } from "../config/settings.js";
-import { resolveInferenceWithPolicy } from "../config/settings.js";
+import {
+  applyInferenceProfile,
+  resolveInferenceProfile,
+  resolveInferenceWithPolicy,
+} from "../config/settings.js";
 import {
   resolveEffortForRole,
   validateEffort,
@@ -760,6 +764,7 @@ function resolveAgentDispatch(input: {
   profiles: AgentProfile[] | undefined;
   allowOrchestrator: boolean;
   settings: Settings | undefined;
+  parentProvider: { providerName: string; model: string } | undefined;
   applyResolvedProvider: (
     resolved: {
       provider: string;
@@ -775,8 +780,44 @@ function resolveAgentDispatch(input: {
     profiles,
     allowOrchestrator,
     settings,
+    parentProvider,
     applyResolvedProvider,
   } = input;
+  // CL-9880: named inference profiles (settings.inferenceProfiles, keyed by
+  // director id then modelRole). Omitted provider/model inherit the parent
+  // pair; `decide` is a reserved no-op and never read. Operator settings win
+  // over AgentProfile inference pins, so this runs after that handling and
+  // may overwrite its provider/effortPin.
+  const applyNamedProfile = (
+    pkg: DirectorPackage,
+    label: string,
+    currentPin: ReasoningEffort | undefined,
+  ): { effortPin?: ReasoningEffort } | { error: string } => {
+    const named = resolveInferenceProfile(settings, {
+      directorId: pkg.id,
+      modelRole: pkg.modelRole,
+    });
+    if (named === undefined) {
+      return currentPin !== undefined ? { effortPin: currentPin } : {};
+    }
+    if (parentProvider === undefined) {
+      if (named.reasoningEffort !== undefined) {
+        return { effortPin: named.reasoningEffort };
+      }
+      return currentPin !== undefined ? { effortPin: currentPin } : {};
+    }
+    const applied = applyInferenceProfile(named, {
+      provider: parentProvider.providerName,
+      model: parentProvider.model,
+    });
+    if (applied === null) {
+      return currentPin !== undefined ? { effortPin: currentPin } : {};
+    }
+    const err = applyResolvedProvider(applied, `agent "${label}" profile`);
+    if (err !== null) return { error: err };
+    const pin = applied.reasoningEffort ?? currentPin;
+    return pin !== undefined ? { effortPin: pin } : {};
+  };
   if (agentId !== undefined && agentId.length > 0) {
     if (isDirectorId(agentId)) {
       const resolved = resolveDirector({ agentId });
@@ -801,6 +842,9 @@ function resolveAgentDispatch(input: {
           effortPin = outcome.value.reasoningEffort;
         }
       }
+      const named = applyNamedProfile(pkg, agentId, effortPin);
+      if ("error" in named) return named;
+      effortPin = named.effortPin;
       const capabilities = packageToCapabilities(pkg);
       const orchestrator = pkg.spawn.maySpawn === true && allowOrchestrator;
       return {
@@ -876,6 +920,8 @@ function resolveAgentDispatch(input: {
     if (!resolved.ok)
       return { error: `Error: ${resolved.error} ${resolved.hint}` };
     const pkg = resolved.package;
+    const named = applyNamedProfile(pkg, pkg.id, undefined);
+    if ("error" in named) return named;
     const capabilities = packageToCapabilities(pkg);
     const orchestrator = pkg.spawn.maySpawn === true && allowOrchestrator;
     return {
@@ -892,6 +938,7 @@ function resolveAgentDispatch(input: {
       pkg.spawn.allowlist.length > 0
         ? { nestedSpawnAllowlist: pkg.spawn.allowlist }
         : {}),
+      ...(named.effortPin !== undefined ? { effortPin: named.effortPin } : {}),
     };
   }
 
@@ -1077,6 +1124,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         profiles,
         allowOrchestrator: deps.allowOrchestrator !== false,
         settings,
+        parentProvider: {
+          providerName: provider.providerName,
+          model: provider.model,
+        },
         applyResolvedProvider,
       });
       if ("error" in resolved) return fleetResult(call.id, resolved.error);

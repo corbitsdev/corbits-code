@@ -89,6 +89,18 @@ export interface ModelRef {
   model: string;
 }
 
+// Named inference profile (CL-9880): operator-declared per-director override.
+// Every field is optional — omitted provider/model inherit the parent
+// session's active pair, omitted reasoningEffort keeps the role-default
+// cascade. `decide` is reserved and currently a no-op (CL-9883 owns it);
+// it is accepted and carried so config round-trips, but never read.
+export interface InferenceProfile {
+  provider?: string;
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+  decide?: boolean;
+}
+
 export const DEFAULT_RECENT_MODELS_STORED = 10;
 export const DEFAULT_RECENT_MODELS_SHOWN = 5;
 
@@ -152,6 +164,12 @@ export interface Settings {
   // back to whatever the user's main session is currently using so the agent
   // still runs; "none" treats it as a hard error and the profile fails to load.
   agentModelFallback?: "active" | "none";
+  // Named inference profiles (CL-9880): per-director-id or per-modelRole
+  // override of the worker inference identity. Keyed by director id first,
+  // then modelRole (e.g. { "coder": {...}, "implement": {...} }). Omitted
+  // provider/model fields inherit the parent session's active pair; `decide`
+  // is reserved (no-op until CL-9883). Text config only — no TUI writer.
+  inferenceProfiles?: Record<string, InferenceProfile>;
   // Shell command timeouts. `timeoutMs` overrides the 120s foreground
   // run_shell default when the model omits a per-command timeout. Background
   // run_shell has no default. `maxTimeoutMs` clamps that default path only —
@@ -672,6 +690,15 @@ const ModelRefSchema = type({
   model: "string",
 });
 
+// CL-9880: named inference profiles. Non-empty provider/model strings only;
+// reasoningEffort reuses the canonical ladder; `decide` is a reserved no-op.
+const InferenceProfileSchema = type({
+  "provider?": "string",
+  "model?": "string",
+  "reasoningEffort?": type.enumerated(...REASONING_EFFORTS),
+  "decide?": "boolean",
+});
+
 const SettingsSchema = type({
   "defaultProvider?": "string",
   providers: type({ "[string]": ProviderSettingsSchema }),
@@ -701,6 +728,7 @@ const SettingsSchema = type({
   "sessionMode?": "'single' | 'orchestrator'",
 
   "agentModelFallback?": "'active' | 'none'",
+  "inferenceProfiles?": type({ "[string]": InferenceProfileSchema }),
   "shell?": type({ "timeoutMs?": "number", "maxTimeoutMs?": "number" }),
   "tools?": type({
     "timeoutMs?": "number",
@@ -924,6 +952,7 @@ export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "compactionMode",
   "sessionMode",
   "agentModelFallback",
+  "inferenceProfiles",
   "shell",
   "tools",
   "telemetry",
@@ -1087,6 +1116,9 @@ function normalizeParsedSettings(path: string, parsed: unknown): Settings {
       s.agentModelFallback === "active" || s.agentModelFallback === "none"
         ? s.agentModelFallback
         : undefined,
+    inferenceProfiles: s.inferenceProfiles as
+      | Settings["inferenceProfiles"]
+      | undefined,
     shell: s.shell as Settings["shell"] | undefined,
     tools: s.tools as Settings["tools"] | undefined,
     mcp: s.mcp as Settings["mcp"] | undefined,
@@ -1779,4 +1811,50 @@ export function resolveInferenceWithPolicy(
     };
   }
   return { kind: "fallback" };
+}
+
+// CL-9880: named inference profile lookup. Director id wins; modelRole is the
+// fallback key. Returns undefined when neither key is present. `decide` is
+// accepted on the shape but deliberately never read here (reserved no-op).
+export function resolveInferenceProfile(
+  settings: Settings | undefined,
+  input: { directorId: string; modelRole?: string },
+): InferenceProfile | undefined {
+  const table = settings?.inferenceProfiles;
+  if (table === undefined) return undefined;
+  return (
+    table[input.directorId] ??
+    (input.modelRole !== undefined ? table[input.modelRole] : undefined)
+  );
+}
+
+// CL-9880: apply a named profile onto the parent's active provider/model.
+// Omitted provider/model inherit the parent pair; omitted reasoningEffort
+// leaves the role-default cascade untouched. Returns null when the profile
+// carries no inference override, so the caller keeps the parent default.
+export function applyInferenceProfile(
+  profile: InferenceProfile | undefined,
+  parent: { provider: string; model: string },
+): ResolvedInference | null {
+  if (profile === undefined) return null;
+  const provider =
+    profile.provider !== undefined && profile.provider.length > 0
+      ? profile.provider
+      : parent.provider;
+  const model =
+    profile.model !== undefined && profile.model.length > 0
+      ? profile.model
+      : parent.model;
+  if (provider === parent.provider && model === parent.model) {
+    return profile.reasoningEffort !== undefined
+      ? { provider, model, reasoningEffort: profile.reasoningEffort }
+      : null;
+  }
+  return {
+    provider,
+    model,
+    ...(profile.reasoningEffort !== undefined
+      ? { reasoningEffort: profile.reasoningEffort }
+      : {}),
+  };
 }

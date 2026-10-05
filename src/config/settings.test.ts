@@ -433,6 +433,7 @@ test("loadSettings cannot silently drop a known optional key", async () => {
       subagentMaxTurns: 20,
       sessionMode: "orchestrator" as const,
       agentModelFallback: "none" as const,
+      inferenceProfiles: { coder: { provider: "p", model: "m" } },
       shell: { timeoutMs: 1000, maxTimeoutMs: 5000 },
       tools: { timeoutMs: 2000, waitForApproval: false },
       telemetry: { enabled: false, installationId: "id", noticeShown: true },
