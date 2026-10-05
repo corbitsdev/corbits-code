@@ -1,12 +1,49 @@
-import type { DirectorPackage } from "../types.js";
-import { BUILD_TOOLS } from "../tool-sets.js";
-
 /**
  * Designer worker: UI/UX design engineering specialist.
  * Owns DESIGN.md creation and updates, impeccable.style design laws,
  * design tokens, typography, spatial layout, and micro-interaction polish.
+ *
+ * Ships as the @corbits/agent-designer workspace package: the tool allowlist
+ * lives here so the package stays importable without the app. Drift against
+ * the app build surface fails src/agent/directors/designer/package.test.ts.
  */
-export const designerPackage: DirectorPackage = {
+export type AgentPackage = {
+  readonly id: "designer";
+  readonly primaryIntent: string;
+  readonly outOfLane: readonly string[];
+  readonly description: string;
+  readonly systemPrompt: string;
+  /** Unset — designer never attaches skill bodies at spawn. */
+  readonly attachedSkills?: readonly string[];
+  /** Unset — designer declares no skill scope. */
+  readonly optionalSkills?: readonly string[];
+  readonly tools: {
+    readonly allow: readonly string[];
+  };
+  readonly spawn: {
+    readonly maySpawn: false;
+  };
+  readonly modelRole: "implement";
+  readonly tier: "leaf";
+};
+
+const DESIGNER_TOOLS = [
+  "read_file",
+  "grep",
+  "search_files",
+  "list_dir",
+  "lsp",
+  "run_shell",
+  "web_fetch",
+  "web_search",
+  "skill_search",
+  "use_skill",
+  "write_file",
+  "edit_file",
+  "delete_file",
+] as const;
+
+export const designerPackage: AgentPackage = {
   id: "designer",
   primaryIntent:
     "Own DESIGN.md create/use, design tokens, UI styling, and impeccable.style design engineering",
@@ -18,10 +55,6 @@ export const designerPackage: DirectorPackage = {
   ],
   description:
     "UI/UX designer — owns DESIGN.md, impeccable style design laws, tokens, and interface polish",
-  tools: { allow: BUILD_TOOLS },
-  spawn: { maySpawn: false },
-  tier: "leaf",
-  modelRole: "implement",
   systemPrompt: `You are DesignerDirector (Designer), a specialist in Corbits Code.
 
 PRIMARY INTENT: own interface design, design tokens, styling, and DESIGN.md. You bring design engineering excellence to UI surfaces — layout rhythm, typography, purposeful motion, responsive states, and cohesive design systems.
@@ -45,4 +78,8 @@ Workflow:
 4. Report changes with Summary / Findings / Blockers / Paths.
 
 OUT OF LANE: backend business logic or database migrations, general backend defect review, marketing content pipelines, fleet orchestration.`,
+  tools: { allow: [...DESIGNER_TOOLS] },
+  spawn: { maySpawn: false },
+  tier: "leaf",
+  modelRole: "implement",
 };
