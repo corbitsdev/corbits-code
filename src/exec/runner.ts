@@ -20,6 +20,10 @@ import { formatMcpTrustQuestion } from "../trust/project-trust.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import type { DirectorId, DirectorPackage } from "../agent/directors/types.js";
 import { submitOutputDefinition } from "../agent/director.js";
+import {
+  isInterchangeLoopEnabled,
+  resolveInterchangeLoopRunner,
+} from "../agent/interchange-loop.js";
 import { handleChatDirectorEvent } from "../agent/chat-event-subscribers.js";
 import {
   CodexRefreshLockError,
@@ -469,6 +473,18 @@ export async function runExec(config: Config): Promise<ExecResult> {
   const sessionId =
     config.sessionId.length > 0 ? config.sessionId : generateSessionId();
   const startedAt = Date.now();
+  // CL-8267: optional Interchange loop seam. Off by default; when the
+  // operator opts in but the workflow runtime is absent, stay on the
+  // reactor path with a warning instead of failing the run.
+  if (isInterchangeLoopEnabled()) {
+    const loop = await resolveInterchangeLoopRunner();
+    if (loop.status === "unavailable") {
+      logger.warn(
+        "Interchange loop requested but {reason}; continuing on reactor path",
+        { reason: loop.reason },
+      );
+    }
+  }
   const workdir = sessionContextDir(config.cwd, sessionId);
   // Setup runs before the main try below: initSessionDir/loadState hit disk
   // before any session_end coverage exists, so an EACCES/EROFS here would
