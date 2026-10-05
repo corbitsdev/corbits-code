@@ -140,7 +140,9 @@ fully covered by vendored workflow-definition-loader.ts + shared
 isAnnotatedDirectorFactory predicate from already-vendored @intx/agent.
 No first-party consumer imports tool-packaging; stays on transitive
 published 0.3.0. Revisit if a future ticket establishes tool packages
-from closures at runtime.
+from closures at runtime. CL-4473 first slice: `src/workflows/tool-packages.ts`
+resolves a workflow package's declared tool-package npm deps from its laid-out
+`node_modules/` tree; full closure materialization stays open.
 
 The license column records what each package declares in its own
 `package.json`; the corresponding `LICENSE` file travels with every vendored
