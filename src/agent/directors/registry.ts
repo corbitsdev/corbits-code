@@ -9,7 +9,7 @@ import { explorerPackage } from "./explorer/package.js";
 import { plannerPackage } from "./planner/package.js";
 import { qaLeadPackage } from "./qa-lead/package.js";
 import { reviewerPackage } from "./reviewer/package.js";
-import { wardenPackage } from "./warden/package.js";
+import { wardenPackage } from "@corbits/agent-warden";
 import { formatDirectorSystemPrompt } from "./identity.js";
 import {
   DIRECTOR_IDS,

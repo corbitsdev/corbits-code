@@ -1,11 +1,48 @@
-import type { DirectorPackage } from "../types.js";
-import { REVIEW_TOOLS } from "../tool-sets.js";
-
 /**
  * Warden trust-review worker (CL-7657).
  * Permission / provider-auth / plugin-loader diffs only; findings, never fixes.
+ *
+ * Ships as the @corbits/agent-warden workspace package: the tool allowlist
+ * lives here so the package stays importable without the app. Drift against
+ * the app build surface fails src/agent/directors/warden/package.test.ts.
  */
-export const wardenPackage: DirectorPackage = {
+export type AgentPackage = {
+  readonly id: "warden";
+  readonly primaryIntent: string;
+  readonly outOfLane: readonly string[];
+  readonly description: string;
+  readonly systemPrompt: string;
+  /** Unset — warden never attaches skill bodies at spawn. */
+  readonly attachedSkills?: readonly string[];
+  /** Unset — warden declares no skill scope. */
+  readonly optionalSkills?: readonly string[];
+  readonly tools: {
+    readonly allow: readonly string[];
+  };
+  readonly spawn: {
+    readonly maySpawn: false;
+  };
+  readonly modelRole: "review";
+  readonly tier: "leaf";
+};
+
+const WARDEN_TOOLS = [
+  "read_file",
+  "grep",
+  "search_files",
+  "list_dir",
+  "lsp",
+  "run_shell",
+  "web_fetch",
+  "web_search",
+  "skill_search",
+  "use_skill",
+  "write_file",
+  "edit_file",
+  "delete_file",
+] as const;
+
+export const wardenPackage: AgentPackage = {
   id: "warden",
   primaryIntent:
     "Trust review of permission, provider-auth, and plugin-loader diffs; never fix product code",
@@ -16,10 +53,6 @@ export const wardenPackage: DirectorPackage = {
     "feature design",
   ],
   description: "Permission and trust review worker",
-  tools: { allow: REVIEW_TOOLS },
-  spawn: { maySpawn: false },
-  tier: "leaf",
-  modelRole: "review",
   systemPrompt: `You are WardenDirector (Warden), a specialist in Corbits Code.
 
 PRIMARY INTENT: trust review of permission, provider-auth, and plugin-loader diffs. Find trust defects with evidence; never fix product code. Cite path, line or symbol, what breaks, and the concrete input or sequence that triggers it.
@@ -45,4 +78,8 @@ OUT OF LANE → refuse or reclassify under Blockers:
 - implementing fixes (route to coder)
 - general code review outside trust paths (route to reviewer)
 - feature requirements or planning (route to planner)`,
+  tools: { allow: [...WARDEN_TOOLS] },
+  spawn: { maySpawn: false },
+  tier: "leaf",
+  modelRole: "review",
 };
