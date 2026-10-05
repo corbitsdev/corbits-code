@@ -69,9 +69,11 @@ export interface CorePosixToolPluginsArgs {
   // CL-9888 in-process intercept hooks (beforeModel/afterTool stages;
   // beforePrompt is a prompt-assembly pure function, not middleware).
   // Composed immediately after secret-guard/permission: a denied call
-  // short-circuits at the gate above this layer and never reaches a hook,
-  // so plugins can narrow or annotate allowed calls but never revive a
-  // denied one. Hook-mutated calls still pass the downstream guards below.
+  // short-circuits at the gate above this layer and never reaches a hook.
+  // The stack gate is forwarded into the hook middleware so a hook-replaced
+  // call is re-run through secret-guard + permission before it executes —
+  // mutated still gated. Hook-mutated calls also still pass the downstream
+  // guards below.
   interceptHooks?: InterceptHookRegistration | InterceptHookRegistry;
   // Warning sink for hook failures (hooks never throw into the run).
   // Defaults to stderr; interactive callers pass a diagnostics-backed sink.
@@ -166,12 +168,15 @@ export function buildCorePosixToolPlugins(
     ...(interceptHooks !== undefined &&
     hasInterceptHooks(normalizeInterceptHooks(interceptHooks))
       ? [
-          interceptHookPlugin(
-            interceptHooks,
-            onInterceptHookWarning !== undefined
+          interceptHookPlugin(interceptHooks, {
+            ...(onInterceptHookWarning !== undefined
               ? { onWarning: onInterceptHookWarning }
-              : undefined,
-          ),
+              : {}),
+            permissionGate,
+            ...(secretGuardExtraDeniedPaths !== undefined
+              ? { secretGuardExtraDeniedPaths }
+              : {}),
+          }),
         ]
       : []),
     shellGuardPlugin(cwd, shellTimeout, shellEnv, {

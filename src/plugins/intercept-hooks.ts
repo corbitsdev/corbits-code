@@ -1,6 +1,9 @@
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import type { ToolPlugin } from "@intx/tools-posix";
+import type { PermissionGate } from "../permission/gate.js";
 import { scrubSecrets } from "../web/secret-scrub.js";
+import { gateToolCall } from "./permission-plugin.js";
+import { secretGuardPlugin } from "./secret-guard-plugin.js";
 import {
   resolvePluginWarningHandler,
   stderrPluginWarning,
@@ -15,12 +18,14 @@ import type { PluginModule } from "./loader.js";
 // beforePrompt rewrites prompt text, beforeModel observes/rewrites a tool
 // call (or skips it), afterTool observes/rewrites the tool result.
 //
-// Ordering is the safety property, not re-gating: the composed middleware
+// Ordering plus re-gating is the safety property: the composed middleware
 // sits after secret-guard/permission in buildCorePosixToolPlugins, so a
-// denied call short-circuits at the gate and never reaches a hook. A hook
-// can only narrow (skip) or annotate an allowed call — never revive a
-// denied one. Hook-mutated calls still flow through the downstream guards
-// (shell-guard, read-file-guard, …), which re-validate the final shape.
+// denied call short-circuits at the gate and never reaches a hook. A hook can
+// still rewrite an allowed call into a denied shape, so a hook-replaced call
+// is re-run through secret-guard and the permission gate before it executes —
+// mutated still gated, denied never reach hooks. Hook-mutated calls also still
+// flow through the downstream guards (shell-guard, read-file-guard, …), which
+// re-validate the final shape.
 
 export type InterceptHookKind = "beforePrompt" | "beforeModel" | "afterTool";
 
@@ -182,28 +187,34 @@ export async function applyBeforePromptHooks(
 
 // Run beforeModel hooks in order over the call. The first `{ skip }` wins and
 // stops the remaining pre-hooks; the skip result still flows through
-// afterTool so results stay observable in one place.
+// afterTool so results stay observable in one place. `mutated` is true when
+// any hook replaced the call — the middleware re-gates exactly then, so an
+// untouched call is never evaluated (or re-prompted) twice.
 export async function applyBeforeModelHooks(
   hooks: readonly BeforeModelHook[],
   call: ToolCall,
   signal: AbortSignal,
   opts: InterceptHookWarningOptions = {},
-): Promise<{ call: ToolCall; skip?: ToolResult }> {
+): Promise<{ call: ToolCall; skip?: ToolResult; mutated: boolean }> {
   const onWarning = resolveInterceptWarning(opts);
   let current = call;
+  let mutated = false;
   for (let i = 0; i < hooks.length; i++) {
     const hook = hooks[i];
     if (hook === undefined) continue;
     try {
       const outcome = await hook({ call: current }, signal);
-      if (outcome?.call !== undefined) current = outcome.call;
+      if (outcome?.call !== undefined) {
+        current = outcome.call;
+        mutated = true;
+      }
       if (outcome?.skip !== undefined)
-        return { call: current, skip: outcome.skip };
+        return { call: current, skip: outcome.skip, mutated };
     } catch (err) {
       onWarning(hookFailureText("beforeModel", i, err));
     }
   }
-  return { call: current };
+  return { call: current, mutated };
 }
 
 // Run afterTool hooks in order over the result. A throwing hook is reported
@@ -230,12 +241,59 @@ export async function applyAfterToolHooks(
   return current;
 }
 
+export interface InterceptHookPluginOptions extends InterceptHookWarningOptions {
+  /**
+   * Re-gate hook-mutated calls. A beforeModel hook can rewrite an allowed
+   * call into a secret-guard/permission-denied shape, so a hook-replaced call
+   * is re-run through secret-guard plus this gate before it executes.
+   * buildCorePosixToolPlugins always wires the stack gate here; bare stacks
+   * pass their gate for the same guarantee. Secret-guard revalidation runs on
+   * every mutated call even without a gate.
+   */
+  permissionGate?: PermissionGate;
+  secretGuardExtraDeniedPaths?: readonly string[];
+}
+
+// Unique pass-through sentinel: the probes below invoke `next` only on allow,
+// so identity against this object tells allow from deny without
+// reimplementing either denial shape.
+const REGATE_PASS: ToolResult = { callId: "", content: "" };
+
+// Re-run a hook-replaced call through the same two checks the original passed
+// upstream. Returns the denial when the mutated shape is denied, undefined
+// when it stays allowed.
+async function revalidateMutatedCall(
+  mutated: ToolCall,
+  signal: AbortSignal,
+  opts: InterceptHookPluginOptions,
+): Promise<ToolResult | undefined> {
+  const pass = async (): Promise<ToolResult> => REGATE_PASS;
+  const secretGuard = secretGuardPlugin(
+    opts.secretGuardExtraDeniedPaths !== undefined
+      ? { extraDeniedPaths: opts.secretGuardExtraDeniedPaths }
+      : undefined,
+  );
+  const secretHandler = secretGuard.middleware?.(pass) ?? pass;
+  const secretVerdict = await secretHandler(mutated, signal);
+  if (secretVerdict !== REGATE_PASS) return secretVerdict;
+  if (opts.permissionGate !== undefined) {
+    const gateVerdict = await gateToolCall(
+      opts.permissionGate,
+      mutated,
+      signal,
+      pass,
+    );
+    if (gateVerdict !== REGATE_PASS) return gateVerdict;
+  }
+  return undefined;
+}
+
 // Tool middleware for the posix chain. Compose AFTER secret-guard/permission
 // (see buildCorePosixToolPlugins): denials short-circuit at the gate above
 // this layer, so hooks only ever see allowed calls.
 export function interceptHookPlugin(
   input: InterceptHookRegistration | InterceptHookRegistry,
-  opts: InterceptHookWarningOptions = {},
+  opts: InterceptHookPluginOptions = {},
 ): ToolPlugin {
   const registry = normalizeInterceptHooks(input);
   return {
@@ -248,7 +306,22 @@ export function interceptHookPlugin(
           signal,
           opts,
         );
-        const raw = pre.skip ?? (await next(pre.call, signal));
+        if (pre.skip !== undefined) {
+          return applyAfterToolHooks(
+            registry.afterTool,
+            pre.call,
+            pre.skip,
+            signal,
+            opts,
+          );
+        }
+        if (pre.mutated) {
+          // Like an upstream gate denial, a mutated-to-denied call never
+          // executes and never reaches afterTool annotation.
+          const denial = await revalidateMutatedCall(pre.call, signal, opts);
+          if (denial !== undefined) return denial;
+        }
+        const raw = await next(pre.call, signal);
         return applyAfterToolHooks(
           registry.afterTool,
           pre.call,
