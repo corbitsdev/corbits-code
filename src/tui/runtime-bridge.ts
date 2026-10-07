@@ -2,8 +2,8 @@
  * Wave 4 runtime bridge — thin port between OpenTUI shell and session events.
  *
  * Inbound: fixture or reactor-like events → stream rows + run state + queue drain.
- * Outbound: queue / steer / interrupt / immediate send hit SessionPort (tests record;
- * later waves can bind real agent APIs). Not the production CLI entry.
+ * Outbound: queue / steer / interrupt / immediate send hit SessionPort (tests record).
+ * Not the production CLI entry.
  */
 
 import { canonicalToolName, isSameTool } from "../agent/canonical-tool-name.js";
@@ -114,9 +114,9 @@ const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
 
 /**
  * Tool name the task checklist is written through. Its calls paint no
- * transcript row: the list they write is live state owned by the task panel,
- * and a row per call renders the same work twice on one screen — once as a
- * panel that updates in place, and again as scrollback that never does.
+ * transcript row: the task panel owns that state live, and a row per call
+ * would render the same work twice — once updating in place, once dead in
+ * scrollback.
  */
 const MANAGE_TASKS_TOOL_NAME = "manage_tasks";
 
@@ -195,11 +195,10 @@ const DEFAULT_TICK_MS = 250;
 /**
  * Poll period while something on this clock is animating.
  *
- * The status slot's pulse steps through its glyphs in `RAMP_CYCLE_MS` (1200 ms)
- * and the landing mark runs a 4.6 s timeline; at 250 ms that is 5 and 19
- * samples respectively, so the pulse skips steps and the mark strobes. ~12 fps
- * is the coarsest cadence at which both read as motion, and it costs nothing
- * when idle because the monitor stops entirely then.
+ * At the 250 ms idle cadence the status pulse (1200 ms cycle) and landing
+ * mark (4.6 s timeline) get only 5 and 19 samples — the pulse skips steps
+ * and the mark strobes. ~12 fps is the coarsest cadence at which both read
+ * as motion, and it costs nothing when idle because the monitor stops.
  */
 const ANIMATION_TICK_MS = 80;
 
@@ -232,8 +231,8 @@ export interface SessionBridge {
   clearQueuedDelivery: () => void;
   /**
    * True only while draining steers at a live parent tool.boundary (or
-   * inference.done with tools still outstanding). Last-hop routing reads this
-   * when the deliver op runs: leftover / fleet-hold / post-interrupt drains
+   * inference.done with tools still outstanding). Last-hop routing reads
+   * this when deliver runs: leftover / fleet-hold / post-interrupt drains
    * are false and must send().
    */
   readonly parentCycleLive: boolean;
@@ -260,11 +259,10 @@ export interface SessionBridge {
   readonly turn: TurnState;
   readonly shell: AppShell;
   /**
-   * Refresh outstanding `spawn_agent` rows with each worker's live progress for
-   * the worker lifetime — not only while the spawn_agent tool call is in
-   * flight. The immediate `{status:running}` result must not drop tracking.
-   * The caller supplies the sessions (from `SubAgentSessionStore.listForStrip()`
-   * or similar) on whatever cadence it already polls at.
+   * Refresh outstanding `spawn_agent` rows with each worker's live progress
+   * for the worker lifetime, not only while the tool call is in flight: the
+   * immediate `{status:running}` result must not drop tracking. The caller
+   * supplies sessions on whatever cadence it already polls at.
    */
   syncAgentProgress: (sessions: readonly TaskProgressSession[]) => void;
   /**
@@ -330,21 +328,13 @@ export interface SessionBridge {
    */
   flushMailboxMail: () => void;
   /**
-   * Stall bound for a silent ask-wake primary turn. If a wake was actually
-   * sent (`askWakeTurnArmed`) and `shouldAbortForStall` says the turn is
-   * silent past the bound, interrupt the hung inference, un-dedupe the
-   * delivered wakes, and hand the next turn to occupancy (mailbox mail)
-   * before any re-surface. Returns true when it aborted.
+   * Stall bound for a silent ask-wake primary turn; contract in
+   * `abortStalledWakeTurn` below. Returns true when it aborted.
    */
   abortStalledWakeTurn: () => boolean;
   /**
-   * Ask-deadline bound for a silent ask-wake primary turn. The poll must
-   * have expired asks this tick (`expiredThisTick`); then, if a wake was
-   * actually sent (`askWakeTurnArmed`) but the deadline already settled
-   * every pending ask, the turn has nothing left to surface — interrupt it
-   * even when the stall bound has not tripped. send_input emptying pending
-   * is not an expire: the parent may still be inferring. Same
-   * occupancy-first handoff as the stall abort. Returns true when it aborted.
+   * Ask-deadline bound for a silent ask-wake primary turn; contract in
+   * `abortExpiredWakeTurn` below. Returns true when it aborted.
    */
   abortExpiredWakeTurn: (expiredThisTick: boolean) => boolean;
   /**
@@ -548,11 +538,11 @@ export interface BridgeBag {
    */
   askWakeTurnArmed: boolean;
   /**
-   * Per-session abort count feeding the re-surface escalation: each stall
-   * abort bumps the delivered questions, and the next flush restates them
-   * with `Re-surface N` so a repeat wake reads as proof the earlier turn
-   * never landed. Pruned alongside `deliveredAskWake` when the question
-   * changes or settles.
+   * Per-session abort count for the re-surface escalation: each stall abort
+   * bumps the delivered questions and the next flush restates them with
+   * `Re-surface N`, so a repeat wake reads as proof the earlier turn never
+   * landed. Pruned alongside `deliveredAskWake` when the question changes
+   * or settles.
    */
   askWakeResurface: Map<string, number>;
   /** Phase-transition stamps, newest last, capped. See `TurnMarker`. */
@@ -574,10 +564,11 @@ export interface BridgeBag {
    */
   flushOccupancyThenWake: (() => void) | null;
   /**
-   * One occupancy shot per dry episode. Reset when a live lane starts. Consumed
-   * only when the driver actually sends a continuation — a no-op (no open
-   * tasks) must not eat the shot, or a later missed 1→0 with leftover tasks
-   * never drives. A later settle after a true drive cannot loop.
+   * One occupancy shot per dry episode; reset when a live lane starts.
+   * Consumed only when the driver actually sends a continuation — a no-op
+   * (no open tasks) must not eat the shot, or a later missed 1→0 with
+   * leftover tasks never drives. A later settle after a true drive cannot
+   * loop.
    */
   droveOpenTasksThisDry: boolean;
   /**
@@ -615,11 +606,10 @@ export interface BridgeBag {
   /**
    * In-flight ordinary calls waiting on a decision gate. `gateClosed` re-syncs
    * their elapsed clocks to the settle so post-grant stats read
-   * time-since-grant, not time-since-announcement. Auto-allowed siblings that
-   * already carry a live elapsed clock are executing, not waiting, and stay
-   * out of the set. `spawn_agent` ids are never rebased — the session clock
-   * owns those rows. Results and rollbacks drop their ids so the set cannot
-   * leak.
+   * time-since-grant, not time-since-announcement. Auto-allowed siblings
+   * already carrying a live clock are executing, not waiting, and stay out.
+   * `spawn_agent` ids are never rebased — the session clock owns those rows.
+   * Results and rollbacks drop their ids so the set cannot leak.
    */
   gatedToolCalls: Set<string>;
   /** Calls the reactor reported with `tool.start`, until their `tool.done`. */
@@ -783,11 +773,10 @@ function settleDrainedDelivery(
 
 /**
  * One queued item's delivery hop. The pending column carried the item until
- * now; delivery is what earns the transcript row, painted as an ordinary
- * operator message. The queueItemId lets the settle path mark this exact row
+ * now; delivery earns the transcript row, painted as an ordinary operator
+ * message. The queueItemId lets the settle path mark this exact row
  * not-delivered/uncertain and lets rollback keep a delivered row; the echo
- * ledger keeps the inbound `message.received` from painting a second row
- * when the runtime echoes the send back.
+ * ledger stops the inbound `message.received` from painting a second row.
  */
 function deliverQueuedItem(
   shell: AppShell,
@@ -1224,13 +1213,11 @@ function syncShellOutputs(
 }
 
 /**
- * Refresh every plain in-flight tool call's row with how long it has been
- * running, frame-coalesced. `spawn_agent` dispatches already get this (and
- * more) from `syncAgentProgress`, so they are skipped here. While a decision
- * gate is outstanding but not on screen — queued behind another overlay — the
- * tool waits on an operator who cannot see it yet, so its elapsed stays frozen
- * and the row reads as paused instead of running. Once the gate is shown the
- * clock runs again: the operator can see what blocks the tool.
+ * Refresh every plain in-flight tool call's row with its elapsed time,
+ * frame-coalesced. `spawn_agent` dispatches already get this (and more) from
+ * `syncAgentProgress`, so they are skipped here. A decision gate queued
+ * behind another overlay freezes the clock — the tool waits on an operator
+ * who cannot see it — and the clock resumes once the gate is on screen.
  */
 function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
   if (bag.toolCallStartedAt.size === 0) return;
@@ -1260,16 +1247,15 @@ function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
 
 /**
  * Re-sync every gate-waited call's elapsed clock to the settle: execution
- * starts at the grant, not at the announcement that preceded the approval
- * wait. Later ticks read time-since-grant through the same syncToolElapsed
- * path an ungated row uses. Fires on every settled gate — allow and deny
- * alike, the only settle signal the gate wiring reports (see gate-wire
- * `onceClosed`) — so deny needs no special case: the result merge already
- * drops the clock-owned stat for the answer's own addendum. Nested gates
- * rebase uniformly at each settle rather than per gate/call pair: the bridge
- * sees gate lifecycles but not which grant covers which call. `shell`
- * keeps its announcement-stamped `inFlightTool.startedAt` on purpose: the
- * only reader (`resolveWaitingOn`) uses it as a steer-wait threshold, not an
+ * starts at the grant, not at the announcement before the approval wait;
+ * later ticks read time-since-grant like any ungated row. Fires on every
+ * settled gate (allow and deny alike — the only settle signal the gate
+ * wiring reports, see gate-wire `onceClosed`), so deny needs no special
+ * case: the result merge already drops the clock-owned stat. Nested gates
+ * rebase uniformly at each settle rather than per gate/call pair, since the
+ * bridge sees gate lifecycles but not which grant covers which call.
+ * `shell` keeps its announcement-stamped `inFlightTool.startedAt`: the only
+ * reader (`resolveWaitingOn`) uses it as a steer-wait threshold, not an
  * execution clock, and a steer queued mid-gate has still been waiting.
  */
 function rebaseGatedElapsed(
@@ -1312,10 +1298,10 @@ function hasPaintedElapsedClock(
  * User rows the shell paints ahead of the runtime's own inbound copy: a
  * reinject, which lands before the restarted run reports it, and a row the
  * bridge delivered at a tool boundary (it carries its queueItemId). A
- * delivered row stays — the delivery already happened, so retracting it
- * would show a transcript the runtime never saw returned. Queued/steered
- * items stay off the log while pending (the column above the prompt carries
- * them), so there is nothing of theirs to preserve here.
+ * delivered row stays — retracting it would show a transcript the runtime
+ * never saw returned. Queued/steered items stay off the log while pending
+ * (the column above the prompt carries them), so nothing of theirs needs
+ * preserving here.
  */
 function isLocallyQueuedUserRow(row: StreamRow): boolean {
   return (
@@ -1419,10 +1405,10 @@ function releaseRunToIdle(shell: AppShell, bag: BridgeBag): void {
 /**
  * Release the run to idle and drain everything queued — but only at true
  * session-idle. A live fleet holds the run busy after the parent turn settles
- * (idle-with-fleet): Enter upgrades to a new primary turn during the hold and
- * follow-ups keep waiting; the fleet event landing at zero re-enters here to
- * release the hold. A dry fleet takes one occupancy shot here per dry episode
- * instead of idling, even if the live 1→0 edge was never observed.
+ * (idle-with-fleet): Enter upgrades to a new primary turn during the hold
+ * and follow-ups keep waiting; the fleet event landing at zero re-enters
+ * here to release the hold. A dry fleet takes one occupancy shot here per
+ * dry episode instead of idling, even if the live 1→0 edge was never seen.
  */
 /** Row text for a parked call answered without running. Names no cause. */
 export const PARKED_CALL_NOT_RUN = "not run: no approval was granted";
@@ -1721,12 +1707,12 @@ export function attachSessionBridge(
    * How long the turn has been stalled, measured from the moment silence
    * crossed the notice threshold, or null when it is not stalled.
    *
-   * Derived from `lastActivityAt` rather than stamped when the stall is first
-   * seen, which gets two cases right for free: a session resumed with already
-   * stale activity reports a stall older than the blink burst and so paints the
-   * settled glyph immediately instead of alarming about an event the operator
-   * was not present for, and a stall that breaks and re-arms is measured from
-   * the new silence, so a second stall in a long session bursts again.
+   * Derived from `lastActivityAt`, not stamped when the stall is first seen:
+   * a resumed session with already-stale activity reports a stall older than
+   * the blink burst and paints the settled glyph immediately instead of
+   * alarming about an event the operator was not present for, and a stall
+   * that breaks and re-arms is measured from the new silence so a second
+   * stall bursts again.
    */
   const stalledForMs = (nowMs: number, isStalled: boolean): number | null =>
     isStalled ? nowMs - bag.turn.lastActivityAt - stallNoticeMs : null;
@@ -2316,12 +2302,10 @@ export function attachSessionBridge(
     // before the silence clock rather than folded into it.
     //
     // Gated on `status === "running"` because every turn-ending transition
-    // (interrupt, connector.reply with no tools outstanding, reactor.done /
-    // reactor.error) routes through `initialTurnState`, which clears
-    // `repeating`. If a future settle path changes `isProcessing` without
-    // also resetting `status` and `repeating` through that same reset, this
-    // guard would no longer mean "the turn is actually live" and could fire
-    // on an already-settled turn — recheck this alongside any such change.
+    // routes through `initialTurnState`, which clears `repeating`. If a
+    // future settle path changes `isProcessing` without resetting `status`
+    // and `repeating` the same way, this guard could fire on an
+    // already-settled turn — recheck alongside any such change.
     if (bag.turn.status === "running" && bag.turn.repeating) {
       const repeatedTokens =
         bag.turn.streamTokenCount - (bag.turn.repeatingSinceTokenCount ?? 0);
