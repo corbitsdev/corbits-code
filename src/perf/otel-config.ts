@@ -1,8 +1,8 @@
 /**
- * Settings/env surface for opt-in OTEL export (CL-5175).
+ * Settings/env surface for opt-in OTEL export.
  *
  * Local PerfTrace stays always-on and independent. This module only resolves
- * whether an OTLP exporter may be enabled later (CL-5173) — no SDK, no network.
+ * whether an OTLP exporter may be enabled later — no SDK, no network.
  *
  * Fail closed: any invalid endpoint/headers/attrs yields a stable error; never
  * half-enable export. Secrets (headers) must never enter privacy-strict dumps.
@@ -380,7 +380,6 @@ const SENSITIVE_ATTR_KEY = /secret|token|key|password|auth/i;
 
 /**
  * Redact high-risk resource attribute values for dump/log views.
- * Keys matching /secret|token|key|password|auth/i get a fixed placeholder.
  * Does not mutate the live export config.
  */
 export function redactResourceAttributesForDump(
@@ -396,8 +395,6 @@ export function redactResourceAttributesForDump(
 /**
  * Strip secrets for local dumps and logs.
  * Never pass EnabledOtelExportConfig.headers into dump writers — use this.
- * Resource attribute values for high-risk keys are redacted; prefer non-secret
- * labels in resourceAttributes (auth belongs in headers/env).
  */
 export function otelConfigForDump(
   config: OtelExportConfig,

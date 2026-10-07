@@ -7,16 +7,14 @@
  *       inference.ttft   (start → first content-bearing delta)
  *       inference.stream (first delta → inference.done)
  *     tool (per invocation)
- *     permission.wait   (operator ask; diagnostic nested category — wall time
- *                        overlaps tool; exclusive attribution already excludes
- *                        nested categories, so double-count is intentional)
+ *     permission.wait   (operator ask; nested diagnostic — wall overlaps tool)
  *     subagent          (task fleet child wall)
  *
  * Single-primary assumption: the session run-sink owns one
  * `createPerfReactorObserver`. Process-wide `currentTurnId()` is published only
  * by that primary so permission.wait / subagent can nest outside the observer.
  * Do not create concurrent observers that also call ensureTurn — they would
- * overwrite the slot. Tests call `clear()` (and observer `reset()`) between cases.
+ * overwrite the slot.
  */
 
 import type { ReactorEmittedEvent } from "@intx/inference";

@@ -1,11 +1,10 @@
 /**
- * Opt-in OTLP/HTTP JSON export for PerfTrace (CL-5173).
+ * Opt-in OTLP/HTTP JSON export for PerfTrace.
  *
  * Maps the in-process PerfSpan tree to OTEL spans and POSTs to the operator's
  * collector. Disabled config paths do no network. Network/config failures are
- * logged and swallowed — never thrown to callers.
- *
- * No @opentelemetry/sdk dependency: hand-rolled OTLP HTTP JSON only.
+ * logged and swallowed — never thrown to callers. Hand-rolled OTLP HTTP JSON;
+ * no @opentelemetry/sdk dependency.
  */
 
 import { createHash, randomBytes } from "node:crypto";

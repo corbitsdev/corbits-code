@@ -1,19 +1,10 @@
 /**
  * Latency eval harness: assert helpers over PerfTrace snapshots and rollups.
  *
- * This layer owns:
- * - assert API behavior (pass paths + negative branches)
- * - golden multi-tool fixture equality (locked TurnSummary)
- * - one end-to-end smoke: reactor observer → snapshot → rollup → asserts
- *
- * Rollup arithmetic (phase totals, sessionTotals, percentiles) lives in
+ * This layer owns assert API behavior (pass paths + negative branches), golden
+ * multi-tool fixture equality (locked TurnSummary), and one end-to-end smoke
+ * (reactor observer → snapshot → rollup → asserts). Rollup arithmetic lives in
  * rollup.test.ts — do not re-test pure rollup math here.
- *
- * Covers CL-5174 outcomes:
- * - phase presence + nesting helpers
- * - regression: turn has inference + tools when tools ran
- * - golden multi-tool fixture rollup
- * - full observer pipeline → snapshot → rollup → assertions
  */
 
 import { defined } from "../../testkit/defined.js";

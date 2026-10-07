@@ -3,11 +3,9 @@
  *
  * Fixed-size ring buffer, monotonic high-res clocks, privacy-sanitized tags.
  * No network, no PostHog, no export side effects.
- *
- * Memory policy (fixed, not settings):
- * - RING_CAPACITY completed spans (oldest completed dropped on overflow)
- * - OPEN_SPAN_CAPACITY concurrent open spans (oldest open dropped on overflow)
- * - snapshot() returns shallow copies so consumers cannot poison internal state
+ * Memory policy is fixed: completed spans cap at RING_CAPACITY (oldest
+ * dropped on overflow), open spans at OPEN_SPAN_CAPACITY; snapshot() returns
+ * shallow copies so consumers cannot poison internal state.
  */
 
 import { isOpaqueId, sanitizeTags, type PerfTags } from "./sanitize.js";
@@ -31,11 +29,10 @@ import {
 /**
  * Snapshot the process-wide ring and POST to the operator OTLP collector when
  * export is enabled. Zero network when disabled. Never throws.
- * Cadence: call on session/process exit (wired from main).
+ * Call on session/process exit (wired from main).
  *
- * Single passthrough: the span source is explicit `spans` first, then a
- * caller-supplied `getSpans`, then the process-wide snapshot — the same
- * priority the three-branch version enforced.
+ * Span source: explicit `spans` first, then caller-supplied `getSpans`, then
+ * the process-wide snapshot.
  */
 export async function flushPerfToOtel(
   settings?: Settings | null,

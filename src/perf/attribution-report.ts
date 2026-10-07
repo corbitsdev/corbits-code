@@ -3,7 +3,6 @@
  *
  * Pure functions: no I/O, no module state, no OTEL. Categories partition turn
  * wall time into exclusive buckets so shares sum to ~1 (remainder → other).
- *
  * Exclusive buckets do not double-count nested exclusive children (e.g. tools
  * under a subagent count only toward `subagent`, not also toward `tools`).
  *
@@ -356,20 +355,11 @@ function countTopExclusiveUnder(
 
 /**
  * Attribute a PerfSpan snapshot into exclusive phase shares per turn and session.
- *
- * Exclusive categories (do not nest-double-count):
- *   inference | tools | permission.wait | subagent | other
- *
- * Nested exclusive children under an exclusive parent (e.g. inference/tool under
- * subagent) contribute only to the parent exclusive bucket.
- *
- * Nested diagnostics (not exclusive):
- *   inference.ttft / inference.stream shares of (ttft + stream)
- *   adapter.transport share of inference (transport prioritization signal)
- *
- * Open turns: wall estimated from max completed-descendant end so mid-stall
- * dumps still produce usable share percentages; openPhases lists still-running
- * phases so the report is not read as a complete hang diagnosis.
+ * Exclusive categories (inference | tools | permission.wait | subagent | other)
+ * never nest-double-count: children under an exclusive parent (e.g. inference/tool
+ * under subagent) contribute only to the parent bucket. Nested diagnostics
+ * (ttft/stream, transport) roll up separately. Open turns: wall estimated from
+ * max completed-descendant end; openPhases lists still-running phases.
  */
 export function attributionFromSpans(
   spans: readonly PerfSpan[],
