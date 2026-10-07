@@ -11,11 +11,9 @@ export interface CallbackPageCopy {
  * product runs (MCP servers and inference providers alike).
  *
  * It is the only web surface the product has and the last thing an operator
- * sees before returning to the terminal, so it carries the brand rather than a
- * browser's default serif on white: the mark animates through the same
- * dithered draw/fill timeline as the boot screen and the TUI landing
- * (`tui/mark-anim.ts`), which is the canvas original the terminal
- * approximates rather than a second interpretation of it.
+ * sees before returning to the terminal, so it carries the brand: the mark
+ * animates through the same dithered draw/fill timeline as the boot screen
+ * and the TUI landing (`tui/mark-anim.ts`).
  *
  * Everything is inline. The loopback server has no asset route, and a page
  * that reached out to a CDN would be a network call made by a local

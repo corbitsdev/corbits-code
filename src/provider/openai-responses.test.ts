@@ -15,10 +15,10 @@ import { OPENCODE_SESSION_ID_OPTION } from "./opencode-session.js";
 import { createAdvertisedToolset } from "../session/assemble-runtime.js";
 
 describe("OpenCode Go Responses quirks", () => {
-  // Muse Spark batches independent tool calls into one turn by default — three
-  // reads in a single response. Sending parallel_tool_calls: false collapses
-  // that to one call per turn and triples the turn count on a bounded task.
-  // Leaving the quirk unset is what keeps the gateway default. See CL-7869.
+  // Muse Spark batches independent tool calls into one turn by default —
+  // three reads in a single response. Sending parallel_tool_calls: false
+  // collapses that to one call per turn and triples the turn count on a
+  // bounded task, so leaving the quirk unset keeps the gateway default.
   test("leaves parallel_tool_calls unset so the gateway default stands", () => {
     expect(hostQuirks.parallelToolCalls).toBeUndefined();
   });
@@ -81,7 +81,7 @@ describe("openai-responses promotion cache safety", () => {
     };
   }
 
-  // CL-7868: the tools array is the head of the provider's cached prefix, so
+  // The tools array is the head of the provider's cached prefix, so
   // a mid-session activation must not change the serialized request body —
   // the turns differ only in activated tools.
   test("activating a tool mid-session leaves the serialized wire body byte-identical", () => {

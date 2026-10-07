@@ -309,7 +309,7 @@ describe("path plugin trust across working directories", () => {
   });
 });
 
-// The /plugins add-by-path ordering probe (CL-8991): `trustPathPlugins` is
+// The /plugins add-by-path ordering probe: `trustPathPlugins` is
 // mocked once for this file so each `addPath` below can observe whether any
 // plugin code ran before the grant resolved. The wrapper delegates to the
 // real store with an explicit home, so behavior — including the existing

@@ -39,7 +39,7 @@ export interface ProjectTrustStore {
   /**
    * Grant fingerprints (see projectGrantFingerprint) confirmed for this
    * project's approvals file. Trusting the project never implies trusting its
-   * grants: each entry requires its own operator confirmation (CL-7782).
+   * grants: each entry requires its own operator confirmation.
    */
   trustedGrantFingerprints: string[];
 }
@@ -390,16 +390,14 @@ export async function trustMcpServer(
 
 /**
  * Stable fingerprint for one project-approval entry: tool + pattern, with the
- * provider-model binding folded in when set, so switching models invalidates a
- * prior confirmation exactly the way the gate's providerModel check does.
- * The entry's cwd is folded in too (absent → ""): Approval has four enforced
- * dimensions and a cwd-less grant matches any request cwd (see
- * cwdMatchesGrant), so a fingerprint that ignored cwd would let a hand-edit
- * dropping `cwd` from a confirmed entry keep its confirmation and silently
- * widen a repo-confined grant to cross-repo. A cwd-less planted entry still
- * fingerprints the same way at trust and load time, so confirming it through
- * the pending flow matches the minted shape (saveProjectApproval converges
- * the file to that shape on write).
+ * provider-model binding folded in when set, so switching models invalidates
+ * a prior confirmation exactly the way the gate's providerModel check does.
+ * The cwd is folded in too (absent → ""): a cwd-less grant matches any
+ * request cwd (see cwdMatchesGrant), so ignoring cwd would let a hand-edit
+ * that drops `cwd` keep its confirmation and silently widen a repo-confined
+ * grant to cross-repo. A cwd-less planted entry fingerprints the same at
+ * trust and load time, so the pending-flow confirmation matches the minted
+ * shape.
  */
 export function projectGrantFingerprint(approval: {
   tool: string;
@@ -431,14 +429,13 @@ export function isProjectGrantTrusted(
 }
 
 /**
- * Record the operator's confirmation of project-approval entries: trusting the
- * project (plugins, MCP) never implies trusting its grants — these
- * fingerprints are only written when the operator persists a grant to the
- * project scope (the interactive grant path whose saveProjectApproval write is
- * itself the confirmation), never by the mere existence of the file. A planted
- * entry becomes trusted the next time the operator answers its per-call prompt
- * with a project-scope persist; there is no separate first-encounter review
- * writer.
+ * Record the operator's confirmation of project-approval entries. Trusting
+ * the project (plugins, MCP) never implies trusting its grants: these
+ * fingerprints are written only when the operator persists a grant to the
+ * project scope (the saveProjectApproval write is itself the confirmation),
+ * never by the file's mere existence. A planted entry becomes trusted the
+ * next time the operator answers its per-call prompt with a project-scope
+ * persist.
  */
 export async function trustProjectGrants(
   cwd: string,

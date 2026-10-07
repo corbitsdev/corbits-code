@@ -11,7 +11,7 @@ export { XAI_BASE_URL, XAI_REDIRECT_URI, XAI_REFRESH_SKEW_MS };
 
 const GROK_47 = "grok-4.7";
 
-// Local extension over the vendor fallback list (CL-5691): grok-4.7 rides the
+// Local extension over the vendor fallback list: grok-4.7 rides the
 // same OAuth proxy as the older Grok generations but the vendored catalog has
 // not caught up yet. Insert after the second vendor entry and skip when the
 // vendor list already includes it so a vendor bump cannot duplicate. The

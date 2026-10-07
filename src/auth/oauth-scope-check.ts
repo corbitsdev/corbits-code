@@ -1,14 +1,13 @@
-// A completed OAuth login proves the token is real (issued by the provider's
-// own authorization server via PKCE) but not that it carries usable API
-// scope — e.g. a chat-only subscription without API access. Trusting the
-// login result alone lets onboarding complete on a token whose first real
-// inference call fails with a confusing auth error. This runs one cheap,
-// authoritative call against each provider's own catalog/list endpoint
-// (the same surface real inference would hit) so a scope gap is caught
-// during setup instead of during the first conversation.
+// A completed OAuth login proves the token is real (issued via PKCE) but not
+// that it carries usable API scope — e.g. a chat-only subscription without
+// API access. Trusting the login result alone lets onboarding complete on a
+// token whose first inference call fails with a confusing auth error. This
+// runs one cheap, authoritative call against each provider's own
+// catalog/list endpoint so a scope gap is caught during setup instead of
+// during the first conversation.
 //
 // Never logs or persists the token or any response body — only the HTTP
-// status is inspected to classify the result.
+// status is inspected.
 
 import { isOAuthTokenEndpointError } from "./token-session-boundary.js";
 

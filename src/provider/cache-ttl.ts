@@ -1,23 +1,23 @@
-// Provider prompt-cache TTLs for idle recompression (CL-8745).
+// Provider prompt-cache TTLs for idle recompression.
 //
-// The fold is a re-compress, not a cache play. It is allowed only after a
+// The fold is a re-compress, not a cache play: it runs only after a
 // published cache expiry, so the next turn rewrites a smaller prefix instead
 // of compacting while a warm cache would still have been a cheap read.
 //
-// Anthropic is the only provider with a published idle expiry we actually
-// use: the default ephemeral cache lasts 5 minutes and refreshes on each
-// hit. The 1-hour TTL exists, costs more to write, and this client never
-// sets it. `zen-messages` and `opencode-go-messages` speak that same
-// messages protocol, so they share the 5-minute window.
+// Anthropic is the only provider with a published idle expiry we use: the
+// default ephemeral cache lasts 5 minutes and refreshes on each hit. The
+// 1-hour TTL costs more to write and this client never sets it.
+// `zen-messages` and `opencode-go-messages` speak that same messages
+// protocol, so they share the 5-minute window.
 //
 // Everyone else is disabled. OpenAI GPT-5.6+ stays eligible for at least 30
 // minutes. Gemini's implicit cache has no published eviction window and its
 // explicit cache defaults to 1 hour. DeepSeek's disk cache is cleared over
-// hours to days. xAI publishes no TTL. Guessing a shorter window folds a
-// cache that is still warm. Ollama has no remote cache. Unknown providers
+// hours to days. xAI publishes no TTL. Guessing a shorter window would fold
+// a cache that is still warm. Ollama has no remote cache. Unknown providers
 // stay off rather than inheriting a default.
 //
-// Deliberate non-goal: the summary call itself carries no `cache_control` —
+// Non-goal: the summary call itself carries no `cache_control` —
 // prompt-caching the fold is not attempted.
 
 import { isOllamaProviderId } from "./ollama.js";

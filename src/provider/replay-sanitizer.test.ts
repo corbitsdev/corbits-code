@@ -343,7 +343,7 @@ describe("withReplaySanitizer", () => {
     }
   });
 
-  // Regression for CL-6912: sanitizeReplayTurns runs INSIDE buildRequest,
+  // Regression: sanitizeReplayTurns runs INSIDE buildRequest,
   // before the adapter's own toResponsesItems ever sees a turn. A turn
   // missing `model` must survive stripForeignBlocks's foreign-turn gate, not
   // just signatureForModel's gate inside the adapter — otherwise the

@@ -12,16 +12,14 @@ import { dirname } from "node:path";
 // a second refresher observes the persisted result instead of racing the
 // authorization server's refresh-token rotation and revoking its sibling.
 //
-// Limits (accepted; follow-ups, not fixes here). The PID-liveness takeover
-// assumes contender and holder share one PID namespace on one host: across
-// namespaces (containers) or machines (network credential store) the PID
+// Limits (accepted). PID-liveness takeover assumes contender and holder
+// share one PID namespace on one host: across namespaces or machines the
 // check is meaningless — ESRCH steals a live holder's lock (overlapping
 // grants) while a recycled PID reads alive and stalls recovery. Likewise,
 // serialization needs one canonical lock path per store: contenders that
 // spell the same store via two paths (symlinked TMPDIR, uncanonicalized
 // home) contend on two files and never meet. Same-host headless runs share
-// namespace and path, so the lock holds; canonicalizing the lock path
-// (realpath of the store dir) is a follow-up, not this change.
+// namespace and path, so the lock holds.
 const tails = new Map<string, Promise<void>>();
 
 // Default stale horizon for legacy lock files that carry no holder PID

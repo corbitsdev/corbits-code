@@ -39,7 +39,7 @@ export interface MCPContentBlock {
 }
 
 /**
- * Scope lock (CL-8992): the pinned @modelcontextprotocol/sdk v1 CallToolResult
+ * Scope lock: the pinned @modelcontextprotocol/sdk v1 CallToolResult
  * is `{ content: blocks[] (default []), structuredContent?: Record<string,
  * unknown>, isError?: boolean }` — a tool-level failure still succeeds at the
  * protocol layer. The envelope carries all three so the plugin can surface

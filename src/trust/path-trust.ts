@@ -175,27 +175,22 @@ export async function revokePathPlugin(
 
 /**
  * One-shot migration: seed the global store from `settings.pluginPaths` when
- * the store file is missing (first launch). Every registered entry that resolves to a
- * plugin on disk is granted — pluginPaths lives in the user's global settings,
- * so each entry was put there by the user (add-by-path or a hand edit) and
- * registration is taken as consent at the moment the store is created, even
- * for entries never confirmed through the UI. Per-cwd project trust stores are
- * deliberately not consulted: they gate repo-controlled directories, which
- * never appear in pluginPaths. After the file exists, grants come only from
- * add-by-path / enable — marketplace growth and newly hand-edited settings do
- * not silently gain code-execution consent.
+ * the store file is missing (first launch). Every registered path that
+ * resolves to a plugin on disk is granted — pluginPaths lives in the user's
+ * global settings, so each entry was put there by the user (add-by-path or a
+ * hand edit) and registration counts as consent, even for entries never
+ * confirmed through the UI. After the file exists, grants come only from
+ * add-by-path / enable. Per-cwd project stores are not consulted: they gate
+ * repo-controlled directories, which never appear in pluginPaths.
  *
- * `resolveMembers` maps each registered path to existing absolute plugin dirs
- * (expand marketplaces, drop missing paths). Callers supply expansion so this
- * module stays free of the plugin loader. `onMigrated` fires only on the run
- * that seeds grants, so callers can surface the one-time event to the user.
+ * `resolveMembers` maps each registered path to existing absolute plugin
+ * dirs; callers supply expansion so this module stays free of the plugin
+ * loader. `onMigrated` fires only on the seeding run.
  *
- * A corrupt store (`invalid`: unreadable, zero-byte, or malformed) refuses to
- * seed: re-granting from `pluginPaths` here would undo an explicit revoke the
- * moment the file becomes unreadable. Migration leaves the file untouched and
- * returns no grants, so path plugins load metadata-only until the user either
- * repairs the file (deleting it restores first-launch seeding) or re-consents
- * explicitly through add-by-path / enable.
+ * A corrupt store refuses to seed: re-granting would undo an explicit revoke
+ * the moment the file becomes unreadable. The file is left untouched, so
+ * path plugins load metadata-only until the user repairs the file (deleting
+ * it restores first-launch seeding) or re-consents explicitly.
  */
 export async function migratePathTrustFromPluginPaths(
   pluginPaths: string[],

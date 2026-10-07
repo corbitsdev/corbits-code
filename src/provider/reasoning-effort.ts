@@ -86,21 +86,15 @@ const UNKNOWN_MODEL_EFFORTS: readonly ReasoningEffort[] = [
 ];
 
 // Muse Spark (Responses protocol) accepts minimal through high — the same
-// ladder as DEFAULT_EFFORTS above. Not `none` —
-// the gateway rejects it with HTTP 400 on `reasoning.effort`. Measured on
-// muse-spark-1.3-contributor and muse-spark-1.2-contributor via the Go
-// endpoint and muse-spark-1.3-contributor-free via Zen: `minimal` returns 200
-// and `none` returns 400 on all three. See CL-7867.
+// ladder as DEFAULT_EFFORTS above, but not `none`: the gateway rejects it
+// with HTTP 400 on `reasoning.effort`.
 const MUSE_SPARK_EFFORTS: readonly ReasoningEffort[] = DEFAULT_EFFORTS;
 
-// Matched by prefix, not by an id list. The family ships under five ids across
-// two catalogs — `muse-spark-1.3-contributor` / `-1.2-contributor` in
-// packages/opencode-go, and `muse-spark-1.3` / `-1.2` /
-// `-1.3-contributor-free` in packages/zen — and nothing normalizes the model
-// string before it reaches here. An exact list silently missed three of them
-// and left the ladder at the unknown-model default. The `/^.../i` + `trim()`
-// shape mirrors the grok/kimi prefix checks in
-// src/subagent/provider-family.ts.
+// Matched by prefix, not by an id list: the family ships under five ids across
+// two catalogs and nothing normalizes the model string before it reaches
+// here — an exact list silently missed three of them and left the ladder at
+// the unknown-model default. The `/^.../i` + `trim()` shape mirrors the
+// grok/kimi prefix checks in src/subagent/provider-family.ts.
 function isMuseSparkModel(model: string): boolean {
   return /^muse-spark/i.test(model.trim());
 }
@@ -268,9 +262,10 @@ export function cycleReasoningEffort(
  * (`defaultEffortForDirector`): this is what the prompt shows and what Shift+Tab
  * advances from when the operator has not picked a level.
  *
- * Family table: grok* → high; glm-5.3* → max; muse-spark* → low; Codex → medium; gpt-5.1 chat (`none` on the
- * ladder, not Codex) → none; gpt-5/gpt-6/o1/o3/o4 → medium. Unknown models with a
- * conservative rung set stay undefined so we do not invent a family default.
+ * Family table: grok* → high; glm-5.3* → max; muse-spark* → low; Codex →
+ * medium; gpt-5.1 chat (`none` on the ladder, not Codex) → none;
+ * gpt-5/gpt-6/o1/o3/o4 → medium. Unknown models stay undefined so we do not
+ * invent a family default.
  */
 export function defaultEffortForModel(
   model: string,
@@ -331,12 +326,12 @@ export function resolveSessionEffort(
 }
 
 // ---------------------------------------------------------------------------
-// Role-based product defaults (CL-5162)
+// Role-based product defaults
 //
 // Orchestrators plan and fan out work — higher effort is worth the latency.
-// Task leaves should stay cheaper/faster so multi-agent fleets do not multiply
-// a sol+high cliff across every child. No operator UI: this is the silent
-// product default until a profile/task pin says otherwise.
+// Task leaves stay cheaper/faster so multi-agent fleets do not multiply a
+// sol+high cliff across every child. No operator UI: the silent product
+// default until a profile/task pin says otherwise.
 // ---------------------------------------------------------------------------
 
 /** Product default effort by agent role (before model clamping). */
@@ -376,7 +371,7 @@ export interface ResolveEffortForRoleOpts {
   /** Explicit profile inference leg or task-tier pin — highest precedence. */
   pin?: ReasoningEffort;
   /**
-   * Package modelRole default (CL-5816). When set, replaces the binary
+   * Package modelRole default. When set, replaces the binary
    * orchestrator/leaf default so a light worker can run low while coder stays medium.
    */
   roleDefault?: ReasoningEffort;

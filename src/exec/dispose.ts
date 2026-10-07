@@ -19,8 +19,8 @@ export function formatCaughtError(err: unknown): string {
  * path, `finally`, and signal host cannot double-dispose.
  *
  * Lives in its own module (not exec/runner.ts, whose import graph costs
- * ~0.4s in a fresh process) so the exec-shutdown-reap fixture can exercise
- * the real dispose path without paying that in every subprocess it spawns.
+ * ~0.4s in a fresh process) so the exec-shutdown-reap fixture exercises the
+ * real dispose path without paying that in every subprocess it spawns.
  */
 const execDisposeInFlight = new WeakMap<object, Promise<void>>();
 
