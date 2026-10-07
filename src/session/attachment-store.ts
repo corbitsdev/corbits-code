@@ -19,10 +19,7 @@ export interface AgeImageResult {
   blobs: StrategyBlob[];
 }
 
-/**
- * Replace base64 image blocks with a rehydratable attachment marker and emit
- * blobs the reactor will write via ContextStore.writeBlob.
- */
+/** Replace base64 image blocks with a rehydratable marker and emit blobs ContextStore.writeBlob persists. */
 export interface AgeImageOptions {
   /** When set, record verified attachment blob provenance into the evidence archive. */
   archive?: CompactionArchive;
@@ -64,8 +61,7 @@ export async function ageImageBlocks(
 
     const id = await attachmentIdFromBase64(block.source.data);
     const uri = attachmentUri(id);
-    // Store the original base64 as UTF-8 so rehydrate can rebuild the image
-    // block without re-encoding. contentType carries the image MIME type.
+    // Keep base64 as UTF-8 so rehydrate rebuilds without re-encoding; contentType is the image MIME type.
     const bytes = new TextEncoder().encode(block.source.data);
     blobs.push({
       key: id,
@@ -83,10 +79,7 @@ export async function ageImageBlocks(
   return { turn: { ...turn, content }, blobs };
 }
 
-/**
- * Restore aged image markers to base64 image blocks using a blob reader.
- * Missing blobs leave the marker text in place so the turn stays well-formed.
- */
+/** Restore aged markers to image blocks via a blob reader; missing blobs leave the marker text. */
 export async function rehydrateAttachmentImages(
   turns: readonly ConversationTurn[],
   readBlob: (key: string) => Promise<Uint8Array>,
@@ -126,10 +119,7 @@ export async function rehydrateAttachmentImages(
   return out;
 }
 
-/**
- * Pre-inference transform: restore aged attachment markers into image blocks
- * for the model prompt only. Durable history keeps the compact marker + blob.
- */
+/** Pre-inference only: restore aged markers to image blocks; durable history keeps the marker + blob. */
 export function createAttachmentRehydrateTransform(
   readBlob: (key: string) => Promise<Uint8Array>,
 ): ContextTransform {

@@ -111,8 +111,7 @@ describe("createCycleTextRecorder", () => {
   });
 
   test("inference.error with empty cycle text still writes a partial with the error payload", async () => {
-    // Observed live: ~20 unattributable episodes had inference.error with no
-    // streamed text. The partial must still land so category/message survive.
+    // Live failures can emit inference.error with no streamed text; the partial must still land so category/message survive.
     const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent({
       type: "inference.error",
@@ -198,8 +197,7 @@ describe("createCycleTextRecorder", () => {
   });
 
   test("a thinking-only loop still writes a partial record with the looped window", async () => {
-    // No visible text ever streamed (the observed live failure): the salvage
-    // must still be diagnosable from thinkingText alone.
+    // No visible text ever streamed: the salvage must still be diagnosable from thinkingText alone.
     const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent(thinkingDelta("0/1 1/2 2/3 3/4 4/5 "));
     const snapshot = await recorder.dispose("cancelled");
@@ -255,10 +253,7 @@ describe("createCycleTextRecorder", () => {
 
 describe("successful-send teardown", () => {
   test("drain-then-dispose writes nothing when the final done arrived on the stream", async () => {
-    // Mirrors the exec success path: send resolves on the connector reply
-    // while inference.done may still be queued. The caller must drain first;
-    // disposing before the drain would snapshot the full successful reply
-    // and persist it as a spurious partial.
+    // Mirrors exec success: send resolves on the connector reply while inference.done may still be queued; disposing before drain would snapshot the full reply as a spurious partial.
     const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent(delta("final assistant answer"));
 

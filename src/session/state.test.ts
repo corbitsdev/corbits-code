@@ -4,9 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { withMockedModule } from "../../testkit/mock-module.js";
 
-// Simulates the straggler write's real await point (e.g. cycleRecorder.dispose
-// during the terminal path) landing its writeFile after a later-issued
-// terminal write's writeFile, so rename-order alone would let it win.
+// Simulates a straggler writeFile landing after a later-issued terminal write's, so rename-order alone would let it win.
 let delayNextWrite = false;
 await withMockedModule(
   import.meta.resolve("node:fs/promises"),
@@ -91,8 +89,7 @@ test("a persisted terminal status agrees with the active-run handle without a se
 
   const persisted = await loadState(cwd, sessionId, home);
   expect(persisted).toMatchObject({ kind: "ok", state: { status: "done" } });
-  // The only liveness representation left is presence in the active-run
-  // slot -- a terminal RunState.status must leave nothing there to read.
+  // A terminal RunState.status must leave nothing in the active-run slot.
   expect(getActiveRun()).toBeNull();
 });
 

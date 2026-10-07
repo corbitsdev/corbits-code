@@ -48,11 +48,7 @@ export function ageStaleRunningState(
   };
 }
 
-/**
- * Periodic running snapshot writer. `unref` so the timer cannot keep a
- * process alive after the run ends; callers must stop it on terminal paths
- * so no post-terminal writes fire.
- */
+/** Periodic running snapshot writer. `unref`d so it cannot keep the process alive; callers stop it on terminal paths. */
 export function startRunHeartbeat(args: {
   intervalMs?: number;
   shouldTick: () => boolean;

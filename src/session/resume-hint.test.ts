@@ -41,8 +41,7 @@ describe("resume hint", () => {
       return true;
     }) as typeof process.stderr.write);
     try {
-      // First call wins (e.g. the signal handler); the finalize tail's call
-      // for the same session is a no-op so the line emits exactly once.
+      // First call wins; the finalize tail's duplicate call is a no-op so the line emits once.
       printResumeHint("123e4567-e89b-12d3-a456-426614174000");
       printResumeHint("123e4567-e89b-12d3-a456-426614174000");
     } finally {

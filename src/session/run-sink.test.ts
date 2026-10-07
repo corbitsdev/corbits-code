@@ -142,8 +142,7 @@ describe("createRunSink", () => {
   });
 
   test("onTurnBoundarySnapshot reads getTurnCount after the turn, not the initial zero", () => {
-    // Exec persist now snapshots from this callback (same as TUI). A closed-over
-    // turnsUsed: 0 would write run.json as still-zero mid-run.
+    // Exec persist snapshots from this callback; a closed-over turnsUsed: 0 would write run.json as zero mid-run.
     const snapshots: number[] = [];
     const runSink = createRunSink({
       emitter: new EventEmitter(),
@@ -485,9 +484,7 @@ describe("createRunSink", () => {
     });
   });
 
-  // Regression: exec finish metrics must not dereference getTurnCollector()
-  // when hooks are absent — that path returns null and crashed evals with
-  // "null is not an object (evaluating 'turnCollector.getTurnCount')".
+  // Regression: hookless finish metrics must not dereference the null turn collector (crashed evals).
   test("hookless finish metrics are readable via runSink methods alone", () => {
     const runSink = createRunSink({
       emitter: new EventEmitter(),
@@ -595,8 +592,7 @@ describe("createRunSink", () => {
     expect(runSink.getRunError()).toBeUndefined();
   });
 
-  // Session rotation: reset() clears accumulated state so the post-run hook
-  // for a new session only sees turns from that session, not the prior one.
+  // reset() clears state so the post-run hook for a new session sees only that session's turns.
   test("reset clears status, error, and the turn collector between sessions", () => {
     const runSink = createRunSink({
       emitter: new EventEmitter(),
@@ -623,8 +619,7 @@ describe("createRunSink", () => {
     expect(runSink.getStatus()).toBe("done");
   });
 
-  // onTurnComplete is telemetry's hook into turn completion, wired alongside
-  // (not instead of) the post-turn lifecycle hook — both must fire per turn.
+  // onTurnComplete fires alongside (not instead of) the post-turn lifecycle hook — both per turn.
   test("onTurnComplete fires alongside dispatchPostTurn for each completed turn", () => {
     const dispatched: unknown[] = [];
     const completed: unknown[] = [];

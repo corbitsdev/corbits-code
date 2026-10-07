@@ -2,9 +2,7 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
-// Stream failures are logged, not written to stderr: raw stderr writes land in
-// the middle of the TUI's frame output and corrupt the screen, which is
-// especially visible when several sub-agent streams fail together.
+// Log stream failures instead of writing to stderr: raw stderr corrupts the TUI frame, especially when several sub-agent streams fail together.
 export async function consumeStream(
   stream: AsyncIterable<ReactorEmittedEvent>,
   sink: (event: ReactorEmittedEvent) => void,

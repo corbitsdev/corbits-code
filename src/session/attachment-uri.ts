@@ -1,7 +1,6 @@
-// Attachment URIs for session-local binary payloads (aged images, etc.).
-// Same persistence family as tool-output spills: keys go through ContextStore
-// writeBlob/readBlob. The URI is what survives in conversation turns after
-// base64 is spilled out of the inference-facing context.
+// Attachment URIs for session-local binary payloads, persisted via ContextStore
+// writeBlob/readBlob. The URI is what survives in turns after base64 is spilled
+// out of the inference-facing context.
 
 const ATTACHMENT_URI_PREFIX = "attachment:///";
 
