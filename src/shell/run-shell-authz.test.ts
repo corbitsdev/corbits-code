@@ -37,9 +37,8 @@ describe("recursive rm detection", () => {
   });
 
   test("commandHasRecursiveRm survives xargs feeding a shell -c payload", () => {
-    // The quoted payload must survive the xargs peel intact: rejoining
-    // dequoted tokens once re-split `-c 'rm -rf {}'` into fragments and lost
-    // the classification.
+    // Rejoining dequoted tokens once re-split `-c 'rm -rf {}'` and lost the
+    // classification; the payload must survive the xargs peel intact.
     expect(commandHasRecursiveRm("xargs -I{} bash -c 'rm -rf {}'")).toBe(true);
     expect(
       commandHasRecursiveRm("echo x | xargs -I {} sh -c 'sudo rm -rf {}'"),
@@ -67,9 +66,9 @@ describe("recursive rm detection", () => {
   });
 
   test("an embedded apostrophe in the payload does not drop the dangerous tail", () => {
-    // The rejoin must round-trip through tokenize() (no backslash escapes), so a
-    // payload token containing a literal quote is re-wrapped in the other quote
-    // character rather than the POSIX '\'' idiom, which would re-split it.
+    // The rejoin must round-trip through tokenize() (no backslash escapes), so
+    // a token with a literal quote is re-wrapped in the other quote character,
+    // not the POSIX '\'' idiom, which would re-split it.
     const cmd = 'echo x | xargs -I{} sh -c "don\'t stop; rm -rf /"';
     expect(commandHasRecursiveRm(cmd)).toBe(true);
     expect(runShellAuthzBlockReason(cmd)).toMatch(
@@ -270,16 +269,15 @@ describe("stdin-blocking with quote-aware tokenizeSegment", () => {
   });
 
   test("quoted path with spaces counts as one file operand", () => {
-    // Naive whitespace split would see `"my` and `file.txt"` as two tokens and
-    // still allow; quote-aware tokenize keeps one operand either way. The
-    // important case is the single-file form must not hang.
+    // A naive whitespace split would see `"my` and `file.txt"` as two tokens
+    // and allow; quote-aware tokenize keeps one operand either way.
     expect(runShellAuthzBlockReason('cat "my file.txt"')).toBeUndefined();
     expect(runShellAuthzBlockReason("cat 'my file.txt'")).toBeUndefined();
   });
 
   test("quoted grep pattern with spaces is one operand (still needs a file)", () => {
-    // Naive split of `grep 'a b'` yields tokens ["grep", "'a", "b'"] — two
-    // operands — and wrongly allows a command that would hang on stdin.
+    // Naive split of `grep 'a b'` yields ["grep", "'a", "b'"] — two operands —
+    // and wrongly allows a command that would hang on stdin.
     expect(runShellAuthzBlockReason("grep 'a b'")).toMatch(/standard input/);
     expect(runShellAuthzBlockReason('grep "a b"')).toMatch(/standard input/);
     expect(runShellAuthzBlockReason("grep 'a b' file")).toBeUndefined();
@@ -302,9 +300,9 @@ describe("stdin-blocking with quote-aware tokenizeSegment", () => {
     ).toBeUndefined();
   });
 });
-// Hard-deny must see inside env -S / --split-string the same way expandShellSubjects
-// peels bash -c and xargs. Auto-mode already classified these; authz previously left
-// the payload inside one quoted token and allowed catastrophic rm past the gate.
+// Hard-deny must see inside env -S / --split-string the same way
+// expandShellSubjects peels bash -c and xargs; authz previously left the
+// payload in one quoted token and allowed catastrophic rm past the gate.
 describe("authz hard-deny peels env -S / --split-string payloads", () => {
   const destructive = /Destructive command blocked/;
 
@@ -353,8 +351,8 @@ describe("authz hard-deny peels env -S / --split-string payloads", () => {
   });
 
   test("D8: env -S without assignment still peels catastrophic rm", () => {
-    // Peel-all, not assignment-only: the payload must not stay invisible just
-    // because it lacks a leading NAME=value.
+    // Peel-all, not assignment-only: a payload without a leading NAME=value
+    // must not stay invisible.
     expect(runShellAuthzBlockReason(`env -S "rm -rf /"`)).toMatch(destructive);
     expect(commandHasRecursiveRm(`env -S "rm -rf /"`)).toBe(true);
   });
@@ -461,9 +459,9 @@ describe("authz hard-deny peels env -S / --split-string payloads", () => {
   });
 });
 
-// Security-review peel gaps: glued -S forms, trailing utility after the -S
-// argument, value-flag soup before -S, and open-ended / never-terminating /
-// stdin hard-deny through expanded subjects (not just catastrophic rm).
+// Peel-gap coverage: glued -S forms, a trailing utility after -S, value-flag
+// soup before -S, and open-ended / never-terminating / stdin hard-deny through
+// expanded subjects (not just catastrophic rm).
 describe("authz hard-deny peels glued and trailing env -S forms", () => {
   const openEnded = /Open-ended shell search blocked/;
   const neverTerm = /Never-terminating command blocked/;
@@ -471,9 +469,9 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
   const destructive = /Destructive command blocked/;
 
   test("unmodeled -S backslash escapes make the payload opaque, never garbled", () => {
-    // GNU env's -S escape grammar (\\, \", \n, \#, ...) is wider than the \_
-    // separator this parser models. A pass-through would produce garbled
-    // subjects that miss the hard-deny matchers; opaque routes to ask instead.
+    // GNU env's -S escape grammar (\\, \", \n, \#) is wider than the modeled
+    // \_ separator; a pass-through would garble subjects and miss hard-deny,
+    // so opaque routes to ask instead.
     expect(expandShellSubjects(`env -S "rm \\-rf \\/"`).opaque).toBe(true);
     expect(
       expandShellSubjects(`env -S 'x' && env -S "rm -rf \\"/\\""`).opaque,
@@ -738,8 +736,8 @@ describe("quoted arguments are not command-position eval", () => {
   const destructive = /Destructive command blocked/;
 
   test("git commit -m containing '; eval' is allowed", () => {
-    // CMD treated `;` as a new command even inside quotes, so a commit
-    // message that said "; eval workdirs" was hard-denied as shell eval.
+    // CMD treated `;` as a new command even inside quotes, so a commit message
+    // containing "; eval" was hard-denied as shell eval.
     const live = `git commit -m "Stop refusing work when a folder is not a git repository" -m "Required style skill told models to refuse if cwd had no .git. Eval fixtures are tmp copies, so GPT stopped on simple-health. Edits are allowed without a repo; eval workdirs get an unsigned fixture commit so isolated workers have HEAD."`;
     expect(runShellAuthzBlockReason(live)).toBeUndefined();
     expect(
@@ -819,7 +817,7 @@ describe("quoted arguments are not command-position eval", () => {
 
   test("quoted interpreter payloads that are themselves blocked still deny", () => {
     // Neutralizing quoted separators must not hide busy-loop / fork-bomb
-    // patterns that legitimately live inside bash -c / perl -e quotes.
+    // patterns that live inside bash -c / perl -e quotes.
     expect(runShellAuthzBlockReason("bash -c 'while :; do :; done'")).toMatch(
       destructive,
     );

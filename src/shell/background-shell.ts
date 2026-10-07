@@ -5,12 +5,10 @@ import {
   MAX_SHELL_OUTPUT_BYTES,
 } from "../plugins/shell-guard-plugin.js";
 
-// Background run_shell: the starting tool call returns a handle at once and the
-// process keeps running past the end of the turn, so tool.boundary fires and
-// queued steers land while builds, test suites, and dev servers run. On exit
-// the result is pushed to the host via onExit (which delivers it to the
-// reactor as a system message on a later turn); run_shell stop=<id>
-// cancels by id.
+// Background run_shell: start returns a handle at once and the process keeps
+// running past the end of the turn, so queued steers land while builds and dev
+// servers run. On exit the result is delivered to the host via onExit as a
+// system message on a later turn; stop=<id> cancels by id.
 
 export const MAX_RUNNING_BACKGROUND_SHELLS = 8;
 // Prefer close so trailing stdio is captured, but never require it: a grandchild
@@ -117,8 +115,7 @@ export function createBackgroundShellRegistry(
     // Clearing an unset timer is a no-op, so one unguarded closure covers
     // every settle path below.
     const clearTimer = (): void => clearTimeout(timer);
-    // Per-call timeout only — background has no 120s default. Cancel reuses
-    // killProcessTree (same path as run_shell stop=<id>).
+    // Per-call timeout only — background has no 120s default.
     if (args.timeoutMs !== undefined && args.timeoutMs > 0) {
       timer = setTimeout(() => {
         killProcessTree(child);
@@ -153,9 +150,8 @@ export function createBackgroundShellRegistry(
   const disposeAll = (reason: string): void => {
     for (const child of running.values()) killProcessTree(child);
     running.clear();
-    // onExit is intentionally not fired for disposed shells: the session is
-    // gone, so there is no later turn to deliver to (`reason` is for callers
-    // that log it).
+    // No onExit for disposed shells: the session is gone, so there is no later
+    // turn to deliver to.
     void reason;
   };
 

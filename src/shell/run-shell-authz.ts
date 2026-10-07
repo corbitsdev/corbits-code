@@ -28,37 +28,29 @@ function skipMatching(
   return i;
 }
 
-// A command-position anchor: the start of the command, or immediately after a
-// shell separator or subshell open, optionally preceded by a run of NAME=value
-// environment assignments (so `X=1 sudo …` is still recognised as `sudo` in
-// command position). This keeps a word like "exec" or "format" from matching
-// when it merely appears inside a URL, comment, or string argument.
+// Command-position anchor: command start or after a separator/subshell open,
+// optionally preceded by NAME=value assignments (`X=1 sudo` → `sudo`). Keeps a
+// word like "exec" from matching inside a URL, comment, or string argument.
 const CMD = String.raw`(?:^|[\n;&|(` + "`" + String.raw`]\s*)(?:\w+=\S*\s+)*`;
 
 const cmd = (name: string): RegExp => new RegExp(`${CMD}${name}\\b`);
 
-// A command-*head* anchor: like CMD, but a bare `|` does not count as a
-// boundary. A stage downstream of a single pipe consumes already-bounded piped
-// data (or, for `rg`/`grep`, ripgrep's own bounded stdin read) rather than
-// walking the filesystem, so it carries none of the OOM risk the open-ended
-// search patterns exist to catch (e.g. `git show sha:path | rg -n foo` reads
-// one blob through rg, not a tree walk). `&&` and `||` are still boundaries —
-// neither carries piped data to the following stage — matched as explicit
-// two-character operators so a lone `|` inside them is not mistaken for the
-// single-pipe case.
+// Command-head anchor: like CMD, but a bare `|` is not a boundary — a stage
+// downstream of a single pipe reads bounded piped data (e.g. `git show … | rg`),
+// not a tree walk. `&&`/`||` stay boundaries, matched as two-char operators so
+// a lone `|` inside them is not mistaken for the single-pipe case.
 const CMD_HEAD =
   String.raw`(?:^|[\n;(` + "`" + String.raw`]\s*|&&\s*|\|\|\s*)(?:\w+=\S*\s+)*`;
 
 const cmdHead = (name: string): RegExp => new RegExp(`${CMD_HEAD}${name}\\b`);
 
-// Redirecting to /dev/null, /dev/stdout, /dev/stderr, /dev/tty and /dev/fd/* is
-// routine and harmless; only redirects to real device nodes (e.g. /dev/sda) are
-// destructive. The negative lookahead exempts the safe pseudo-devices, anchored
-// to a token terminator so a path like /dev/null/../sda is NOT exempted.
+// Safe pseudo-device redirects are routine; only real device nodes are
+// destructive. The lookahead exempts the pseudo-devices, anchored to a token
+// terminator so /dev/null/../sda is NOT exempted.
 const SAFE_DEV = String.raw`(?!(?:null|stdout|stderr|stdin|tty|fd/)(?:$|[\s;&|]))`;
 
-// Wrapper words that can sit between a pipe and the shell it feeds, so
-// `curl x | sudo bash` is caught as well as `curl x | bash`.
+// Wrappers that can sit between a pipe and the shell it feeds (`curl x | sudo
+// bash` is caught as well as `curl x | bash`).
 const SHELL_WRAPPERS = String.raw`(?:(?:sudo|env|command|exec|nice|nohup|time)\s+)*`;
 
 const BLOCKED_PATTERNS: RegExp[] = [
@@ -106,12 +98,10 @@ const BLOCKED_QUOTED_PAYLOAD_PATTERNS: RegExp[] = [
   /perl\s+-e\s+.*fork\s+while\s+fork/,
 ];
 
-// Open-ended tree walks via the shell OOM the host: `find | tail` still forces
-// the full stream through the collector, and recursive grep/rg walks huge trees
-// before any pipe limit applies. Hard-deny those shapes for host safety; the
-// bounded grep/glob tools remain practical alternatives (timeout +
-// output caps). (`git log | tail` and similar non-walk pipes are fine — the
-// 512KB shell output cap is the backstop for those.)
+// Open-ended tree walks OOM the host: `find | tail` still forces the full
+// stream through the collector and recursive grep/rg walks huge trees. Hard-deny
+// those; the bounded grep/glob tools are the alternative. `git log | tail` and
+// similar non-walk pipes are fine (the 512KB output cap backstops those).
 const OPEN_ENDED_SEARCH_PATTERNS: RegExp[] = [
   // `find` is almost always a full-tree walk — keep full CMD so
   // `… | find …` cannot bypass (find does not treat the pipe as search domain).
@@ -125,10 +115,9 @@ const OPEN_ENDED_SEARCH_PATTERNS: RegExp[] = [
   ),
 ];
 
-// Commands that follow forever or page interactively never exit under the agent
-// (stdin is not a terminal and nothing consumes the pager), so they hang the run
-// until the shell timeout kills them. Deny them at any command position so a
-// piped pager (`… | less`) is caught as well as a bare one.
+// Follow/pager commands never exit under the agent (stdin is not a terminal and
+// nothing consumes the pager), so they hang the run. Deny at any command
+// position so `… | less` is caught as well as bare `less`.
 const NEVER_TERMINATING_PATTERNS: RegExp[] = [
   // `tail -f` / `-F` follow a file forever (flag alone or clustered).
   new RegExp(String.raw`${CMD}tail\b[^\n|;]*?\s-[A-Za-z]*[fF][A-Za-z]*\b`),
@@ -142,10 +131,9 @@ const NEVER_TERMINATING_PATTERNS: RegExp[] = [
   cmd("more"),
 ];
 
-// Programs that read standard input when given no file operand. Invoked with no
-// file (and not downstream of a pipe) they block on a terminal that never
-// arrives. `git log | tail` is fine (tail reads the pipe); `tail -n 50 file.log`
-// is fine (it has a file); a bare `tail`, `cat`, or `grep pattern` is not.
+// Programs that read stdin when given no file operand. Bare (not piped, no
+// file) they block on a terminal that never arrives. `git log | tail` and
+// `tail -n 50 file.log` are fine; bare `tail`/`cat`/`grep pattern` is not.
 const STDIN_READERS = new Set([
   "cat",
   "tac",
@@ -158,11 +146,9 @@ const STDIN_READERS = new Set([
   "wc",
 ]);
 
-// Short flags that consume the following token as their value, so the value is
-// not mistaken for a file operand (e.g. the `50` in `tail -n 50`). These are
-// value-taking only for `head` and `tail`; for the other stdin readers the same
-// letters are boolean flags (e.g. `wc -c`, `uniq -c`, `sort -c`), so consuming a
-// following token there would wrongly drop a real file operand.
+// Flags that consume the next token as their value (`tail -n 50`). Value-taking
+// only for head/tail — for the other readers the same letters are boolean
+// (`wc -c`), so consuming a token there would drop a real file operand.
 export const HEAD_TAIL_VALUE_FLAGS = new Set([
   "-n",
   "-c",
@@ -181,12 +167,10 @@ export const GREP_VALUE_FLAGS = new Set([
   "--file",
 ]);
 
-// The head of each pipeline (the stage before the first `|`) is the only stage
-// that reads the terminal's stdin; later stages read the pipe. A naive regex
-// split breaks on separators that appear inside a quoted argument (e.g. the `|`
-// in `grep 'a|b' file`), truncating the command and dropping real operands. Walk
-// the command tracking quote state, break pipelines only on unquoted `;`,
-// newline, `&&`, `||`, and end each head at its first unquoted `|`.
+// The head of each pipeline (stage before the first `|`) is the only stage that
+// reads terminal stdin. Split on unquoted `;`, newline, `&&`, `||`; end each
+// head at its first unquoted `|` — a naive regex split would break on `|`
+// inside quotes (e.g. `grep 'a|b' file`).
 function pipelineHeads(command: string): string[] {
   const heads: string[] = [];
   let head = "";
@@ -233,9 +217,8 @@ function pipelineHeads(command: string): string[] {
 }
 
 // Quote-aware tokenization for stdin-operand counting only — not security
-// classification (classifiers use other paths). A naive whitespace split
-// miscounts operands when a pattern or path contains spaces inside quotes
-// (e.g. `grep 'a b'` has one operand, not two).
+// classification. A naive whitespace split miscounts `grep 'a b'` as two
+// operands.
 export function tokenizeSegment(segment: string): string[] {
   const tokens = tokenize(segment);
   let i = skipMatching(tokens, 0, (t) => ENV_ASSIGNMENT.test(t));
@@ -243,9 +226,8 @@ export function tokenizeSegment(segment: string): string[] {
   return tokens.slice(i);
 }
 
-// Count file operands, skipping flags and the values that value-taking flags
-// consume. For grep the first operand is the pattern, so callers require one
-// more operand than for the plain readers.
+// Count file operands, skipping flags and their values. For grep the first
+// operand is the pattern, so callers require one more than for plain readers.
 function fileOperandCount(args: string[], valueFlags: Set<string>): number {
   let count = 0;
   for (let i = 0; i < args.length; i++) {
@@ -333,17 +315,15 @@ function blocksOnStdin(command: string): boolean {
   return pipelineHeads(command).some(readsStdinWithoutInput);
 }
 
-// Transparent exec wrappers that pass their argument straight through to another
-// program: `command find`, `env find`, `builtin cd`. Unlike `sudo`/`exec`, these
-// are not themselves blocked, so stripping them at command position exposes the
-// real executable to the deny patterns. `env` may also carry NAME=value prefixes.
+// Transparent wrappers that pass their argument through (`command find`,
+// `builtin cd`). Unlike `sudo`/`exec` they are not blocked, so stripping them
+// exposes the real executable to the deny patterns.
 const STRIP_WRAPPER = String.raw`(?:command|env|builtin)`;
 
-// At every command position, drop leading NAME=value assignments and transparent
-// wrappers, then strip an absolute directory path off the executable so
-// `/usr/bin/find`, `command find`, and `env FOO=bar find` all reduce to `find`
-// before the deny patterns run. Only the executable token is rewritten, so
-// redirect targets and later arguments are left intact.
+// At each command position drop NAME=value assignments, transparent wrappers,
+// and an absolute path off the executable so `/usr/bin/find`, `command find`,
+// and `env FOO=bar find` all reduce to `find`. Only the executable token is
+// rewritten; redirect targets and later args stay intact.
 const NORMALIZE_COMMAND_POSITION = new RegExp(
   String.raw`(^|[\n;&|(` +
     "`" +
@@ -361,9 +341,7 @@ const RM_WRAPPER = /^(sudo|command|env|exec|builtin|time|nice|nohup)$/;
 const RECURSIVE_FLAG = /^(--recursive|-[A-Za-z]*[rR][A-Za-z]*)$/;
 
 // Interpreters whose `-c` / `--command` / cmd `/c` payload is an independent
-// shell subject. Exported so tests and callers share one explicit list with
-// the peeler. Matching is basename-based and ignores Windows executable
-// suffixes (`cmd.exe` → `cmd`).
+// shell subject. Basename-based, ignores Windows suffixes (`cmd.exe` → `cmd`).
 export const SHELL_INTERPRETERS = new Set([
   "bash",
   "sh",
@@ -404,10 +382,9 @@ const XARGS_VALUE_FLAGS = new Set([
   "--exit",
 ]);
 
-// A recursive rm is catastrophic only when it targets a root the agent can never
-// recover from — /, the home directory, a system tree, or a bare cwd-wide glob.
-// A recursive rm of an ordinary relative path (e.g. ./build, node_modules) is
-// routine and is left to the permission gate to ask about, not hard-denied here.
+// A recursive rm is catastrophic only when it targets an unrecoverable root — /,
+// home, a system tree, or a cwd-wide glob. Recursive rm of an ordinary relative
+// path (./build, node_modules) is routine and left to the permission gate.
 function isDangerousTarget(token: string): boolean {
   const t = token.replace(/['"]/g, "");
   if (["/", "~", "~/", "$HOME", "*", ".", "..", "./", "../"].includes(t))
@@ -426,8 +403,7 @@ function isDangerousTarget(token: string): boolean {
 }
 
 // Payload we cannot statically inspect: empty, a bare expansion, or a leading
-// command substitution. Argument-position expansions like `rm -rf $HOME` stay
-// parseable so catastrophic-target checks still fire.
+// command substitution. `rm -rf $HOME` stays parseable so target checks fire.
 function isOpaquePayload(payload: string): boolean {
   const trimmed = payload.trim();
   if (trimmed.length === 0) return true;
@@ -441,21 +417,16 @@ type PeelOutcome =
   | { kind: "opaque" }
   | { kind: "none" };
 
-// Tokens that survive rejoining without quotes. Anything else is re-quoted so
-// a payload token that originally carried quotes (e.g. the argument of a
-// nested `sh -c 'rm -rf {}'`) is not re-split when the rejoined command is
-// tokenized again one peel level down — rejoining dequoted tokens with bare
-// spaces is exactly how the xargs → shell -c bypass slipped through.
+// Tokens that survive rejoining without quotes. Anything else is re-quoted so a
+// quoted payload token is not re-split one peel level down — rejoining dequoted
+// tokens with bare spaces is how the xargs → shell -c bypass slipped through.
 const SAFE_REJOIN_TOKEN = /^[A-Za-z0-9_@%+=:,./-]+$/;
 
-// IMPORTANT: the output of this function must round-trip through THIS project's
-// `tokenize()` (src/permission/command.ts) as a single token — not through a
-// POSIX shell. `tokenize()` is a naive quote-toggle with NO backslash escape
-// support, so the bash `'\''` idiom does not work: an embedded quote would
-// re-split the token and drop the dangerous tail. Instead we wrap in whichever
-// delimiter (' or ") the token does not itself contain. If the token contains
-// both, no representation round-trips, so we return null and the caller treats
-// the whole wrapper as opaque (→ ask), never emitting a mis-parsed command.
+// IMPORTANT: output must round-trip through this project's `tokenize()` as a
+// single token — not through a POSIX shell. `tokenize()` has NO backslash
+// escape support, so the bash `'\''` idiom re-splits the token and drops the
+// dangerous tail. Wrap in the delimiter the token does not contain; if it
+// contains both, return null and the caller treats the wrapper as opaque (→ ask).
 function quoteTokenForRejoin(token: string): string | null {
   if (SAFE_REJOIN_TOKEN.test(token)) return token;
   if (!token.includes("'")) return `'${token}'`;
@@ -463,9 +434,8 @@ function quoteTokenForRejoin(token: string): string | null {
   return null;
 }
 
-// Rebuild a command string from tokens, preserving token boundaries through a
-// subsequent tokenize(). Returns null when any token cannot be safely quoted
-// (see quoteTokenForRejoin). Opacity checks must run on the raw (unquoted)
+// Rebuild a command from tokens so a later tokenize() preserves boundaries.
+// Null when any token cannot be safely quoted. Opacity checks run on the raw
 // join — quoting would disguise `$CMD`-style payloads from isOpaquePayload.
 function rejoinTokens(tokens: string[]): string | null {
   const quoted: string[] = [];
@@ -477,10 +447,9 @@ function rejoinTokens(tokens: string[]): string | null {
   return quoted.join(" ");
 }
 
-// True when a token is a safe `$0`/`$1` positional after `bash -c 'script'` —
-// a plain word with no shell syntax. Anything else after the -c payload is
-// treated as evidence the quoted body was split by a tokenizer that does not
-// honor backslash-escapes (classic `bash -c "…\"…"` degradation).
+// True when a token is a plain positional after `bash -c 'script'`. Anything
+// else after the -c payload suggests the quoted body was split by a tokenizer
+// that does not honor backslash-escapes (`bash -c "…\"…"` degradation).
 function isSafeShellPositional(token: string): boolean {
   if (token.startsWith("-") && token !== "-") return false;
   if (token.includes("\\")) return false;
@@ -721,15 +690,11 @@ function peelXargs(tokens: string[], start: number): PeelOutcome {
   return { kind: "inner", command };
 }
 
-// Env short options that are boolean (no value) and may cluster with -S.
-// Used to tell clustered `-Si` (S takes the next argv) from glued `-Sfind`
-// (payload is the rest of the same token).
+// Env boolean short options (no value) that may cluster with -S: `-Si` (S takes
+// the next argv) vs glued `-Sfind` (payload is the rest of the token).
 const ENV_BOOL_SHORT = new Set(["i", "0", "v"]);
 
-// Env flags that consume the following argv token as a value. The -S locator
-// uses exact-token matches to walk up to -S. After the payload is extracted,
-// peelEnvSplitUtility uses skipEnvArguments so clustered value shorts
-// (`-iu NAME`) cannot drift from the transparent prefix skip.
+// Env flags that consume the next argv token as a value.
 const ENV_VALUE_FLAGS = new Set([
   "-u",
   "--unset",
@@ -751,8 +716,8 @@ function isEnvValueEqualsFlag(t: string): boolean {
   );
 }
 
-// Advance past one env value-taking flag (+ its value when separate). Returns
-// the index after the flag/value, or null when `tokens[i]` is not such a flag.
+// Advance past one env value-taking flag (+ its separate value); null when
+// `tokens[i]` is not such a flag.
 function advancePastEnvValueFlag(tokens: string[], i: number): number | null {
   const t = tokens[i];
   if (t === undefined) return null;
@@ -768,15 +733,13 @@ function advancePastEnvValueFlag(tokens: string[], i: number): number | null {
   return null;
 }
 
-// env -S re-parses its payload: quotes, `\_` as an argument separator (not a
+// env -S re-parses its payload: quotes and `\_` as an argument separator (not a
 // literal underscore), then more env flags/assignments before the utility.
 // Expand separators so a later tokenize sees real argv boundaries.
 //
-// Only `\_` is modeled. GNU env's -S grammar has a wider escape set (\\, \",
-// \n, \#, ...) whose expansion differs across implementations; passing an
-// unmodeled escape through garbles the subjects the hard-deny matchers see,
-// so any other backslash makes the payload uninspectable (null → opaque →
-// ask) instead of silently mis-parsed.
+// Only `\_` is modeled. The wider GNU escape set (\\, \", \n, \#) differs
+// across implementations, so any other backslash makes the payload
+// uninspectable (null → opaque → ask) rather than silently mis-parsed.
 function expandEnvSplitSeparators(payload: string): string | null {
   let out = "";
   let quote: "'" | '"' | null = null;
@@ -813,12 +776,9 @@ function expandEnvSplitSeparators(payload: string): string | null {
   return out;
 }
 
-// After folding the -S payload with any trailing utility tokens, re-parse the
-// result the way env does: expand `\_`, tokenize (dequote), then skip flags /
-// assignments / end-of-options with skipEnvArguments so clustered value shorts
-// (`-iu NAME`) match the transparent prefix skip, and land on the program
-// hard-deny matchers expect (`env -S -v find /` → `find /`,
-// `env -S "rm '-rf' '/'"` → `rm -rf /`).
+// Re-parse the -S payload the way env does: expand `\_`, tokenize, then skip
+// flags/assignments/end-of-options to land on the program hard-deny expects
+// (`env -S -v find /` → `find /`, `env -S "rm '-rf' '/'"` → `rm -rf /`).
 function peelEnvSplitUtility(command: string): PeelOutcome {
   const expanded = expandEnvSplitSeparators(command);
   if (expanded === null || isOpaquePayload(expanded)) return { kind: "opaque" };
@@ -834,11 +794,10 @@ function peelEnvSplitUtility(command: string): PeelOutcome {
   return { kind: "inner", command: utility };
 }
 
-// After extracting an -S / --split-string payload, fold any trailing utility
-// tokens (`env -S FOO=bar find /` → `FOO=bar find /`) so hard-deny sees the
-// real program, not just the assignment fragment that -S consumed.
-// Empty/opaque payloads with a trailing utility still execute that utility
-// (`env -S " " find /`), so prefer the trailing tokens over opaque-dropping them.
+// Fold trailing utility tokens into the -S payload (`env -S FOO=bar find /` →
+// `FOO=bar find /`) so hard-deny sees the real program. An empty/opaque payload
+// with a trailing utility still executes it (`env -S " " find /`), so keep the
+// trailing tokens instead of opaque-dropping them.
 function finishEnvSplitPayload(
   payload: string,
   tokens: string[],
@@ -861,18 +820,12 @@ function finishEnvSplitPayload(
   return peelEnvSplitUtility(raw);
 }
 
-// Peel env's -S / --split-string payload as its own shell subject. Unlike the
-// auto-mode assignment ask (which only cares about NAME=value inside the
-// payload), every consumer of expandShellSubjects — hard-deny included — must
-// see every payload so `env -S "rm -rf /"` is blocked the same way as the
-// plain form. Uninspectable payloads are opaque rather than silently dropped.
+// Peel env -S / --split-string payloads as their own shell subjects so
+// `env -S "rm -rf /"` is blocked like the plain form. Uninspectable payloads
+// are opaque, never silently dropped.
 //
-// Forms covered:
-//   -S PAYLOAD / --split-string PAYLOAD
-//   --split-string=PAYLOAD
-//   glued -SPAYLOAD / --split-stringPAYLOAD (no `=`, one shell token)
-//   clustered short flags with S (`-iS`, `-Si`) taking the next token
-//   trailing utility after the -S argument (`env -S FOO=bar find /`)
+// Forms: -S PAYLOAD, --split-string[=]PAYLOAD, glued -SPAYLOAD / clustered
+// -iS / -Si, and a trailing utility after the -S argument.
 function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
@@ -973,13 +926,10 @@ function peelOnce(segment: string): PeelOutcome {
     return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
   const prog = shellInterpreterName(current);
   if (SHELL_INTERPRETERS.has(prog)) {
-    // A backtick or `$(` anywhere in the raw segment means the -c payload may
-    // contain command substitution. tokenize() surfaces substitution content as
-    // its own bare tokens (so the security scanner can see substituted paths),
-    // which means the payload token peelShellDashC would read back is only the
-    // first fragment of the original quoted argument, not the whole string —
-    // reconstructing it accurately is not possible from tokens alone. Treat the
-    // wrapper as opaque rather than risk peeling a truncated, misleading payload.
+    // A backtick or `$(` means the -c payload may contain command substitution,
+    // which tokenize() surfaces as bare tokens — the payload token would be only
+    // a fragment of the quoted argument. Treat the wrapper as opaque rather than
+    // peel a truncated, misleading payload.
     if (segment.includes("`") || segment.includes("$("))
       return { kind: "opaque" };
     const shellPeel = peelShellDashC(tokens, i + 1, segment, prog);
@@ -989,9 +939,8 @@ function peelOnce(segment: string): PeelOutcome {
   }
   if (prog === "xargs") return peelXargs(tokens, i + 1);
 
-  // Prefix-only peel: `env FOO=1 rm -rf build` → `FOO=1 rm -rf build`.
-  // Rejoin keeps NAME=value tokens skipEnvArguments collected so
-  // `env -u HOME FOO=bar ls` still surfaces the assignment to auto-mode ask.
+  // Prefix-only peel: `env FOO=1 rm -rf build` → `FOO=1 rm -rf build`, keeping
+  // the NAME=value tokens skipEnvArguments collected for the auto-mode ask.
   if (strippedPrefix) {
     const innerTokens =
       transparent.assignmentValues.length === 0
@@ -1014,17 +963,14 @@ export interface ShellExpandResult {
   opaque: boolean;
 }
 
-// Expand a shell command into subjects the auto-shell policy, hard-deny, and
-// recursive-rm checks should scan. Peels nested interpreters (`bash`/`fish`/
-// `cmd` `/c` and the rest of SHELL_INTERPRETERS), xargs utility tails, env
-// -S/--split-string payloads, busybox applets, and transparent prefixes
-// (env/nice/timeout/…), recursing with a depth cap so nested wrappers cannot
-// hide a dangerous payload.
+// Expand a command into subjects for the auto-shell policy, hard-deny, and
+// recursive-rm checks. Peels nested interpreters, xargs utility tails, env -S
+// payloads, busybox applets, and transparent prefixes (env/nice/timeout/…),
+// recursing with a depth cap so nested wrappers cannot hide a dangerous payload.
 //
-// Chain splitting is quote-aware (`splitChainedCommand`) so a pipe inside a
-// `bash -c '…|…'` payload is not mistaken for an outer pipeline boundary.
-// Drop env/shell end-of-options markers so command-position hard-deny still
-// sees the real program in subjects like `env -S "-- find /"` or `env -S -- find /`.
+// Chain splitting is quote-aware so a pipe inside a `bash -c '…|…'` payload is
+// not an outer pipeline boundary. Drop env/shell end-of-options markers so
+// command-position hard-deny sees the real program (`env -S "-- find /"`).
 // Assignments before the marker are preserved (`FOO=1 -- find /` → `FOO=1 find /`).
 function dropLeadingEndOfOptionsTokens(tokens: string[]): string[] {
   let i = 0;
@@ -1072,8 +1018,8 @@ export function expandShellSubjects(
       subjects.push(stripped);
     }
     if (depth >= maxDepth) {
-      // Depth exhausted while this subject may still be a nested interpreter
-      // wrapper. Mark opaque so auto cannot accept a leaf we never fully peeled.
+      // Depth exhausted while this subject may still be a wrapper. Mark opaque
+      // so auto cannot accept a leaf we never fully peeled.
       for (const segment of splitChainedCommand(trimmed)) {
         const peeled = peelOnce(segment);
         if (peeled.kind === "inner" || peeled.kind === "opaque") opaque = true;
@@ -1128,15 +1074,14 @@ function isCatastrophicRm(segment: string): boolean {
   return targets.length === 0 || targets.some(isDangerousTarget);
 }
 
-// Blank quoted interiors so CMD does not treat `;` inside `-m` text as a new command.
-// Double-quoted `$(...)` / backticks stay visible: their contents are real commands.
+// Blank quoted interiors so CMD does not treat `;` inside `-m` text as a new
+// command. Double-quoted `$(...)`/backticks stay visible — their contents are
+// real commands.
 function skipQuotedSpans(command: string): string {
   let out = "";
   let quote: '"' | "'" | undefined;
   // Quote to restore when each `$(...)` closes. Extra `(` inside a substitution
-  // is a `"paren"` frame so its `)` does not restore quote. A depth counter that
-  // only restores at 0 treats the `"` after inner `"$(...)"` as an opener and
-  // blanks sibling eval.
+  // is a "paren" frame so its `)` does not restore the quote.
   const substStack: ('"' | "'" | undefined | "paren")[] = [];
   let inBacktick = false;
 
@@ -1216,8 +1161,7 @@ function skipQuotedSpans(command: string): string {
 }
 
 // Scan expanded subjects for blocked patterns / catastrophic rm. Callers may
-// pass a pre-normalized form so path-qualified binaries (`/usr/bin/sudo`) still
-// match command-position patterns.
+// pass a pre-normalized form so `/usr/bin/sudo` still matches command position.
 function isDestructiveExpanded(command: string): boolean {
   const { subjects } = expandShellSubjects(command);
   return subjects.some((subject) => {
@@ -1233,11 +1177,9 @@ function isDestructiveExpanded(command: string): boolean {
   });
 }
 
-// Hard-deny must expand the *raw* command so `env -S "…"` stays peelable —
-// normalizeCommand strips bare `env` as a transparent wrapper, which would
-// turn the command into `-S "…"` and hide the payload. Also expand the
-// normalized form so path-stripped BLOCKED_PATTERNS (`/usr/bin/sudo` → `sudo`)
-// still fire.
+// Expand the raw command so `env -S "…"` stays peelable — normalizing first
+// would strip `env` and hide the payload. Also expand the normalized form so
+// `/usr/bin/sudo` → `sudo` still matches.
 function isDestructive(command: string): boolean {
   if (isDestructiveExpanded(command)) return true;
   const normalized = normalizeCommand(command);
@@ -1248,10 +1190,9 @@ function isOpenEndedSearch(command: string): boolean {
   return OPEN_ENDED_SEARCH_PATTERNS.some((pattern) => pattern.test(command));
 }
 
-// Open-ended / never-terminating / stdin hard-deny must scan expanded subjects
-// so `env -S "find /"`, `bash -c 'watch ls'`, and similar wrappers cannot hide
-// the real program inside a quoted payload. Normalize each subject so path-
-// qualified binaries still match command-position patterns.
+// Scan expanded subjects so wrappers cannot hide the real program inside a
+// quoted payload (`env -S "find /"`, `bash -c 'watch ls'`). Normalize each
+// subject so path-qualified binaries still match command position.
 function subjectsHit(
   command: string,
   pred: (normalizedSubject: string) => boolean,
@@ -1266,9 +1207,8 @@ function subjectsHit(
 
 function openEndedSearchReason(command: string): string | undefined {
   if (!subjectsHit(command, isOpenEndedSearch)) return undefined;
-  // The patterns catch three command shapes only, so the message has to carry
-  // the general prohibition: fd, ls -R, and scripted walks are equally unbounded
-  // and would otherwise look like sanctioned ways to do the same thing.
+  // The patterns catch three shapes only; the message carries the general
+  // prohibition so fd, ls -R, and scripted walks are not used instead.
   return (
     `Open-ended shell search blocked — shell find, head-position rg, and recursive ` +
     `grep -r can walk huge trees and OOM the host. Prefer the bounded grep/glob ` +
@@ -1277,9 +1217,9 @@ function openEndedSearchReason(command: string): string | undefined {
   );
 }
 
-// Pipeline segments are judged in isolation for open-ended/destructive rules only.
-// Stdin and never-terminating checks apply across expanded subjects so wrapper
-// payloads (env -S, bash -c, …) are visible.
+// Segments are judged in isolation for destructive/open-ended rules; stdin and
+// never-terminating checks apply across expanded subjects so wrapper payloads
+// (env -S, bash -c, …) stay visible.
 export function runShellAuthzSegmentBlockReason(
   segment: string,
 ): string | undefined {
