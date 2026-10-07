@@ -1,18 +1,14 @@
 import { isSameTool } from "../agent/canonical-tool-name.js";
 import type { TurnStatus } from "./chrome-state.js";
 
-// How long the run can be continuously awaiting a response with no new content
-// before the watchdog fires and aborts the in-flight request.
+// Longest continuous silence before the watchdog aborts the in-flight request.
 export const STALL_TIMEOUT_MS = 900_000;
 
-// When the run starts *saying* it looks stuck. Well short of the abort: nobody
-// waits out the backstop, they conclude the product hung and quit, so silence
-// has to be named long before it is acted on. Notice, not a shorter timeout —
-// a slow model or a long tool call is not a stall, and killing it early would
-// break working runs to fix a wording problem. Grok-4.6 on the Responses path
-// streams only sparse reasoning summaries while billing many thinking tokens,
-// so 60–180s of true client silence mid-think is routine; the notice sits
-// above that band and matches DEFAULT_STALL_MS on spawn_agent rows.
+// Silence that gets a warning before the abort. Must sit well short of the
+// abort: users quit when a hang looks permanent, but a slow model or a long
+// tool call is not a stall and killing it early breaks working runs. Sparse
+// reasoning streams can stay client-silent 60–180s mid-think, so the notice
+// sits above that band, matching DEFAULT_STALL_MS on spawn_agent rows.
 export const STALL_NOTICE_MS = 300_000;
 
 export interface ShouldAbortForStallArgs {
@@ -27,17 +23,15 @@ export interface ShouldAbortForStallArgs {
   readonly activeToolCalls: readonly string[];
   readonly callIdByName: Readonly<Record<string, string>>;
   /**
-   * Tool name for each in-flight real call id. Concurrent same-name siblings
-   * share one `callIdByName` slot; this map keeps the leftover named after
-   * the mapping owner resolves. See `isStallBoundedInFlightTool`.
+   * Tool name per in-flight real call id; keeps the leftover bounded when the
+   * mapping-owning sibling resolves (see `isStallBoundedInFlightTool`).
    */
   readonly callNameById: Readonly<Record<string, string>>;
 }
 
 /**
- * Whether silence of `thresholdMs` counts as stuck at all. Shared by the notice
- * and the abort so they never disagree about which runs are stalled — only
- * about how long they have been.
+ * Whether `thresholdMs` of silence counts as stuck. Shared by the notice and
+ * the abort so they never disagree about which runs are stalled.
  */
 function silentPastThreshold(
   args: ShouldAbortForStallArgs,
@@ -45,17 +39,13 @@ function silentPastThreshold(
 ): boolean {
   if (args.status !== "running") return false;
   if (args.nowMs - args.lastActivityAt < thresholdMs) return false;
-  // A parallel fan-out flips `awaitingResponse` true the moment any one
-  // sub-agent's tool call finishes, even while siblings are still running.
-  // Outstanding calls mean the run is not silent, regardless of that flag.
+  // A fan-out sets `awaitingResponse` when any sibling finishes; outstanding
+  // calls mean the run is not silent regardless of that flag.
   if (args.awaitingResponse && args.activeToolCalls.length === 0) return true;
-  // Execution-watchdog-exempt polls (collect, wait_agents, ask_director) emit
-  // no parent stream events. That must not pin the stall clock forever: they
-  // have no other wall-clock bound, so the stall budget is the backstop.
+  // Watchdog-exempt polls (collect, wait_agents, ask_director) emit no parent
+  // events; with no other wall-clock bound, the stall budget is their backstop.
   if (isStallBoundedInFlightTool(args) && args.isProcessing) return true;
-  // Mid-stream hang: model stream stalled after first token. Ordinary in-flight
-  // tool runs still do not emit parent stream events; leave those to the
-  // per-tool execution watchdog rather than this silence clock.
+  // Mid-stream hang after the first token; tool runs have their own watchdog.
   return (
     args.isProcessing &&
     args.streamingType !== null &&
@@ -64,13 +54,10 @@ function silentPastThreshold(
 }
 
 /**
- * Polls the per-tool execution watchdog leaves unarmed; without a stall bound
- * they hold the turn with no other wall-clock limit. A sibling tool.done
- * clears `currentToolName` / `streamingType` while the poll is still in
- * `activeToolCalls`, so the bound keys any in-flight stall-bounded name, not
- * only the last announced tool. The name-keyed `callIdByName` holds one id
- * per tool; the per-id `callNameById` covers the leftover when the
- * mapping-owning sibling resolves first and clears the shared slot.
+ * Whether a name is a poll the execution watchdog does not bound; the stall
+ * clock must bound these or the turn can hang forever. The bound keys any
+ * in-flight stall-bounded name, not only the last announced tool, because a
+ * sibling tool.done can clear that while the poll is still running.
  */
 function isStallBoundedToolName(name: string | null | undefined): boolean {
   if (name === null || name === undefined) return false;
@@ -84,25 +71,18 @@ function isStallBoundedInFlightTool(args: ShouldAbortForStallArgs): boolean {
       return true;
     }
   }
-  // Concurrent same-name siblings share one callIdByName slot, so the
-  // mapping-owning sibling clearing it on tool.done must not release the
-  // leftover earlier call: its own id still maps to the bounded name here.
+  // Same-name siblings share one slot; the leftover's own id keeps the bound
+  // when the mapping owner resolves and clears the slot.
   for (const id of args.activeToolCalls) {
     if (isStallBoundedToolName(args.callNameById[id])) return true;
   }
-  // Name-only announcements track the call under its name until a real id
-  // arrives, so the placeholder itself is the stall-bounded name.
+  // Name-only announcements track the call by name until a real id arrives.
   return args.activeToolCalls.some(isStallBoundedToolName);
 }
 
-// Pure decision helper: returns true when the run is genuinely stuck and should
-// be aborted. Extracted so the timeout logic is unit-testable without timers.
-//
-// Silence past `stallTimeoutMs` aborts a live turn, including a wait for the
-// model's next token (right after submit, after a tool batch resolves, or after
-// compact continuation re-entry) and an in-flight poll the per-tool watchdog
-// does not bound. Ordinary tool runs stay exempt here because they have their
-// own execution budget.
+// Pure decision helper, extracted so the timeout logic is unit-testable
+// without timers. Silence past `stallTimeoutMs` aborts a live turn: a wait for
+// the next token or an unbounded poll. Tool runs have their own budget.
 export function shouldAbortForStall(args: ShouldAbortForStallArgs): boolean {
   return silentPastThreshold(args, args.stallTimeoutMs);
 }
@@ -116,16 +96,13 @@ export type ShouldNoticeStallArgs = ShouldAbortForStallArgs & {
 export type StallLevel = "quiet" | "notice" | "abort";
 
 /**
- * How stuck the run is. Three levels, because the two consumers want different
- * cuts of the same clock: the status flash wants "silent, but not yet handled"
- * so it does not shout over the abort's own message, while the phase indicator
- * wants "silent at all" — it must keep reading as a problem right through the
- * abort threshold rather than flipping back to healthy at the worst possible
- * instant. Both read this one function so they can never disagree about which
- * runs are stalled, only about what to do at each level.
+ * How stuck the run is. The two consumers want different cuts of the same
+ * clock: the status flash wants "silent but not yet handled" so it does not
+ * shout over the abort, while the phase indicator wants "silent at all" and
+ * must stay a problem through the abort threshold. One function keeps them
+ * agreeing on which runs are stalled.
  *
- * Quiet while repeating: that run is producing output, just not useful output,
- * and "no response" would misdescribe it.
+ * Repeating runs stay quiet: output is flowing, just not useful.
  */
 export function stallLevel(args: ShouldNoticeStallArgs): StallLevel {
   if (args.repeating) return "quiet";
@@ -147,9 +124,8 @@ export function isStalledForDisplay(args: ShouldNoticeStallArgs): boolean {
 }
 
 /**
- * Shown while nothing is arriving at all. Never fires while tokens are
- * flowing — a model looping on repeated content is still producing output,
- * so it is reported by `repetitionRecoveryMessage` instead, not this one.
+ * Shown while nothing arrives at all; a model looping on repeated content is
+ * still producing output and is reported by `repetitionRecoveryMessage`.
  */
 export const STALL_NOTICE_MESSAGE =
   "no response for a while — ctrl+c to interrupt";
@@ -165,9 +141,8 @@ export const STALL_APPROVAL_RESUME_MESSAGE =
   "no response while waiting on approval, re-presenting the pending approval";
 
 /**
- * Shown once a repeated line aborts the turn. Named as degeneration, not a
- * generic failure, so a retry reads as the reasonable next step rather than
- * papering over a suspected hang or network fault.
+ * Shown once a repeated line aborts the turn; named as degeneration so a
+ * retry reads as the reasonable next step, not a cover-up of a suspected hang.
  */
 export function repetitionRecoveryMessage(repeatedTokens: number): string {
   return `stopped after repeating itself — ~${repeatedTokens} tokens looped — send again to retry`;
