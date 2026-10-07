@@ -90,8 +90,8 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
 
     const first = await workerGate.authorizeCall(shellCall("c1", COMMAND));
     if (first.effect !== "deny") throw new Error("expected worker deny");
-    // Reactor retries mint fresh call ids; the deny must name the same grant
-    // request, not re-prompt the parent.
+    // Reactor retries mint fresh call ids; the deny must name the same
+    // request, not re-prompt.
     const second = await workerGate.authorizeCall(shellCall("c2", COMMAND));
     if (second.effect !== "deny") throw new Error("expected worker deny");
     expect(extractRequestId(second.reason)).toBe(
@@ -129,8 +129,8 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
 
   test("headless parent cannot grant: retry denies, envelope stays pending", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "worker-grant-headless-"));
-    // Worker gate is interactive so the deny registers an envelope; the PARENT
-    // gate is headless (no operator seam).
+    // Worker gate is interactive so the deny registers an envelope; the
+    // parent gate is headless (no operator seam).
     const denyGate = createPermissionGate({
       approvals: [],
       cwd,
@@ -160,8 +160,8 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
     const replay = await headlessGate.evaluate(shellCall("parent-1", COMMAND));
     expect(replay.allowed).toBe(false);
 
-    // No operator: the retry denies against the same pending envelope; nothing
-    // is spent and the deny still names the original grant request.
+    // No operator: the retry denies against the same pending envelope and
+    // still names the original request.
     const retry = await workerGate.authorizeCall(shellCall("c2", COMMAND));
     expect(retry.effect).toBe("deny");
     if (retry.effect !== "deny") throw new Error("expected headless deny");
@@ -240,8 +240,8 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
     });
     expect(store.peek(requestId)?.status).toBe("pending");
 
-    // Two in-flight copies of the exact call: without serialization both pass
-    // precheck and the envelope allows twice. Exactly-once is enforced at execution.
+    // Two in-flight copies of the exact call: serialization makes execution
+    // exactly-once.
     const [retryA, retryB] = await Promise.all([
       workerGate.executionVerdict(shellCall("c2", COMMAND)),
       workerGate.executionVerdict(shellCall("c3", COMMAND)),
@@ -270,8 +270,8 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
     expect(store.sweepExpired(Date.now() + WORKER_GRANT_TTL_MS + 1)).toBe(1);
     expect(store.peek(lapsedId)?.status).toBe("expired");
 
-    // The lapsed window is not a blackhole: the retry denies fresh with a NEW
-    // grant id the worker can ask out of.
+    // A lapsed window is not a blackhole: the retry denies fresh with a new
+    // id.
     const reissue = await workerGate.authorizeCall(shellCall("c2", COMMAND));
     expect(reissue.effect).toBe("deny");
     if (reissue.effect !== "deny") throw new Error("expected re-issue deny");
@@ -305,14 +305,14 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
       allowed: true,
     });
 
-    // Stage 1 (reactor authorize hook): the granted retry authorizes but the
-    // envelope stays pending — nothing has executed yet.
+    // Stage 1 (authorize): the retry authorizes but the envelope stays
+    // pending — nothing has executed yet.
     const retry = await workerGate.authorizeCall(shellCall("c2", COMMAND));
     expect(retry).toEqual({ effect: "allow" });
     expect(store.peek(requestId)?.status).toBe("pending");
 
-    // Stage 2 (executionVerdict on the identical call): allows and consumes
-    // the single granted execution.
+    // Stage 2 (executionVerdict): allows and consumes the single granted
+    // execution.
     const executed = await workerGate.executionVerdict(
       shellCall("c2", COMMAND),
     );

@@ -1,11 +1,8 @@
-// Worker denied-call envelope: harness-owned sidecar for a worker tool call
-// denied pending operator approval. The worker deny text names only the
-// envelope requestId; the envelope carries the exact denied call
-// (tool/action/subject/args + stable hash, callId, worker session/cwd) so the
-// parent replays the EXACT ToolCall through its own gate operator path and
-// retries via the existing resume_agent verb. Model prose (ask_director text,
-// send_input content) is never authoritative: nothing here parses message
-// text, and plain send_input stays text-only. The dedicated atomic
+// Worker denied-call envelope: a worker tool call denied pending operator
+// approval. The deny text names only the requestId; the envelope carries the
+// exact denied call so the parent replays it through its own gate and the
+// worker retries via resume_agent. Prose is never authority: nothing here
+// parses message text, and send_input stays text-only. The atomic
 // grant-and-retry verb is a Phase 2 follow-up.
 
 import { createHash, randomUUID } from "node:crypto";
@@ -15,9 +12,8 @@ import type { ToolCall } from "@intx/types/runtime";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import { stableRequestId } from "./denial-memory.js";
 
-/** Wall-clock retry window: one denied call gets at most one granted retry
- * within ten minutes of the deny. turnId is metadata only — no turn
- * enforcement exists, so expiry is purely expiresAt-driven. */
+/** One granted retry per deny, within ten minutes. Expiry is purely
+ * expiresAt-driven; turnId is metadata only. */
 export const WORKER_GRANT_TTL_MS = 10 * 60 * 1000;
 
 export type WorkerGrantStatus =
@@ -40,7 +36,7 @@ export interface WorkerDeniedCallEnvelope {
   canonicalTool: string;
   toolAction?: string;
   permissionSubject: string;
-  /** Exact denied arguments, JSON-cloned at deny time. */
+  /** Denied arguments, JSON-cloned at deny time. */
   args: Record<string, unknown>;
   /** Stable path-aware hash of canonical tool + normalized args + cwd. */
   argsFingerprint: string;
@@ -67,10 +63,8 @@ export interface DeniedCallDescriptor {
   now?: number;
 }
 
-/** Stable path-aware fingerprint: same normalization the gate's denial memory
- * uses (relative path args resolve against cwd), hashed to a fixed id.
- * Object keys sort first so a retried call with reordered keys still matches
- * the exact denied call. */
+/** Stable path-aware fingerprint: relative path args resolve against cwd,
+ * keys sort first so a retried call with reordered args still matches. */
 export function fingerprintDeniedCall(
   canonicalTool: string,
   args: Record<string, unknown>,
@@ -148,9 +142,8 @@ export function createDeniedCallEnvelope(
   return envelope;
 }
 
-/** Deny reason keeps `deny` + WORKER_CANNOT_COMPLETE_APPROVAL text and names
- * only the envelope requestId — the worker's ask_director text must reference
- * that id and carries no authority. */
+/** Keeps the deny + approval text and names only the requestId; ask_director
+ * text must reference that id and carries no authority. */
 export function formatWorkerDenyWithGrantId(
   baseReason: string,
   requestId: string,
@@ -192,16 +185,14 @@ function terminalBlocker(
 
 export class WorkerGrantStore {
   private readonly envelopes = new Map<string, WorkerDeniedCallEnvelope>();
-  /** Per-key async mutex chains: each entry resolves when its holder's turn
-   * ends, so waiters FIFO through the precheck-to-consume gap. */
+  /** Per-key mutex chain: each entry resolves when its holder's turn ends, so
+   * waiters FIFO through the precheck-to-consume gap. */
   private readonly turns = new Map<string, Promise<void>>();
 
-  /** Serialize concurrent identical worker retries across the
-   * precheck-to-consume gap: without this, two in-flight copies of the exact
-   * call both pass precheck before either consumes, and the gate allows both
-   * — two executions for one envelope. The key must cover the envelope match
-   * (session + tool/args/cwd fingerprint). Non-reentrant: fn must not call
-   * runExclusive with the same key. */
+  /** Serialize concurrent identical retries across the precheck-to-consume
+   * gap; without this, two in-flight copies both pass precheck and the gate
+   * allows two executions for one envelope. Key covers session +
+   * tool/args/cwd fingerprint. Non-reentrant for the same key. */
   async runExclusive<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.turns.get(key) ?? Promise.resolve();
     let release!: () => void;
@@ -243,9 +234,9 @@ export class WorkerGrantStore {
     return undefined;
   }
 
-  /** Still-pending envelope for the same exact denied call (dedupes reactor
-   * retries that mint fresh call ids for the same tool + normalized args).
-   * Sweeps overdue envelopes first so a lapse can never read as pending. */
+  /** Pending envelope for the same denied call: reactor retries mint fresh
+   * call ids for the same tool + args. Sweeps overdue envelopes first so a
+   * lapse never reads as pending. */
   pendingMatch(
     sessionId: string,
     canonicalTool: string,
@@ -268,14 +259,11 @@ export class WorkerGrantStore {
     return undefined;
   }
 
-  /** Attach the harness envelope to the worker's ask_director record: stamps
-   * the questionId so the parent's retry references it. When the ask names
-   * its denial (the grant requestId quoted from the deny reason), bind that
-   * exact envelope — first-pending-wins would join question-about-B to
-   * exact-call-A when two denies share a session. A named id resolving to no
-   * pending own-session envelope fails closed with no attach. An unnamed ask
-   * keeps the legacy first-pending bind for the single-deny case. Sweeps
-   * overdue envelopes first: an ask can never join an expired denial. */
+  /** Stamp the questionId so the parent's retry references the envelope. A
+   * named requestId binds its exact denial (first-pending would join a
+   * question about B to call A); an unnamed ask keeps the legacy
+   * first-pending bind. Unresolvable ids fail closed; overdue envelopes
+   * sweep first. */
   attachToAsk(
     sessionId: string,
     questionId: string,
@@ -304,19 +292,13 @@ export class WorkerGrantStore {
   }
 
   /**
-   * Execution backstop pre-check for a worker call: fail closed when the exact
-   * call identity matches a terminal envelope (replay, interrupt) or a
-   * tampered cwd. Envelopes from other sessions never veto this session:
-   * each session mints and spends its own envelope through its own grant
-   * round. An EXPIRED envelope is
-   * marked and skipped instead of denying: the lapsed window must yield a
-   * fresh gate round that mints a fresh envelope, never a blackhole the
-   * worker can never re-ask out of. Pending own envelopes and unknown calls
-   * return ok and continue down the normal gate path — prose and send_input
-   * text never reach this check as authority.
-   * The cwd anchor binds the retry to the denied cwd: a covering session grant
-   * is not cwd-scoped, so without this check the same args from another
-   * directory would ride the parent's approval.
+   * Execution backstop: fail closed when the exact call matches a terminal
+   * envelope (replay, interrupt) or a tampered cwd. Expired envelopes are
+   * marked and skipped, not denied, so the retry mints a fresh envelope
+   * instead of blackholing the worker. Other sessions' envelopes never veto
+   * this session. Unknown calls fall through to the normal gate path. The
+   * cwd anchor binds the retry to the denied cwd: a session grant is not
+   * cwd-scoped, so the same args from another directory must not ride it.
    */
   precheck(
     identity: WorkerCallIdentity,
@@ -326,11 +308,9 @@ export class WorkerGrantStore {
     const fingerprint = fingerprintOf(identity);
     for (const envelope of this.envelopes.values()) {
       if (envelope.argsFingerprint !== fingerprint) continue;
-      // Another session's envelope never vetoes this session: each session
-      // mints and spends its own envelope through its own grant round, so a
-      // sibling's pending or consumed envelope is irrelevant here. (Reactor
-      // retries share the worker's session, so consume-once within the session
-      // survives this scoping.)
+      // Only own-session envelopes can veto: a sibling's envelope is
+      // irrelevant here (reactor retries share this session, so consume-once
+      // survives).
       if (
         envelope.canonicalTool !== identity.canonicalTool ||
         envelope.workerSessionId !== identity.sessionId
@@ -365,20 +345,15 @@ export class WorkerGrantStore {
       }
       return { ok: true };
     }
-    // Phase 2 (by design, do not tighten here): a call whose fingerprint
-    // matches no envelope falls through to the normal gate path, where a
-    // broad parent session grant can cover more than the exact denied
-    // subject. Binding the grant to the envelope args needs the dedicated
-    // atomic grant-and-retry verb.
+    // Unmatched calls fall through to the normal gate path, where a broad
+    // session grant can cover more than the exact denied subject. Binding
+    // the grant to the envelope args is a Phase 2 follow-up.
     return { ok: true };
   }
 
-  /**
-   * Consume the pending own-session envelope when the exact call is allowed
-   * (the parent's operator grant now covers it): exactly one retry per
-   * requestId. Returns the consumed envelope, or undefined when no pending
-   * envelope matches (normal allow, nothing to consume).
-   */
+  /** Spend the pending own-session envelope on the exact allowed call: one
+   * retry per requestId. Returns the envelope, or undefined when nothing
+   * pending matches. */
   consumeOnAllow(
     identity: WorkerCallIdentity,
   ): WorkerDeniedCallEnvelope | undefined {
@@ -402,9 +377,9 @@ export class WorkerGrantStore {
   }
 
   /** Interrupt invalidation: tombstone the session's envelopes so a later
-   * replay fails closed with a truthful blocker instead of falling through
-   * to whatever grant the gate now holds. Retained completion keeps pending
-   * envelopes — the retained resume_agent retry is the Phase 1 retry path. */
+   * replay fails closed instead of riding whatever grant the gate now holds.
+   * Retained completion keeps pending envelopes — the retained resume_agent
+   * retry is the Phase 1 retry path. */
   invalidateSession(sessionId: string, reason: string): number {
     let invalidated = 0;
     for (const envelope of this.envelopes.values()) {
@@ -420,11 +395,8 @@ export class WorkerGrantStore {
     return invalidated;
   }
 
-  /** Lazy-expiry engine: marks overdue pending envelopes expired with an
-   * audit event. Every pendency read (precheck, pendingMatch,
-   * pendingForSession, attachToAsk) sweeps through here so a lapsed window
-   * can never read as pending; no periodic scheduler exists, and none is
-   * needed while every read enforces the TTL. */
+  /** Lazy expiry: every pendency read sweeps overdue envelopes to expired, so
+   * a lapsed window never reads as pending. No periodic scheduler is needed. */
   sweepExpired(now = Date.now()): number {
     let expired = 0;
     for (const envelope of this.envelopes.values()) {
@@ -474,8 +446,8 @@ export class WorkerGrantStore {
 
 let processStore: WorkerGrantStore | undefined;
 
-/** Process-shared sidecar: the worker deny side registers, the parent
- * observes/consumes — same single-use truth, no message-text authority. */
+/** Process-shared sidecar: the worker registers, the parent observes and
+ * consumes — single-use truth, no message-text authority. */
 export function getProcessWorkerGrantStore(): WorkerGrantStore {
   if (processStore === undefined) processStore = new WorkerGrantStore();
   return processStore;
