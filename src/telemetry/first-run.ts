@@ -17,8 +17,8 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "telemetry", "first-run"]);
 
 // True while telemetry would run but the disclosure has never been shown.
 // Startup holds the disabled no-op singleton for the whole launch in this
-// state; nothing is ever sent before the user has had the notice in front
-// of them and taken an affirmative action (see activateHeldTelemetry).
+// state; nothing is sent until the user has seen the notice and taken an
+// affirmative action (see activateHeldTelemetry).
 export function telemetryFirstRunPending(
   settings: Settings | null | undefined,
   env: NodeJS.ProcessEnv = process.env,

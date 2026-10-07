@@ -1,11 +1,10 @@
-// Emits PostHog AI observability events ($ai_generation, optionally $ai_span)
-// from a completed turn, in the same privacy mode as product telemetry: only
-// ids, enums, and counts ever leave the process. TurnContext already carries
-// tool call arguments and results for lifecycle hooks — this module reads only
-// the scalar/id fields, never the content fields.
+// Emits PostHog AI observability events ($ai_generation, optionally
+// $ai_span) per completed turn, in the same privacy mode as product
+// telemetry: only ids, enums, and counts leave the process. Reads only the
+// scalar/id fields of TurnContext, never content fields.
 //
-// One $ai_generation per turn with tool/subagent aggregates folded on; per-call
-// $ai_span events are opt-in via CORBITS_TELEMETRY_AI_SPANS for debugging.
+// One $ai_generation per turn with tool/subagent aggregates folded on;
+// per-call $ai_span events are opt-in via CORBITS_TELEMETRY_AI_SPANS.
 
 import type { TurnContext } from "../session/hooks.js";
 import { isSubagentToolName } from "../subagent/tool-taxonomy.js";
@@ -23,9 +22,9 @@ import {
   type Telemetry,
 } from "./index.js";
 
-// PostHog reports latency in seconds; the runtime measures durations in
-// milliseconds. Reporting ms under the seconds-typed property inflates every
-// latency by 1000x and still renders plausibly.
+// PostHog reports latency in seconds; the runtime measures in milliseconds.
+// Reporting ms under the seconds-typed property inflates every latency by
+// 1000x and still renders plausibly.
 const MS_PER_SECOND = 1000;
 
 // These adapters share the normalized Chat Completions usage parser.
@@ -40,38 +39,38 @@ export function secondsFromMs(durationMs: number): number {
   return durationMs / MS_PER_SECOND;
 }
 
-// Scoped to the runtime's per-session id rather than the process-wide
-// telemetry session id: sub-agents run in this same process, so a
-// process-wide scope would give a parent's turn 3 and a sub-agent's turn 3
-// the same trace id and silently merge two unrelated traces.
+// Scoped to the runtime's per-session id, not the process-wide telemetry
+// session id: sub-agents run in this same process, so a process-wide scope
+// would give a parent's turn 3 and a sub-agent's turn 3 the same trace id
+// and silently merge two unrelated traces.
 export function turnTraceId(sessionId: string, turnIndex: number): string {
   return `${sessionId}:turn:${turnIndex}`;
 }
 
-// Maps a tool call to a fixed span kind. Takes the tool's canonical name so
-// this module stays independent of tool implementations.
+// Maps a tool call to a fixed span kind. Takes the canonical name so this
+// module stays independent of tool implementations.
 export function classifySpanKind(toolName: string): AiSpanKind {
   return isSubagentToolName(toolName) ? "subagent_call" : "tool_call";
 }
 
-// Word-bounded so a status code is only read where one was actually written.
-// A bare substring match reads "used 1401 tokens" as an auth rejection and
-// "retry after 4290ms" as a rate limit, which is a misclassification that
-// looks entirely plausible in a dashboard.
+// Word-bounded so a status code is read only where one was written: a bare
+// substring match reads "used 1401 tokens" as an auth rejection and "retry
+// after 4290ms" as a rate limit, a misclassification that looks plausible
+// in a dashboard.
 const RATE_LIMIT_STATUS = /\b429\b/;
 const AUTH_STATUS = /\b(?:401|403)\b/;
 
-// Reduces a provider error to a fixed reason. The message itself is never
-// sent: it routinely embeds the request URL, the offending prompt, or a
-// local file path.
+// Reduces a provider error to a fixed reason. The message is never sent: it
+// routinely embeds the request URL, the offending prompt, or a local file
+// path.
 export function classifyErrorKind(message: string): AiErrorKind {
   const text = message.toLowerCase();
   if (text.includes("rate limit") || RATE_LIMIT_STATUS.test(text))
     return "rate_limit";
   if (text.includes("unauthorized") || AUTH_STATUS.test(text)) return "auth";
-  // Ahead of the timeout check: the runtime aborts the in-flight call when a
-  // total timeout fires, so its message names both, and what the user did —
-  // or had done to their turn — is the more useful of the two readings.
+  // Before the timeout check: the runtime aborts the in-flight call when a
+  // total timeout fires, so its message names both; what the user did — or
+  // had done to their turn — is the more useful reading.
   if (text.includes("abort") || text.includes("cancel")) return "cancelled";
   if (text.includes("timeout") || text.includes("timed out")) return "timeout";
   return "inference_failed";
@@ -141,11 +140,10 @@ function shouldSampleSuccessfulGeneration(
   return random() < rate;
 }
 
-// Called once per completed turn. Emits one $ai_generation with tool/subagent
-// aggregates; per-call $ai_span events only when CORBITS_TELEMETRY_AI_SPANS
-// is truthy. The trace is flat by construction (every span's parent is the
-// trace id), so PostHog synthesises it from the children and no $ai_trace
-// event is emitted.
+// Called once per completed turn. Emits one $ai_generation with
+// tool/subagent aggregates; per-call $ai_span events only when
+// CORBITS_TELEMETRY_AI_SPANS is truthy. The trace is flat by construction
+// (every span parents onto the trace id), so no $ai_trace event is emitted.
 export function emitAiObservability(
   telemetry: Telemetry,
   ctx: TurnContext,
@@ -154,13 +152,13 @@ export function emitAiObservability(
   const env = options.env ?? process.env;
   const random = options.random ?? Math.random;
   const traceId = turnTraceId(options.sessionId, ctx.turnIndex);
-  // Remember for intentional /feedback linking (works even when ambient capture
-  // is a no-op because this call still computes the id).
+  // Remember for intentional /feedback linking (works even when ambient
+  // capture is a no-op — this call still computes the id).
   noteLastTurnTraceId(traceId);
 
   if (!shouldSampleSuccessfulGeneration(env, random)) {
     // Sampling drops the whole turn package, including opt-in `$ai_span`s —
-    // a span without its parent generation is not useful in PostHog traces.
+    // a span without its parent generation is not useful.
     return;
   }
 
@@ -169,9 +167,9 @@ export function emitAiObservability(
 
   telemetry.capture("$ai_generation", {
     $ai_trace_id: traceId,
-    // The canonical provider kind, never ctx.source.sourceId: sourceId is the
-    // user-typed label from onboarding/settings, and free text must not leave
-    // the process under the no-PII contract.
+    // Canonical provider kind, never ctx.source.sourceId: sourceId is the
+    // user-typed label from onboarding/settings, and free text must not
+    // leave the process under the no-PII contract.
     $ai_provider: ctx.source.provider,
     $ai_model: ctx.source.model,
     $ai_input_tokens: ctx.usage.input,
@@ -195,8 +193,8 @@ export function emitAiObservability(
     const result = byCallId.get(call.id);
     telemetry.capture("$ai_span", {
       $ai_trace_id: traceId,
-      // The provider's own opaque call id, which is what makes it safe to
-      // send: it identifies the call within the trace and nothing else.
+      // The provider's opaque call id: it identifies the call within the
+      // trace and nothing else, which is what makes it safe to send.
       $ai_span_id: call.id,
       $ai_parent_id: traceId,
       $ai_span_name: classifySpanKind(call.name),
@@ -205,7 +203,7 @@ export function emitAiObservability(
   }
 }
 
-// The canonical provider kind and model id a turn ran against. Never the
+// Canonical provider kind and model id a turn ran against. Never the
 // sourceId: that is the free-text label the user typed in onboarding or
 // settings.
 export interface TurnSource {
@@ -216,16 +214,16 @@ export interface TurnSource {
 export interface EmitAiTurnFailureOptions {
   sessionId: string;
   turnIndex: number;
-  // The failed turn has no TurnContext to read its source from, so the caller
-  // supplies it — without these, "which model is rate-limiting us" has no
-  // answer.
+  // The failed turn has no TurnContext to read its source from, so the
+  // caller supplies it; without these, "which model is rate-limiting us"
+  // has no answer.
   source: TurnSource;
   // The raw provider message, classified here and never forwarded.
   error: string;
 }
 
 // Called when a turn ends without completing. Emits the $ai_generation the
-// turn never got to emit, marked as an error, with no token counts or latency
+// turn never got, marked as an error, with no token counts or latency
 // because the turn produced none. Errored generations always ship — no
 // sampling gate.
 export function emitAiTurnFailure(
@@ -242,15 +240,15 @@ export function emitAiTurnFailure(
 }
 
 export interface CreateTurnObserverOptions {
-  // Read per emission because the TUI replaces the telemetry handle when the
-  // user toggles the setting mid-session.
+  // Read per emission: the TUI replaces the telemetry handle when the user
+  // toggles the setting mid-session.
   telemetry: () => Telemetry;
-  // Also read per emission: starting a new session reassigns the runtime
-  // session id in this same process, and a trace id built from a captured
-  // one would file the new session's turns under the old session's traces.
+  // Also read per emission: a new session reassigns the runtime session id
+  // in this process, and a captured id would file the new session's turns
+  // under the old session's traces.
   getSessionId: () => string;
-  // The currently selected source. It is safe failure attribution only when
-  // its model matches the model named by the latest inference.start.
+  // The currently selected source. Safe failure attribution only when its
+  // model matches the model named by the latest inference.start.
   getSource: () => TurnSource;
 }
 
@@ -268,8 +266,9 @@ function failedAttemptSource(
   return { provider: UNKNOWN_INFERENCE_PROVIDER, model: attemptedModel };
 }
 
-// Binds the emitters to the live session and source, keeping the "read it now,
-// do not capture it" rule in one place instead of at each call site.
+// Binds the emitters to the live session and source, keeping the
+// "read it now, do not capture it" rule in one place instead of at each
+// call site.
 export function createTurnObserver(options: CreateTurnObserverOptions): {
   onTurnStarted: (info: { turnIndex: number; model: string }) => void;
   onTurnSourceObserved: (info: {

@@ -140,11 +140,10 @@ test("capture called immediately after toggle-off makes zero fetch calls", () =>
   expect(fetchCalls()).toBe(0);
 });
 
-// Opting out is a statement about activity already generated, not only
-// activity to come: events captured before the toggle must never be sent
-// afterwards. Dropping the singleton is not enough — the outgoing instance's
-// batch timer would still fire and post its queue — so this test guards the
-// explicit discard.
+// Opting out covers activity already generated, not only activity to come:
+// events captured before the toggle must never be sent afterwards. Dropping
+// the singleton is not enough — the outgoing instance's batch timer would
+// still fire and post its queue — so this test guards the explicit discard.
 test("opting out discards events captured before the toggle instead of sending them", async () => {
   let sends = 0;
   const fetchFn = (() => {

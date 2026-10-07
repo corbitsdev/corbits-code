@@ -25,9 +25,9 @@ export const FEEDBACK_UNCONFIGURED =
   "Feedback is not configured (missing survey id).";
 
 /**
- * Corbits team survey — public routing ids (same trust class as the baked-in
- * PostHog project key). Operators never set these. Env override is for tests
- * and forks: when the env key is present (even empty), it wins over the default.
+ * Corbits team survey — public routing ids (same trust class as the
+ * baked-in PostHog project key). Operators never set these. Env override is
+ * for tests and forks: when the env key is present (even empty), it wins.
  */
 export const DEFAULT_FEEDBACK_SURVEY_ID =
   "019fe7ff-d12a-0000-7a63-303f3a874b90";
@@ -37,7 +37,7 @@ export const FEEDBACK_QUESTION_TEXT =
   "What feedback do you have about Corbits Code?";
 
 function envOverride(env: NodeJS.ProcessEnv, key: string): string | undefined {
-  // Present key wins (including empty → fail closed for tests/forks).
+  // Present key wins, including empty (fail closed for tests/forks).
   if (!Object.prototype.hasOwnProperty.call(env, key)) return undefined;
   return (env[key] ?? "").trim();
 }
@@ -101,11 +101,11 @@ export function buildSurveyProperties(
 }
 
 /**
- * Capture intentional survey response. Empty/whitespace-only text is not sent.
- * Missing survey/question ids fail closed. On success the event is enqueued and
- * flushed immediately (fire-and-forget) — not held for the ambient batch timer.
- * Status "sent" means the capture path accepted the payload; delivery is best-
- * effort over the network and is not awaited on the operator path.
+ * Capture intentional survey response. Empty/whitespace-only text is not
+ * sent; missing survey/question ids fail closed. On success the event is
+ * enqueued and flushed immediately (fire-and-forget), not held for the
+ * ambient batch timer. "sent" means the capture path accepted the payload;
+ * delivery is best-effort and not awaited on the operator path.
  */
 export function captureFeedback(
   telemetry: Telemetry,
@@ -127,8 +127,8 @@ export function captureFeedback(
     buildSurveyProperties(trimmed, options),
   );
   if (!ok) return "blocked";
-  // Deterministic handoff to PostHog — not part of the agent loop. Flush so
-  // the response is not sitting in the ambient batch queue until idle exit.
+  // Deterministic handoff to PostHog, not part of the agent loop: flush so
+  // the response does not sit in the ambient batch queue until idle exit.
   void telemetry.flush();
   return truncated ? "sent_truncated" : "sent";
 }
@@ -155,9 +155,9 @@ export function feedbackResultMessage(
 let feedbackCapturePending = false;
 
 /**
- * Tiny cell for a turn trace id: remembers the id, ignoring blank writes.
- * Both the last-completed-turn and in-flight-turn ids share this
- * guard-plus-cell shape, so it lives here once.
+ * Cell for a turn trace id: remembers the id, ignoring blank writes. Both
+ * the last-completed-turn and in-flight-turn ids share this shape, so it
+ * lives here once.
  */
 function createTraceCell(): {
   note: (traceId: string) => void;
@@ -211,9 +211,9 @@ export function getLastTurnTraceId(): string | undefined {
 }
 
 /**
- * Remember the in-flight turn's `$ai_trace_id` so `subagent_end` links to the
- * turn still running at `spawn_agent` dispatch, not the previous completed
- * turn.
+ * Remember the in-flight turn's `$ai_trace_id` so `subagent_end` links to
+ * the turn still running at `spawn_agent` dispatch, not the previous
+ * completed turn.
  */
 export function noteCurrentTurnTraceId(traceId: string): void {
   currentTurnTraceIdCell.note(traceId);

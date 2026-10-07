@@ -4,8 +4,8 @@ import pkg from "../../package.json" with { type: "json" };
 import { ENV_PREFIX } from "../branding.js";
 import type { Settings } from "../config/settings.js";
 
-// Compiled-in defaults, overridable via env for testing. An empty API key
-// disables export entirely regardless of the enabled flag.
+// Compile-time defaults, env-overridable for tests. An empty API key
+// disables export even when the flag says enabled.
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
 const DEFAULT_POSTHOG_API_KEY =
   "phc_BWpXcEx3XBH2EiuNi3fXrdzfgnfbVe4WbVyfR8r5KbLp";
@@ -22,15 +22,12 @@ export const POSTHOG_HOST =
 export const POSTHOG_API_KEY =
   process.env[TELEMETRY_KEY_ENV] ?? DEFAULT_POSTHOG_API_KEY;
 
-// Upper bound on how long flush() may hold up process exit; anything still
-// in flight past this is dropped.
+// Upper bound on how long flush() may hold up exit; anything past it drops.
 const FLUSH_DEADLINE_MS = 500;
 
-// Batching defaults. A busy turn can emit an event per tool call, so events
-// accumulate until either trigger fires rather than opening a socket each
-// time. The queue limit bounds memory when the endpoint is unreachable —
-// a captive portal or hung proxy would otherwise grow the queue for the
-// whole session behind a single stuck request.
+// Batching defaults: events accumulate until size or interval fires instead
+// of one socket per event. The queue limit caps memory when the endpoint is
+// unreachable.
 const DEFAULT_BATCH_SIZE = 20;
 const DEFAULT_BATCH_INTERVAL_MS = 10_000;
 const DEFAULT_QUEUE_LIMIT = 500;
@@ -42,9 +39,8 @@ export interface BatchTuning {
   queueLimit?: number;
 }
 
-// Shown once per installation, in whichever surface a new user reaches
-// first: the onboarding panel on a fresh install (so disclosure accompanies
-// the very first event), and the TUI banner otherwise.
+// Shown once per install on the first surface a new user reaches: the
+// onboarding panel on a fresh install, the TUI banner otherwise.
 export const TELEMETRY_NOTICE =
   "Anonymous usage telemetry is enabled (no prompts, code, or paths collected). Free text only leaves via /feedback if you send it. Disable ambient events in /settings > Telemetry; DO_NOT_TRACK / CORBITS_TELEMETRY=0 blocks all telemetry including feedback. Docs: docs/TELEMETRY.md";
 
@@ -66,23 +62,19 @@ export type TelemetryEvent =
   | "auth_success"
   | "mcp_connect"
   | "mcp_oauth"
-  // PostHog Surveys event name (space included). Intentional operator feedback
-  // from /feedback — can ship when ambient product telemetry is off; still
-  // blocked by env kill switches. See captureIntentional.
+  // PostHog Surveys event name (space included). Intentional /feedback —
+  // can ship with ambient telemetry off; still blocked by env kills.
   | "survey sent";
 
-// Fixed enum of AI observability span names. The raw tool name is never sent
-// as a property: an MCP tool name carries the server identifier it was
-// configured under (`mcp__<server>__<tool>`), which can be a local path or
-// otherwise identifying string. Callers map a tool call to one of these
-// kinds before capturing "$ai_span".
+// Fixed span-name enum. Raw tool names never ship: an MCP tool id carries
+// its configured server identifier (`mcp__<server>__<tool>`), which can be
+// a local path. Callers classify a tool call before capturing "$ai_span".
 export const AI_SPAN_KINDS = ["tool_call", "subagent_call"] as const;
 export type AiSpanKind = (typeof AI_SPAN_KINDS)[number];
 
-// Fixed enum of AI observability error reasons. A provider error message is
-// free text that routinely carries request URLs, prompt excerpts, and file
-// paths, so the message itself never leaves the process — callers classify
-// it into one of these before capturing.
+// Fixed error-reason enum. Provider error text is free text with URLs,
+// prompt excerpts, and paths, so it never leaves the process; callers
+// classify before capturing.
 export const AI_ERROR_KINDS = [
   "rate_limit",
   "auth",
@@ -93,20 +85,18 @@ export const AI_ERROR_KINDS = [
 export type AiErrorKind = (typeof AI_ERROR_KINDS)[number];
 
 // One id per interactive process (TUI session or CLI invocation), generated
-// once at module load and reused by every createTelemetry() instance —
-// including across the toggle's enable/disable re-creation — so PostHog
-// groups every event this process emits into one session. Future emitters
-// (AI turn events, feedback) read it via getSessionId().
+// once at module load and reused by every instance — including across the
+// toggle's re-creation — so PostHog groups this process's events into one
+// session. Other emitters read it via getSessionId().
 const SESSION_ID = randomUUID();
 
 export function getSessionId(): string {
   return SESSION_ID;
 }
 
-// Per-event property allowlist. Anything not listed here is stripped before
-// the payload leaves the process. Together with the fixed common properties
-// capture() appends ($app_version, service_version, os_type, os_arch,
-// schema_version, session_id), this bounds everything telemetry can ever contain.
+// Per-event property allowlist; anything else is stripped before send. With
+// the fixed common props capture() appends, this bounds everything
+// telemetry can contain.
 const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   cli_start: ["surface"],
   session_end: [
@@ -116,13 +106,10 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
     "session_mode",
     "exit_reason",
   ],
-  // PostHog's LLM analytics views read only the $ai_-prefixed properties;
-  // unprefixed fields arrive but no trace, cost, or latency view queries
-  // them. $ai_provider/$ai_model are canonical runtime ids, never the
-  // free-text name a user gave in onboarding or settings. $ai_latency is in
-  // seconds, per PostHog's schema; cache/reasoning counts use PostHog's
-  // documented cost-property names ($ai_cache_read_input_tokens,
-  // $ai_cache_creation_input_tokens, $ai_reasoning_tokens).
+  // PostHog's LLM analytics views query only $ai_-prefixed properties.
+  // $ai_provider/$ai_model are canonical runtime ids, never user-typed
+  // names. $ai_latency is seconds per PostHog's schema; cache/reasoning
+  // counts use PostHog's documented cost-property names.
   $ai_generation: [
     "$ai_trace_id",
     "$ai_provider",
@@ -142,9 +129,9 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
     "subagent_call_count",
   ],
 
-  // The trace is flat: every span's $ai_parent_id is the turn's $ai_trace_id
-  // (legal per PostHog, and all the runtime can describe — TurnContext only
-  // sees top-level tool calls). $ai_span_name is one of AI_SPAN_KINDS only.
+  // Flat trace: every span parents onto the turn's $ai_trace_id (TurnContext
+  // only sees top-level tool calls). $ai_span_name is always one of
+  // AI_SPAN_KINDS.
   $ai_span: [
     "$ai_trace_id",
     "$ai_span_id",
@@ -152,16 +139,15 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
     "$ai_span_name",
     "$ai_is_error",
   ],
-  // Every identifier below is a first-party enum produced by
-  // src/telemetry/classify.ts, not the name the user or author wrote. The
-  // allowlist bounds which keys travel; the classifiers bound which values
-  // can, and the two are independent guards on purpose.
+  // All identifiers are first-party enums from classify.ts, never user or
+  // author names. The allowlist bounds keys; the classifiers bound values;
+  // independent guards on purpose.
   slash_command: ["command_name"],
-  // skill_name is a first-party corbits-skills name (see classifySkillName)
-  // or "custom" — project- or plugin-authored names never leave the process.
+  // skill_name is a bundled corbits-skills name (see classifySkillName) or
+  // "custom" — project/plugin names never ship.
   skill_used: ["skill_name"],
-  // origin is the discovery tier (repo/user/project/path); the manifest id is
-  // author-chosen free text and is not sent.
+  // origin is the discovery tier (repo/user/project/path); the manifest id
+  // is author-chosen free text, not sent.
   plugin_loaded: ["origin"],
   subagent_start: ["agent_name"],
   subagent_end: [
@@ -189,29 +175,27 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
     "turns_after",
     "live_tokens",
   ],
-  // provider/model are the canonical runtime ids (same trust class as
-  // $ai_provider/$ai_model); error_kind is the summarizer's first-party
-  // failure enum, never the provider's error text.
+  // provider/model are canonical runtime ids (same trust class as
+  // $ai_provider/$ai_model); error_kind is a first-party enum, never the
+  // provider's error text.
   summarizer_failure: ["provider", "model", "error_kind", "duration_ms"],
   crash: ["kind", "error_class"],
-  // Which provider rejected the credentials, not why — the rejection detail is
-  // provider-authored text and error_class means a JS constructor name.
+  // Which provider rejected, not why — the rejection detail is provider-
+  // authored text; error_class is a JS constructor name.
   auth_failure: ["auth_provider"],
-  // Which provider accepted the credentials during provider setup (OAuth login
-  // or validated API key), as the same first-party enum auth_failure reports —
-  // never the settings catalog name, which is operator-authored free text.
+  // Which provider accepted credentials during setup (OAuth login or
+  // validated API key), same first-party enum as auth_failure — never the
+  // settings catalog name (operator-authored free text).
   auth_success: ["auth_provider"],
-  // The outcome of one MCP server connection attempt: transport is the
-  // connect-path predicate (http vs stdio), never the server name or URL, and
-  // result is the settled outcome, never the error text.
+  // One MCP connection attempt: transport is http vs stdio, never the server
+  // name or URL; result is the settled outcome, never the error text.
   mcp_connect: ["transport", "result"],
-  // The outcome of one MCP browser-OAuth callback wait: completed when the
-  // authorization code arrived, cancelled when the operator abandoned or
-  // denied it, timed out when the wait expired. Carries no server identity.
+  // One MCP browser-OAuth wait outcome: completed, cancelled (operator
+  // abandoned/denied), or timed out. No server identity.
   mcp_oauth: ["result"],
-  // Intentional /feedback survey response (PostHog custom survey capture shape).
-  // Free text is only sent because the operator typed it for that purpose.
-  // turn_trace_id links to the last $ai_generation in this session when known.
+  // Intentional /feedback survey response (PostHog custom survey shape).
+  // Free text only because the operator typed it for that purpose.
+  // turn_trace_id links the last $ai_generation when known.
   "survey sent": [
     "$survey_id",
     "$survey_questions",
@@ -222,8 +206,8 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
 
 const FALSY_ENV_FLAG_VALUES = new Set(["", "0", "false", "off", "no"]);
 
-// Trimmed so .env files and shell scripts that produce " 0" or "false\n"
-// still count as an opt-out — opt-out parsing must fail toward disabled.
+// Trimmed so ".env" files and shell " 0"/"false\n" values still opt out —
+// opt-out parsing fails toward disabled.
 export function truthyEnvFlag(value: string | undefined): boolean {
   if (value === undefined) return false;
   return !FALSY_ENV_FLAG_VALUES.has(value.trim().toLowerCase());
@@ -244,19 +228,17 @@ export function generationSampleRate(
   const raw = env[TELEMETRY_GENERATION_SAMPLE_RATE_ENV];
   if (raw === undefined) return 1;
   const trimmed = raw.trim();
-  // Empty env ("CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE=") is unset, not 0 —
-  // Number("") is 0 and would silently drop every successful generation.
+  // Empty env is unset, not 0 — Number("") is 0 and would silently drop
+  // every successful generation.
   if (trimmed.length === 0) return 1;
   const parsed = Number(trimmed);
   if (!Number.isFinite(parsed)) return 1;
   return Math.min(1, Math.max(0, parsed));
 }
 
-// Env kills win over everything and require no settings at all — callers use
-// this to skip settings writes (installationId generation) entirely.
-// CORBITS_TELEMETRY set to any falsy value ("0", "false", "off", "")
-// disables, through the same flag parsing as DO_NOT_TRACK, so the two kill
-// switches agree on what counts as "off".
+// Env kills win over settings and need none — callers skip settings writes
+// entirely. Falsy CORBITS_TELEMETRY and truthy DO_NOT_TRACK share the same
+// flag parsing, so the two switches agree on what counts as "off".
 export function telemetryDisabledByEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -265,8 +247,8 @@ export function telemetryDisabledByEnv(
   return truthyEnvFlag(env.DO_NOT_TRACK);
 }
 
-// Fail closed: telemetry only runs when explicitly not disabled, the DNT
-// convention is absent, and a real installation id and API key exist.
+// Fail closed: runs only when not disabled, DNT is absent, and a real
+// installation id and API key exist.
 export function resolveTelemetryEnabled(
   settings: Settings | null | undefined,
   env: NodeJS.ProcessEnv = process.env,
@@ -292,8 +274,8 @@ function allowedProperties(
   const allowed = EVENT_PROPERTY_ALLOWLIST[event];
   const result: Record<string, unknown> = {};
   for (const key of allowed) {
-    // Own-property only: `in` would pick "constructor" or "toString" off
-    // Object.prototype and ship a function as a property value.
+    // Own-property only: `in` would pull "constructor"/"toString" off
+    // Object.prototype and ship a function as a value.
     if (Object.hasOwn(properties, key)) result[key] = properties[key];
   }
   return result;
@@ -306,9 +288,9 @@ export interface CreateTelemetryOptions {
   host?: string;
   apiKey?: string;
   batch?: BatchTuning;
-  // Upper bound on how long flush() may hold up process exit, in ms.
-  // Defaults to FLUSH_DEADLINE_MS; tests override this so the give-up
-  // contract is exercised without paying the production 500ms.
+  // Upper bound on how long flush() may hold up exit, in ms. Defaults to
+  // FLUSH_DEADLINE_MS; tests override to exercise the give-up contract
+  // without paying the production 500ms.
   flushDeadlineMs?: number;
 }
 
@@ -321,41 +303,37 @@ interface QueuedEvent {
 export interface Telemetry {
   enabled: boolean;
   /**
-   * Installation distinct id used as PostHog `distinct_id`. Empty when the
-   * instance has no identity (held first-run no-op, or never generated).
-   * Exposed so ambient opt-out can preserve identity for intentional capture.
+   * PostHog `distinct_id`. Empty when the instance has no identity (held
+   * first-run no-op). Exposed so ambient opt-out can preserve identity for
+   * intentional capture.
    */
   installationId: string;
   capture(event: TelemetryEvent, properties?: Record<string, unknown>): void;
   /**
-   * Intentional capture that can run when ambient product telemetry is off
-   * (`settings.telemetry.enabled === false`). Only `"survey sent"` is accepted —
-   * this is not a second ambient path. Still blocked by env kill switches
-   * (`DO_NOT_TRACK`, `CORBITS_TELEMETRY=0`), a missing installation id, or a
-   * missing API key. Does not re-enable ambient events.
+   * Intentional capture that runs when ambient telemetry is off. Only
+   * `"survey sent"` is accepted — not a second ambient path. Still blocked by
+   * env kills, a missing installation id, or a missing API key; never
+   * re-enables ambient events.
    * @returns true when the event was queued for send
    */
   captureIntentional(
     event: TelemetryEvent,
     properties?: Record<string, unknown>,
   ): boolean;
-  // Sends whatever is queued and waits briefly for it to settle, giving up
-  // after a short deadline so a slow endpoint can never hold up process
-  // exit. Callers use this to bound exit against dropped fire-and-forget
-  // requests without ever making capture() itself blocking.
+  // Sends queued events and waits up to a short deadline so a slow endpoint
+  // can never hold up exit; capture() itself never blocks.
   flush(): Promise<void>;
-  // Throws away everything queued and disarms the batch timer, so nothing
-  // captured before this call can reach the network. Opting out uses this:
-  // a user who stops mid-session does not want the activity already generated
-  // sent — discarding is the honest reading, flushing a betrayal.
+  // Drops the queue and disarms the batch timer so nothing captured before
+  // this call ships. Opting out uses this: a user who stops mid-session
+  // does not want already-generated activity sent — discarding is the
+  // honest reading, flushing a betrayal.
   discard(): void;
 }
 
-// Stand-in for callers that were constructed without a telemetry handle —
-// tests, and any code path that runs before startup has built the real one.
-// Modules take Telemetry as an injected dependency rather than reaching for a
-// global, and this is what makes "not injected" mean "emits nothing" instead
-// of "throws".
+// Stand-in for callers without a telemetry handle — tests, and code that
+// runs before startup builds the real one. Modules inject Telemetry rather
+// than reaching for a global, so "not injected" means "emits nothing", not
+// "throws".
 export const NOOP_TELEMETRY: Telemetry = {
   enabled: false,
   installationId: "",
@@ -365,9 +343,9 @@ export const NOOP_TELEMETRY: Telemetry = {
   discard: () => undefined,
 };
 
-// Fire-and-forget PostHog batch client. Never throws, never blocks the
-// caller — errors (including timeouts) are swallowed silently since
-// telemetry must never affect product behavior.
+// Fire-and-forget PostHog batch client. Never throws or blocks; errors
+// (including timeouts) are swallowed since telemetry must never affect
+// product behavior.
 export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
   const env = options.env ?? process.env;
   const host = options.host ?? POSTHOG_HOST;
@@ -375,9 +353,9 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
   const enabled = resolveTelemetryEnabled(options.settings, env, apiKey);
   const fetchFn = options.fetchFn ?? fetch;
   const installationId = options.settings?.telemetry?.installationId ?? "";
-  // Intentional events (operator /feedback) may ship when ambient is
-  // settings-disabled, but never when env kill switches fire or identity/key
-  // is missing. Does not re-enable ambient capture.
+  // Intentional /feedback may ship when ambient is settings-disabled, never
+  // when env kills fire or identity/key is missing; does not re-enable
+  // ambient capture.
   const intentionalEnabled =
     !telemetryDisabledByEnv(env) &&
     apiKey.length > 0 &&
@@ -416,13 +394,12 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch {
-      // Swallow all errors — telemetry must never surface failures.
+      // Swallow all errors — telemetry never surfaces failures.
     }
   }
 
-  // Returns the existing drain when one is running so at most one request is
-  // ever open: events captured mid-flight are picked up by that drain's next
-  // iteration instead of opening a second socket.
+  // Reuses the running drain so at most one request is open; mid-flight
+  // captures join that drain's next iteration.
   function drain(): Promise<void> {
     if (inFlight !== null) return inFlight;
     const running = (async () => {
@@ -441,9 +418,8 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     properties: Record<string, unknown> | undefined,
     mode: "ambient" | "intentional",
   ): void {
-    // Own-property only: `in` walks Object.prototype, so capture("toString")
-    // or capture("constructor") would clear the guard this exists to be and
-    // hand allowedProperties a function where it expects an allowlist array.
+    // Own-property only: `in` walks the prototype, so capture("toString") or
+    // capture("constructor") would defeat the allowlist guard.
     if (!Object.hasOwn(EVENT_PROPERTY_ALLOWLIST, event)) return;
 
     queue.push({
@@ -451,15 +427,14 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
       timestamp: new Date().toISOString(),
       properties: {
         ...allowedProperties(event, properties),
-        // Ambient product/AI events are anonymous: PostHog's batch API
-        // defaults to identified processing, so stamp this explicitly
-        // (https://posthog.com/docs/data/anonymous-vs-identified-events).
-        // Intentional /feedback may stay identified so a survey can join a
-        // person profile if one is ever created.
+        // Ambient events are anonymous: PostHog batch defaults to identified
+        // processing, so stamp this explicitly. Intentional /feedback may
+        // stay identified so a survey can join a person profile if one is
+        // ever created.
         ...(mode === "ambient" ? { $process_person_profile: false } : {}),
         // PostHog's built-in Version breakdown reads $app_version; without it
         // every event buckets as "Other". service_version is the same value
-        // kept for dashboards that already filter on the custom property.
+        // kept for dashboards filtering on the custom property.
         $app_version: pkg.version,
         service_version: pkg.version,
         os_type: process.platform,
@@ -469,9 +444,8 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
       },
     });
 
-    // Oldest first: a stuck endpoint makes the head of the queue the least
-    // likely to still be worth reporting, and unbounded growth is never an
-    // acceptable alternative.
+    // Drop oldest first: a stuck endpoint makes the head least worth
+    // reporting; unbounded growth is never acceptable.
     if (queue.length > queueLimit) queue.splice(0, queue.length - queueLimit);
 
     if (queue.length >= batchSize) {
@@ -500,8 +474,8 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     event: TelemetryEvent,
     properties?: Record<string, unknown>,
   ): boolean {
-    // One intentional door: free-text survey only. Ambient product/AI events
-    // must never ride the ambient-bypass path.
+    // One intentional door, free-text survey only; ambient events never ride
+    // the bypass path.
     if (event !== "survey sent") return false;
     if (!intentionalEnabled) return false;
     enqueue(event, properties, "intentional");
@@ -511,8 +485,8 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
   async function flush(): Promise<void> {
     cancelTimer();
     if (queue.length === 0 && inFlight === null) return;
-    // Race against a short deadline: stragglers are dropped rather than
-    // allowed to delay exit for the full per-request AbortSignal window.
+    // Race the deadline: stragglers drop rather than delay exit for the full
+    // per-request AbortSignal window.
     await Promise.race([
       drain(),
       new Promise<void>((resolve) => {
@@ -522,8 +496,8 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     ]);
   }
 
-  // A request already on the wire cannot be unsent, but nothing still held
-  // in memory follows it.
+  // A request already on the wire cannot be unsent; nothing still in memory
+  // follows it.
   function discard(): void {
     cancelTimer();
     queue.length = 0;
