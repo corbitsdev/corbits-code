@@ -1,11 +1,8 @@
 // Main-session runtime assembly shared by runTUI and runExec: layered
 // assemblers, one per bootstrap block the runners used to hand-wire
-// separately. The runners keep only their genuinely distinct surface (TUI
-// chrome, exec I/O, sub-agent stops).
-//
-// runSubAgent reuses the layer-1 primitives (inference deps, pricing seed,
-// context store, attachment transform, summarizer, cycle recorder, compaction
-// continuation) but keeps its own tool/director stack.
+// separately. The runners keep only their distinct surface (TUI chrome, exec
+// I/O, sub-agent stops). runSubAgent reuses the layer-1 primitives but keeps
+// its own tool/director stack.
 
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
@@ -133,8 +130,7 @@ import {
 /**
  * Resolve inference dependencies and re-read the pricing cache. The seed is
  * best-effort: onError logs and continues; without it a seed failure
- * rejects. Workers pass skipPricingSeed — the parent already applied the
- * boot seed.
+ * rejects. Workers pass skipPricingSeed — the parent already boot-seeded.
  */
 export async function assembleInferenceBase(
   onPricingError?: (err: unknown) => void,
@@ -226,8 +222,8 @@ export async function assembleSessionTrust(
 
 /**
  * Load repo-local settings for shell env (and exec's session-mode read).
- * ENOENT maps to null; other failures report to onError when set and return
- * null.
+ * ENOENT maps to null; other failures report to onError (when set) and
+ * return null.
  */
 export async function loadSessionLocalSettings(args: {
   cwd: string;
@@ -284,8 +280,8 @@ export interface SessionGate {
 /**
  * Seed approvals (session → project → global → provider-model) and build the
  * permission gate over roots, persist, and log wiring. Runners differ only
- * in how approval reaches an operator (modal vs stdin) and whether grants
- * are re-emitted — both arrive as callbacks.
+ * in how approval reaches an operator (modal vs stdin) — both arrive as
+ * callbacks.
  */
 export async function assembleSessionGate(
   args: SessionGateArgs,
@@ -348,7 +344,7 @@ export function resolveLiveSessionSources(
   if (selected === undefined) {
     throw new Error("Selected inference source was not assembled");
   }
-  // Candidates and workers must not steal the primary's bare-model overrides;
+  // Candidates/workers must not steal the primary's bare-model overrides;
   // only the live-session rebuild updates that precedence.
   refreshProviderContextWindows(
     config.settings,
@@ -366,19 +362,19 @@ export function resolveLiveSessionSources(
 export interface AdvertisedToolset {
   activated: ActivatedToolTracker;
   computeAdvertised: (all: readonly ToolDefinition[]) => ToolDefinition[];
-  // Whether a name is part of the advertised wire set: built-in prefix,
+  // Whether a name is on the advertised wire set: built-in prefix,
   // project-pinned, or execute-promoted. The dispatch gate keys off this so
   // a registered-but-unadvertised call can intercept instead of failing
   // closed.
   isAdvertised: (name: string) => boolean;
   // Commit activated-but-unadvertised names onto the wire set, in activation
-  // order. Returns whether the wire set grew. Call on promote-on-execute so
-  // the next infer declares that schema, and at cache-safe boundaries
-  // (session start/resume, rotation) for anything still pending.
+  // order; returns whether it grew. Call on promote-on-execute so the next
+  // infer declares that schema, and at cache-safe boundaries (session
+  // start/resume, rotation) for anything still pending.
   flushPromotions: () => boolean;
-  // Fold broke the cache prefix — drop execute-promoted schemas not in the
-  // frozen core/pinned prefix. Discovered names stay callable via intercept.
-  // Returns whether the wire set shrank.
+  // Fold broke the cache prefix — drop execute-promoted schemas outside the
+  // frozen core/pinned prefix. Discovered names stay callable via intercept;
+  // returns whether the wire set shrank.
   pruneIdlePromotions: () => boolean;
 }
 
@@ -389,13 +385,13 @@ export interface AdvertisedToolset {
  *
  * Activation and advertisement are split on purpose: activating opens the
  * call gate at once (isAdvertised flips); flushPromotions copies names onto
- * the wire array the next infer sends (promote-on-execute flushes the one
- * called name, tool_search only the top ranked hits). Fold is a free cache
- * break — pruneIdlePromotions drops the advertised tail back to the prefix.
+ * the next infer's wire array (promote-on-execute flushes the one called
+ * name, tool_search only the top ranked hits). Fold is a free cache break —
+ * pruneIdlePromotions drops the advertised tail back to the prefix.
  *
  * `pinnedTools` (local settings) merge into the prefix — advertised from the
- * first turn and exempt from activation state, so resume needs no tool_search
- * round-trip for the project's hottest integrations.
+ * first turn and exempt from activation state, so resume needs no
+ * tool_search round-trip for the project's hottest integrations.
  */
 export function createAdvertisedToolset(args: {
   sessionMode: SessionMode;
@@ -412,11 +408,9 @@ export function createAdvertisedToolset(args: {
     ...(args.pinnedTools ?? []).filter((name) => !builtIn.includes(name)),
   ];
   const activated = createActivatedToolTracker();
-  // Wire-committed activations. activate() opens the call gate at once;
-  // names join this snapshot via flushPromotions (promote-on-execute for the
-  // next infer, cache-safe boundaries for resume). clear() resets both: a
-  // rotated session restarts at the prefix. pruneIdlePromotions drops the
-  // tail at fold.
+  // Wire-committed activations: names join via flushPromotions
+  // (promote-on-execute, cache-safe boundaries for resume); clear() resets
+  // both so a rotated session restarts at the prefix.
   let wireActivated: string[] = [];
   const wireActivatedSet = new Set<string>();
   const advertised: ActivatedToolTracker = {
@@ -429,10 +423,9 @@ export function createAdvertisedToolset(args: {
       wireActivatedSet.clear();
     },
   };
-  // Advertise then family-gate wire schemas (kimi gets a non-recursive
-  // present). The primary is always the orchestrator, so orchestrator: true
-  // is passed directly. use_skill is never denied — leaves load brief-named
-  // skills by exact name.
+  // Family-gate wire schemas after advertising; the primary is always the
+  // orchestrator. use_skill is never denied — leaves load brief-named skills
+  // by exact name.
   const deniedFor = (provider: {
     providerName: string;
     model: string;
@@ -453,9 +446,9 @@ export function createAdvertisedToolset(args: {
         ? prefix
         : prefix.filter((name) => !denied.includes(name));
     const gatedPrefix = foldFileToolNames(rawGated, profile);
-    // The wire carries the fixed prefix plus wire-committed activations only;
-    // fresh activations open the call gate but stay off this array until
-    // flushPromotions commits them.
+    // The wire carries only the prefix plus wire-committed activations;
+    // fresh ones open the call gate but stay off until flushPromotions
+    // commits them.
     return normalizeToolDefinitionsForProvider(
       advertisedTools(all, wireActivated, gatedPrefix, profile),
       {
@@ -509,9 +502,8 @@ export function createAdvertisedToolset(args: {
 }
 
 /**
- * Fold broke the cache prefix. Drop idle execute-promoted schemas, refresh
- * the advertised wire, and persist so resume/crash cannot restore the
- * pruned names from run.json.
+ * Fold broke the cache prefix: drop idle execute-promoted schemas, refresh
+ * the advertised wire, and persist so resume/crash cannot restore them.
  */
 export function commitIdlePromotionPrune(args: {
   pruneIdlePromotions: () => boolean;
@@ -625,15 +617,15 @@ async function stickyExtraInstructionsFromStore(
  * Define the chat director + agent and build live instances against the
  * git-backed store. Identical for both runners: the TUI-only deltas
  * (workflow-aware toolset, emitter gates, reload scheduling) arrive as
- * callbacks, and the agent freezes tool dispatch per build in both.
+ * callbacks.
  */
 export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
   const directorHolder = wiring.directorHolder ?? {};
-  // Newest-commit-first compact records from the store, refreshed each build
-  // so resume and /model rebuilds restore sticky /compact instructions.
+  // Newest-commit-first compact records, refreshed each build so resume and
+  // /model rebuilds restore sticky /compact instructions.
   let stickyFromStore: string | undefined;
-  // /model rebuilds keep the same session store and may miss extras there;
-  // /clear and /new mint a new workdir, so fromPrev must not follow.
+  // /model rebuilds keep the same store (may miss extras); /clear and /new
+  // mint a new workdir, so fromPrev must not follow.
   let inheritFromPrev = true;
   let lastWorkdir: string | undefined;
   let lastSessionId: string | undefined;
@@ -687,13 +679,12 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
     inheritFromPrev =
       lastWorkdir === undefined ||
       (lastWorkdir === workdir && lastSessionId === sessionId);
-    // Do not stamp last* until this build succeeds. A failed /clear factory
-    // would otherwise make the retry look like the same session and inherit
-    // extras from the previous director / sticky store snapshot.
+    // Stamp last* only on success: a failed /clear factory would otherwise
+    // make the retry look like the same session and inherit stale extras.
     if (!inheritFromPrev) stickyFromStore = undefined;
     const { storage, audit } = await createSessionStores(workdir);
     // Primary-only: workers never pass evidenceArchiveHolder, so they keep
-    // plain storage and omit admission / authorize recording wraps.
+    // plain storage without admission / authorize recording wraps.
     const archiveHolder = wiring.evidenceArchiveHolder;
     let primaryArchive: CompactionArchive | undefined;
     if (archiveHolder !== undefined) {
@@ -753,8 +744,8 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
       // vendored harness reads the secret through this resolver at send time.
       readCurrentMaterial: readSourceCredentialMaterial,
       // contextTransforms ride deps: the published @intx/agent forwards deps
-      // into reactor assembly verbatim, and the vendored assembly picks the
-      // transforms up from there.
+      // into reactor assembly verbatim; the vendored assembly picks them up
+      // from there.
       deps: {
         ...wiring.inferenceDeps,
         doomLoopPolicy: "fail-run",
@@ -783,8 +774,9 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
       audit,
       sessionId,
       // Gate-backed reactor authorization: ask-tier calls suspend via the
-      // vendored approval-suspend primitive instead of parking on a closure.
-      // Finalize evidence admission after guards resolve; never scrub exec args.
+      // vendored approval-suspend primitive instead of parking on a closure;
+      // finalize evidence admission after guards resolve, never scrubbing
+      // exec args.
       authorize:
         primaryArchive === undefined
           ? wiring.authorize
@@ -865,8 +857,8 @@ export interface SessionLifecycle {
  * Hook manager, turn observer, run sink, and in-flight cycle recorder. Pure
  * construction — every live value (session id, source, context dir) is read
  * through a getter at event time, so it can assemble before the agent
- * exists. That lets the TUI build this early while exec builds it late:
- * same call, different position.
+ * exists (the TUI builds it early, exec late; same call, different
+ * position).
  */
 export async function assembleSessionLifecycle(
   wiring: SessionLifecycleWiring,

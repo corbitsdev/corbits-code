@@ -120,8 +120,8 @@ describe("createAdvertisedToolset", () => {
     ]).map((d) => d.name);
     expect(names.slice(-2)).toEqual(["tool_b", "tool_a"]);
     // Rotation clears the gate and the wire snapshot; session start replays
-    // the restored names (activate) at a cache-safe boundary (flush), so the
-    // pending edge stays empty afterwards.
+    // the restored names at a cache-safe boundary, so the pending edge stays
+    // empty afterwards.
     activated.clear();
     expect(flushPromotions()).toBe(false);
     expect(activated.activate(["tool_a", "tool_b"])).toBe(true);
