@@ -1,30 +1,26 @@
 #!/usr/bin/env bun
 /**
- * CL-7932 task-completion baseline runner.
+ * Task-completion baseline runner.
  *
  * Runs the frozen task set (evals/completion/tasks.json) end to end through
  * the production agent loop with the mock inference stack (no network, no
  * provider credentials): each task's version-controlled responder script
  * plays the model, the real reactor/director/toolset executes, and the
  * task's verify.sh grades the outcome. Reports completion rate plus the
- * control-layer secondary signals (turns, failed tool calls, compaction events,
- * doom-loop/thrash interventions, wall clock) as JSON and a human summary.
+ * control-layer secondary signals (turns, failed tool calls, compaction
+ * events, doom-loop/thrash interventions, wall clock) as JSON and a human
+ * summary.
  *
  * Scripted responders isolate the control layer from model variance on
  * purpose: solve/decline/stall profiles exercise finish, decline, and
- * guard-trip paths deterministically so the 0.4.x re-measure sees the
- * control layer move, not provider noise.
+ * guard-trip paths deterministically.
  *
  * Re-measuring (canonical):
  *   bun scripts/eval-completion.ts --repeats 2 --out evals/completion/baseline-<YYYY-MM-DD>.json
- * Conventions: the task set is frozen — re-measures reuse tasks.json as-is
- * so runs stay comparable. Never edit tasks.json, per-task
- * script.json/verify.sh/fixture, or a recorded baseline to hit a target
- * number; a task-set change needs a version bump plus a new baseline file.
- * Field honesty: turnsUsed is the persisted assistant-turn count and
- * turnsEstimated marks the tool-call fallback estimate; failed tool calls
- * are reported as failed tool calls, never "retries"; durations are wall
- * clock, aggregated as means in totals and the summary.
+ * The task set is frozen — re-measures reuse tasks.json as-is so runs stay
+ * comparable. Never edit tasks.json, per-task script.json/verify.sh/fixture,
+ * or a recorded baseline to hit a target number; a task-set change needs a
+ * version bump plus a new baseline file.
  *
  * TRUST BOUNDARY: the version-controlled files under evals/completion/tasks/
  * (tasks.json, per-task script.json, verify.sh, fixture/) are the trusted

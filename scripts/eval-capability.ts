@@ -666,9 +666,6 @@ async function applyEvalEffort(
  * runner's own resolution (resolveSessionMode, resolveExecDirectorOverlay)
  * rather than forking the logic, so a --director overlay or a non-default
  * session mode here reports the same advertised list exec actually runs with.
- *
- * reasoningEffort echoes the configured value, not the provider's internal
- * default when unset — accepted as-is per review.
  */
 export async function buildEvalDiagnostics(
   config: Config,
@@ -769,12 +766,12 @@ async function runCase(
     // Force the run's resolved provider/model (from the catalog/OAuth-aware
     // loadConfig probe above) explicitly into this case's argv rather than
     // leaving it to ambient default resolution inside the fixture workdir.
-    // The workdir is a throwaway copy with no project-local .corbits/settings.json
-    // of its own, so ambient resolution there can silently land on a different
-    // provider than the one the run actually resolved at plan time (e.g. this
-    // repo's local settings pin an OAuth-profile provider that the isolated
-    // fixture copy has no way to see) — exactly the substitution this eval
-    // exists to catch, not commit.
+    // The workdir is a throwaway copy with no project-local
+    // .corbits/settings.json of its own, so ambient resolution there can
+    // silently land on a different provider than the one the run actually
+    // resolved at plan time (e.g. this repo's local settings pin an
+    // OAuth-profile provider that the isolated fixture copy has no way to
+    // see) — exactly the substitution this eval exists to catch, not commit.
     const requested = resolveRequestedProviderModel(variant, labels);
     const argv: string[] = ["exec", "--cwd", workdir];
     if (requested.provider !== undefined)

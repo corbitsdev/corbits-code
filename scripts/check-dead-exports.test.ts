@@ -43,9 +43,8 @@ function liveScannedFileCount(): number {
 }
 
 // A probe dead export in one of the scoped files must fail the guard: the
-// exact-name exemptions cover only the remaining deferred-cleanup flags
-// (the usage-formatter flags were removed with their exports by the CL-6815
-// trim), never the whole module.
+// exact-name exemptions cover only the remaining deferred-cleanup flags, never
+// the whole module.
 describe("scoped exemptions", () => {
   test("the real allowlist covers the named flags but not a sibling probe", () => {
     const rules = loadAllowlist();

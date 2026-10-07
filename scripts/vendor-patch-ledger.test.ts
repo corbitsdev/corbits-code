@@ -1,6 +1,6 @@
 /**
  * Correspondence between `Locally patched` markers under vendor/ and the
- * site-specific headings in each package's PATCHES.md ledger (CL-5720).
+ * site-specific headings in each package's PATCHES.md ledger.
  *
  * Every marker anchor must resolve to a real `## <anchor>` heading; every
  * ledger heading must have at least one marker. Markers are navigation —
@@ -130,8 +130,7 @@ describe("vendor patch ledger correspondence (CL-5720)", () => {
       for (const m of markers) {
         const expectedLedger = `vendor/${pkg}/PATCHES.md`;
         // Path inside the marker comment must point at this package's ledger.
-        // Re-check via the raw comment is overkill; anchor membership is enough
-        // when we only scan this package's src.
+        // Anchor membership is enough when we only scan this package's src.
         if (!headingSet.has(m.anchor)) {
           failures.push(
             `${m.file}:${m.line}: marker #${m.anchor} has no matching ## heading in ${ledgerRel}`,

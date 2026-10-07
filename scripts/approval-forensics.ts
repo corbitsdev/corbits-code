@@ -1,11 +1,11 @@
 // Aggregate scan over the approval logs written by src/permission/approval-log.ts
-// (~/.corbits/projects/**/approvals.jsonl) — the data CL-5666 needed to exist
+// (~/.corbits/projects/**/approvals.jsonl) — the data that has to exist
 // before approval volume could be measured at all.
 //
 // Reports: total asks, split by mode (auto vs interactive) and outcome, a
 // per-rule breakdown, and settle-duration and display-delay percentiles (the
-// display delay is the CL-5664 signal — a queued gate arming its timeout
-// before the operator could see it).
+// display delay is the signal for a queued gate arming its timeout before the
+// operator could see it).
 //
 // Prints only aggregate counts and timings, never a tool subject or command
 // text — the log itself never records either, so there is nothing to leak

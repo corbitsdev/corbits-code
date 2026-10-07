@@ -3,13 +3,12 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Dead-export guard (CL-6797, hardened CL-7993): runs ts-prune over the project
-// and fails when any export with no consumer falls outside
-// scripts/dead-export-allowlist.txt. Exports used only inside their own module
-// ("(used in module)") are live enough and do not count. New dead exports must
-// be deleted, not allowlisted: the allowlist covers entry points, cross-lane
-// ownership, plugin surfaces loaded by path, and ts-prune parser false
-// positives only.
+// Dead-export guard: runs ts-prune over the project and fails when any export
+// with no consumer falls outside scripts/dead-export-allowlist.txt. Exports
+// used only inside their own module ("(used in module)") are live enough and
+// do not count. New dead exports must be deleted, not allowlisted: the
+// allowlist covers entry points, cross-lane ownership, plugin surfaces loaded
+// by path, and ts-prune parser false positives only.
 //
 // Hardening: stale allowlist entries fail the gate instead of warning, every
 // entry must pass shape validation and sit under a reason comment (the gate

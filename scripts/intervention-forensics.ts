@@ -1,6 +1,6 @@
 // Aggregate scan over the intervention logs written by src/subagent/intervention-log.ts
 // (~/.corbits/projects/**/interventions.jsonl) — the data that has to exist
-// before any stop/nudge threshold is changed again (CL-6938).
+// before any stop/nudge threshold is changed again.
 //
 // Reports, per intervention id: how often it fired, split by model family, with
 // the measured value distribution beside the threshold it crossed, and one
@@ -12,17 +12,13 @@
 //
 // Also aggregates outcome records: what each completed dispatch actually
 // produced (a salvage kind, or clean-complete), by kind. This is the log's
-// only outcome signal, letting a stop record be read alongside what the
-// dispatch it touched actually produced — it is still not gate-pass or
-// retry-success tracking.
+// only outcome signal — it is still not gate-pass or retry-success tracking.
 //
-// Outcome records are now tagged with the dispatched child's provider/model/
-// family (CL-6968), so they double as the per-model dispatch denominator:
-// interventions per model, divided by dispatches per model, is the one table
-// below that is an actual rate. Everything else in this script stays a raw
-// count — do not add another table that looks like a rate without a tracked
-// denominator behind it (that mistake shipped once already and had to be
-// stripped, see CL-6968).
+// Outcome records carry the dispatched child's provider/model/family, so they
+// double as the per-model dispatch denominator: interventions per model,
+// divided by dispatches per model, is the one table below that is an actual
+// rate. Everything else in this script stays a raw count — do not add another
+// table that looks like a rate without a tracked denominator behind it.
 //
 // Run: bun run scripts/intervention-forensics.ts
 //
@@ -53,9 +49,8 @@ function percentile(sorted: readonly number[], p: number): number {
 interface Bucket {
   count: number;
   byFamily: Map<string, number>;
-  // Exact model id (CL-6775) — coarser than byFamily, which groups e.g. every
-  // grok model under "grok". Answers "which model loops most", not just
-  // "which family".
+  // Exact model id — coarser than byFamily, which groups e.g. every grok model
+  // under "grok". Answers "which model loops most", not just "which family".
   byModel: Map<string, number>;
   values: number[];
   thresholds: Set<number>;
@@ -79,7 +74,7 @@ findAll(root, INTERVENTION_FILE, files);
 
 const buckets = new Map<string, Bucket>();
 const outcomes = new Map<string, number>();
-// Dispatch counts per model (the outcome record's denominator, CL-6968) and
+// Dispatch counts per model (the outcome record's denominator) and
 // intervention counts per model (stop+nudge only — block/outcome are not
 // leaf signals), so a rate can be computed instead of a bare count.
 const dispatchesByModel = new Map<string, number>();
@@ -118,7 +113,7 @@ for (const file of files) {
           (dispatchesByModel.get(record.model) ?? 0) + 1,
         );
       } else {
-        // Written before CL-6968 tagged outcome records with model identity.
+        // Outcome records written before model tagging carry no model.
         untaggedOutcomes++;
       }
       continue;
@@ -193,12 +188,11 @@ for (const [key, bucket] of rows) {
   console.log(`${key.padEnd(33)} ${families}`);
 }
 
-// CL-6775: streamed degenerate-repetition aborts (mid-stream, not a turn-level
-// stop) get their own model breakdown — "repetition-<detector>" ids, one row
-// per model, so "which model loops most" reads off directly. Still a raw
-// count, not a rate — see the "interventions per dispatch by model" table
-// below for the rate version, computed from the same per-model dispatch
-// denominator (outcome records, CL-6968).
+// Streamed degenerate-repetition aborts (mid-stream, not a turn-level stop)
+// get their own model breakdown — "repetition-<detector>" ids, one row per
+// model, so "which model loops most" reads off directly. Still a raw count,
+// not a rate — see the "interventions per dispatch by model" table below for
+// the rate version, computed from the same per-model dispatch denominator.
 const repetitionRows = rows.filter(([key]) => key.includes("/repetition-"));
 if (repetitionRows.length > 0) {
   const totalsByModel = new Map<string, number>();
@@ -229,8 +223,8 @@ console.log(
 );
 
 // The one real rate in this script: interventions per dispatch, per model.
-// dispatches = outcome records tagged with that model (CL-6968); interventions
-// = stop+nudge records for that model. Everything above this is a count.
+// dispatches = outcome records tagged with that model; interventions = stop+
+// nudge records for that model. Everything above this is a count.
 if (dispatchesByModel.size > 0 || interventionsByModel.size > 0) {
   console.log(
     "\ninterventions per dispatch by model (stop+nudge count / dispatch count = rate)",

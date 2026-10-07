@@ -2,11 +2,11 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-// Guard against the gate drifting apart again (CL-7300): `bun run check` and
-// CI's test jobs must resolve to the same seeded path union, and the projects-dir
-// guard must delegate to the `test` script (or `test:paths` for shard filters)
-// rather than duplicate its command. Local `bun run test` is one process; CI
-// shards that union via `test:paths`.
+// Guard against the gate drifting apart again: `bun run check` and CI's test
+// jobs must resolve to the same seeded path union, and the projects-dir
+// guard must delegate to the `test` script (or `test:paths` for shard
+// filters) rather than duplicate its command. Local `bun run test` is one
+// process; CI shards that union via `test:paths`.
 
 const repoRoot = join(import.meta.dir, "..");
 const pkg = JSON.parse(

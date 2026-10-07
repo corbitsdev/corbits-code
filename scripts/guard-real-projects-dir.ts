@@ -17,15 +17,13 @@ import { spawn } from "node:child_process";
 //
 // Attribution: a plain before/after snapshot of the whole directory also
 // picks up entries from other checkouts on this machine running their own
-// `bun run check` concurrently — a routine part of working across several
-// worktrees, and not something this run's suite is responsible for. To tell
-// the two apart, this run's own temp dirs are pointed at a unique,
-// per-invocation scratch directory (via TMPDIR) whose name carries this
-// run's id. `src/session/project-key.ts` derives a project key from the
-// realpath of the test's `cwd`/`home`, and since those are mkdtemp'd inside
-// our scratch dir here, a real leak's project key inherits our run id as a
-// substring. Only entries that carry it are ours to fail on; anything else
-// is a sibling checkout's own business.
+// `bun run check` concurrently. To tell the two apart, this run's own temp
+// dirs are pointed at a unique, per-invocation scratch directory (via TMPDIR)
+// whose name carries this run's id. `src/session/project-key.ts` derives a
+// project key from the realpath of the test's `cwd`/`home`, and since those
+// are mkdtemp'd inside our scratch dir here, a real leak's project key
+// inherits our run id as a substring. Only entries that carry it are ours to
+// fail on; anything else is a sibling checkout's own business.
 
 const projectsDir = join(homedir(), ".corbits", "projects");
 

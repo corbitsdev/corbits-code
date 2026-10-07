@@ -3,11 +3,11 @@
 //
 // `bun test --parallel` intermittently livelocks on Bun 1.4.x: a worker
 // spins at 100% CPU while a git child it spawned is left as a zombie, and
-// the suite produces no further output (upstream Bun issue #36235, still
-// open as of 1.4.2). bun test has no run-level timeout, so this wrapper
-// runs the suite in its own process group, watches for an output stall
-// well beyond any healthy run's silence, kills the group, and retries.
-// A child that exits on its own (pass or fail) is never retried.
+// the suite produces no further output (upstream Bun issue, still open as of
+// 1.4.2). bun test has no run-level timeout, so this wrapper runs the suite
+// in its own process group, watches for an output stall well beyond any
+// healthy run's silence, kills the group, and retries. A child that exits on
+// its own (pass or fail) is never retried.
 //
 // Usage: bun scripts/test-parallel.ts [workers]   (default 4)
 
