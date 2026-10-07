@@ -1,9 +1,7 @@
 /**
- * Post-mount startup wiring for the TUI runner: go-model prefetch, runtime
- * shutdown registration, provider-id stamping, mention/prompt recognition,
- * the fleet watch, the effort-cycle chord, resume hydration, initial MCP
- * connect, and startup notices. Owns the fleet timers so the quit path can
- * stop them through the state slot.
+ * Post-mount TUI startup wiring: model prefetch, shutdown registration,
+ * provider stamping, fleet watch, resume hydration, MCP connect, notices.
+ * Owns the fleet timers so the quit path can stop them via the state slot.
  */
 
 import { getLogger } from "@intx/log";
@@ -106,26 +104,12 @@ export function surfaceSavedSkipPermissionsWarning(
 /**
  * One tick of the periodic fleet stall poll.
  *
- * The store-subscribe edge drives mailbox mail the moment a lane
- * terminalizes, but that edge is missable: the parent may be mid-turn
- * (`isProcessing`, so `flushMailboxMail` no-ops) or the driver send may
- * fail (swallowed as retryable with no later edge when the fleet is
- * otherwise quiet). Re-flushing here bounds the stall to one poll interval.
- * Both halves are no-ops when there is nothing to say: `reportFleet` diffs,
- * `flushMailboxMail` no-ops while processing or when no uncollected
- * terminal waits.
- *
- * The stall bound rides the same tick, deadline first: past-deadline asks
- * settle (so the snapshot the abort reconciles against is fresh), then a
- * still-silent wake turn aborts and hands over to mail or a re-surface.
- *
- * The deadline bound rides it too: when expireStaleAsks actually expired
- * asks this tick and the reconciling snapshot is empty, the armed wake turn
- * is owed to nobody, so it aborts even inside its stall window (a late wake
- * has not been silent long enough to trip the stall bound at the deadline).
- * send_input emptying pending is not an expire — the parent may still be
- * inferring. Expire-abort runs before the stall abort; at most one fires per
- * tick, and both share the occupancy-first handoff.
+ * The subscribe-time mailbox edge is missable (parent mid-turn, or a
+ * swallowed driver send), so re-flushing here bounds the stall to one poll
+ * interval. The stall bound rides the same tick, deadline first: expired
+ * asks settle before the abort reconciles, then a still-silent wake turn
+ * aborts. Expire-abort fires only when asks expired this tick and nothing
+ * is left to re-surface; send_input emptying pending is not an expire.
  */
 export function createFleetStallPollTick(
   reportFleet: () => void,
@@ -217,9 +201,8 @@ export function buildShellStopAffordance(deps: {
 export function createFleetWakePublisher(
   sessions: RunnerServices["subAgentSessions"],
   emitter: RunnerServices["emitter"],
-  // Live idle-with-fleet flag: fired on fleet-count transitions so the chat
-  // director's seeded allowance tracks the live fleet instead of holding its
-  // construction value. Omitted in tests that only assert events.
+  // Fired on fleet-count transitions so the director's seeded allowance
+  // tracks the live fleet. Omitted in tests that only assert events.
   onFleetCount?: (running: number) => void,
 ) {
   let lastLiveFleet = 0;
@@ -228,7 +211,7 @@ export function createFleetWakePublisher(
     if (suspended)
       return { previousRunning: lastLiveFleet, running: lastLiveFleet };
     const lanes = sessions.list();
-    // Reconcile even an empty snapshot before a fleet drop can settle the parent.
+    // Reconcile an empty snapshot before a fleet drop settles the parent.
     const asks = pendingAskSnapshot(lanes, (id) => sessions.peekAsk(id));
     emitter.emit("event", { type: "agent-ask", asks });
     const previousRunning = lastLiveFleet;
@@ -249,8 +232,8 @@ export function createFleetWakePublisher(
     } finally {
       suspended = false;
     }
-    // Reached only after reset() returns. A throw leaves publication suppressed
-    // so a failed cancellation cannot publish its partially reset snapshot.
+    // Reached only after reset() returns; a throw leaves publication
+    // suppressed so a failed reset cannot publish a partial snapshot.
     publish();
   };
   return { publish, withSuspended };
@@ -359,8 +342,8 @@ export function wirePostStartup(
     buildShellStopAffordance(services),
   );
 
-  // Harness inference.error events omit providerId; stamp the live catalog id
-  // onto the stream map so transcript copy can identify known-xAI short 429s.
+  // Inference.error events omit providerId; stamp the live catalog id so
+  // transcript copy can identify known-xAI short 429s.
   state.stampProvider.fn = (id) =>
     hostOf(state).bridge.setInferenceProviderId(
       id,
@@ -372,11 +355,9 @@ export function wirePostStartup(
     listPathSuggestions(prefix, state.config.cwd),
   );
 
-  // The fleet reports itself. Store changes drive it, so a lane finishing or
-  // failing is on screen the moment it happens rather than at the next turn
-  // boundary. The settle timer coalesces a parallel burst into one observation;
-  // the stall poll re-runs so a lane that goes quiet with no further store
-  // event is still announced once. `observeFleet` decides what is worth saying.
+  // Store changes drive the fleet report, so a lane surfaces the moment it
+  // finishes; the settle timer coalesces a burst, and the stall poll re-runs
+  // a lane that goes quiet without a store event.
   const sessionBridge = hostOf(state).bridge;
   let fleetWatch = createFleetWatch();
   const reportFleet = (): void => {
@@ -393,9 +374,8 @@ export function wirePostStartup(
   const fleetWakePublisher = createFleetWakePublisher(
     services.subAgentSessions,
     services.emitter,
-    // Liven the seeded idle-with-fleet allowance: the director reads the
-    // holder live so rebuilds stay tracked, and degrades gracefully while
-    // the director is not yet built.
+    // Keep the seeded idle-with-fleet allowance live; degrades gracefully
+    // before the director is built.
     (running) =>
       services.directorHolder.instance?.setAllowIdleWithFleet(running > 0),
   );
@@ -477,9 +457,7 @@ export function wirePostStartup(
     reportFleet,
     () => sessionBridge.flushMailboxMail(),
     {
-      // Stall bound: deadline-past asks settle inside the tick before the
-      // abort reconciles, so the abort never re-surfaces a question the
-      // deadline already settled.
+      // Deadline-past asks settle inside the tick before the abort reconciles.
       abortStalledWakeTurn: () => sessionBridge.abortStalledWakeTurn(),
       abortExpiredWakeTurn: (expiredThisTick) =>
         sessionBridge.abortExpiredWakeTurn(expiredThisTick),
@@ -504,8 +482,8 @@ export function wirePostStartup(
     commandNames: listCommands().map((command) => command.name),
   }));
 
-  // Shift+Tab: cycle reasoning effort for the live model and rebuild sources so
-  // the next inference turn picks up the new providerOptions.reasoning_effort.
+  // Shift+Tab cycles reasoning effort; rebuild sources so the next turn
+  // picks up the new providerOptions.reasoning_effort.
   setEffortCycleHandler(hostOf(state).shell, () => {
     const reasoning = customReasoningSettings(
       state.config.providerName,
@@ -545,7 +523,7 @@ export function wirePostStartup(
     });
   });
 
-  // Recall spans the whole session, including what was sent before a resume.
+  // Recall spans the whole session, including pre-resume sends.
   void loadSentMessages(state.config.cwd, state.sessionId)
     .then((sent) => setSentMessageHistory(hostOf(state).shell, sent))
     .catch((err: unknown) => {
@@ -555,31 +533,25 @@ export function wirePostStartup(
     });
 
   if (!state.resumeSkipInitialTask && state.config.task.trim().length > 0) {
-    // The operator's initial task, typed as a CLI argument before launch —
-    // same provenance as a prompt submit.
+    // The operator's initial CLI task — same provenance as a prompt submit.
     void state.sendWithAttemptIdentity?.(
       userInboundMessage(state.config.task.trim(), []),
     );
   }
 
-  // Hydrate a resumed session's transcript after first paint. Reading history and
-  // mapping it to content blocks is pure I/O with no bearing on the shell, so the
-  // App renders empty immediately and fills in the past turns once they are ready.
-  // The disk window is in turns, sized so a tool-pair-heavy tail can still fill
-  // the retained row cap after call+result fold to one row. Mapping does not
-  // splice content-blocks; the host caps in rows via retention eviction. Agent
-  // conversation state still loads in full via ContextStore.load(); this path
-  // is display-only.
+  // Hydrate the resumed transcript after first paint; the mapping is pure I/O,
+  // so the App renders empty and fills in once ready. The window is in turns,
+  // sized so a tool-pair-heavy tail still fills the row cap after fold. Agent
+  // conversation state loads in full elsewhere; this path is display-only.
   void loadRecentTurns(state.workdir, RESUME_TRANSCRIPT_TURN_LIMIT)
     .then((recent) => {
       const blocks = turnsToContentBlocks(recent.turns);
       const tasks = hydrateTasksFromTurns(recent.turns);
-      // Restored tasks go to the panel only. They are live state, not something
-      // that happened in the conversation, so putting them in scrollback as well
-      // renders the same list twice on one screen.
+      // Restored tasks go to the panel only; scrollback too would render the
+      // list twice.
       if (tasks.length > 0) {
-        // The director holds the restored list; the host owns the panel, so
-        // it announces the same list the tasks-changed event would carry.
+        // The director holds the list; the host announces what the
+        // tasks-changed event would carry.
         services.directorHolder.instance?.restoreTasks(tasks);
         services.emitter.emit("tasks", tasks);
       }
@@ -591,9 +563,8 @@ export function wirePostStartup(
       }
     })
     .catch((err: unknown) => {
-      // Resume still works without painted history, but a silent empty
-      // transcript looks like a brand-new session. Log and surface a one-line
-      // error block so the operator knows history failed to load.
+      // A silent empty transcript looks like a brand-new session; surface a
+      // one-line error block so the operator knows history failed to load.
       const block = resumeTranscriptLoadErrorBlock(err);
       tuiLogger.warn(
         "Failed to load resume transcript from {workdir}: {error}",
@@ -605,14 +576,11 @@ export function wirePostStartup(
       services.emitter.emit("history.hydrate", [block]);
     });
 
-  // Connect MCP servers after the TUI is up so the UI is usable immediately and
-  // any OAuth authorization is surfaced as a copyable link rather than a browser
-  // pop. Each connected server's tools land on the live runner and are
-  // dispatchable the same turn (createAgentWithLiveToolDispatch). They stay
-  // unadvertised until tool_search promotes them. When every server has
-  // settled, reload-if-idle so construction-time maps match, then resume any
-  // persisted workflow. Aborted on exit so an unfinished auth wait does not
-  // keep the process alive.
+  // Connect MCP after the TUI is up so auth surfaces as a copyable link, not
+  // a browser pop; tools land on the live runner and stay unadvertised until
+  // tool_search promotes them. On settle, reload-if-idle so construction-time
+  // maps match, then resume any persisted workflow. Aborted on exit so an
+  // unfinished auth wait does not keep the process alive.
   void services.toolset
     .connectMCP(mcpConnectCallbacks, services.mcpConnectController.signal)
     .then(async () => {
@@ -623,13 +591,12 @@ export function wirePostStartup(
         state.pendingReload = true;
         state.reloadIfIdle?.();
       }
-      // Now that the capability map reflects connected MCP servers, restore any
-      // persisted workflow. New workflows are manual-only slash commands.
+      // Capability map reflects connected servers; restore any persisted workflow.
       await services.workflowHost.resume();
     })
     .catch((err: unknown) => {
-      // Fire-and-forget: an aborted connect on exit is expected and ignored;
-      // any other failure is logged rather than raised as an unhandled rejection.
+      // Aborts on exit are expected; log other failures instead of an
+      // unhandled rejection.
       if (err instanceof Error && err.name === "AbortError") return;
       getLogger([LOG_NAMESPACE_ROOT, "tui", "mcp"]).error(
         "MCP connect failed: {error}",
@@ -639,13 +606,9 @@ export function wirePostStartup(
       );
     });
 
-  // The branded session header goes first among the deferred startup rows:
-  // it is the row the deferred queue flushes ahead of every other startup
-  // notice once the landing clears (a re-filed telemetry disclosure still
-  // lands ahead of it). A startup snapshot — later /yolo or effort toggles
-  // move the prompt border label only. While the landing holds, the notice
-  // strip shows the latest deferred wording; the transcript keeps the full
-  // order.
+  // The session header goes first among the deferred startup rows; a
+  // re-filed telemetry disclosure still lands ahead of it. Later /yolo or
+  // effort toggles move the prompt border label only.
   const reasoning = customReasoningSettings(
     state.config.providerName,
     state.config.settings?.providers[state.config.providerName],
@@ -672,23 +635,19 @@ export function wirePostStartup(
     }),
   );
 
-  // Surface fire-and-forget startup notices now that there is a shell (queued
-  // above, before `host` existed). Plugin load warnings are NOT notices — they
-  // drive `plugin !` and `/plugins` instead.
+  // Surface startup notices now that a shell exists. Plugin load warnings are
+  // NOT notices — they drive `plugin !` and `/plugins` instead.
   for (const notice of state.startupPluginNotices)
     surfaceSystemNotice(hostOf(state).shell, notice);
   state.paintPluginAttention = (needs) =>
     setPluginNeedsAttention(hostOf(state).shell, needs);
   state.paintPluginAttention(state.standingPluginWarnings.length > 0);
 
-  // The persisted /yolo default is otherwise silent: nothing on screen would
-  // otherwise tell the operator that permission prompts are off for a repo
-  // they never ran --dangerously-skip-permissions or /yolo in.
+  // A persisted /yolo default is otherwise silent; surface it so the operator
+  // knows prompts are off.
   surfaceSavedSkipPermissionsWarning(hostOf(state).shell, state.config);
 
-  // Soft upgrade check: never blocks startup; offline / rate-limit is a quiet skip.
-  // surfaceSystemNotice keeps the landing hero up and flushes into the transcript
-  // once a session row ends the landing (same path as MCP startup chatter).
+  // Soft upgrade check: never blocks startup; offline/rate-limit skips quietly.
   scheduleUpgradeNotice({
     notify: (text) => surfaceSystemNotice(hostOf(state).shell, text),
     options: {

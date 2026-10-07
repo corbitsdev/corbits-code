@@ -115,8 +115,7 @@ describe("fleet stall poll tick (CL-7676)", () => {
             drives += 1;
             return true;
           });
-          // The subscribe-time edge misses: the driver failure is swallowed as
-          // retryable, with no later edge while the fleet stays quiet.
+          // The subscribe-time edge misses: the driver failure is swallowed as retryable.
           bridge.flushMailboxMail();
           expect(drives).toBe(0);
 
@@ -129,7 +128,7 @@ describe("fleet stall poll tick (CL-7676)", () => {
           tick();
           expect(reports).toBe(1);
           expect(drives).toBe(1);
-          // The report is taken: a second poll must not re-send.
+          // Report taken: a second poll must not re-send.
           tick();
           expect(reports).toBe(2);
           expect(drives).toBe(1);
@@ -168,11 +167,10 @@ describe("fleet stall poll tick (CL-7676)", () => {
           });
           bridge.submit("dispatch workers", "immediate");
           bridge.handle({ type: "fleet", running: 1 });
-          // Terminal lands while the parent is mid-turn: flush no-ops.
+          // Terminal lands mid-turn: flush no-ops.
           bridge.flushMailboxMail();
           expect(drives).toBe(0);
-          // Settle-time flush also misses (send fails, swallowed). No later
-          // store edge fires while the fleet stays quiet.
+          // Settle-time flush misses too (send fails, swallowed); no later store edge.
           settleToollessTurn(bridge);
           expect(drives).toBe(0);
 

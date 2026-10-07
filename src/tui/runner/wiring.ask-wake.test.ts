@@ -75,7 +75,7 @@ test("fleet-wake publisher reports fleet-count transitions to the idle-with-flee
   const publisher = createFleetWakePublisher(store, emitter, (running) => {
     seen.push(running);
   });
-  // Steady empty state: no transition, no callback.
+  // Steady empty state: no transition.
   publisher.publish();
   expect(seen).toEqual([]);
   store.start({
@@ -84,7 +84,7 @@ test("fleet-wake publisher reports fleet-count transitions to the idle-with-flee
     description: "worker-one",
     brief: "build",
   });
-  // A started lane counts as running: 0 -> 1 transition.
+  // A started lane counts as running: 0 -> 1.
   publisher.publish();
   expect(seen).toEqual([1]);
   store.markRunning("worker-one");
