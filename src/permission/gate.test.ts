@@ -38,10 +38,8 @@ const shellCall = (command: string): ToolCall => ({
 //
 // The shell-authz hard-deny cases are not independently reachable through
 // reconciliation today — evaluate() denies and returns before such a request
-// is ever queued — so a queued entry has always already cleared this guard.
-// They stay in preGrantGuardReason and this table as drift-resistance: if a
-// future refactor ever let a hard-denied command reach the queue, this still
-// catches it.
+// is ever queued. They stay here as drift-resistance: if a future refactor
+// let a hard-denied command reach the queue, this still catches it.
 const GUARD_CASES: { name: string; command: string }[] = [
   { name: "shell authz hard-deny (destructive rm)", command: "rm -rf /" },
   {
@@ -265,9 +263,9 @@ describe("expanded secret wrapper guards", () => {
 
 describe("lone-& bypass at the gate (CL-7781)", () => {
   // A standing grant for a benign head must not auto-allow a payload hidden
-  // behind a `&` with no trailing space. Per-segment coverage means the
-  // hidden second segment has no matching grant and the request stays
-  // uncovered (the gate prompts) — same as the spaced form.
+  // behind a `&` with no trailing space. Per-segment coverage leaves the
+  // hidden second segment uncovered, so the gate prompts — same as the spaced
+  // form.
   const cwd = mkdtempSync(join(tmpdir(), "gate-lone-amp-"));
   const isRestricted = createPathRestriction(
     cwd,
@@ -437,8 +435,8 @@ describe("standing grant covers a later git worktree command (CL-5638)", () => {
 
 // When a standing grant covers a command but a pre-grant guard still forces
 // an ask, the prompt carries PermissionRequest.notice naming the guard's
-// reason. Matching semantics are unchanged — every case below still asks (and
-// stays deniable); only the prompt gains the why.
+// reason. Matching semantics are unchanged — every case below still asks;
+// only the prompt gains the why.
 describe("grant-mismatch asks carry the guard reason as a notice (CL-6824)", () => {
   const root = mkdtempSync(join(tmpdir(), "gate-mismatch-notice-"));
   const sessionCwd = join(root, "main");
