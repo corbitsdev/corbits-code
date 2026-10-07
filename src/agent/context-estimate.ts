@@ -1,9 +1,7 @@
-// Running local estimate of inference context size.
-//
-// Providers sometimes omit usage or report zero, which would otherwise leave
-// the compaction governor blind. We count the turns we actually send (text,
-// tool payloads, images) so proactive compaction still has a signal. This is
-// a lower bound: system prompt, tool schemas, and framing are not counted.
+// Running local estimate of inference context size, used when providers omit
+// usage or report zero: count the turns we send (text, tool payloads, images)
+// so proactive compaction still has a signal. A lower bound — system prompt,
+// tool schemas, and framing are not counted.
 
 import type {
   ContentBlock,
@@ -100,11 +98,9 @@ export function estimateContextTokens(
   return total;
 }
 
-// The system prompt and tool schemas ride on every request the same way turns
-// do, but they never appear in `turns` — they're framing the harness supplies
-// out of band. Without this, the estimate undercounts by whatever AGENTS.md
-// and the active tool roster cost, which is often tens of thousands of tokens
-// before a single turn is sent.
+// The system prompt and tool schemas never appear in `turns` — the harness
+// supplies them out of band, often tens of thousands of tokens before a
+// single turn is sent. Count them or the estimate undercounts.
 export function estimateOverheadTokens(
   systemPrompt: string,
   toolDefinitions: readonly ToolDefinition[],

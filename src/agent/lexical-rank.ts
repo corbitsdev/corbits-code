@@ -2,7 +2,6 @@
 // search_agents, and skill_search. Exact name-token hits weigh most, then
 // blob-token hits, then raw-substring matches (so "linear" finds
 // mcp__linear__* even though it is not a whole token there).
-
 export function tokenizeLexical(text: string): string[] {
   return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
 }
@@ -46,8 +45,8 @@ export function scoreLexical(
 // description bonus) stays at each call site; only the cut is shared. The
 // sort is score-descending and stable, so tied scores keep catalog order
 // identically on every surface. `minRatio` (0–1) drops scores below
-// top * minRatio before the limit slice, so a specific query keeps the
-// peak cluster instead of filling the N cap with weak cousins.
+// top * minRatio before the limit slice, so a specific query keeps the peak
+// cluster instead of filling the N cap with weak cousins.
 export function rankAndCut<T>(
   items: readonly T[],
   scoreItem: (item: T) => number,

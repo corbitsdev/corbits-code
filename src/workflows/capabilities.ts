@@ -2,13 +2,10 @@ import type { ToolDefinition } from "@intx/types/runtime";
 
 import type { CapabilityName, WorkflowStep } from "./definition.js";
 
-// The capability registry. Each abstract capability lists the tool-name
-// patterns that satisfy it. Detection is name-based and defensive: a capability
-// is satisfied when at least one connected tool's name matches one of its
-// patterns (case-insensitive substring). Adding a capability is adding an entry
-// here — detection logic never changes. Patterns cover the known providers for
-// each capability so any one of them satisfies it (Linear or Jira for
-// ticket-tracker, GitHub for code-host, web tools for doc-search).
+// The capability registry. Each capability lists the tool-name patterns that
+// satisfy it; detection is name-based, so adding a capability is adding an
+// entry here. Patterns cover the known providers per capability (Linear or
+// Jira for ticket-tracker, GitHub for code-host, web tools for doc-search).
 export const CAPABILITIES: Record<
   CapabilityName,
   { description: string; requiredTools: string[] }
@@ -60,9 +57,7 @@ function tokenize(value: string): string[] {
 }
 
 // A pattern matches when its tokens appear as a contiguous run within the tool
-// name's tokens. This avoids substring false positives — "web_fetch" no longer
-// matches "git_fetch", and a provider token like "linear" matches the server
-// segment but not an unrelated substring.
+// name's tokens — "web_fetch" never matches "git_fetch".
 function matches(toolName: string, pattern: string): boolean {
   const tokens = tokenize(toolName);
   const needle = tokenize(pattern);
@@ -74,8 +69,7 @@ function matches(toolName: string, pattern: string): boolean {
 }
 
 // Inspect the active tool surface and build the capability map. Unknown tools
-// are ignored, never errored. Capabilities listed in `overrides` are omitted
-// even when matching tools are present.
+// are ignored; `overrides` omit a capability even when matching tools exist.
 export function detectCapabilities(
   tools: ToolDefinition[],
   overrides: CapabilityOverrides = new Set(),
@@ -94,9 +88,8 @@ export function detectCapabilities(
   return map;
 }
 
-// Decide whether a step can run against the detected capabilities. Steps with
-// no capability requirement always run. A required-but-unsatisfied capability
-// makes the step non-runnable (the runtime then skips it).
+// Decide whether a step can run: no requirement always runs; an unsatisfied
+// required capability makes the step non-runnable (the runtime skips it).
 export function resolveStep(
   step: WorkflowStep,
   capabilities: CapabilityMap,

@@ -67,8 +67,8 @@ function truncateAgentBody(body: string): string {
 
 // Format one profile for search_agents output. Default is id, description, and
 // spawn metadata (orchestrator flag, source). The loaded systemPromptRole is
-// omitted unless includeBody is true. Bodies longer than
-// MAX_AGENT_SEARCH_BODY_CHARS are truncated with an ellipsis marker.
+// omitted unless includeBody is true; bodies over MAX_AGENT_SEARCH_BODY_CHARS
+// are truncated with an ellipsis marker.
 function formatAgentProfileEntry(
   p: AgentProfile,
   includeBody: boolean,
@@ -94,10 +94,10 @@ export function formatAgentSearchResults(
     return "No agent profiles matched. Try broader terms (e.g. review, explore, implement) or list_dir on .agents/agents/.";
   }
   const entries = profiles.map((p) => formatAgentProfileEntry(p, includeBody));
-  // Live scrub for search_agents: this tool is not on the posix middleware path, so
-  // SCRUBBABLE_TOOLS in tool-result-secret-scrub-plugin cannot reach it. Scrub here
-  // before the formatted string becomes a tool result (marketplace/plugin bodies may
-  // contain secret-shaped substrings).
+  // Live scrub for search_agents: not on the posix middleware path, so
+  // SCRUBBABLE_TOOLS in tool-result-secret-scrub-plugin cannot reach it. Scrub
+  // before the formatted string becomes a tool result (marketplace/plugin
+  // bodies may contain secret-shaped substrings).
   return scrubSecretShapedContent(
     [
       "Matching agent profiles (pass id to spawn_agent(agent=...)):",

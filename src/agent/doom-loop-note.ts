@@ -8,10 +8,9 @@ type Repeat = {
 
 // Corrective note for the doom-loop guard's warning turn (repeat count
 // threshold−1): tells the model the exact call already ran unchanged, shows
-// what else is on the wire, and points at the escape hatches — switching to a
-// different tool already on the wire first, tool_search and replying to the
-// operator as fallback. The wire list is read lazily so tool_search
-// activations mid-run are reflected.
+// what else is on the wire, and points at the escapes — a different tool on
+// the wire first, then tool_search, then replying to the operator. The wire
+// list is read lazily so mid-run activations are reflected.
 export function createDoomLoopCorrectiveNote(
   wireToolNames: () => readonly string[],
 ): (repeat: Repeat) => string {
@@ -20,9 +19,8 @@ export function createDoomLoopCorrectiveNote(
     const repeated = [...looped].join(", ");
     const names = wireToolNames();
     const wire = names.join(", ");
-    // Name one non-looped tool already on the wire as the first escape, so
-    // the model switches instead of repeating. tool_search stays a fallback
-    // rather than the example — it is named in the fallback sentence.
+    // Name one non-looped tool already on the wire as the first escape;
+    // tool_search stays a fallback rather than the example.
     const example = names.find(
       (name) => !looped.has(name) && name !== "tool_search",
     );

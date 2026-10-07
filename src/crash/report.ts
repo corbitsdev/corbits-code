@@ -10,9 +10,8 @@ export type CrashKind = "uncaughtException" | "unhandledRejection";
 // projectSessionsRoot shells out to git synchronously with no timeout. A
 // crash handler must never call it directly: a hung or corrupted git would
 // block process.exit forever, the exact failure this module exists to
-// prevent. primeCrashReporting resolves the root once during ordinary
-// startup, well before any crash, and the handler only ever reads the
-// cached value below with no I/O of its own.
+// prevent. primeCrashReporting resolves the root once during startup, and
+// the handler only ever reads the cached value with no I/O of its own.
 let primedSessionsRoot: string | null = null;
 
 export function primeCrashReporting(

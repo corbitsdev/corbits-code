@@ -1,8 +1,8 @@
 // mcp_connect / mcp_oauth emission sites: every connect attempt reports one
 // enum-only outcome, and every browser-OAuth callback wait reports one
 // enum-only outcome. The leak assertions serialize the whole PostHog batch
-// body (not just the intended property): a server name, URL, command path, or
-// provider denial smuggled under another key must fail the test.
+// body, so a server name, URL, command path, or provider denial smuggled
+// under another key must fail the test.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {

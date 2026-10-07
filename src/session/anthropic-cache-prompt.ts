@@ -1,8 +1,8 @@
 // Prompt-only shrink after an Anthropic ephemeral cache write expires.
 // Compaction rewrites turns.jsonl and keeps a raw tail, so the next infer
-// still cache-writes those tool bodies. This transform runs inside
-// executeInfer: its output is what gets written to prompt.jsonl. It never
-// writes turns and never calls the compaction governor.
+// still cache-writes those tool bodies. Runs inside executeInfer: its output
+// is what gets written to prompt.jsonl. Never writes turns and never calls
+// the compaction governor.
 
 import type {
   ContentBlock,

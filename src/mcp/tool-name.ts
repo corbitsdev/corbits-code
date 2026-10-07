@@ -1,7 +1,7 @@
 // MCP tools are registered as `mcp__<server>__<tool>`. That identifier is fine
-// for dispatch but must never be shown to a person; these helpers turn it into a
-// human label like "Linear: list projects". Shared by the TUI renderer and the
-// permission layer so both present MCP tools the same way.
+// for dispatch but must never be shown to a person; these helpers turn it into
+// a human label like "Linear: list projects". Shared by the TUI renderer and
+// the permission layer so both present MCP tools the same way.
 
 const MCP_PREFIX = "mcp__";
 
@@ -37,8 +37,8 @@ function titleCase(word: string): string {
 
 // Some servers suffix (or prefix) every tool name with their own name, a
 // pre-namespacing convention (Exa's "web_search_exa") that now just repeats
-// the server prefix we already show it under. Strips a leading/trailing word
-// that matches the server, case-insensitively, so it is not said twice.
+// the server prefix we already show. Strips a leading/trailing word matching
+// the server, case-insensitively, so it is not said twice.
 export function mcpToolWords(server: string, tool: string): string[] {
   const words = tool.split("_").filter((word) => word.length > 0);
   const last = words[words.length - 1];
