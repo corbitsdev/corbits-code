@@ -2,10 +2,8 @@ import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import { evalHttpEnvGet } from "./eval-http-env.js";
 
-// Blocks requests to loopback, private, link-local, and other non-public IP
-// ranges before a fetch is issued, and again after every redirect hop (a
-// public-looking hostname can still resolve to an internal address, and a
-// redirect can retarget to one even when the original did not).
+// Rejects non-public IP ranges before a fetch and after each redirect hop: a
+// public hostname can still resolve, or redirect, to an internal address.
 
 function isPrivateIPv4(ip: string): boolean {
   const parts = ip.split(".").map(Number);
@@ -45,15 +43,11 @@ export function isPrivateAddress(ip: string): boolean {
 
 export type SsrfCheckResult = { ok: true } | { ok: false; reason: string };
 
-// Narrow, deliberate exception: the capability eval's hermetic "web-bait" case
-// binds a per-run HTTP fixture to 127.0.0.1 (see scripts/eval-capability.ts
-// startHTTPFixture) specifically so web_fetch can be exercised without curl.
-// The allowed origin is the calling cell's ALS overlay (see eval-http-env.ts),
-// falling back to process.env.EVAL_HTTP_URL for tests that set it directly.
-// An operator's real session never has it set, so this does not weaken the
-// guard for any target the eval harness did not itself stand up. Matched by
-// origin (not full URL) so a same-origin redirect within the fixture still
-// passes the per-hop re-check.
+// Eval-only escape hatch: the capability eval binds a web-bait fixture to
+// 127.0.0.1 (see scripts/eval-capability.ts) so web_fetch works without curl.
+// The allowed origin is the calling cell's ALS overlay (eval-http-env.ts) or
+// EVAL_HTTP_URL; real sessions never set it. Matched by origin, so a
+// same-origin redirect inside the fixture still passes the per-hop re-check.
 function isEvalFixtureUrl(rawUrl: string): boolean {
   const allowed = evalHttpEnvGet("EVAL_HTTP_URL");
   if (allowed === undefined || allowed.length === 0) return false;
@@ -64,8 +58,8 @@ function isEvalFixtureUrl(rawUrl: string): boolean {
   }
 }
 
-// Resolves the hostname and rejects if any resolved address is private,
-// loopback, or link-local. Also rejects non-http(s) schemes at the boundary.
+// Resolves the host; rejects when any resolved address is non-public or the
+// scheme is not http(s).
 export async function checkUrlForSsrf(
   rawUrl: string,
 ): Promise<SsrfCheckResult> {
