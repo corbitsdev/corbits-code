@@ -12,18 +12,14 @@ import {
 } from "../../packages/prompt-variance/src/index.js";
 
 /**
- * Per-model-family tuning for the shared directors (main chat director and
- * SubAgentDirector). One policy object, resolved once per session from the
- * provider/model — directors stay generic and branch on data, never on
- * per-family subclasses.
+ * Per-model-family tuning for the shared directors. One policy object
+ * resolved per session/leaf from the provider/model.
  */
 export interface ModelFamilyPolicy {
   family: ModelFamily;
   /**
-   * Consecutive tool-only assistant turns (tool calls, no text) before the
-   * main chat director injects a one-shot wrap-up nudge. A long tool-only
-   * streak is normal orchestration and must not stop the session on its own —
-   * this is a soft check-in, never a pause.
+   * Consecutive tool-only turns (tool calls, no text) before the main chat
+   * director injects a one-shot wrap-up nudge. Soft check-in, never a pause.
    */
   toolOnlyTurnNudgeAt: number;
   /** Ephemeral nudge text injected at toolOnlyTurnNudgeAt. */
@@ -33,23 +29,20 @@ export interface ModelFamilyPolicy {
   /** Grok's finish-bias residual (withhold from orchestrators; see provider-family.ts). */
   applyGrokFinishBias: boolean;
   /**
-   * Tool names to drop from the advertised wire prefix and the dispatch gate.
-   * Empty by default. Orchestrators and leaves share the same skill surface:
-   * both mount skill_search and use_skill; use_skill is never denied.
+   * Tool names dropped from the advertised wire prefix and the dispatch gate.
+   * Empty by default; use_skill is never denied.
    */
   advertisedToolDeny: readonly string[];
   /**
    * Tool-discipline rules appended to the system prompt for families that do
-   * not self-terminate a tool loop. Empty for families that need none. Appended
-   * at the tail so it cannot disturb the cached prompt prefix.
+   * not self-terminate a tool loop. Appended at the tail to keep the cached
+   * prompt prefix intact.
    */
   toolDisciplineRules?: string;
   /**
-   * Provider-family residual appended once to the assembled leaf system
-   * prompt: tool-budget text for grok, the XML task_guidance block for
-   * claude, the narrate-before-tools note for gpt. Withheld from
-   * orchestrators and appended at the tail so it cannot disturb the cached
-   * prompt prefix. Undefined for families that need none.
+   * Provider-family residual appended once to the leaf system prompt
+   * (tool-budget text for grok, XML task_guidance for claude, narrate
+   * note for gpt). Withheld from orchestrators; appended at the tail.
    */
   promptResidual?: string | undefined;
   /**
@@ -71,10 +64,8 @@ const GROK_WRAP_UP_NUDGE_TEXT =
   "report progress now: what you have done, what is left, and whether you are " +
   "actually still making progress.";
 
-// Real-session forensics (scripts/tool-fingerprint-forensics.ts) found
-// healthy tool-only streaks topping out at 28 consecutive turns, so 25 sits
-// comfortably above that ceiling. The nudge is a check-in, not a stop, so
-// erring high costs nothing.
+// Real-session forensics found healthy tool-only streaks topping out at 28
+// turns, so 25 sits above that ceiling; erring high costs nothing.
 /** Default policy: permissive, no finish bias, no prompt residual. */
 const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   toolOnlyTurnNudgeAt: 25,
@@ -84,16 +75,14 @@ const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   advertisedToolDeny: [],
 };
 
-// Generic tool-budget residual for grok leaves. Pure tool-loop budget, no
+// Generic tool-budget residual for grok leaves: pure tool-loop budget, no
 // ceremony lines or family-specific routing. Single-sourced from the
-// versioned prompt-variance package; the name stays for existing importers.
+// prompt-variance package.
 export const GROK_TOOL_BUDGET_RESIDUAL = grokToolBudgetResidual;
 
-// Grok keeps its own nudge copy, but shares the default sub-agent stall
-// timeout: live workbench fleets show routine 60–180s gaps between tool
-// cycles while the model thinks, so a shorter kill was false-positive
-// salvage mid-inference. The hard-pause thrash check is not family-tuned;
-// it runs the same period detection for every family.
+// Grok keeps its own nudge copy but shares the default stall timeout:
+// workbench fleets show routine 60–180s thinking gaps, so a shorter kill
+// would false-positive salvage mid-inference.
 const GROK_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   toolOnlyTurnNudgeAt: DEFAULT_POLICY.toolOnlyTurnNudgeAt,
   wrapUpNudgeText: GROK_WRAP_UP_NUDGE_TEXT,
@@ -104,17 +93,14 @@ const GROK_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   promptResidual: GROK_TOOL_BUDGET_RESIDUAL,
 };
 
-// Kimi thresholds are provisional: no eval characterization yet for how it
-// behaves under tool-only stretches or background-run stalls. Ship the
-// permissive default rather than guessing; revisit once eval data exists.
+// Kimi thresholds are provisional: no eval data yet. Ship the permissive
+// default; revisit once data exists.
 const KIMI_POLICY: Omit<ModelFamilyPolicy, "family"> = { ...DEFAULT_POLICY };
 
 // Muse Spark does not reliably stop a tool loop at medium reasoning effort:
-// it re-read files and ran out the 8-turn ceiling without finishing; with
-// these three rules appended the same run finished in 3 turns on 4.3x fewer
-// input tokens. At minimal effort it terminates either way, so the rules
-// earn their keep exactly where each wasted turn is most expensive.
-// Single-sourced from the versioned prompt-variance package.
+// re-reads ran out the 8-turn ceiling; with these three rules the same run
+// finished in 3 turns on 4.3x fewer tokens — and medium effort is exactly
+// where a wasted turn is most expensive. Single-sourced from prompt-variance.
 const MUSE_TOOL_DISCIPLINE_RULES = museRow.residual;
 
 const MUSE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
@@ -122,19 +108,11 @@ const MUSE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   toolDisciplineRules: MUSE_TOOL_DISCIPLINE_RULES,
 };
 
-// Grok finish-bias + ceremony residual, one block with no line twice. The
-// text lives here once; buildGrokLeafAntiThrashNote (prompts.ts) returns it
-// verbatim so the prompt carries exactly one copy. Distinct from the
-// tool-budget residual (GROK_TOOL_BUDGET_RESIDUAL): grok leaves carry both,
-// each once. Single-sourced from the versioned prompt-variance package; the
-// name stays for existing importers.
+// Grok finish-bias + ceremony residual. Distinct from the tool-budget
+// residual (GROK_TOOL_BUDGET_RESIDUAL): grok leaves carry both, each once.
 export const GROK_PROMPT_RESIDUAL = grokRow.residual;
-// Claude ships one XML residual, not prose: a prose residual did nothing, but
-// a single <task_guidance> block cut Sonnet tokens. The block is the whole
-// residual — never a full-prompt XML renderer. buildClaudeTaskGuidanceNote
-// (prompts.ts) returns it verbatim so the prompt carries exactly one copy.
-// Single-sourced from the versioned prompt-variance package; the name stays
-// for existing importers.
+// Claude ships one XML residual, not prose: a single <task_guidance> block
+// cut Sonnet tokens where prose did nothing. The block is the whole residual.
 export const CLAUDE_TASK_GUIDANCE_NOTE = claudeRow.residual;
 
 const CLAUDE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
@@ -143,32 +121,23 @@ const CLAUDE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
 };
 
 // Narrate-before-tools residual for GPT workers: GPT-5.5 runs showed 6–13
-// silent tool-only turns. Shared thrash harness + spawn contracts do the
-// structural work; this is only a nudge, deliberately not manage_tasks
-// ceremony. buildGptNarrateBeforeToolsNote (prompts.ts) returns it verbatim
-// so the prompt carries exactly one copy. Astra is the one exception:
-// forensics showed the gpt-6-astra cell evading the shared threshold guard
-// via trivial argument deltas, so it carries its own residual below.
-// Single-sourced from the versioned prompt-variance package; the name stays
-// for existing importers.
+// silent tool-only turns. A nudge only, not manage_tasks ceremony. Astra is
+// the one exception — it evades the shared threshold guard via trivial
+// argument deltas, so it carries its own residual below.
 export const GPT_NARRATE_BEFORE_TOOLS_NOTE = gptRow.residual;
 
-// GPT thresholds are provisional: no eval characterization yet for how it
-// behaves under tool-only stretches or background-run stalls. Ship the
-// permissive default; the narrate-before-tools residual is prompt-level (see
-// GPT_NARRATE_BEFORE_TOOLS_NOTE above), not a threshold.
+// GPT thresholds are provisional: no eval data yet. Ship the permissive
+// default; the residual is prompt-level, not a threshold.
 const GPT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   ...DEFAULT_POLICY,
   // Primary and leaf alike: no orchestrator carve-out.
   promptResidual: GPT_NARRATE_BEFORE_TOOLS_NOTE,
 };
 
-// Astra (served gpt-6-astra cell) is GPT plus an evasion residual: forensics
-// on the repro trace classified the loop as evasion — near-identical
-// re-issued calls whose trivial argument deltas keep every exact fingerprint
-// under the shared threshold — so the residual forbids that specific
-// variation instead of tightening thresholds: toolOnlyTurnNudgeAt stays at
-// the permissive default.
+// Astra (gpt-6-astra cell) is GPT plus an evasion residual: the repro trace
+// looped via trivial argument deltas that keep exact fingerprints under the
+// shared threshold, so the residual forbids that variation instead of
+// tightening thresholds.
 export const ASTRA_PROMPT_RESIDUAL = `${GPT_NARRATE_BEFORE_TOOLS_NOTE}\n${astraResidual}`;
 
 const ASTRA_POLICY: Omit<ModelFamilyPolicy, "family"> = {
@@ -241,9 +210,8 @@ export function resolveModelFamilyPolicy(input: {
   switch (family) {
     case "grok": {
       const policy = { family, ...GROK_POLICY };
-      // The finish-bias residual only makes sense on sub-agents, mirroring
-      // shouldApplyGrokAntiThrash: orchestrators dispatch other agents rather
-      // than doing the work directly.
+      // Finish-bias residual only makes sense on leaf workers; orchestrators
+      // dispatch other agents rather than doing the work directly.
       return {
         ...policy,
         applyGrokFinishBias: policy.applyGrokFinishBias && !orchestrator,
@@ -258,9 +226,8 @@ export function resolveModelFamilyPolicy(input: {
     case "muse":
       return { family, ...MUSE_POLICY };
     case "claude":
-      // Like the grok finish-bias residual, the task_guidance block only makes
-      // sense on leaf workers — orchestrators resolve to the permissive
-      // default (no residual).
+      // Like grok's finish-bias, task_guidance only makes sense on leaf
+      // workers — orchestrators get the permissive default.
       return orchestrator
         ? { family, ...DEFAULT_POLICY }
         : { family, ...CLAUDE_POLICY };
@@ -268,8 +235,7 @@ export function resolveModelFamilyPolicy(input: {
       // Primary and sub-agent alike: no orchestrator carve-out.
       return { family, ...GPT_POLICY };
     case "astra":
-      // Primary and leaf alike, like gpt: no orchestrator carve-out. Only
-      // astra carries the residual.
+      // Like gpt: no orchestrator carve-out; only astra carries the residual.
       return { family, ...ASTRA_POLICY };
     case "deepseek": {
       // Winning d1+slim config: d1 primary residual on orchestrators, g2 leaf

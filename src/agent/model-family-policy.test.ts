@@ -121,8 +121,7 @@ describe("resolveModelFamilyPolicy", () => {
         orchestrator: true,
       });
       expect(orchestrator.promptResidual).toBeUndefined();
-      // Default-family probe: an unrecognized provider still resolves to the
-      // default family.
+      // Default-family probe: unrecognized providers still resolve to default.
       const base = resolveModelFamilyPolicy({
         providerName: "unknown-provider",
         model: "unknown-model",
@@ -149,10 +148,9 @@ describe("resolveModelFamilyPolicy", () => {
     expect(orchestrator.promptResidual).toBeUndefined();
   });
 
-  // openai/gpt-5.6 and codex/gpt-5.1 resolve to the gpt family with the
-  // narrate-before-tools residual, leaf and orchestrator alike (no carve-out).
-  // Grok keeps its tool-budget residual — the "no residual" claim below is
-  // default-family-only.
+  // openai/gpt-5.6 and codex/gpt-5.1 resolve to gpt with the narrate
+  // residual, leaf and orchestrator alike. Grok keeps its tool-budget
+  // residual — the "no residual" claim is default-family-only.
   test("gpt probes resolve to gpt with the narrate residual; grok keeps its tool budget", () => {
     for (const input of [
       { providerName: "openai", model: "gpt-5.6" },
@@ -182,9 +180,8 @@ describe("resolveModelFamilyPolicy", () => {
       model: "claude-sonnet-4",
     });
     expect(gpt.family).toBe("gpt");
-    // No eval characterization for gpt tool-only stretches yet: ship the
-    // permissive default, no finish-bias, no discipline rules. The
-    // narrate-before-tools residual is prompt-level (see prompts.ts), not a
+    // No eval data for gpt tool-only stretches yet: permissive default, no
+    // finish-bias, no discipline rules. The residual is prompt-level, not a
     // threshold.
     expect(gpt.toolOnlyTurnNudgeAt).toBe(base.toolOnlyTurnNudgeAt);
     expect(gpt.subAgentStallTimeoutMs).toBe(base.subAgentStallTimeoutMs);
@@ -195,14 +192,10 @@ describe("resolveModelFamilyPolicy", () => {
 
   describe("astra repro trace (CL-9027)", () => {
     // Minimal failing session-trace fixture: 8 consecutive tool-only turns
-    // from a gpt-6-astra leaf (tool names + args + result sizes per turn).
-    // Fingerprint semantics mirror scripts/tool-fingerprint-forensics.ts
-    // (stableJson exact signatures, largest exact-repeat count per period):
-    // the shared threshold guard fires only on exact repeats, so a loop that
-    // varies trivial argument details escapes it. That is evasion, not
-    // threshold-tolerated waste — and the residual forbids exactly this
-    // variation. The near-identical grouping below is test-only forensics; no
-    // signature normalization ships in first-party code.
+    // from a gpt-6-astra leaf. The shared guard fires only on exact repeats,
+    // so a loop varying trivial argument details escapes it — evasion, not
+    // waste — and the residual forbids exactly this variation. Test-only
+    // forensics; no signature normalization ships in first-party code.
     interface ReproTurn {
       tool: string;
       args: Record<string, unknown>;
