@@ -86,13 +86,12 @@ function sanitizeCallId(callId: string): string {
 
 /**
  * Parse conversation turns out of one JSONL segment. A crash can tear the
- * final line of the active (last) segment mid-write; when `tolerateTornTail`
- * is set a final line that fails to parse is dropped rather than aborting
- * the resume.
+ * final line of the active (last) segment mid-write; `tolerateTornTail`
+ * drops a final unparseable line instead of aborting resume.
  *
  * Null bytes (truncate-past-EOF padding from a stale keepBytes write) are
- * stripped so a poisoned segment can still yield its usable turns. Errors
- * name `fileName` when provided so diagnostics point at the on-disk file.
+ * stripped so a poisoned segment still yields its usable turns. Errors name
+ * `fileName` when provided so diagnostics point at the on-disk file.
  *
  * `skipMalformed` drops (or partially recovers) a bad line anywhere in the
  * segment and keeps surrounding history. Used by display-only reads
@@ -205,9 +204,9 @@ function emptyMetadata(): SessionMetadata {
 }
 
 /**
- * Prefer real metadata via the base store schema on recovery. Soft-default only
- * when metadata.json is missing, corrupt, or otherwise unreadable so poisoned
- * turns still resume without wiping pendingOperations / tokenUsage / connectorState.
+ * Prefer real metadata via the base store schema on recovery; soft-default
+ * only when metadata.json is unreadable so poisoned turns still resume
+ * without wiping pendingOperations / tokenUsage / connectorState.
  */
 async function loadMetadataSoft(
   loadMetadata: () => Promise<SessionMetadata>,
@@ -249,8 +248,9 @@ function toolSequenceIsWellFormed(turns: readonly ConversationTurn[]): boolean {
 /**
  * Longest prefix of `[base, ...extras]` whose tool sequence is well-formed.
  * Returns how many extras to keep (0 = base only). Orphan tails left by a
- * compaction rewrite through a fresh writer reintroduce pre-compact tool turns
- * after the compact head; dropping them is how a poisoned session resumes.
+ * compaction rewrite through a fresh writer reintroduce pre-compact tool
+ * turns after the compact head; dropping them is how a poisoned session
+ * resumes.
  */
 function longestWellFormedExtraCount(
   baseTurns: ConversationTurn[],
@@ -289,9 +289,8 @@ async function unlinkExtraSegmentsFrom(
 
 /**
  * Display-only tail of the turn history. Older segments are unread when
- * `truncated` is set — callers that paint a bounded transcript can still
- * notice that more history exists even if the loaded window hydrates to
- * exactly the retention cap.
+ * `truncated` is set — callers painting a bounded transcript can still
+ * notice more history exists even when the window hits the retention cap.
  */
 export type RecentTurns = {
   readonly turns: ConversationTurn[];
@@ -299,13 +298,12 @@ export type RecentTurns = {
 };
 
 /**
- * Read only the tail of the turn history needed to satisfy `minTurns`, walking
- * segments newest to oldest and stopping as soon as enough turns accumulate.
- * This is for display-only resume paths (e.g. TUI transcript hydration) that
- * only need a recent window; the canonical full-history read stays on
- * `ContextStore.load()` — the reactor's own initialization contract requires
- * the complete turn history, since that is the actual live conversation
- * state, not a bounded view of it.
+ * Read only the tail of the turn history needed to satisfy `minTurns`,
+ * walking segments newest to oldest and stopping once enough turns
+ * accumulate. Display-only paths (e.g. TUI transcript hydration) need only
+ * a recent window; the canonical full-history read stays on
+ * `ContextStore.load()` — the reactor's initialization contract requires
+ * the complete live conversation state, not a bounded view.
  *
  * Orphan-tail recovery lives on `load()`, not here: this path must stay
  * O(window) so resume does not re-pay full-history I/O on healthy sessions.
@@ -325,10 +323,9 @@ export async function loadRecentTurns(
     if (name === undefined) continue;
     const text = await fs.promises.readFile(path.join(dir, name), "utf-8");
     // Only the active (last) segment can be mid-write; sealed ones are complete.
-    // Display-only: skip lines that will not parse rather than losing the whole
-    // transcript to one bad line, and name the segment in any error that does
-    // escape. Reactor load uses the same skip path for mid-file garbage so
-    // resume does not die.
+    // Display-only: skip unparseable lines rather than losing the transcript
+    // to one bad line. Reactor load uses the same skip path for mid-file
+    // garbage so resume does not die.
     const turns = parseSegmentTurns(
       text,
       i === segments.length - 1,
@@ -465,8 +462,8 @@ async function restoreTurnSegments(
 /**
  * Stage every contiguous on-disk segment for `baseName` and unstage any
  * higher-numbered or gapped segment still on disk or tracked after a rewrite
- * deleted it — even when the in-memory pending set was lost (process died
- * between heal unlink and commit). Gapped strays are unlinked, not re-added.
+ * deleted it — even when the pending set was lost (process died between heal
+ * unlink and commit). Gapped strays are unlinked, not re-added.
  */
 async function reconcileSegmentStaging(
   dir: string,
@@ -529,8 +526,8 @@ export interface SessionStores {
 
 /**
  * Local wrapper around the Interchange git store that avoids O(session length)
- * work per reactor checkpoint. Turns and prompt snapshots are written as rolling
- * segment files so only the small active extra segment is re-hashed, then
+ * work per reactor checkpoint. Turns and prompt snapshots are written as
+ * rolling segment files so only the small active extra segment is re-hashed;
  * `base.commit()` takes the vendor lock, durable commit, signing, and GC.
  */
 export async function createSessionStores(
@@ -601,8 +598,8 @@ export async function createSessionStores(
       baseTurns = (await base.load()).turns;
     } catch (cause) {
       // A torn or poisoned base tail must not block the write that heals it;
-      // recover the usable base turns the same way load() does. This also lets
-      // a corrupt metadata.json slide — writeTurns only needs the turns.
+      // recover the usable base turns the same way load() does. A corrupt
+      // metadata.json also slides — writeTurns only needs the turns.
       log.warn(
         "base context store load failed during writeTurns; recovering base segment from disk",
         { cause: cause instanceof Error ? cause.message : String(cause) },
@@ -635,10 +632,9 @@ export async function createSessionStores(
   }
 
   // The reactor checkpoints the materialized prompt every cycle, but most
-  // cycles run no transform that changes it — writing an identical snapshot
-  // doubles disk and re-hash cost for zero information. load() never reads
-  // prompt.jsonl, so skipping the write leaves resume unchanged; prompts that
-  // actually differ still write exactly as before.
+  // cycles change nothing — an identical snapshot doubles disk and re-hash
+  // cost for zero information. load() never reads prompt.jsonl, so skipping
+  // the write leaves resume unchanged; differing prompts still write.
   async function writePromptIfDiffered(
     turns: readonly ConversationTurn[],
   ): Promise<void> {
@@ -673,8 +669,8 @@ export async function createSessionStores(
       return;
     }
     // Identical to live turns: converge disk to no prompt segment so a stale
-    // snapshot from an earlier differing write cannot linger. Removals join
-    // pendingSegmentPaths so commit stages them out of the tree.
+    // snapshot cannot linger. Removals join pendingSegmentPaths so commit
+    // stages them out of the tree.
     const highest = await highestSegmentIndex(dir, PROMPT_FILE);
     let removed = false;
     for (let index = 0; index <= highest; index++) {
@@ -726,14 +722,13 @@ export async function createSessionStores(
   }
 
   const store: ContextStore & AuditStore = {
-    // Full-history read. Called by the reactor during initialization, where
-    // the complete turn history is the actual live conversation state, not an
-    // optional convenience — callers that only need a recent tail should use
-    // `loadRecentTurns` instead.
+    // Full-history read: the reactor's initialization contract — the complete
+    // turn history is the live conversation state. Callers needing only a
+    // recent tail should use `loadRecentTurns`.
     //
-    // When the base isogit store hard-fails (e.g. null-padded or mid-file
-    // garbage turns.jsonl), recover usable turns via resilient segment parse
-    // and re-read metadata via the base schema (soft-empty only if that fails
+    // When the base isogit store hard-fails (null-padded or mid-file garbage
+    // turns.jsonl), recover usable turns via resilient segment parse and
+    // re-read metadata via the base schema (soft-empty only if that fails
     // too) so resume does not die or wipe pending ops.
     async load(signal) {
       try {
@@ -754,9 +749,9 @@ export async function createSessionStores(
         );
         let baseTurns: ConversationTurn[];
         try {
-          // Prefer resilient parse of segment 0 alone so orphan-tail heal still runs.
-          // skipMalformed: mid-file garbage/interleaved records must not kill resume;
-          // null-pad stripping and torn-tail drop still apply.
+          // Prefer resilient parse of segment 0 alone so orphan-tail heal still
+          // runs. skipMalformed: mid-file garbage must not kill resume; null-pad
+          // stripping and torn-tail drop still apply.
           baseTurns = await readBaseTurnsFromDisk(dir);
         } catch (parseCause) {
           // Unrecoverable: rethrow with the file name in the message.
@@ -789,8 +784,9 @@ export async function createSessionStores(
       const extraNames = await extraSegmentNamesAtCommit(dir, hash);
       if (extraNames.length === 0) return baseTurns;
 
-      // Historical commits made while orphans remained in the tree may still be
-      // malformed. Prefer the longest well-formed prefix; no on-disk side effects.
+      // Historical commits made while orphans remained in the tree may still
+      // be malformed. Prefer the longest well-formed prefix; no on-disk side
+      // effects.
       const parsedExtras: ConversationTurn[][] = [];
       for (const name of extraNames) {
         const text = await blobTextAtCommit(dir, hash, name);

@@ -198,8 +198,8 @@ describe("createOptimizedContextStore load", () => {
 
     fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("kept")]));
     // Corrupt metadata alone must not abort resume when turns are fine.
-    // Base load parses turns first then metadata — if metadata throws, recovery
-    // path soft-defaults and still returns turns.
+    // Base load parses turns first then metadata — if metadata throws, the
+    // recovery path soft-defaults and still returns turns.
     fs.writeFileSync(path.join(dir, "metadata.json"), "{not-json\x00");
 
     const loaded = await store.load();

@@ -9,11 +9,11 @@
 //     markers, files/commands, verification, dead ends, next actions, plus a
 //     verbatim exact-facts appendix), persisted as a context-store blob by the
 //     reactor under one STABLE key that every fold overwrites;
-//   - a thin spine that stays in the live prompt: goal one-liner (cut at a
-//     token boundary, never mid-token), standing output-format tokens uncut,
-//     top constraints/decisions, a cumulative evidence echo, activated tools,
-//     and an explicit pointer (tool-output:/// URI) so the agent can re-read
-//     the full operator ask and output contract when a detail is missing.
+//   - a thin spine in the live prompt: goal one-liner (cut at a token
+//     boundary, never mid-token), standing output-format tokens uncut, top
+//     constraints/decisions, a cumulative evidence echo, activated tools, and
+//     an explicit pointer (tool-output:/// URI) so the agent can re-read the
+//     full operator ask and output contract when a detail is missing.
 //
 // Everything the file carries is copied verbatim out of the folded turns —
 // never paraphrased — so exact-required facts (paths, commands, counts, user
@@ -90,7 +90,7 @@ const VERIFICATION_SIGNAL = /test|check|lint|build|typecheck|verify/i;
 // Evidence echo tokens, e.g. [[evidence:decision|operator:correction|west]].
 // Recovered verbatim out of folded text so exact facts survive paraphrase.
 // The class excludes brackets and newlines so a truncation-cut token (no
-// closing brackets on its line) can never pair with a later `]]` and swallow
+// closing bracket on its line) can never pair with a later `]]` and swallow
 // the lines between.
 const EVIDENCE_TOKEN = /\[\[evidence:[^[\]\r\n]+\]\]/g;
 
@@ -825,8 +825,8 @@ function section(title: string, items: readonly string[]): string {
 
 /**
  * Render the fat handoff file. The narrative is the fold's own summary
- * (model-written, may paraphrase); the Exact facts appendix below it is
- * verbatim and is what later folds must preserve.
+ * (model-written, may paraphrase); the Exact facts appendix is verbatim and
+ * is what later folds must preserve.
  */
 export function renderHandoffFile(
   artifact: HandoffArtifact,

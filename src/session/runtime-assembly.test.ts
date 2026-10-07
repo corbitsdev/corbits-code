@@ -119,9 +119,9 @@ describe("buildSubAgentProvider", () => {
 
 describe("createLiveSubAgentSources", () => {
   // One live-config owner for every fact a spawn reads. These were three
-  // separately-seeded snapshots that each switch path had to remember to
-  // refresh; a mid-session model switch refreshed none of them, so workers
-  // kept running against the provider the operator had switched away from.
+  // separately-seeded snapshots each switch path had to remember to refresh;
+  // a mid-session model switch refreshed none, so workers kept running
+  // against the provider the operator had switched away from.
   const entry = (name: string): SubAgentSourcesConfig["providers"][number] => ({
     name,
     baseURL: "https://api.openai.com/v1",

@@ -89,8 +89,7 @@ describe("createAdvertisedToolset", () => {
   });
 
   // Activation opens the call gate but does not reshape the wire set until
-  // flushPromotions commits it (promoters flush on execute; this unit stays
-  // the split).
+  // flushPromotions commits it.
   test("activation alone leaves the wire set untouched until flushPromotions commits it", () => {
     const { activated, computeAdvertised, flushPromotions } =
       createAdvertisedToolset(wiring());
@@ -120,9 +119,9 @@ describe("createAdvertisedToolset", () => {
       def("tool_b"),
     ]).map((d) => d.name);
     expect(names.slice(-2)).toEqual(["tool_b", "tool_a"]);
-    // Rotation clears the gate and the wire snapshot; session start replays the
-    // restored names (activate) at a cache-safe boundary (flush), re-arming
-    // both while the pending edge stays empty afterwards.
+    // Rotation clears the gate and the wire snapshot; session start replays
+    // the restored names (activate) at a cache-safe boundary (flush), so the
+    // pending edge stays empty afterwards.
     activated.clear();
     expect(flushPromotions()).toBe(false);
     expect(activated.activate(["tool_a", "tool_b"])).toBe(true);
