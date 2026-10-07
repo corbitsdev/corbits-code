@@ -105,10 +105,9 @@ function isPermissionGrantEvent(raw: unknown): raw is PermissionGrantEvent {
 
 /**
  * Drain `queue` of any request a grant now covers whenever `permission.grant`
- * fires (see PermissionGateOptions.onGrant for where that event originates).
- * Any approval surface — TUI or headless — gets reconciliation for free by
- * enqueuing its pending requests into a PermissionRequestQueue and calling
- * this once, instead of reimplementing the walk.
+ * fires (see PermissionGateOptions.onGrant). Any approval surface — TUI or
+ * headless — gets reconciliation for free by enqueuing its pending requests
+ * into a PermissionRequestQueue and calling this once.
  */
 export function wirePermissionGrantReconciliation(
   emitter: EventEmitter,

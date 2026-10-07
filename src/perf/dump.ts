@@ -1,9 +1,7 @@
 /**
- * Privacy-strict local dump of a PerfSpan snapshot.
- *
- * Writes compact JSON beside session artifacts. Re-sanitizes tags and strips
- * any non-allowlisted shape so the file is safe to share offline.
- * No network.
+ * Privacy-strict local dump of a PerfSpan snapshot. Writes compact JSON
+ * beside session artifacts. Re-sanitizes tags and strips any non-allowlisted
+ * shape so the file is safe to share offline. No network.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";

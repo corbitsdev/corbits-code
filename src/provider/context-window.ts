@@ -9,12 +9,11 @@ import type { TokenUsage } from "@intx/types/runtime";
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 
 // The one place "how much context is this turn occupying" gets computed from
-// a provider's reported usage. Cache reads and writes still ride on the
-// context window (a provider like Anthropic bills and counts them against
-// it) even though they are not `input` — omitting them understates occupancy
-// for any session using prompt caching. The status-bar meter and the
-// compaction governor must both call this rather than hand-picking fields,
-// or they silently diverge on what "context size" means.
+// a provider's reported usage. Cache reads and writes ride on the context
+// window (Anthropic bills and counts them against it) even though they are
+// not `input` — omitting them understates occupancy for prompt-caching
+// sessions. The meter and compaction governor must both call this so they
+// cannot silently diverge on what "context size" means.
 export function contextTokensFromUsage(usage: TokenUsage | undefined): number {
   if (usage === undefined) return 0;
   return usage.input + usage.cacheRead + usage.cacheWrite;
@@ -165,10 +164,8 @@ export const CONTEXT_METER_DANGER_FRACTION = 0.8;
 // alone until usage climbs this fraction of the window past the post-compact
 // measurement. Anchored to the meter bands — danger (0.8) minus threshold
 // (0.6) — so a session that folded only marginally under the high watermark
-// (or stayed over it) must climb a full warning band before another fold
-// instead of looping a compact on every small growth step. Under-threshold
-// usage restores consecutive/overflow/non-converged rails; it does not skip
-// this gap.
+// must climb a full warning band before another fold instead of looping a
+// compact on every small growth step.
 export const COMPACTION_WIDE_RESUME_FRACTION = 0.2;
 
 export type ContextMeterBand = "quiet" | "warning" | "danger";

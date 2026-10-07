@@ -20,19 +20,15 @@ async function captureModule<T extends object>(path: string): Promise<T> {
 
 /**
  * Mocks a module for the rest of this test file and registers its own
- * `afterAll` restore, so correctness never depends on remembering to add
- * one. Bun runs every test file in a single process, so an un-restored
- * `mock.module` silently replaces the real module for every file that runs
- * after this one -- this is the only sanctioned way to call `mock.module`
- * at file scope.
+ * `afterAll` restore. Bun runs every test file in one process, so an
+ * un-restored `mock.module` silently replaces the real module for every file
+ * that runs after this one — this is the only sanctioned way to call
+ * `mock.module` at file scope. `impl` receives the captured real module so
+ * mocks can spread it (`...real`) without a separate capture line.
  *
- * `impl` receives the captured real module so mocks can spread it
- * (`...real`) without a separate capture line.
- *
- * Pass `path` as `import.meta.resolve("./relative/path.js")` from the
- * calling file, not a bare relative specifier -- both `import()` and
- * `mock.module` inside this helper resolve relative specifiers against
- * this file's own location, not the caller's.
+ * Pass `path` as `import.meta.resolve("./relative/path.js")` — both
+ * `import()` and `mock.module` inside this helper resolve relative
+ * specifiers against this file's location, not the caller's.
  */
 export async function withMockedModule<T extends object>(
   path: string,

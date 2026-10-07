@@ -29,9 +29,7 @@ installCrashHandlers();
 // clearsActiveRun("session-rotation") dispatch writeRunSnapshot uses in
 // runner.ts, so this fixture exercises the real production decision of
 // whether a rotation write clears the active-run handle, rather than
-// asserting the desired behavior directly. Then repoints the handle at the
-// new session id, matching runner.ts reassigning activeRunHandle.sessionId
-// in place rather than replacing the handle.
+// asserting the desired behavior directly.
 const rotatedSessionId = process.env["CRASH_TEST_ROTATED_SESSION_ID"];
 let activeSessionId = sessionId;
 if (rotatedSessionId !== undefined) {
@@ -66,9 +64,8 @@ process.stdout.write(`${sessionDir(cwd, activeSessionId)}\n`);
 // Hold every write issued from here on at the gate, before it reaches
 // isCrashed(). This makes the race deterministic instead of hoping real
 // filesystem timing interleaves the right way: the two straggler writes
-// below are guaranteed to still be queued, not dispatched to the kernel,
-// when the crash handler flips isCrashed() — the exact scenario the guard
-// exists for.
+// below are guaranteed to still be queued when the crash handler flips
+// isCrashed() — the exact scenario the guard exists for.
 let releaseGate: () => void;
 const gate = new Promise<void>((resolve) => {
   releaseGate = resolve;

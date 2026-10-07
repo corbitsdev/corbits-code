@@ -4,11 +4,11 @@ import { splitChainedCommand, deriveCommandScopes } from "./command.js";
 import { matchesPattern } from "./matcher.js";
 
 describe("deriveCommandScopes exact-scope escaping", () => {
-  // The "exact command" scope must persist a grant that matches only the
-  // literal command the operator saw. A raw glob character in the command
-  // (e.g. the shell-expanded `*` in `rm -rf build/*`) must not survive into
-  // the stored pattern unescaped, or the grant becomes a wildcard that later
-  // matches unrelated commands like `rm -rf build/../../etc`.
+  // The "exact command" scope must persist a grant matching only the literal
+  // command the operator saw. A raw glob character in the command (e.g. the
+  // shell-expanded `*` in `rm -rf build/*`) must not survive into the stored
+  // pattern unescaped, or the grant becomes a wildcard matching unrelated
+  // commands.
   test("escapes glob metacharacters in the exact-command scope", () => {
     const scopes = deriveCommandScopes("rm -rf build/*");
     const exact = scopes.find((s) => s.id === "exact");

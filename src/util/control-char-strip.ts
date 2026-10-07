@@ -2,10 +2,9 @@
 // renderer. A compromised MCP server, a tool reading attacker-controlled file
 // content, or a model reproducing an injected payload in its own reply can
 // return bytes that, if painted raw, move the cursor, rewrite the scrollback,
-// or fire OSC 52 clipboard/OSC 8 hyperlink side effects. Such text is rendered
-// as plain text, so none of this is "intentionally-emitted styling" — that only
-// happens in the app's own renderer layer (see src/tui/osc8.ts), which this
-// sanitizer never touches.
+// or fire OSC 52 clipboard/OSC 8 hyperlink side effects. This sanitizer only
+// touches text destined for the plain-text renderer, never the app's own
+// styling layer (see src/tui/osc8.ts).
 
 // String-type sequences (OSC, DCS, PM, APC) run until the ST terminator
 // (ESC \) or, conventionally for OSC, BEL (\u0007).

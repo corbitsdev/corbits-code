@@ -174,8 +174,7 @@ describe("createAppShell", () => {
 
           // Locate the prompt's interior on screen and scroll through the
           // renderer's real SGR-mouse parse + hit-test dispatch, the same
-          // path a live terminal drives — not a direct method call, which
-          // would pass even if the renderer never routed the event here.
+          // path a live terminal drives.
           const rows = h.captureCharFrame().split("\n");
           const borderRow = rows.findIndex((r) => r.includes("╭"));
           const promptX = defined(rows[borderRow]).indexOf("╭") + 2;

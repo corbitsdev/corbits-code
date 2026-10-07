@@ -674,10 +674,9 @@ describe("shellGuardPlugin", () => {
         );
       });
 
-    // Override the default 10s budget by racing a short outer abort is hard —
-    // instead assert the middleware wires a signal that the next handler sees.
-    // We stub a search tool that only finishes on abort, and force a tiny budget
-    // by using the public with-timeout path indirectly via a patched plugin call.
+    // Assert the middleware wires a signal the next handler sees: stub a
+    // search tool that only finishes on abort and force a tiny budget via
+    // the patched plugin call.
     const plugin = shellGuardPlugin(process.cwd());
     // Inject a fast abort parent so the search budget settles quickly.
     const controller = new AbortController();

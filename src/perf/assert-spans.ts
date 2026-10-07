@@ -25,11 +25,10 @@ export function assertPhasePresent(
 
 /**
  * Verify at least one span named `childName` is nested under a span named
- * `parentName` (via parentId → id).
- *
- * Arg order: (spans, child, parent) — the nested phase first, then its expected
- * parent. Example: `assertNesting(spans, "inference", "turn")` means an
- * inference span has parentId pointing at a turn span.
+ * `parentName` (via parentId → id). Arg order: (spans, child, parent) — the
+ * nested phase first, then its expected parent. Example:
+ * `assertNesting(spans, "inference", "turn")` means an inference span has
+ * parentId pointing at a turn span.
  */
 export function assertNesting(
   spans: readonly PerfSpan[],

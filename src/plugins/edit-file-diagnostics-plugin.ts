@@ -13,8 +13,8 @@ const CLOSEST_LINE_COUNT = 3;
 // Keep multi-line occurrence previews short enough that 10 of them fit under the cap.
 const OCCURRENCE_PREVIEW_LINES = 3;
 
-// read_file decorates as padStart(6) + "\t" + line; pasting that into old_string is the
-// dominant failure mode for this ticket.
+// read_file decorates as padStart(6) + "\t" + line; pasting that into
+// old_string is the dominant failure mode.
 const LINE_PREFIX_RE = /^\s*\d+\t/;
 
 export function editFileDiagnosticsPlugin(): ToolPlugin {
@@ -155,7 +155,6 @@ export interface NearMiss {
 /**
  * Find a unique multi-line span whose per-line whitespace normalization equals
  * the normalized old_string. Returns original (un-normalized) text.
- *
  * Leading/trailing empty lines on the needle are ignored for matching (models
  * often paste a trailing newline) but do not expand the reported span.
  */

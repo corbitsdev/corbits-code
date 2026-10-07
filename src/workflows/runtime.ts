@@ -37,10 +37,10 @@ export interface WorkflowView {
 type Resolver = (name: string) => Workflow | undefined;
 
 // Drives step-by-step execution on top of the existing agent loop. The runtime
-// owns the call stack and step statuses; it decides which step is current and
-// what runs next, while the director performs the actual work (prompt injection,
-// sub-agent fan-out). Steps whose capability is unsatisfied are skipped; steps
-// that name a sub-workflow push a nested frame onto the stack.
+// owns the call stack and step statuses, deciding which step is current and
+// what runs next, while the director performs the actual work (prompt
+// injection, sub-agent fan-out). Unsatisfied capabilities skip their steps;
+// steps naming a sub-workflow push a nested frame onto the stack.
 export class WorkflowRuntime {
   private stack: WorkflowFrame[] = [];
   private done = false;
@@ -103,10 +103,9 @@ export class WorkflowRuntime {
   }
 
   // Compare-and-advance against the current step. Matching `stepId` advances
-  // atomically (check and move happen in this call). A step already behind the
-  // cursor is already-complete; a future, unknown, or inactive id is
-  // not-current. Neither acknowledged case moves the cursor, so a retry cannot
-  // skip ahead.
+  // atomically (check and move happen in this call). A step behind the cursor
+  // is already-complete; a future, unknown, or inactive id is not-current.
+  // Neither acknowledged case moves the cursor, so a retry cannot skip ahead.
   complete(stepId: string): WorkflowCompleteResult {
     const current = this.currentStep();
     if (current !== null && current.id === stepId) {

@@ -83,8 +83,7 @@ export class WorkflowCoordinator {
   // the runtime, and only via compare-and-advance against the current step.
   // Returns true when the runtime advanced (used by tests; the directors
   // already reset their idle counters on any tool call, so a workflow
-  // advance is never seen as a stall). Already-complete and not-current
-  // completions are acknowledged here without moving the cursor.
+  // advance is never seen as a stall).
   handleToolDone(
     name: string | undefined,
     args: unknown,

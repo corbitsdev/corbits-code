@@ -1,9 +1,7 @@
 /**
- * Pure rollup helpers over PerfSpan snapshots.
- *
- * No I/O, no module state. Inputs are bigint nanoseconds; outputs use plain
- * numbers so they serialize with JSON without custom revivers. Types are
- * exported for reuse by a future OTEL sink.
+ * Pure rollup helpers over PerfSpan snapshots. No I/O, no module state.
+ * Inputs are bigint nanoseconds; outputs are plain numbers so they serialize
+ * with JSON without custom revivers.
  */
 
 import type { PerfSpan, SpanName } from "./index.js";
