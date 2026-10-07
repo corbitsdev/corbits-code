@@ -26,9 +26,8 @@ type ToolHandlerLike = (
 /**
  * editFileLineRangePlugin never calls `next` for start_line/end_line edits (it
  * writes and returns directly), so verifyPlugin only observes those calls when
- * it sits earlier in the plugin array (composeMiddleware wraps outer-to-inner
- * in array order). Identify each plugin's middleware by a string unique to its
- * implementation rather than assuming array indices.
+ * it sits earlier in the plugin array. Identify each plugin's middleware by a
+ * string unique to its implementation rather than assuming array indices.
  */
 function findMiddlewareIndex(
   plugins: ReturnType<typeof buildCorePosixToolPlugins>,
@@ -309,8 +308,8 @@ describe("buildCorePosixToolPlugins", () => {
     const cwd = await mkdtemp(join(tmpdir(), "ic-posix-composite-blob-"));
     try {
       const encoder = new TextEncoder();
-      // Mirrors runSubAgent wiring: child store bound after agent create, parent
-      // always available so brief-handed tool-output:// URIs resolve (CL-4323).
+      // Mirrors runSubAgent wiring: child store bound after agent create,
+      // parent always available so brief-handed tool-output:// URIs resolve.
       const childHolder: { current?: ReturnType<typeof createBlobReader> } = {};
       const parentReader = createBlobReader({
         async readBlob(key: string) {
@@ -495,21 +494,15 @@ describe("buildCorePosixToolPlugins", () => {
   });
 
   test("a plugin that returns without calling next() still gets capped and scrubbed (CL-5717)", async () => {
-    // Generic, plugin-shape-agnostic version of the grep case above: any
-    // plugin that answers a scrubbable/truncatable tool directly instead of
-    // delegating to `next` must still be capped and scrubbed, because it is
-    // wrapped by the unconditional outer plugins in buildCorePosixToolPlugins.
-    // This composes the REAL production array from the builder — not a
-    // hand-picked middleware order — with a short-circuiting stand-in spliced
-    // in at ripgrepPlugin's own position, so moving both terminal concerns
-    // away from the front of the real array fails this test.
+    // Generic version of the grep case above: any plugin that answers a
+    // scrubbable/truncatable tool directly instead of delegating to `next`
+    // must still be capped and scrubbed, because the unconditional outer
+    // plugins wrap it. Composes the REAL production array from the builder
+    // with a short-circuiting stand-in spliced at ripgrepPlugin's position.
     //
-    // This guards their PREPENDED POSITION only, not the RELATIVE order
-    // between the two of them: the secret here sits at the very front of the
-    // payload, nowhere near the cap boundary, so it survives even under the
-    // exploitable cap-then-scrub order. The relative order is guarded solely
-    // by the boundary-straddle test below — do not treat this test as
-    // redundant with it.
+    // Guards their prepended position only, not their relative order: the
+    // secret here sits at the front of the payload, nowhere near the cap
+    // boundary. Relative order is guarded by the boundary-straddle test below.
     const secretShapedContent = `AKIAABCDEFGHIJKLMNOP\n${"x".repeat(90_000)}`;
     const shortCircuitingPlugin: ToolPlugin = {
       middleware:
@@ -561,14 +554,14 @@ describe("buildCorePosixToolPlugins", () => {
   test("a secret straddling the character-cap boundary is still fully redacted, not left as a bare fragment (CL-5717)", async () => {
     // Regression guard for the exploitable ordering: if truncation ran before
     // the scrub, a secret split mid-pattern at the cap boundary would no
-    // longer match the scrub's regex, and a bare, unredacted fragment of the
-    // credential would reach the model with no redaction marker at all.
+    // longer match the scrub's regex and a bare credential fragment would
+    // reach the model unredacted.
     const { MAX_RESULT_CHARS } =
       await import("../plugins/result-truncation-plugin.js");
-    // A newline immediately ahead of the key gives the scrub regex's `\b` a
-    // real word boundary; the padding length puts the cap boundary partway
-    // through the 20-char key that follows, so a truncate-then-scrub bug
-    // would cut the key down to an unmatchable, unredacted fragment.
+    // A newline ahead of the key gives the scrub regex's `\b` a real word
+    // boundary; the padding puts the cap boundary partway through the 20-char
+    // key, so a truncate-then-scrub bug would cut it to an unmatchable,
+    // unredacted fragment.
     const padding = `${"x".repeat(MAX_RESULT_CHARS - 10)}\n`;
     const straddlingSecret = "AKIAABCDEFGHIJKLMNOP"; // 20 chars, cap lands mid-key
     const secretShapedContent = `${padding}${straddlingSecret}`;
@@ -612,9 +605,8 @@ describe("buildCorePosixToolPlugins", () => {
     );
 
     // The redaction marker is longer than the key it replaces, so the cap can
-    // still trim its tail — that's fine, it's already-redacted text. The
-    // security property under test is narrower: no bare, matchable-or-partial
-    // fragment of the raw key survives into the result.
+    // still trim its tail — fine, it is already-redacted text. The property
+    // under test: no bare or partial fragment of the raw key survives.
     const content = String(result.content);
     expect(content).not.toContain(straddlingSecret);
     expect(content).not.toMatch(/AKIA[0-9A-Z]*/);
@@ -624,7 +616,7 @@ describe("buildCorePosixToolPlugins", () => {
     // The pass-through hard-deny plugin folded into the gate verdict path:
     // with no separate enforcement plugin left in the chain, the gate itself
     // must deny catastrophic shell even when skipPermissions auto-allows
-    // everything else, and secret-guard must still sit ahead of it.
+    // everything else.
     const cwd = await mkdtemp(join(tmpdir(), "cl7950-fold-"));
     try {
       const gate = createPermissionGate({

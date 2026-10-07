@@ -3,10 +3,10 @@ import { engineToolName } from "./tool-aliases.js";
 const DEFAULT_PREFIX = "default.";
 
 // Muse Spark emits `default.<name>` and duplicated `<name>.<name>`. Dispatch
-// already strips those onto catalog keys; classify, grants, and the execution
-// cache must use the same name so an alias cannot force a second ask/deny.
-// Wire names (read/bash/…) and hidden aliases (shell/update_plan) collapse onto
-// the registry engine id so a grant stored as run_shell covers bash.
+// strips those onto catalog keys; classify, grants, and the execution cache
+// must use the same name so an alias cannot force a second ask/deny. Wire
+// names and hidden aliases collapse onto the registry engine id so a grant
+// stored as run_shell covers bash.
 function baseToolName(requested: string): string {
   let name = requested;
   if (name.startsWith(DEFAULT_PREFIX)) {
@@ -20,32 +20,27 @@ export function canonicalToolName(requested: string): string {
   return engineToolName(baseToolName(requested));
 }
 
-// Canonical comparison for tool names arriving on the wire. Either side may
-// be an engine id, a profile wire name (read/bash/…), a hidden alias
-// (shell/update_plan/wait), or a default./doubled prefixed form — both sides
-// resolve through canonicalToolName first, so a rename or per-family
-// projection only touches the alias tables, never the callsites. Case
-// handling matches engineToolName (alias lookup falls back to lowercase;
-// unknown names compare verbatim).
+// Canonical comparison for tool names arriving on the wire. Either side may be
+// an engine id, a profile wire name, a hidden alias, or a default./doubled
+// prefixed form — both sides resolve through canonicalToolName first, so a
+// rename or per-family projection only touches the alias tables, never the
+// callsites.
 export function isSameTool(a: string, b: string): boolean {
   return canonicalToolName(a) === canonicalToolName(b);
 }
 
 // Grant coverage across the alias→engine collapse. Comparisons run in native
 // key space (both sides resolve onto the engine id first); a raw alias name is
-// never compared against a native id. Pure renames
-// (read/write/edit/delete/bash/glob, shell) are capability-identical, so a
-// grant stored under either name covers the other. update_plan is the
-// exception: it hidden-dispatches onto manage_tasks but only ever translates
-// to action:"create" with todo/doing/done statuses (see
-// translateUpdatePlanArgs), while manage_tasks spans the full lifecycle
-// (create/update, including cancelled). Coverage is therefore one-directional:
-// a stored manage_tasks (engine) grant covers update_plan use, but a stored
-// update_plan grant covers only update_plan-presenting requests — never a
-// manage_tasks request, which may carry update/cancel payloads the operator
-// never approved. The update_plan-presenting allowance is unreachable live
-// (requests are post-coercion and seeders drop stored update_plan keys); it
-// exists only so direct match-API callers keep narrow-narrow coverage.
+// never compared against a native id. Pure renames are capability-identical,
+// so a grant stored under either name covers the other. update_plan is the
+// exception: it hidden-dispatches onto manage_tasks but only translates to
+// action:"create" with todo/doing/done statuses, while manage_tasks spans the
+// full lifecycle (create/update, including cancelled). Coverage is
+// one-directional: a stored manage_tasks grant covers update_plan use, but a
+// stored update_plan grant never covers a manage_tasks request, which may
+// carry update/cancel payloads the operator never approved. The
+// update_plan-presenting allowance is unreachable live; it exists only so
+// direct match-API callers keep narrow-narrow coverage.
 export function grantToolCovers(
   storedTool: string,
   requestTool: string,

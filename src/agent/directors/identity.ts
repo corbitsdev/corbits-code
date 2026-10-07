@@ -3,13 +3,13 @@ import type { ModelRole } from "./types.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 
 /**
- * Prefix every director system prompt with a stable identity block so the model
- * always sees agent id, model role, attached skills, and optional skills — no
- * ambiguity about which package it is or how the parent should re-spawn it.
+ * Prefix every director system prompt with a stable identity block: agent id,
+ * model role, attached skills, optional skills — no ambiguity about which
+ * package it is or how the parent should re-spawn it.
  *
- * Attached skill *bodies* are injected at spawn (run.ts), not here. This block
+ * Attached skill bodies are injected at spawn (run.ts), not here; this block
  * carries names only. The worker contract owns the skill-escalation rule, so
- * this block does not repeat that guidance.
+ * this block does not repeat it.
  */
 export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
   const attached = pkg.attachedSkills;
@@ -71,9 +71,7 @@ export function packageAllowedSkillNames(
   return names;
 }
 
-/**
- * Product default reasoning effort by package modelRole (CL-5816 slice).
- */
+/** Product default reasoning effort by package modelRole. */
 export const MODEL_ROLE_DEFAULT_EFFORT = {
   orchestrator: "high",
   plan: "high",

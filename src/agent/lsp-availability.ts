@@ -5,7 +5,7 @@ import path from "node:path";
 // spawning requires a resolvable tsserver plus a reachable language-server
 // binary. Checked once at session start via the filesystem and PATH — never
 // by spawning a server — because the `lsp` tool's advertisement is baked into
-// the wire tools array for the life of the session (see tool-search.ts).
+// the wire tools array for the life of the session.
 export function detectLanguageServerAvailable(cwd: string): boolean {
   const tsserverPath = path.join(
     cwd,

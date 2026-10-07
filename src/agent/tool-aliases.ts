@@ -204,11 +204,9 @@ export function projectToolDefinitions(
  * alias}` copy for each alias in ALIAS_TO_ENGINE whose engine equals the
  * def's canonical name. The reactor authz snapshot is keyed by parked wire
  * name, so without these copies an ask-tier `bash`/`shell` call throws a
- * wiring-defect error instead of suspending.
- *
- * `update_plan` is never snapshotted: its grant is create-only narrow, so no
- * `update_plan`-named copy is emitted. Non-aliased defs (MCP, leaf-only)
- * pass through unchanged. Output is deduplicated by name.
+ * wiring-defect error instead of suspending. `update_plan` is never
+ * snapshotted: its grant is create-only narrow. Non-aliased defs (MCP,
+ * leaf-only) pass through unchanged. Output is deduplicated by name.
  */
 export function authzParityDefinitions(
   defs: readonly ToolDefinition[],
@@ -236,8 +234,8 @@ export function authzParityDefinitions(
  * Thin wrapper over a tool bundle (e.g. DynamicToolRunner): identical except
  * the `definitions` getter returns `authzParityDefinitions` over the live
  * set. Run/dispatch and mutation entry points delegate verbatim — only the
- * authz-facing definition set gains parity copies. The advertised wire set
- * is untouched (advertise still projects through computeAdvertised).
+ * authz-facing definition set gains parity copies; the advertised wire set
+ * is untouched.
  */
 export function withAuthzParityDefinitions<
   T extends { readonly definitions: readonly ToolDefinition[] },

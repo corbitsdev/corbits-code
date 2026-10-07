@@ -399,12 +399,11 @@ describe("createCorbitsRetryPolicy", () => {
     expect(await decide(bare429)).toEqual({ kind: "retry", delayMs: 45_000 });
   });
 
-  // CL-6910: the harness only surfaces `inference.error` to the director
-  // once this policy returns `abort` — so the attempt cap here IS the
-  // on-wire send cap for these categories (the director no longer re-wraps
-  // them, see director.test.ts). Bound at 3 sends for each error class the
-  // ticket names: rate limit (quota_exhausted), gateway error and malformed
-  // response (both normalized to retryable/protocol_mismatch here).
+  // The harness only surfaces `inference.error` to the director once this
+  // policy returns `abort`, so the attempt cap here IS the on-wire send cap
+  // for these categories (the director no longer re-wraps them). Bound at 3
+  // sends for each error class: rate limit (quota_exhausted), gateway error,
+  // and malformed response (both normalized to retryable/protocol_mismatch).
   test("rate limit (quota_exhausted) aborts by the 3rd attempt — bounds harness sends to 3", async () => {
     const decide = policy();
     const situation = (attempt: number) => ({

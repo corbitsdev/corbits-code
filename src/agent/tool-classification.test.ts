@@ -7,7 +7,7 @@ import {
 
 // Pins membership so a future edit to any of these sets — or to the director
 // READ_TOOLS they derive from — fails CI instead of silently drifting one
-// call site out of sync with the others (CL-6809).
+// call site out of sync with the others.
 describe("AUTO_ALLOW_READ_TOOLS", () => {
   test("gates auto-allow with exactly this membership", () => {
     expect([...AUTO_ALLOW_READ_TOOLS].sort()).toEqual(
@@ -18,7 +18,7 @@ describe("AUTO_ALLOW_READ_TOOLS", () => {
         "manage_tasks",
         "read_file",
         "search_files",
-        // CL-7668: read-only skill discovery/loading needs no approval prompt.
+        // Read-only skill discovery/loading needs no approval prompt.
         "skill_search",
         "use_skill",
       ].sort(),

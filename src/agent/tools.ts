@@ -204,11 +204,9 @@ export interface AgentToolsetArgs {
   // Session blob-store writer oversized tool results spill their full,
   // untruncated content into (see result-truncation-plugin.ts) — the same
   // context store getBlobReader reads from, keyed distinctly so the reactor's
-  // own downstream size-cap transform never overwrites the spill. Resolved
-  // lazily like getBlobReader so a mid-process session rotation spills into
-  // the new session's store. Omitted only where there is no session store to
-  // write into (tests). Persists with the rest of the session's committed
-  // history — no separate cleanup.
+  // own size-cap transform never overwrites the spill. Resolved lazily like
+  // getBlobReader so a mid-process session rotation spills into the new
+  // session's store. Omitted only where there is no session store (tests).
   getBlobWriter?: () => SpillBlobWriter | undefined;
   // Absolute session context dir (`…/context`) for the truncation notice's
   // on-disk path. Re-read live like getBlobWriter across session rotation.
@@ -216,10 +214,10 @@ export interface AgentToolsetArgs {
   // Per-project settings.env, merged into the run_shell tool's spawn environment.
   shellEnv?: Record<string, string>;
   /**
-   * CL-9386: runtime secret-guard denylist for the active --config path.
-   * Entry points pass [config.globalSettingsPath]; forwarded to the posix
-   * plugin stack and inherited by workers via the fleet deps below. Omitted
-   * keeps the static denylist only.
+   * Runtime secret-guard denylist for the active --config path. Entry points
+   * pass [config.globalSettingsPath]; forwarded to the posix plugin stack and
+   * inherited by workers via the fleet deps below. Omitted keeps the static
+   * denylist only.
    */
   secretGuardExtraDeniedPaths?: readonly string[];
   // Called when a background run_shell (background: true) process exits. Hosts
@@ -454,9 +452,9 @@ export async function createAgentToolset(
         }
       : {}),
   });
-  // Per-call bounded live-output tails of foreground shells, polled by the TUI
-  // for each pending run_shell row's live lines. Workers get a map too; nothing
-  // reads it unless a transcript polls it (silent degradation).
+  // Per-call bounded live-output tails of foreground shells, polled by the
+  // TUI for each pending run_shell row's live lines. Workers get a map too;
+  // nothing reads it unless a transcript polls it.
   const shellOutputFeed = createShellOutputFeedMap();
   const sessionBlobReader =
     getBlobReader !== undefined
@@ -572,10 +570,9 @@ export async function createAgentToolset(
         }),
       );
     }
-    // Tier 1: the primary session is always an orchestrator and may
-    // target any worker (assertCanTargetAgent's rule), so no authority
-    // context is passed here — omitting it is treated as unrestricted,
-    // matching Tier 1's actual authority.
+    // Tier 1: the primary session is always an orchestrator and may target
+    // any worker, so no authority context is passed here — omitting it is
+    // treated as unrestricted, matching Tier 1's actual authority.
     orchestratorTools.push(createReadAgentTraceTool(sa.getWorkdirBase));
 
     // Mirror nested runSubAgent's orchestrator fleet mount (run.ts), but
@@ -594,9 +591,8 @@ export async function createAgentToolset(
           ? { secretGuardExtraDeniedPaths }
           : {}),
         ...(skillDirs.length > 0 ? { skillDirs } : {}),
-        // CL-9010: the parent's already-discovered catalog. Shared-cwd lanes
-        // reuse it instead of rescanning; worktree lanes (different cwd)
-        // ignore it and rediscover for their own directory.
+        // The parent's already-discovered catalog. Shared-cwd lanes reuse it
+        // instead of rescanning; worktree lanes (different cwd) rediscover.
         skillSnapshot: skills,
         ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
         cwd,

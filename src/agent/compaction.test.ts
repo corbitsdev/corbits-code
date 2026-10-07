@@ -551,11 +551,10 @@ describe("compaction governor", () => {
   test("does not catch a huge tool result mid-cycle when the provider reported real usage", () => {
     // Disclosed, accepted gap: the live tool.done re-check only re-derives
     // arming from the local estimate when the last inference.done snapshot
-    // came from that same estimate (usingEstimate). When the provider
-    // reported real usage under threshold, that snapshot is trusted as
-    // authoritative until the next inference.done — a huge tool result
-    // arriving in between is not caught until then, unlike the
-    // usage-omitted case covered above.
+    // came from that estimate (usingEstimate). With real provider usage under
+    // threshold, that snapshot is authoritative until the next
+    // inference.done — a huge tool result arriving in between is not caught
+    // until then, unlike the usage-omitted case above.
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(inferenceDone(1000), tenTurns);
     expect(

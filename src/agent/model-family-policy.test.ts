@@ -121,9 +121,8 @@ describe("resolveModelFamilyPolicy", () => {
         orchestrator: true,
       });
       expect(orchestrator.promptResidual).toBeUndefined();
-      // Default-family probe: anthropic/claude-sonnet-4 hits the claude row
-      // and openai/gpt-5.6 hits the gpt row (#1135), so an unrecognized
-      // provider is the probe that still resolves to the default family.
+      // Default-family probe: an unrecognized provider still resolves to the
+      // default family.
       const base = resolveModelFamilyPolicy({
         providerName: "unknown-provider",
         model: "unknown-model",
@@ -150,10 +149,10 @@ describe("resolveModelFamilyPolicy", () => {
     expect(orchestrator.promptResidual).toBeUndefined();
   });
 
-  // The gpt family row has landed (#1135): openai/gpt-5.6 and codex/gpt-5.1
-  // resolve to the gpt family with the narrate-before-tools residual, leaf
-  // and orchestrator alike (no carve-out). Grok keeps its CL-8297 tool-budget
-  // residual — the "no residual" claim below is default-family-only.
+  // openai/gpt-5.6 and codex/gpt-5.1 resolve to the gpt family with the
+  // narrate-before-tools residual, leaf and orchestrator alike (no carve-out).
+  // Grok keeps its tool-budget residual — the "no residual" claim below is
+  // default-family-only.
   test("gpt probes resolve to gpt with the narrate residual; grok keeps its tool budget", () => {
     for (const input of [
       { providerName: "openai", model: "gpt-5.6" },
@@ -197,14 +196,13 @@ describe("resolveModelFamilyPolicy", () => {
   describe("astra repro trace (CL-9027)", () => {
     // Minimal failing session-trace fixture: 8 consecutive tool-only turns
     // from a gpt-6-astra leaf (tool names + args + result sizes per turn).
-    // Fingerprint and repeat-count semantics mirror
-    // scripts/tool-fingerprint-forensics.ts (stableJson exact signatures,
-    // largest exact-repeat count per period 1-6): the shared threshold guard
-    // fires only on exact repeats, so a loop that varies trivial argument
-    // details escapes it. That is evasion, not threshold-tolerated waste —
-    // and the Step-3 residual forbids exactly this variation. The
-    // near-identical grouping below is test-only forensics; no signature
-    // normalization ships in first-party code.
+    // Fingerprint semantics mirror scripts/tool-fingerprint-forensics.ts
+    // (stableJson exact signatures, largest exact-repeat count per period):
+    // the shared threshold guard fires only on exact repeats, so a loop that
+    // varies trivial argument details escapes it. That is evasion, not
+    // threshold-tolerated waste — and the residual forbids exactly this
+    // variation. The near-identical grouping below is test-only forensics; no
+    // signature normalization ships in first-party code.
     interface ReproTurn {
       tool: string;
       args: Record<string, unknown>;

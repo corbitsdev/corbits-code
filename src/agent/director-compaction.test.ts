@@ -262,13 +262,12 @@ test("a duplicated continuation resumes inference at most once", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Model-family policy / main-session loop protection (CL-5611): a tool-only
-// streak must not hard-pause on turn count alone — a Grok session hard-paused
-// at 10 turns of real progress (Linear lookups + code reads) motivated
-// replacing the count-only pause with a real no-progress signal (identical
-// tool-call fingerprint repeating). See src/agent/director.test.ts for the
-// full loop-protection coverage; these two cover the regression scenario
-// directly against resolveModelFamilyPolicy's grok branch.
+// Model-family policy / main-session loop protection: a tool-only streak must
+// not hard-pause on turn count alone — a Grok session hard-paused at 10 turns
+// of real progress motivated replacing the count-only pause with a real
+// no-progress signal (identical tool-call fingerprint repeating). See
+// director.test.ts for full loop-protection coverage; these two cover the
+// regression directly against resolveModelFamilyPolicy's grok branch.
 // ---------------------------------------------------------------------------
 
 function toolOnlyInferenceDone(

@@ -53,10 +53,9 @@ export interface CorePosixToolPluginsArgs {
   /** Primary-only evidence archive; workers omit this getter. */
   getEvidenceArchive?: () => CompactionArchive | undefined;
   /**
-   * CL-9386: runtime secret-guard denylist for the active --config path.
-   * Entry points pass [config.globalSettingsPath]; workers inherit their
-   * parent's list. Omitted (tests, ad-hoc stacks) keeps the static denylist
-   * only — the default settings file stays covered either way.
+   * Runtime secret-guard denylist for the active --config path. Entry points
+   * pass [config.globalSettingsPath]; workers inherit their parent's list.
+   * Omitted (tests, ad-hoc stacks) keeps the static denylist only.
    */
   secretGuardExtraDeniedPaths?: readonly string[];
 }
@@ -109,12 +108,12 @@ export function buildCorePosixToolPlugins(
   // One shared workspace-roots provider for every bound in this stack, so
   // pathEscape and delete_file admit the same registered sibling worktrees.
   const rootsProvider = createWorktreeRootsProvider(cwd);
-  // CL-1187 finding 2: the gate's shell legs (segmentGuard, auto-allow, auto
-  // policy) must treat the extras-denied paths as sensitive exactly like the
-  // secret-guard plugin below does. The gate is built before this stack and
-  // shared across stacks, so forward the list here — the single funnel every
-  // entry point (exec, TUI) and worker flows through — rather than wiring
-  // each runner's gate construction separately.
+  // The gate's shell legs (segmentGuard, auto-allow, auto policy) must treat
+  // the extras-denied paths as sensitive exactly like the secret-guard plugin
+  // below does. The gate is built before this stack and shared across stacks,
+  // so forward the list here — the single funnel every entry point (exec,
+  // TUI) and worker flows through — rather than wiring each runner's gate
+  // construction separately.
   if (secretGuardExtraDeniedPaths !== undefined) {
     permissionGate.setSensitiveExtraDeniedPaths?.(secretGuardExtraDeniedPaths);
   }

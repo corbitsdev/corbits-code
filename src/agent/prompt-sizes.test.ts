@@ -20,15 +20,15 @@ import { createAdvertisedToolset } from "../session/assemble-runtime.js";
 import { resolveExecDirectorOverlay } from "../exec/runner.js";
 
 /**
- * Prompt size budget (CL-7664). Numeric asserts only — copy edits must not
- * fail this test. Baselines are a checked-in snapshot of the max measured
- * sizes across all three families from the canonical fixture in
- * src/agent/prompt-sizes.ts; budgets add a +2000 char / +3000 byte allowance
- * (ceiling to 100) in code below. Bytes get the larger headroom because
- * multibyte copy can shift them faster. Adding a director is a type error
- * until its baseline lands here; growing a prompt past its allowance fails
- * until the baseline moves. Deliberate jumps above baseline + allowance
- * belong in PROMPT_SIZE_OVERRIDES with justification, not in the baseline.
+ * Prompt size budget. Numeric asserts only — copy edits must not fail this
+ * test. Baselines are a checked-in snapshot of the max measured sizes from
+ * the canonical fixture in src/agent/prompt-sizes.ts; budgets add a +2000
+ * char / +3000 byte allowance (ceiling to 100) in code below. Bytes get the
+ * larger headroom because multibyte copy can shift them faster. Adding a
+ * director is a type error until its baseline lands here; growing a prompt
+ * past its allowance fails until the baseline moves. Deliberate jumps above
+ * baseline + allowance belong in PROMPT_SIZE_OVERRIDES with justification,
+ * not in the baseline.
  */
 const PROMPT_SIZE_BASELINE: Record<
   DirectorId,
@@ -123,9 +123,9 @@ describe("director prompt size budget", () => {
 
   test("every assembled prompt is a real prompt, not an empty assembly", () => {
     for (const row of rows) {
-      // CL-8212: lean workers legitimately assemble under 5000 chars (the
-      // contract plus a short director body); the floor still catches an
-      // empty assembly well below any real prompt.
+      // Lean workers legitimately assemble under 5000 chars (the contract
+      // plus a short director body); the floor still catches an empty
+      // assembly well below any real prompt.
       expect(row.chars).toBeGreaterThan(1000);
       expect(row.bytes).toBeGreaterThanOrEqual(row.chars);
     }

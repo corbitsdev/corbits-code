@@ -242,9 +242,9 @@ describe("ChatDirector tool-only loop protection", () => {
     expect(ephemeralText(infer)).toBeUndefined();
   });
 
-  // Required by CL-5611: a long productive tool-only streak (varied
-  // fingerprints every turn) must run straight through both the nudge and
-  // well past any prior hard-pause threshold without ever pausing.
+  // A long productive tool-only streak (varied fingerprints every turn) must
+  // run straight through both the nudge and past any hard-pause threshold
+  // without ever pausing.
   test("a long productive tool-only streak continues without pausing", async () => {
     const director = createChatDirector("system", [], {
       provider: providerlessPolicy,
@@ -261,15 +261,13 @@ describe("ChatDirector tool-only loop protection", () => {
   });
 });
 
-// CL-6910: the harness's own retry policy (vendor/intx-inference/src/
-// retry-policy.ts) already owns `timeout`/`retryable`/`quota_exhausted` and
-// exhausts its full attempt budget (3 attempts) before an `inference.error`
-// of one of those categories ever reaches the director. The director must
-// not re-wrap those categories in another `capabilities.infer()` call — that
-// multiplied the two layers' attempt budgets (up to 9 identical full-context
-// sends per turn) instead of composing them. `aborted` (internal-recovery)
-// is the one category the harness never retries at all, so it remains the
-// director's to recover, and that recovery does not compound with harness
+// The harness's own retry policy owns `timeout`/`retryable`/`quota_exhausted`
+// and exhausts its full attempt budget (3 attempts) before an
+// `inference.error` of those categories reaches the director. The director
+// must not re-wrap them in another infer() call — that multiplied the two
+// layers' budgets (up to 9 full-context sends per turn). `aborted`
+// (internal-recovery) is the one category the harness never retries, so it
+// stays the director's to recover and does not compound with harness
 // attempts.
 function inferenceErrorEvent(
   category: "retryable" | "timeout" | "aborted" | "quota_exhausted",
@@ -509,9 +507,9 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     );
   }
 
-  // CL-7992 K1: every coordinator rail consulted on the turn boundary
-  // rethrows instead of degrading — a throwing rail rejects decide() and
-  // the next turn carries no stale task-change notifications.
+  // Every coordinator rail consulted on the turn boundary rethrows instead
+  // of degrading — a throwing rail rejects decide() and the next turn
+  // carries no stale task-change notifications.
   test.each(["isActive", "currentStepIsGate", "currentStepId"] as const)(
     "a throwing %s rail rejects the inference turn without leaking task-change emits",
     async (rail) => {
@@ -553,8 +551,8 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     },
   );
 
-  // CL-7992 K2: a mid-turn failure outside the coordinator still rejects
-  // the turn, but already-queued notifications survive for the next turn.
+  // A mid-turn failure outside the coordinator still rejects the turn, but
+  // already-queued notifications survive for the next turn.
   test("a non-coordinator mid-turn failure preserves queued task-change emits for the next turn", async () => {
     const failure = new Error("tool execution exploded");
     const director = createChatDirector("system", [], {});
@@ -576,9 +574,9 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     expect(keeperTasksChanged(actions)).toHaveLength(1);
   });
 
-  // CL-7992 K2 variant: a throwing handleToolDone degrades (it takes no
-  // rethrow parameter) instead of marking the turn stale, so a later
-  // non-coordinator failure still preserves the queued notifications.
+  // A throwing handleToolDone degrades (it takes no rethrow parameter)
+  // instead of marking the turn stale, so a later non-coordinator failure
+  // still preserves the queued notifications.
   test("a throwing handleToolDone degrades without dropping preserved task-change emits", async () => {
     let handleToolDoneSeen = false;
     const coordinator = {
@@ -623,7 +621,7 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
   });
 });
 
-// CL-7973: the director's live source id (which stamps retry decisions so a
+// The director's live source id (which stamps retry decisions so a
 // mid-session /model switch remaps the xAI short-429 handling) is observable
 // only through the retry policy it hands to each infer action. An xAI-gated
 // capacity error retries when the tracked id is an xAI source and aborts
@@ -1724,9 +1722,9 @@ describe("chatDirector compaction", () => {
     expect(options?.systemPrompt).toBe("Corbits operating prompt");
   });
 
-  // CL-6910: `timeout`/`retryable` are owned entirely by the harness's own
-  // retry policy; the CL-6910 describe above pins the no-reissue contract
-  // per category. Here the abort and overflow paths carry the unique legs.
+  // `timeout`/`retryable` are owned entirely by the harness's own retry
+  // policy; the describe above pins the no-reissue contract per category.
+  // Here the abort and overflow paths carry the unique legs.
   test("recovers an internally aborted inference but keeps explicit abort terminal", async () => {
     const director = chatDirector("Corbits operating prompt");
     const internalAbort = {
@@ -2113,8 +2111,8 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     expect(inferToolNames(inferAction)).toContain("submit_output");
   });
 
-  // CL-7919: the taskClassifier host closure is gone, so a plain message
-  // flows to normal inference with no new-task checkpoint or envelope.
+  // The taskClassifier host closure is gone, so a plain message flows to
+  // normal inference with no new-task checkpoint or envelope.
   test("a message with no classifier configured takes the normal infer path", async () => {
     const director = createChatDirector("base-prompt", [], {});
     director.updateToolDefinitions([lateTool]);
@@ -2141,9 +2139,9 @@ describe("CL-7919 coordinator shape", () => {
     return first.content?.[0]?.text;
   };
 
-  // CL-7919: coordination is host-owned and reaches the director only
-  // through setWorkflowCoordinator — the constructor takes no coordinator.
-  // Attaching a live coordinator injects its directive into the next infer.
+  // Coordination is host-owned and reaches the director only through
+  // setWorkflowCoordinator — the constructor takes no coordinator. Attaching
+  // a live coordinator injects its directive into the next infer.
   test("setWorkflowCoordinator attaches live coordination to the loop", async () => {
     const { WorkflowRuntime } = await import("../workflows/runtime.js");
     const { WorkflowCoordinator } = await import("../workflows/coordinator.js");

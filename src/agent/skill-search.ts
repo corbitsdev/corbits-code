@@ -11,12 +11,12 @@ import {
   tokenizeLexical,
 } from "./lexical-rank.js";
 
-// Catalog lookup for skills. Names live in the system prompt; this tool returns
-// matching name + description so the model can choose. Bodies load via use_skill.
-// Directly callable and advertised on primary — do not send the model through
-// tool_search to find it. Primary copy is on-demand catalog (dispatch has no
-// attached skills). Workers mount workerSkillSearchDefinition so they skip
-// search when attached bodies already cover the job.
+// Catalog lookup for skills. Names live in the system prompt; this tool
+// returns matching name + description so the model can choose. Bodies load
+// via use_skill. Directly callable and advertised on primary — do not send
+// the model through tool_search to find it. Primary copy is on-demand catalog
+// (dispatch has no attached skills); workers mount workerSkillSearchDefinition
+// so they skip search when attached bodies already cover the job.
 const SKILL_SEARCH_INPUT_SCHEMA = {
   type: "object",
   properties: {

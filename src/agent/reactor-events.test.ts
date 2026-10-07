@@ -8,22 +8,15 @@ import {
 } from "./reactor-events.js";
 
 // Bare `{ type: string }` literals only prove the string comparison works.
-// The generic exists so the guards narrow across both `ReactorInboundEvent`
-// (the director-facing union, `src/agent/director.ts` / `compaction.ts`) and
-// `ReactorEmittedEvent` (the stream-facing union consumers see) without
-// redeclaring either union in `reactor-events.ts`. These tests drive real
-// members of both unions through the guards so a future change that breaks
-// narrowing on either union — e.g. a renamed variant, or the guard's
-// signature drifting to accept only one union — fails here instead of
-// surfacing as a silent `never` match downstream.
+// The generic narrows across both `ReactorInboundEvent` (director-facing)
+// and `ReactorEmittedEvent` (stream-facing). These tests drive real members
+// of both unions through the guards so a future change that breaks narrowing
+// on either union fails here instead of surfacing as a silent `never` match.
 
-// `reactor.done` is emitted-only: it does not exist on `ReactorInboundEvent`
-// at all, so `onReactorShutdown` narrows to `never` for every director-side
-// event. That is exactly the distinction the doc and the guard both draw
-// ("did a turn end" is a question directors ask; "did the reactor shut
-// down" is not), and it is a fact the integration harness cannot exercise
-// on its own — the agent stream never hands a `ReactorInboundEvent` to
-// application code, only `ReactorEmittedEvent`.
+// `reactor.done` is emitted-only: it does not exist on `ReactorInboundEvent`,
+// so `onReactorShutdown` narrows to `never` for every director-side event.
+// The agent stream never hands a `ReactorInboundEvent` to application code,
+// so the integration harness cannot exercise this distinction on its own.
 const inboundEvents: ReactorInboundEvent[] = [
   {
     type: "message.received",
