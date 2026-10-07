@@ -1,6 +1,6 @@
 /**
- * Shared sub-agent types used by both run.ts and agent-fleet.ts.
- * Kept separate so agent-fleet does not import run (breaks the ESM cycle).
+ * Shared sub-agent types for run.ts and agent-fleet.ts, kept separate so
+ * agent-fleet never imports run (ESM cycle).
  */
 
 import type { AgentTool } from "@intx/agent";
@@ -47,8 +47,8 @@ export interface SubAgentProvider {
 }
 
 // Dependencies an orchestrator sub-agent needs to spawn further workers via
-// `spawn_agent`. Nested dispatch always sets allowOrchestrator: false so the
-// recursion bottoms out at one hop of orchestration.
+// `spawn_agent`. Nested dispatch always sets allowOrchestrator: false so
+// orchestration bottoms out at one hop.
 export interface SubAgentSandboxDeps {
   permissionGate: PermissionGate;
   inheritMcpTools?: (gate: PermissionGate) => readonly AgentTool[];
@@ -59,21 +59,21 @@ export interface SubAgentSandboxDeps {
   /** Project settings.env, merged into the sub-agent's run_shell spawn environment. */
   shellEnv?: Record<string, string>;
   /**
-   * Parent's secret-guard runtime denylist (the active --config
-   * path), so workers cannot silently read/write standing skip-permissions
-   * the primary itself is denied. Inherited down the dispatch chain.
+   * Parent's secret-guard runtime denylist (the active --config path), so
+   * workers cannot silently use skip-permissions the primary itself is
+   * denied. Inherited down the dispatch chain.
    */
   secretGuardExtraDeniedPaths?: readonly string[];
   /**
-   * Plugin skill dirs, same list the primary passes to createUseSkillTool.
-   * Workers resolve attached/optional skill bodies through these dirs.
+   * Plugin skill dirs, same list the primary passes to createUseSkillTool,
+   * so workers resolve attached/optional skill bodies through them.
    */
   skillDirs?: readonly string[];
   /**
-   * The dispatcher's already-discovered skill catalog. A worker
-   * whose lane cwd matches the discovery cwd reuses it instead of
-   * rescanning; run.ts falls back to the cached discovery when unset (or
-   * when the lane runs in an isolated worktree with a different cwd).
+   * The dispatcher's already-discovered skill catalog; a worker whose lane
+   * cwd matches the discovery cwd reuses it instead of rescanning. run.ts
+   * falls back to the cached discovery when unset or when the lane's
+   * worktree has a different cwd.
    */
   skillSnapshot?: readonly SkillSummary[];
 }
@@ -82,8 +82,8 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
   getWorkdirBase: () => string;
   provider: SubAgentProvider | (() => SubAgentProvider);
   onEvent?: (event: ReactorEmittedEvent) => void;
-  // Fired on each tool_call.end so the parent can surface live activity without
-  // replaying the full sub-agent event stream into the chat transcript.
+  // Fired on each tool_call.end so the parent can surface live activity
+  // without replaying the sub-agent event stream into the transcript.
   onProgress?: (info: { description: string; toolName: string }) => void;
   sessions?: SubAgentSessionStore;
   settings?: Settings | (() => Settings | undefined);
@@ -94,12 +94,13 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
   // The orchestrator's own session id, so workers it dispatches record as
   // nested (one-hop) sessions the Agents strip can indent under it.
   parentSessionId?: string;
-  // Forwarded from the outer fleet deps so nested workers get the same
-  // worktree-isolation behavior as their orchestrator.
+  // Forwarded from the outer fleet deps so nested workers isolate their
+  // worktree like their orchestrator.
   useWorktree?: boolean;
   /**
-   * When set, nested `spawn_agent` may only spawn these director/profile ids.
-   * Omitted = no allowlist filter (primary). No closed director sets one today.
+   * When set, nested `spawn_agent` may only spawn these director/profile
+   * ids; omitted = no allowlist filter (primary). No closed director sets
+   * one today.
    */
   spawnAllowlist?: readonly string[];
   /** Same process admission queue as the parent spawn. Tests inject. */
@@ -111,12 +112,10 @@ export type RunSubAgentParams = {
   cwd: string;
   workdirBase: string;
   /**
-   * Stable id for this worker's on-disk trace directory (subagents/<id>).
-   * Callers that track a session store (agent-fleet.ts) pass the same id as
-   * the SubAgentSessionStore record so read_agent_trace's descendant check
-   * can reuse the store's existing parentSessionId chain instead of a
-   * second identity scheme. Falls back to a fresh generated id when unset
-   * or unsafe for a path segment.
+   * Stable id for the worker's on-disk trace directory (subagents/<id>).
+   * Must match the SubAgentSessionStore record id when the caller tracks
+   * one, so read_agent_trace reuses the store's parentSessionId chain.
+   * Falls back to a fresh id when unset or unsafe as a path segment.
    */
   id?: string;
   provider: SubAgentProvider;
@@ -125,9 +124,8 @@ export type RunSubAgentParams = {
   description: string;
   context?: string;
   prompt: string;
-  // Optional ordered goals the parent wants the worker to track. Surfaced in
-  // the dispatch brief as a suggested manage_tasks seed — the child's list is
-  // still its own; the parent does not share a checklist.
+  // Optional ordered goals for the worker to track; surfaced in the dispatch
+  // brief as a suggested manage_tasks seed — the child keeps its own list.
   goals?: readonly string[];
   /** Spawn intent for the brief; tool filtering is owned by the dispatcher. */
   intent?: TaskIntent;
@@ -141,15 +139,13 @@ export type RunSubAgentParams = {
   /** Same process admission queue as spawn. Tests inject; worker 429 freeze uses this. */
   admission?: AdmissionQueue;
   /**
-   * Override the outer provider-failure backoff. Tests inject a short delay so
-   * retry suites do not pay the production 500ms per retry; production never
-   * sets it and keeps the default.
+   * Override the outer provider-failure backoff. Tests inject a short delay
+   * so retry suites skip the production 500ms wait.
    */
   outerRetryDelayMs?: number;
   /**
-   * Override the per-attempt retry policy inside a live send. Tests inject a
-   * fast policy so retry suites do not pay the production 500/1000ms backoff;
-   * production never sets it and keeps the default.
+   * Override the per-attempt retry policy inside a live send. Tests inject
+   * a fast policy so retry suites skip the production backoff.
    */
   retryPolicy?: RetryPolicy;
   onEvent?: (event: ReactorEmittedEvent) => void;
@@ -157,101 +153,91 @@ export type RunSubAgentParams = {
   onRunSettled?: (summary: Readonly<SubAgentRunSettlement>) => void;
   capabilities?: CapabilityFilter;
   /**
-   * Canonical tool names this worker hard-requires. Verified
-   * pre-spawn by the dispatcher; run.ts re-checks them against the mounted
-   * tools after the capability filter and fails the run as a stale snapshot
-   * when one went missing in between.
+   * Canonical tool names this worker hard-requires. The dispatcher verifies
+   * them pre-spawn; run.ts re-checks after the capability filter and fails
+   * the run as a stale snapshot when one is missing.
    */
   requiresTools?: readonly string[];
   /**
    * Skill allowlist for the worker's skill_search + use_skill mounts,
-   * resolved by the caller (agent-fleet.ts) as the union of
-   * DirectorPackage.attachedSkills and optionalSkills. When set, both tools
-   * only see these names (the allowlist cannot widen: unknown names refuse).
-   * When unset (non-director plugin profiles), the worker sees every
-   * discovered skill.
+   * resolved by agent-fleet.ts as the union of DirectorPackage.attachedSkills
+   * and optionalSkills. Set: tools see only these names (unknown names
+   * refuse). Unset: the worker sees every discovered skill.
    */
   allowedSkillNames?: readonly string[];
   /**
-   * Attached skill names whose bodies are injected into the worker system
-   * prompt at spawn. Misses are noted in the prompt — never park or fail init.
+   * Skill names whose bodies are injected into the worker system prompt at
+   * spawn. Misses are noted in the prompt — never park or fail init.
    */
   attachedSkills?: readonly string[];
   /**
-   * Plugin skill dirs threaded from the primary (skillDirsFromEnabledPlugins).
-   * Passed to discoverSkills and createUseSkillTool so bundled corbits-skills
-   * resolve the same way they do on the primary.
+   * Plugin skill dirs from the primary (skillDirsFromEnabledPlugins), passed
+   * to discoverSkills and createUseSkillTool so bundled corbits-skills
+   * resolve as on the primary.
    */
   skillDirs?: readonly string[];
   /**
-   * Pre-discovered skill catalog for this lane's cwd (the
-   * dispatcher's snapshot when the lane shares its cwd). Skips the worker's
-   * own discovery scan. Unset (or a worktree lane with a different cwd)
-   * falls back to the cached discovery.
+   * Pre-discovered skill catalog for this lane's cwd; skips the worker's own
+   * discovery scan. Unset (or a worktree lane with a different cwd) falls
+   * back to the cached discovery.
    */
   skills?: readonly SkillSummary[];
   /**
-   * Skip the worker's pricing-cache seed read. Fleet-spawned
-   * workers reuse the process seed the parent runtime already applied at
-   * boot; the singleton no-op keeps this a pure file-read saving.
+   * Skip the worker's pricing-cache seed read; fleet workers reuse the
+   * parent's process seed applied at boot.
    */
   skipPricingSeed?: boolean;
   systemPromptRole?: string;
   /** Resolved closed-director id (e.g. "reviewer") when the worker is one. Structured gate key — prefer over persona-string matching in systemPromptRole. */
   directorId?: string;
-  // When true, the assembled system prompt grants this sub-agent permission
-  // to call `spawn_agent` to spawn further agents (orchestrator exception to
-  // the no-recursion rule). Set only for built-in director packages.
-  // Requires nestedDispatch so fleet tools can actually be installed —
+  // When true, the system prompt grants this sub-agent permission to call
+  // `spawn_agent` (orchestrator exception to the no-recursion rule); set
+  // only for built-in director packages. Requires nestedDispatch —
   // advertising permission without the tools is a hard break.
   orchestrator?: boolean;
   /**
-   * Fleet authority tier for this dispatch, resolved by the caller
-   * (agent-fleet.ts) from the closed DirectorPackage.tier. Required whenever
-   * orchestrator is true:
-   * runSubAgent fails closed (denies fleet tools) when orchestrator is true
-   * and this is undefined or "leaf" — an unrecognized or unresolved tier
-   * must never mount a fleet verb. See src/subagent/authority.ts.
+   * Fleet authority tier for this dispatch, resolved by agent-fleet.ts from
+   * DirectorPackage.tier. Required when orchestrator is true: runSubAgent
+   * denies fleet tools when this is undefined or "leaf" — an unrecognized
+   * tier must never mount a fleet verb. See src/subagent/authority.ts.
    */
   orchestratorTier?: SubagentTier;
   // Present only when orchestrator is true. Installs fleet tools so the
   // orchestrator can actually dispatch workers.
   nestedDispatch?: NestedDispatchDeps;
   /**
-   * Optional wall-clock budget for this worker's whole run (ms). Opt-in only —
-   * there is no default leaf death clock; omit to bound the run with
-   * operator cancel alone.
+   * Optional wall-clock budget (ms) for the whole run; opt-in only — no
+   * default leaf death clock. Omit to bound the run with operator cancel
+   * alone.
    */
   deadlineMs?: number;
   /**
-   * Resolved director tier, independent of `orchestratorTier` (which
-   * is only ever set when `orchestrator` is true). Set by agent-fleet.ts from
-   * `DirectorPackage.tier`. runSubAgent mounts `submit_result` only when this
-   * is `"leaf"` — the existing tier machinery (authority.ts / directors/types.ts)
-   * gates it, not a new mechanism.
+   * Resolved director tier, independent of `orchestratorTier` (only set
+   * when `orchestrator` is true); set by agent-fleet.ts from
+   * `DirectorPackage.tier`. runSubAgent mounts `submit_result` only when
+   * this is `"leaf"`, gated by the existing tier machinery, not a new
+   * mechanism.
    */
   tier?: SubagentTier;
   /** DirectorPackage.reportContract.outputType, when the resolved leaf declares one. */
   reportType?: OutputType;
   /**
-   * when true, a clean successful completion skips the normal
-   * end-of-turn teardown (agent.close() / posixTools.dispose()) so the
-   * session stays open and reusable. A failure or an aborted/cancelled run
-   * still tears down as before — only a clean success is retained. A caller
-   * that opts in must eventually close the session (close_agent) or it
-   * leaks its posix tools / workdir lock.
+   * When true, a clean success skips end-of-turn teardown
+   * (agent.close() / posixTools.dispose()) so the session stays open and
+   * reusable; failures and aborts still tear down. The caller must
+   * eventually close the session (close_agent) or it leaks its posix tools
+   * / workdir lock.
    */
   persist?: boolean;
   /**
-   * Override the bounded teardown deadline (ms) for the run's own
-   * end-of-turn teardown on the non-persist path. Tests inject a short
-   * deadline so wedged-close suites do not pay the production 30s bound;
-   * production never sets it and keeps the default.
+   * Override the teardown deadline (ms) on the non-persist path. Tests
+   * inject a short deadline so wedged-close suites skip the production 30s
+   * bound.
    */
   teardownDeadlineMs?: number;
   /**
-   * Narrow session-store port for leaf `ask_director`. The store owns the
-   * pending Promise; this run only registers and awaits. Omit when the
+   * Narrow session-store port for leaf `ask_director`; the store owns the
+   * pending Promise, this run only registers and awaits. Omit when the
    * caller has no mailbox (tests, non-fleet dispatches).
    */
   askDirectorPort?: {
@@ -263,27 +249,22 @@ export type RunSubAgentParams = {
     cancel: (reason: string) => void;
   };
   /**
-   * Fired once the underlying agent object exists (before the prompt is
-   * sent), with handles the caller can register for later use against this
-   * session:
+   * Fired once the agent object exists (before the prompt is sent), with
+   * handles for later use against this session:
    *
    *  - `close`: bounded teardown for close_agent.
-   *  - `interrupt`: stops the in-flight `agent.send()` by firing a signal
-   *    scoped to that call only — distinct from `close`'s
-   *    AbortController, so firing it never touches agent.close() or the
-   *    workdir lock. The reactor cycle itself keeps running in the
-   *    background (same documented behavior as `Agent.send`'s own
-   *    `signal` option); this only stops the caller from waiting on it.
+   *  - `interrupt`: stops the in-flight `agent.send()` via a signal scoped
+   *    to that call only — unlike `close`'s AbortController it never touches
+   *    agent.close() or the workdir lock; the reactor keeps running in the
+   *    background, only the caller stops waiting.
    *  - `followup`: sends a new message into the same live agent (same
-   *    history, same context store) once the current turn is no longer
-   *    active — this is the resume mechanism `resume_agent`
-   *    build on, reusing `agent.send`'s own FIFO send-queue ordering rather
-   *    than a second continuation scheme.
+   *    history, same context store) once the current turn is inactive —
+   *    what `resume_agent` builds on, reusing `agent.send`'s FIFO send
+   *    queue.
    *
    * Always fired regardless of `persist`, so a caller can act on a
-   * still-running session too, not only a retained one. The deadline
-   * argument to `close` bounds how long teardown may take; a wedged close
-   * fails rather than reporting success while children may still be live.
+   * still-running session too. `close`'s deadline bounds teardown; a wedged
+   * close fails rather than reporting success while children are still live.
    */
   onAgentReady?: (handles: {
     close: (deadlineMs?: number) => Promise<void>;
@@ -318,19 +299,17 @@ export interface RunSubAgentResult {
   report: string;
   stopReason?: ForcedStopReason;
   /**
-   * true only on the clean-completion path when `persist: true`
-   * actually skipped teardown (mirrors run.ts's own turnSucceeded gate). A
-   * deadline/cancel salvage returns without throwing but always disposes its
-   * agent, so this is absent (falsy) there even though the promise resolves
-   * the same way a clean completion does — the session store uses this to
-   * keep a disposed salvage from ever looking resumable.
+   * True only when `persist: true` actually skipped teardown on the
+   * clean-completion path. A deadline/cancel salvage always disposes its
+   * agent, so this stays falsy there — the session store uses it to keep a
+   * disposed salvage from ever looking resumable.
    */
   agentRetained?: boolean;
   /**
-   * true only when this run ended because interrupt_agent fired
-   * (not a plain cancel/deadline) — the caller must not run its normal
-   * complete()/fail() bookkeeping over this result, since interrupt_agent
-   * already transitioned the session to "interrupted" synchronously.
+   * True only when interrupt_agent ended the run (not a plain
+   * cancel/deadline) — interrupt_agent already moved the session to
+   * "interrupted", so the caller must not run its normal complete()/fail()
+   * bookkeeping.
    */
   interrupted?: boolean;
   /**
