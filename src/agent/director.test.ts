@@ -240,9 +240,8 @@ describe("ChatDirector tool-only loop protection", () => {
     expect(ephemeralText(infer)).toBeUndefined();
   });
 
-  // A long productive tool-only streak (varied fingerprints every turn) must
-  // run straight through both the nudge and past any hard-pause threshold
-  // without ever pausing.
+  // A long productive tool-only streak runs straight through the nudge and
+  // past any hard-pause threshold without pausing.
   test("a long productive tool-only streak continues without pausing", async () => {
     const director = createChatDirector("system", [], {
       provider: providerlessPolicy,
@@ -259,11 +258,10 @@ describe("ChatDirector tool-only loop protection", () => {
   });
 });
 
-// The harness's own retry policy owns `timeout`/`retryable`/`quota_exhausted`
-// and exhausts its full budget before an `inference.error` reaches the
-// director (see the aborted-category comment in director.ts for why it must
-// not re-wrap them). `aborted` (internal-recovery) is never harness-retried,
-// so it stays the director's to recover.
+// The harness owns `timeout`/`retryable`/`quota_exhausted` and exhausts its
+// budget before an `inference.error` reaches the director (see director.ts
+// on why they must not be re-wrapped). `aborted` (internal-recovery) is
+// never harness-retried, so the director recovers it.
 function inferenceErrorEvent(
   category: "retryable" | "timeout" | "aborted" | "quota_exhausted",
   raw?: unknown,
@@ -359,8 +357,8 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     expect(afterBoundary.some((a) => a.type === "infer")).toBe(true);
   });
 
-  // A turn that throws after queueing task-change notifications must drop
-  // the queue instead of flushing it stale on the next turn.
+  // A throwing turn drops queued task-change notifications instead of
+  // flushing them stale on the next turn.
   test("a throwing turn drops queued task-change notifications", async () => {
     const throwingCoordinator = {
       isActive: () => true,
@@ -500,9 +498,8 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     );
   }
 
-  // Every coordinator rail consulted on the turn boundary rethrows instead
-  // of degrading, so decide() rejects and the next turn carries no stale
-  // task-change notifications.
+  // Every turn-boundary rail rethrows instead of degrading, so decide()
+  // rejects and the next turn carries no stale task-change notifications.
   test.each(["isActive", "currentStepIsGate", "currentStepId"] as const)(
     "a throwing %s rail rejects the inference turn without leaking task-change emits",
     async (rail) => {
@@ -612,11 +609,10 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
   });
 });
 
-// The director's live source id is observable only through the retry policy
-// it hands to each infer action: an xAI-gated capacity error retries when
-// the tracked id is an xAI source and aborts otherwise, so driving tracking
-// events then invoking the policy reads the id without reaching into
-// privates.
+// The live source id is observable only through the retry policy on each
+// infer action: an xAI capacity error retries when the tracked id is xAI and
+// aborts otherwise, so driving tracking events then invoking the policy
+// reads the id without reaching into privates.
 type LiveRetryPolicy = (situation: {
   attempt: number;
   elapsedMs: number;
@@ -786,8 +782,8 @@ function makeToolErrorEvent(callId: string, content: string) {
   } as unknown as ReactorInboundEvent;
 }
 
-// One turn past createPruningCompactor's own no-op floor (session/compactor.ts),
-// so the arming check finds a history actually worth compacting.
+// One turn past the compactor's no-op floor (session/compactor.ts), so the
+// arming check finds history actually worth compacting.
 const longState = {
   turns: Array.from({ length: compactorNoOpFloor() + 1 }, () => ({
     role: "user",
@@ -862,9 +858,8 @@ describe("operator declined tool calls", () => {
   const hasDone = (actions: ReactorAction[]): boolean =>
     actions.some((a) => a.type === "done");
 
-  // Contract: interactive chat surfaces the rejection and waits for
-  // the next user message; it does NOT emit done(), which would kill the
-  // reactor, and it does not re-infer off a bare decline.
+  // Contract: the decline surfaces and the reactor stays alive — no done()
+  // (would kill the reactor) and no re-infer off a bare decline.
   test("chat director surfaces the decline and waits, keeping the reactor alive", async () => {
     const director = createChatDirector("", [], {});
     const actions = actionsArray(
@@ -1283,10 +1278,9 @@ describe("open-task termination guard", () => {
     expect(ended.some((a) => a.type === "infer")).toBe(false);
   });
 
-  // The budget used to reset on any tool call, teaching weak models that
-  // no-op shell narration (e.g. `echo`) resets the clock; it is monotonic
-  // per inbound message instead, so a model that only echoes between nudges
-  // still converges to the cap within a single user turn.
+  // The budget used to reset on any tool call, letting weak models buy back
+  // the clock with no-op `echo` narration; it is monotonic per inbound
+  // message instead, so an echoing model still converges within a turn.
   test("a no-op tool call between nudges does not reset the idle budget", async () => {
     const director = createChatDirector("base", [], {});
     await director.decide(
@@ -1406,9 +1400,8 @@ describe("open-task termination guard", () => {
       stubReactorCapabilities,
     );
 
-    // Spend both of the declined-path nudges with a successful tool result
-    // interleaved; if the success reset the budget, a third decline would
-    // still re-infer instead of terminating.
+    // Interleave a successful tool result between the two declined-path
+    // nudges; if it reset the budget, a third decline would still re-infer.
     const first = actionsArray(
       await director.decide(
         makeToolErrorEvent("c", declined),
@@ -1986,9 +1979,8 @@ describe("updateToolDefinitions rewrites infer tools", () => {
 
     const before = await firstInferTools(director, messageReceived("do work"));
 
-    // A full tool_search round-trip: the model calls it, it resolves. Under
-    // the stable-superset design this promotes nothing, so the advertised set
-    // is untouched.
+    // A full tool_search round-trip resolves and, under the stable-superset
+    // design, promotes nothing — the advertised set is untouched.
     await director.decide(
       makeInferenceDoneEvent([
         { id: "ts", name: "tool_search", args: { query: "find files" } },
@@ -2098,8 +2090,8 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     expect(inferToolNames(inferAction)).toContain("submit_output");
   });
 
-  // The taskClassifier host closure is gone: a plain message flows to
-  // normal inference with no new-task checkpoint or envelope.
+  // The taskClassifier closure is gone: a plain message flows to normal
+  // inference with no new-task checkpoint or envelope.
   test("a message with no classifier configured takes the normal infer path", async () => {
     const director = createChatDirector("base-prompt", [], {});
     director.updateToolDefinitions([lateTool]);
@@ -2207,8 +2199,7 @@ describe("CL-7919 coordinator shape", () => {
   });
 
   // Every per-turn consult is guarded, not just directive(): a coordinator
-  // whose rails all throw still lets decide() (including the handleToolDone
-  // path) resolve to the plain loop.
+  // whose rails all throw still lets decide() resolve to the plain loop.
   test("throwing idle rails and handleToolDone fall back to the plain loop", async () => {
     const director = createChatDirector("base-prompt", [], {});
     director.setWorkflowCoordinator({
@@ -2249,8 +2240,8 @@ describe("CL-7919 coordinator shape", () => {
     expect(fromToolDone.length).toBeGreaterThan(0);
   });
 
-  // The setter is the shape boundary: a lookalike missing coordinator
-  // members is rejected with a clear error instead of failing a turn later.
+  // The setter is the shape boundary: a lookalike missing members is
+  // rejected with a clear error instead of failing a turn later.
   test("setWorkflowCoordinator rejects a misshapen coordinator", async () => {
     const director = createChatDirector("base-prompt", [], {});
     expect(() =>
@@ -2691,10 +2682,9 @@ describe("chatDirector spacer echo", () => {
   });
 });
 
-// The rules are only worth anything if they reach the model. An earlier cut
-// appended them to the director's own prompt copy AFTER calling super(), so
-// the base director kept sending the original and the whole feature was a
-// silent no-op.
+// The rules matter only if they reach the model: an earlier cut appended
+// them AFTER super(), so the base director kept sending the original and
+// the feature was a silent no-op.
 describe("tool-discipline rules on the wire", () => {
   async function promptSentFor(model: string): Promise<string | undefined> {
     const director = createChatDirector("BASE PROMPT", [], {
