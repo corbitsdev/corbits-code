@@ -4,26 +4,23 @@ import { join } from "node:path";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
-// Runs the test suite (`bun run test` — the seeded, randomized one-process
-// command whose path union CI shards via `test:paths`) and fails the run if
-// any test wrote into the real ~/.corbits/projects directory. Tests must
-// sandbox state under a temp `home` (see src/session/index.ts's `home`
-// overrides); nothing running under this wrapper is allowed to fall back to
-// the developer's own session history.
+// Runs the test suite and fails the run if any test wrote into the real
+// ~/.corbits/projects directory. Tests must sandbox state under a temp
+// `home` (see src/session/index.ts's `home` overrides); nothing running
+// under this wrapper may fall back to the developer's own session history.
 //
-// This is a backstop, not a substitute for threading `home` correctly: a
-// leak is only caught after it already wrote into a real directory once,
-// which this script then reports and leaves in place for inspection.
+// A backstop, not a substitute for threading `home` correctly: a leak is
+// caught only after it already wrote into a real directory once, which this
+// script then reports and leaves in place for inspection.
 //
-// Attribution: a plain before/after snapshot of the whole directory also
-// picks up entries from other checkouts on this machine running their own
-// `bun run check` concurrently. To tell the two apart, this run's own temp
-// dirs are pointed at a unique, per-invocation scratch directory (via TMPDIR)
-// whose name carries this run's id. `src/session/project-key.ts` derives a
-// project key from the realpath of the test's `cwd`/`home`, and since those
-// are mkdtemp'd inside our scratch dir here, a real leak's project key
+// Attribution: a plain before/after snapshot also picks up entries from other
+// checkouts running their own `bun run check` concurrently. To tell them
+// apart, this run's temp dirs sit in a unique per-invocation scratch dir (via
+// TMPDIR) whose name carries this run's id. `src/session/project-key.ts`
+// derives a project key from the realpath of the test's `cwd`/`home`, and
+// since those are mkdtemp'd inside our scratch dir, a real leak's key
 // inherits our run id as a substring. Only entries that carry it are ours to
-// fail on; anything else is a sibling checkout's own business.
+// fail on.
 
 const projectsDir = join(homedir(), ".corbits", "projects");
 
@@ -43,14 +40,11 @@ async function main(): Promise<void> {
   const runTmpDir = join(tmpdir(), `corbits-test-guard-${runId}`);
   await mkdir(runTmpDir, { recursive: true });
 
-  // CI test shards pass bun-test path filters here (e.g. ./src) so each
-  // shard runs only its slice of the suite and still runs sandboxed. bun
-  // test filters are additive, so filters cannot be appended to
-  // `bun run test` (its own filters would widen the run back to the full
-  // suite), so a sharded run goes through test:paths, which carries the
-  // same seeded flags as `test` and takes the shard's filters. With no
-  // arguments the full default suite runs via `bun run test`, so `bun run
-  // check` behavior is unchanged.
+  // CI shards pass bun-test path filters (e.g. ./src). Filters are additive,
+  // so appending them to `bun run test` would widen the run back to the full
+  // suite; a sharded run goes through test:paths, which carries the same
+  // seeded flags and takes the shard's filters. No arguments keeps `bun run
+  // test`, so `bun run check` behavior is unchanged.
   const shardArgs = process.argv.slice(2);
   const testCommand =
     shardArgs.length > 0

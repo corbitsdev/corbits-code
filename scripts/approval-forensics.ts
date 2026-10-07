@@ -1,15 +1,13 @@
 // Aggregate scan over the approval logs written by src/permission/approval-log.ts
-// (~/.corbits/projects/**/approvals.jsonl) — the data that has to exist
-// before approval volume could be measured at all.
+// (~/.corbits/projects/**/approvals.jsonl).
 //
-// Reports: total asks, split by mode (auto vs interactive) and outcome, a
-// per-rule breakdown, and settle-duration and display-delay percentiles (the
-// display delay is the signal for a queued gate arming its timeout before the
-// operator could see it).
+// Reports: total asks split by mode (auto vs interactive) and outcome, a
+// per-rule breakdown, and settle-duration and display-delay percentiles
+// (display delay is the signal for a queued gate arming its timeout before
+// the operator could see it).
 //
 // Prints only aggregate counts and timings, never a tool subject or command
-// text — the log itself never records either, so there is nothing to leak
-// here even by accident.
+// text — the log never records either, so there is nothing to leak.
 //
 // Run: bun run scripts/approval-forensics.ts
 
@@ -99,9 +97,7 @@ for (const file of files) {
     if (typeof record.displayDelayMs === "number")
       bucket.displayDelays.push(record.displayDelayMs);
 
-    // Duplicate-rate proxy: how often the same rule fires more than once per
-    // session file (a session repeatedly asking for something it was already
-    // told no/yes to under a different subject).
+    // Duplicate-rate proxy: same rule firing more than once per session file.
     if (record.rule !== undefined) {
       const sessions = sessionsByRule.get(record.rule) ?? new Set<string>();
       sessions.add(file);

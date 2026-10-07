@@ -17,18 +17,16 @@
  *
  * Re-measuring (canonical):
  *   bun scripts/eval-completion.ts --repeats 2 --out evals/completion/baseline-<YYYY-MM-DD>.json
- * The task set is frozen — re-measures reuse tasks.json as-is so runs stay
- * comparable. Never edit tasks.json, per-task script.json/verify.sh/fixture,
- * or a recorded baseline to hit a target number; a task-set change needs a
- * version bump plus a new baseline file.
+ * The task set is frozen — never edit tasks.json, per-task
+ * script.json/verify.sh/fixture, or a recorded baseline to hit a target
+ * number; a task-set change needs a version bump plus a new baseline file.
  *
  * TRUST BOUNDARY: the version-controlled files under evals/completion/tasks/
- * (tasks.json, per-task script.json, verify.sh, fixture/) are the trusted
- * grading boundary — edits there are grading changes requiring owner review.
- * A custom --tasks JSON file is untrusted: its fixture/script/verify
- * references are confined to evals/completion/ (see resolveTaskRelativePath;
- * absolute paths and `..` escapes are rejected) before any fixture copy or
- * grader spawn.
+ * are the trusted grading boundary — edits there are grading changes
+ * requiring owner review. A custom --tasks JSON file is untrusted: its
+ * fixture/script/verify references are confined to evals/completion/ (see
+ * resolveTaskRelativePath; absolute paths and `..` escapes are rejected)
+ * before any fixture copy or grader spawn.
  */
 
 import { cpSync } from "node:fs";
@@ -144,15 +142,13 @@ export async function withTimeout<T>(
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    // Await the race so the finally below runs on settle, not synchronously
-    // on return: clearing the timer before Promise.race settles would make
-    // the timeout unreachable and a hung run would hang the harness.
+    // Await the race so the finally clears the timer only after the race
+    // settles; clearing before settle would make the timeout unreachable.
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          // Cancel first so the caller's in-flight work settles instead of
-          // lingering past the deadline; the race rejects below regardless.
+          // Cancel first so in-flight work settles; the race rejects below.
           opts?.onTimeout?.();
           reject(new Error(`${label} timed out after ${ms}ms`));
         }, ms);
@@ -164,9 +160,8 @@ export async function withTimeout<T>(
 }
 
 /**
- * Timeout keeps status over failure signals: a run that timed out did not
- * fail, it ran out of time — even when the partial stream already carries
- * a failure event.
+ * Timeout wins over failure signals: a run that timed out ran out of time,
+ * even when the partial stream already carries a failure event.
  */
 export function resolveRunStatus(options: {
   timedOut: boolean;
@@ -177,10 +172,8 @@ export function resolveRunStatus(options: {
   return "completed";
 }
 
-// Backstop for the post-timeout quiesce below: the abort plus agent close
-// settle the live paths promptly, so this only bites when the mock pump
-// itself is stuck — and then it keeps a stuck pump from re-hanging the
-// harness at the deadline it just enforced.
+// Backstop for the post-timeout quiesce: abort plus agent close settle live
+// paths promptly, so this only bites when the mock pump itself is stuck.
 const SETTLE_GRACE_MS = 5_000;
 
 interface PersistedTurn {
@@ -233,8 +226,7 @@ function deriveSignals(events: TurnResult["events"]) {
   );
   return {
     toolCallCount: toolStarts.length,
-    // Failed tool calls only: the loop never re-issues a failed call, so
-    // this count must not be reported as retries.
+    // The loop never re-issues a failed call, so this is not a retry count.
     failedToolCalls,
     doomLoopInterventions,
     compactionEvents,
@@ -279,9 +271,8 @@ async function runTask(
     }
     let runStatus: RunStatus = "completed";
     let error: string | undefined;
-    // Mirror runUntilDone's pump but keep the stream events seen before a
-    // throw: guard trips (doom-loop, gate blocks) reject send() while the
-    // events that explain them are already on the stream.
+    // Mirror runUntilDone's pump but keep stream events seen before a throw:
+    // guard trips reject send() while the explaining events are on the stream.
     const events: TurnResult["events"] = [];
     const stream = session.agent.stream();
     let turnComplete = false;
@@ -291,8 +282,7 @@ async function runTask(
         if (turnComplete && event.type === "message.run.ended") return;
       }
     })().catch(() => undefined);
-    // Abort the in-flight send when the deadline fires so its promise
-    // settles instead of lingering past the timeout.
+    // Abort the in-flight send on deadline so its promise settles.
     const controller = new AbortController();
     const runWork = (async () => {
       const sendResult = await Promise.all([
@@ -319,10 +309,9 @@ async function runTask(
       error = err instanceof Error ? err.message : String(err);
     }
     if (timedOut) {
-      // Quiesce before grading: the aborted send settles at once, but the
-      // pump and collector lag behind. Closing the agent aborts the reactor
-      // and terminates the stream so the collector settles, then awaiting
-      // the inner work keeps verify below off partial state.
+      // Quiesce before grading: close the agent so the pump and collector
+      // settle, then await the inner work so verify below sees no partial
+      // state.
       await session.agent.close().catch(() => undefined);
       await Promise.race([
         runWork.catch(() => undefined),
@@ -361,9 +350,8 @@ async function runTask(
     const verifyExitCode = verify.status ?? 1;
 
     const persistedTurns = await countAssistantTurns(session.workdir);
-    // The persisted assistant-turn count is the measurement; the
-    // tool-call heuristic below is an estimate used only when turns.jsonl
-    // is missing, and turnsEstimated says which one a row holds.
+    // The persisted turn count is the measurement; the tool-call heuristic
+    // below is an estimate used only when turns.jsonl is missing.
     const turnsEstimated = persistedTurns === null;
     const turnsUsed =
       persistedTurns ??

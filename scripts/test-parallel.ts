@@ -1,13 +1,12 @@
 #!/usr/bin/env bun
 // Parallel test runner with a stall watchdog.
 //
-// `bun test --parallel` intermittently livelocks on Bun 1.4.x: a worker
-// spins at 100% CPU while a git child it spawned is left as a zombie, and
-// the suite produces no further output (upstream Bun issue, still open as of
-// 1.4.2). bun test has no run-level timeout, so this wrapper runs the suite
-// in its own process group, watches for an output stall well beyond any
-// healthy run's silence, kills the group, and retries. A child that exits on
-// its own (pass or fail) is never retried.
+// `bun test --parallel` intermittently livelocks on Bun 1.4.x (a worker
+// spins at 100% CPU while a spawned git child is left as a zombie; upstream
+// Bun issue, still open as of 1.4.2). bun test has no run-level timeout, so
+// this wrapper runs the suite in its own process group, kills the group on
+// an output stall well beyond any healthy run's silence, and retries. A
+// child that exits on its own (pass or fail) is never retried.
 //
 // Usage: bun scripts/test-parallel.ts [workers]   (default 4)
 
@@ -128,7 +127,7 @@ async function runAttempt(
   await Promise.allSettled(pumps);
   // A SIGTERM kill surfaces as null (died by signal) or 143 (Bun's SIGTERM
   // exit); any other code means the child exited on its own and keeps its
-  // code unretried, even if the watchdog already fired.
+  // code unretried.
   const killedByWatchdog = stalled && (raw === null || raw === 143);
   const exitCode = killedByWatchdog ? STALL_CODE : (raw ?? 1);
   return { exitCode, stalled: killedByWatchdog };

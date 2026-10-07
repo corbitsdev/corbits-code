@@ -2,11 +2,10 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-// Guard against the gate drifting apart again: `bun run check` and CI's test
-// jobs must resolve to the same seeded path union, and the projects-dir
-// guard must delegate to the `test` script (or `test:paths` for shard
-// filters) rather than duplicate its command. Local `bun run test` is one
-// process; CI shards that union via `test:paths`.
+// Guards against the gate drifting: `bun run check` and CI's test jobs must
+// resolve to the same seeded path union, and the projects-dir guard must
+// delegate to `test` (or `test:paths` for shard filters) rather than
+// duplicate its command. Local `test` is one process; CI shards that union.
 
 const repoRoot = join(import.meta.dir, "..");
 const pkg = JSON.parse(
@@ -52,10 +51,10 @@ describe("check gate", () => {
   });
 
   test("`test:paths` is the seeded suite accepting CI shard path filters", () => {
-    // Same seed as `test`; the guard passes shard filters as arguments, which
-    // cannot be appended to `bun run test` because bun's filters are additive.
-    // Zero args would be a whole-tree `bun test` including vendor/, so the
-    // wrapper requires at least one path.
+    // Same seed as `test`. Shard filters go through `test:paths` because
+    // bun's filters are additive — appended to `test` they would widen the
+    // run back to the full suite. Zero args would be a whole-tree run
+    // including vendor/, so the wrapper requires at least one path.
     expect(pkg.scripts["test:paths"]).toBe("bun scripts/test-paths.ts");
     expect(guardSource).toContain('"run", "test:paths"');
     const testPathsSource = readFileSync(
@@ -86,13 +85,11 @@ describe("check gate", () => {
   });
 
   test("CI test shards cover exactly the suite's paths", () => {
-    // Time-balanced --shard slices each run the full union (bun partitions
-    // files across the slices, balanced by --timings), so coverage holds
-    // when the matrix has all four slices and the shard command template
-    // carries the suite's paths plus the interpolated --shard flag.
-    // Sharding must never silently drop (or double-run) part of the suite:
-    // expanding the template's filters to test files has to equal the
-    // unsharded `test` script's paths expanded the same way.
+    // Time-balanced --shard slices the full union across the matrix (bun
+    // partitions files balanced by --timings), so coverage holds when the
+    // matrix has all four slices. Sharding must never silently drop or
+    // double-run part of the suite: expanding the template's filters must
+    // equal the unsharded `test` script's paths expanded the same way.
     for (const shard of ["1/4", "2/4", "3/4", "4/4"]) {
       expect(ci).toContain(`"${shard}"`);
     }

@@ -29,10 +29,9 @@ import {
 
 const repoRoot = join(import.meta.dir, "..");
 
-// tsc --listFilesOnly costs ~1.5s per spawn and the count is deterministic
-// for a clean tree. The floor tests and the end-to-end probe share one run
-// through this cache; each caller computes it on first use, so no test
-// depends on another having run.
+// tsc --listFilesOnly costs ~1.5s; cache the deterministic count per process.
+// The floor tests and the end-to-end probe share it, each computing on first
+// use so no test depends on another having run.
 let cachedScannedFileCount: number | undefined;
 function liveScannedFileCount(): number {
   cachedScannedFileCount ??= countScannedFiles(
@@ -42,9 +41,7 @@ function liveScannedFileCount(): number {
   return cachedScannedFileCount;
 }
 
-// A probe dead export in one of the scoped files must fail the guard: the
-// exact-name exemptions cover only the remaining deferred-cleanup flags, never
-// the whole module.
+// Scoped exemptions cover only the named flags; a sibling probe still fails.
 describe("scoped exemptions", () => {
   test("the real allowlist covers the named flags but not a sibling probe", () => {
     const rules = loadAllowlist();
@@ -101,9 +98,8 @@ describe("scoped exemptions", () => {
   });
 });
 
-// Allowlist entries that match no current ts-prune flag are stale: they fail
-// the gate so the exemption is removed with the code it covered. Warn-only
-// reporting let dead exemptions linger silently after the code was gone.
+// Stale entries (matching no current flag) fail the gate so the exemption
+// dies with the code it covered; warn-only reporting let them linger.
 describe("stale allowlist entries", () => {
   test("an entry matching nothing is reported as unused and fails the gate", () => {
     const rules = parseAllowlistText(
@@ -151,10 +147,9 @@ describe("stale allowlist entries", () => {
   });
 });
 
-// Entry shapes the matcher would silently misinterpret must fail validation
-// instead: a mistyped exact entry must not decay into a prefix that matches
-// nothing, and a directory without its trailing slash must not pass as an
-// imprecise prefix.
+// Shapes the matcher would silently misinterpret must fail: a mistyped exact
+// entry must not decay into a prefix, and a slash-less directory must not
+// pass as an imprecise prefix.
 describe("allowlist entry shapes", () => {
   test("valid entries pass", () => {
     expect(validateAllowlistEntry("vendor/")).toBeUndefined();
@@ -197,9 +192,8 @@ describe("allowlist entry shapes", () => {
   });
 });
 
-// This repo has no CODEOWNERS, so the documented review convention is that
-// every entry block names its owning lane in the reason comment above it.
-// The gate enforces the reason comments; human review enforces the lane.
+// No CODEOWNERS here: each entry block names its owning lane in the reason
+// comment above it. The gate enforces reasons; review enforces lanes.
 describe("allowlist ownership", () => {
   test("an entry under a reason comment passes", () => {
     expect(
@@ -246,10 +240,9 @@ describe("allowlist ownership", () => {
   });
 });
 
-// The scan invocation is pinned to scripts/dead-export-guard.json so it never
-// depends on ts-prune's working-directory config discovery, and the gate
-// fails closed when the scanned file count drops below the checked-in floor
-// instead of green-lighting a scan that looked at less code.
+// The scan invocation is pinned to dead-export-guard.json so it never depends
+// on ts-prune's working-directory config discovery; the gate fails closed
+// when the scanned file count drops below the checked-in floor.
 describe("pinned scan invocation", () => {
   test("the checked-in config pins the project and a positive floor", () => {
     const config = loadGuardConfig();
@@ -356,17 +349,12 @@ describe("scan coverage floor", () => {
   }, 120_000);
 });
 
-// The unit tests above prove the rule engine flags a probe; this one proves
-// the wired-up gate does. A temp probe export lands in the tsconfig-covered
+// Unit tests above prove the rule engine flags a probe; this one proves the
+// wired-up gate does. A temp probe export lands in the tsconfig-covered
 // scripts/ tree, the real guard runs as a subprocess, and the run must exit
-// nonzero naming the probe. The probe lives only for the test (never
-// committed) so the keep-alive check cannot itself become a dead export.
-//
-// The guard normally scans the full project via ts-prune (~5s); the probe's
-// temp tsconfig includes only the probe file, so this run pays only ts-prune
-// startup while still exercising the same wired-up gate (config load,
-// allowlist validation, node-spawned ts-prune, output parsing, coverage
-// floor, exit code).
+// nonzero naming the probe. The probe lives only for the test so the
+// keep-alive check cannot itself become a dead export. A temp narrow
+// tsconfig keeps the run to ts-prune startup instead of the ~5s full scan.
 describe("violation end to end", () => {
   test("a temp dead export fails the guard, which names it", () => {
     const probeFile = `dead-export-guard-probe-${process.pid}.ts`;
@@ -396,9 +384,8 @@ describe("violation end to end", () => {
         {
           cwd: repoRoot,
           encoding: "utf8",
-          // The file-count subprocess is exercised by the floor tests above;
-          // inject the same deterministic value so this run pays only
-          // ts-prune.
+          // Floor tests cover the file-count subprocess; inject the count so
+          // this run pays only ts-prune.
           env: {
             ...process.env,
             DEAD_EXPORT_GUARD_SCANNED_FILES: String(liveScannedFileCount()),
@@ -417,9 +404,8 @@ describe("violation end to end", () => {
   }, 120_000);
 });
 
-// The purge deleted four fully-dead barrel files; a re-created barrel (or a
-// new import of its path) would silently resurrect the surface the guard was
-// built to shrink. Pin the paths, not the file text.
+// A re-created barrel would silently resurrect a surface the purge removed.
+// Pin the paths, not the file text.
 describe("deleted barrels stay deleted", () => {
   const barrels = [
     "src/agent/directors/index.ts",

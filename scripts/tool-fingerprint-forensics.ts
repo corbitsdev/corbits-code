@@ -151,9 +151,8 @@ console.log(
       runLengthP90: percentile(90),
       runLengthP99: percentile(99),
       runLengthMax: runLengths[runLengths.length - 1] ?? 0,
-      // Largest number of exact repeats observed anywhere, for each period.
-      // A value of 1 means "no repeat beyond the base occurrence was ever
-      // observed" at that period.
+      // Largest exact-repeat count observed per period; 1 means no repeat
+      // beyond the base occurrence.
       maxRepeatsByPeriod: periodBest,
     },
     null,

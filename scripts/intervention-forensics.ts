@@ -1,29 +1,24 @@
-// Aggregate scan over the intervention logs written by src/subagent/intervention-log.ts
-// (~/.corbits/projects/**/interventions.jsonl) — the data that has to exist
-// before any stop/nudge threshold is changed again.
+// Aggregate scan over the intervention logs written by
+// src/subagent/intervention-log.ts (~/.corbits/projects/**/interventions.jsonl)
+// — the data that has to exist before any stop/nudge threshold is changed again.
 //
-// Reports, per intervention id: how often it fired, split by model family, with
-// the measured value distribution beside the threshold it crossed, and one
-// context column. This is NOT a measured false-positive rate — a stop on a
-// run that had already edited files is equally consistent with a correct
-// stop or a wrong one:
+// Reports per intervention id: fire count split by model family, the measured
+// value distribution beside the threshold it crossed, and a context column
+// (edited = stops on runs that had already edited files). This is NOT a
+// measured false-positive rate — a stop on a run that had already edited
+// files is equally consistent with a correct stop or a wrong one.
 //
-//   edited  — stops that fired on a run which had already edited files.
-//
-// Also aggregates outcome records: what each completed dispatch actually
-// produced (a salvage kind, or clean-complete), by kind. This is the log's
-// only outcome signal — it is still not gate-pass or retry-success tracking.
-//
-// Outcome records carry the dispatched child's provider/model/family, so they
-// double as the per-model dispatch denominator: interventions per model,
-// divided by dispatches per model, is the one table below that is an actual
-// rate. Everything else in this script stays a raw count — do not add another
-// table that looks like a rate without a tracked denominator behind it.
+// Also aggregates outcome records (what each dispatch produced, by kind) —
+// the log's only outcome signal. Outcome records carry the child's model/
+// family, so they double as the per-model dispatch denominator: interventions
+// per model divided by dispatches per model is the only actual rate here.
+// Everything else stays a raw count — do not add another rate-looking table
+// without a tracked denominator.
 //
 // Run: bun run scripts/intervention-forensics.ts
 //
-// Prints only aggregate counts and the `detail` field's first token, never turn
-// content, so it is safe to run without pulling trace data into a context window.
+// Prints only aggregate counts and the `detail` field's first token, never
+// turn content, so it is safe to run without pulling trace data into context.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -49,8 +44,7 @@ function percentile(sorted: readonly number[], p: number): number {
 interface Bucket {
   count: number;
   byFamily: Map<string, number>;
-  // Exact model id — coarser than byFamily, which groups e.g. every grok model
-  // under "grok". Answers "which model loops most", not just "which family".
+  // Exact model id — byFamily groups e.g. every grok model under "grok".
   byModel: Map<string, number>;
   values: number[];
   thresholds: Set<number>;
@@ -74,9 +68,8 @@ findAll(root, INTERVENTION_FILE, files);
 
 const buckets = new Map<string, Bucket>();
 const outcomes = new Map<string, number>();
-// Dispatch counts per model (the outcome record's denominator) and
-// intervention counts per model (stop+nudge only — block/outcome are not
-// leaf signals), so a rate can be computed instead of a bare count.
+// Per-model dispatch and intervention counts (stop+nudge only) so a rate can
+// be computed instead of a bare count.
 const dispatchesByModel = new Map<string, number>();
 const interventionsByModel = new Map<string, number>();
 let untaggedOutcomes = 0;
@@ -188,11 +181,8 @@ for (const [key, bucket] of rows) {
   console.log(`${key.padEnd(33)} ${families}`);
 }
 
-// Streamed degenerate-repetition aborts (mid-stream, not a turn-level stop)
-// get their own model breakdown — "repetition-<detector>" ids, one row per
-// model, so "which model loops most" reads off directly. Still a raw count,
-// not a rate — see the "interventions per dispatch by model" table below for
-// the rate version, computed from the same per-model dispatch denominator.
+// Mid-stream repetition aborts get their own per-model breakdown so "which
+// model loops most" reads off directly. Still a raw count, not a rate.
 const repetitionRows = rows.filter(([key]) => key.includes("/repetition-"));
 if (repetitionRows.length > 0) {
   const totalsByModel = new Map<string, number>();
@@ -223,8 +213,8 @@ console.log(
 );
 
 // The one real rate in this script: interventions per dispatch, per model.
-// dispatches = outcome records tagged with that model; interventions = stop+
-// nudge records for that model. Everything above this is a count.
+// dispatches = outcome records for that model; interventions = its stop+nudge
+// records. Everything above is a count.
 if (dispatchesByModel.size > 0 || interventionsByModel.size > 0) {
   console.log(
     "\ninterventions per dispatch by model (stop+nudge count / dispatch count = rate)",

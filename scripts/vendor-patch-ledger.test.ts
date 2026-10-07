@@ -3,7 +3,7 @@
  * site-specific headings in each package's PATCHES.md ledger.
  *
  * Every marker anchor must resolve to a real `## <anchor>` heading; every
- * ledger heading must have at least one marker. Markers are navigation —
+ * heading must have at least one marker. Markers are navigation —
  * `bin/vendor-patch-diff` is the authoritative proof of which lines are ours.
  */
 
@@ -129,7 +129,6 @@ describe("vendor patch ledger correspondence (CL-5720)", () => {
 
       for (const m of markers) {
         const expectedLedger = `vendor/${pkg}/PATCHES.md`;
-        // Path inside the marker comment must point at this package's ledger.
         // Anchor membership is enough when we only scan this package's src.
         if (!headingSet.has(m.anchor)) {
           failures.push(

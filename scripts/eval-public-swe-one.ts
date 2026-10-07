@@ -1,11 +1,10 @@
 #!/usr/bin/env bun
 /**
- * One-shot public SWE-bench smoke: Corbits as the agent on a single Lite instance.
- *
- * Intentionally narrow:
- *   - provider/model come from required --provider / --model CLI flags
- *   - host-side agent run (product exec path), not a full SWE Docker fleet
- *   - captures a git patch + trajectory report for later official eval
+ * One-shot public SWE-bench smoke: Corbits as the agent on a single Lite
+ * instance. Intentionally narrow: provider/model come from required CLI
+ * flags, the run is host-side (product exec path), not a full SWE Docker
+ * fleet, and it captures a git patch + trajectory report for later official
+ * eval.
  *
  * Usage:
  *   bun scripts/eval-public-swe-one.ts --provider <name> --model <id>
@@ -481,7 +480,6 @@ async function main(): Promise<void> {
       JSON.stringify(report, null, 2),
     );
 
-    // Keep a copy of the final tree for debugging (may be large — skip if huge).
     console.log(
       `patch bytes: ${report.patchBytes}${report.patchEmpty ? " (EMPTY)" : ""}`,
     );
@@ -512,7 +510,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify(report, null, 2));
     process.exit(report.patchEmpty || execResult.exitCode !== 0 ? 1 : 0);
   } finally {
-    // Leave workRoot for forensics when agent fails? Clean to save disk.
+    // Clean the temp work root to save disk.
     try {
       await rm(workRoot, { recursive: true, force: true });
     } catch {
