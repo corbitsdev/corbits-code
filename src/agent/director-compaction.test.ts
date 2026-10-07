@@ -88,10 +88,9 @@ function makeCapabilities(): ReactorCapabilities & { calls: string[] } {
 }
 
 // ---------------------------------------------------------------------------
-// Chat director compaction: a compact cycle must not strand the reactor loop.
-// The reactor delivers no event after compact, so the director returns a
-// continuation emit action (the host answers it with a deliver) and infers
-// on the next message.received.
+// Chat director compaction: a compact cycle must not strand the reactor
+// loop — no event arrives after compact, so the director returns a
+// continuation emit the host answers, then infers on the next message.
 // ---------------------------------------------------------------------------
 
 function toolDoneTurn(callId: string): ReactorInboundEvent {
@@ -108,9 +107,8 @@ function emptyMessageReceived(): ReactorInboundEvent {
   } as ReactorInboundEvent;
 }
 
-// An inference.done whose current-cycle input usage is `inputTokens` (the metric
-// the compaction trigger reads), carrying a tool call so the default director
-// re-infers on the following tool.done.
+// inference.done with `inputTokens` usage (the compaction trigger's metric)
+// and a tool call so the default director re-infers on the following tool.done.
 function inferenceDoneWithInput(inputTokens: number): ReactorInboundEvent {
   return {
     type: "inference.done",
@@ -166,8 +164,8 @@ test("current context over threshold emits compact and a continuation emit, not 
     makeCapabilities(),
   );
 
-  // The next tool.done would normally re-infer; instead it compacts and asks
-  // the host to re-enter the loop.
+  // The tool.done that would re-infer instead compacts and asks the host to
+  // re-enter.
   const caps = makeCapabilities();
   const result = await director.decide(
     toolDoneTurn("call-1"),
@@ -194,9 +192,8 @@ test("current context over threshold emits compact and a continuation emit, not 
 test("compaction is self-regulating: a cycle back under threshold does not re-compact", async () => {
   const director = makeChatDirector();
 
-  // After a compaction truncates history, the next cycle's input usage falls
-  // back under the threshold — so no further compaction is armed. This is the
-  // behavior that makes a (reload-fragile) cooldown unnecessary.
+  // After a fold the next cycle is back under threshold, so no further
+  // compaction arms — what makes a reload-fragile cooldown unnecessary.
   await director.decide(
     inferenceDoneWithInput(5_000),
     manyTurnsState,
@@ -217,8 +214,8 @@ test("compaction is self-regulating: a cycle back under threshold does not re-co
 test("a fresh director answers an unsolicited empty continuation without inferring", async () => {
   const director = makeChatDirector();
 
-  // No compact ever ran, so no continuation is outstanding: a forged or
-  // replayed continuation message must not cost a billable inference.
+  // No continuation outstanding: a forged or replayed message must not cost
+  // an inference.
   const result = await director.decide(
     emptyMessageReceived(),
     state,
@@ -262,12 +259,11 @@ test("a duplicated continuation resumes inference at most once", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Model-family policy / main-session loop protection: a tool-only streak must
-// not hard-pause on turn count alone — a Grok session hard-paused at 10 turns
-// of real progress motivated replacing the count-only pause with a real
-// no-progress signal (identical tool-call fingerprint repeating). See
-// director.test.ts for full loop-protection coverage; these two cover the
-// regression directly against resolveModelFamilyPolicy's grok branch.
+// Model-family loop protection: a tool-only streak must not hard-pause on
+// turn count alone — a Grok session hard-paused at 10 turns of progress
+// motivated the real no-progress signal (repeated tool-call fingerprint).
+// Regression coverage for the grok branch; full coverage is in
+// director.test.ts.
 // ---------------------------------------------------------------------------
 
 function toolOnlyInferenceDone(
