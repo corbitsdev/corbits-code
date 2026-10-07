@@ -1,9 +1,7 @@
 /**
- * Every wrap and truncate path in the shell budgets terminal columns, not
- * UTF-16 code units. These tests feed each path the glyphs where the two
- * disagree — CJK (two columns) and the ambiguous-width em dash / arrow /
- * ellipsis / box rule (one column) — and assert on measured columns, so a
- * regression back to `String.length` fails here rather than on screen.
+ * Shell wrap/truncate paths budget terminal columns, not UTF-16 code units.
+ * These tests feed glyphs where the two disagree (CJK two columns, ambiguous
+ * one) and assert measured columns, so a `String.length` regression fails here.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -70,8 +68,8 @@ describe("overlay wrapWords (the permission approval body)", () => {
   });
 
   test("ambiguous glyphs do not cost the operator a row", () => {
-    // Eight one-column glyphs plus a space fits a 12-column line whole; a
-    // `.length` budget would agree, but a wide reading would break it in two.
+    // Eight one-column glyphs plus a space fit a 12-column line; a wide
+    // reading would break it in two.
     expect(wrapWords(`${AMBIGUOUS} ok`, 12)).toEqual([`${AMBIGUOUS} ok`]);
   });
 
@@ -192,8 +190,8 @@ describe("lockup", () => {
   });
 
   test("a live slot reserves the pulse cell and its space too", () => {
-    // Reserved off the cells that get painted, so a wide label cannot make
-    // the reservation and the paint disagree by a column.
+    // Reserved off the painted cells so a wide label cannot make the
+    // reservation and the paint disagree by a column.
     expect(lockupWidth(slot(CJK, "working"))).toBe(stringWidth(CJK) + 2);
   });
 });

@@ -133,8 +133,8 @@ describe("presentSendRecoveryOffer precedence", () => {
       presentCredentialRecovery: () => {
         presented.push("credential");
       },
-      // No presentReconnectRecovery: an unwired reconnect presenter must not
-      // swallow the credential fallback.
+    // No presentReconnectRecovery: an unwired presenter must not swallow the
+    // credential fallback.
     });
     expect(presented).toEqual(["credential"]);
   });
@@ -175,8 +175,8 @@ describe("presentSendRecoveryOffer precedence", () => {
       },
     });
     expect(presented).toEqual(["reconnect"]);
-    // Esc on the reconnect surface cancels that generation only; the
-    // credential offer settled for the same send stays unpresented.
+    // Esc cancels that generation only; the settled credential offer stays
+    // unpresented.
     expect(state.cancel(reconnect?.generation ?? -1)).toBe(true);
     expect(presented).toEqual(["reconnect"]);
   });

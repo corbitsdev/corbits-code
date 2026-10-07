@@ -1,6 +1,6 @@
 /**
- * Focus routing: typing always reaches the surface that is obviously active,
- * with no click. Driven through the harness — keys in, rendered frame out.
+ * Focus routing: typing always reaches the obviously active surface, with
+ * no click. Driven through the harness — keys in, rendered frame out.
  */
 import { describe, expect, test } from "bun:test";
 import { focusOwner } from "./focus/index";

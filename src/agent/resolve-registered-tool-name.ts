@@ -1,7 +1,7 @@
 import { canonicalToolName } from "./canonical-tool-name.js";
 
-// Muse Spark emits `default.mcp__*` and duplicated `name.name`; catalog keys
-// are the unprefixed names. Lookup-only — do not register aliases on the wire.
+// Muse Spark emits `default.mcp__*` and `name.name`; catalog keys are the
+// unprefixed names. Lookup-only — do not register aliases on the wire.
 export function resolveRegisteredToolName(
   requested: string,
   isKnown: (name: string) => boolean,

@@ -1,7 +1,7 @@
 /**
- * Subtree teardown. OpenTUI frees a renderable's native TextBuffer in its own
- * `destroy()`, so dropping a subtree without recursing strands every
- * descendant's buffer until the process exits.
+ * Subtree teardown. OpenTUI frees a renderable's native TextBuffer in
+ * `destroy()`, so dropping a subtree without recursing strands descendant
+ * buffers until the process exits.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -56,8 +56,8 @@ describe("subtree teardown", () => {
       appendStreamRow(shell, { role: "user", text: "go" });
       await h.renderOnce();
 
-      // A landing row is either still mounted or destroyed; anything detached
-      // and undestroyed is a stranded native buffer.
+      // A landing row is mounted or destroyed; anything detached and
+      // undestroyed is a stranded native buffer.
       const survivors = new Set(
         descendants(h.root as unknown as BoxRenderable),
       );

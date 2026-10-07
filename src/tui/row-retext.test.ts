@@ -1,7 +1,6 @@
 /**
- * In-place retext keeps a row's paint node when only its state flips — most
- * importantly the gutter voice: a tool row that fails after being painted
- * pending must dim its gutter on the same node, not keep the live bronze.
+ * In-place retext keeps a row's paint node when only its state flips: a tool
+ * row that fails after painting pending must dim its gutter on the same node.
  */
 import { describe, expect, test } from "bun:test";
 import { defined } from "../../testkit/defined.js";

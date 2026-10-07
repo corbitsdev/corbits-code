@@ -152,8 +152,8 @@ describe("Esc / popFocus stack", () => {
 });
 
 describe("palette stacks over overlay (single Esc path)", () => {
-  // Opening palette while overlay open: stack, not replace — one Esc closes
-  // palette, the next closes the prior overlay (contract §5.2 rule 6).
+  // Palette over overlay stacks, not replaces: one Esc closes palette, the
+  // next closes the prior overlay.
   test("palette stacks; double Esc returns to shell", () => {
     let s = createFocusState();
     s = openOverlay(s, "settings");

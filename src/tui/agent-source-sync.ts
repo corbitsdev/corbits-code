@@ -1,9 +1,8 @@
 import { AgentClosedError, type Agent } from "@intx/agent";
 import type { InferenceSource } from "@intx/types/runtime";
 
-// Provider switches can land while a reload has closed the live agent but not yet
-// swapped in the replacement. The proxy still records the selection in liveSource;
-// pushing onto a closed agent must not surface as an uncaught exception.
+// A reload can close the live agent before the replacement lands; pushing
+// onto a closed agent must not surface as an uncaught exception.
 export function setAgentSourceUnlessClosed(
   agent: Agent,
   source: InferenceSource,

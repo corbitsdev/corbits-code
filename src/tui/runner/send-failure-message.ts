@@ -1,7 +1,7 @@
 /**
- * The operator-facing message for a rejected send (the inference-failure
- * contract the submit path reports through). Lives in its own leaf so the
- * submit and commands siblings never import each other.
+ * Operator-facing message for a rejected send (the inference-failure
+ * contract the submit path reports through). Own leaf so submit and
+ * commands siblings never import each other.
  */
 import type { InferenceErrorLike } from "../../inference-gateway-error.js";
 import {

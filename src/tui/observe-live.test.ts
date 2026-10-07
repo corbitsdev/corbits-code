@@ -1,5 +1,5 @@
 /**
- * Level 2c — live subagent observe: host-pushed rows + parent restore.
+ * Live subagent observe: host-pushed rows + parent restore.
  * Pure child-event → StreamRow mappers live in observe-map (no renderer).
  */
 import { describe, expect, test } from "bun:test";

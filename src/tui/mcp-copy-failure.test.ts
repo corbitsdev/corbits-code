@@ -1,7 +1,6 @@
 /**
- * Regression: the MCP auth copy-URL path must surface a failure flash when
- * both clipboard legs fail, never an unhandled rejection that would route to
- * handleFatal and exit the process.
+ * MCP auth copy-URL: both clipboard legs failing must surface a failure
+ * flash, never an unhandled rejection that routes to handleFatal.
  */
 import { describe, expect, test } from "bun:test";
 import { openCommandSurface, type McpEntry } from "./command-surfaces";
@@ -31,8 +30,8 @@ describe("mcp auth copy failure", () => {
       acceptOverlaySelection(shell);
       await Promise.resolve();
       await Promise.resolve();
-      // The rejection must resolve into a status flash — an unhandled
-      // rejection here would take the whole process down.
+      // The rejection resolves into a status flash; an unhandled one would
+      // take the whole process down.
       expect(shell.statusFlash).toBeTruthy();
       closeInsetOverlay(shell);
     });

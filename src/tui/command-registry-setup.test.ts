@@ -4,8 +4,8 @@ import { getCommand, listCommands } from "./commands/registry.js";
 import type { PluginConfig } from "../config/settings.js";
 import type { PluginModule } from "../plugins/loader.js";
 
-// Built-in registration once rode on an import side effect; deleting its only
-// importer emptied the registry with no type error and no failing test.
+// Built-in registration once rode on an import side effect; deleting its
+// only importer emptied the registry silently.
 describe("session command registry setup", () => {
   test("populates built-in commands", () => {
     setUpCommandRegistry(undefined, []);

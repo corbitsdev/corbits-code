@@ -1,8 +1,7 @@
 /**
  * Overlay-list navigation and windowing: page/jump/move clamping, the
- * end-exclusive visible window, and the setCount/setHeight/reshape logic
- * that carries the live selection across a rebuild so a resize or list
- * change does not snap the cursor back.
+ * end-exclusive visible window, and setCount/setHeight/reshape that carry
+ * the live selection across a rebuild.
  */
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";

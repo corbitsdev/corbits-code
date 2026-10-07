@@ -7,7 +7,7 @@ export interface PromptActionBarModelLabelInput {
   mode?: string | undefined;
 }
 
-/** Right-aligned muted label above the prompt: `profile · model · effort · mode` with omitted empty segments. */
+/** Right-aligned muted label above the prompt: `profile · model · effort · mode`, empty segments omitted. */
 export function composePromptActionBarModelLabel(
   input: PromptActionBarModelLabelInput,
 ): string | undefined {
@@ -27,10 +27,7 @@ export function composePromptActionBarModelLabel(
   return segments.length > 0 ? segments.join(ESSENTIALS_SEPARATOR) : undefined;
 }
 
-/**
- * Trailing label segment while permission prompts are skipped. Undefined
- * otherwise, so the segment simply omits.
- */
+/** Trailing label segment while permission prompts are skipped; undefined otherwise. */
 export function yoloModeLabel(skipsPermissions: boolean): "yolo" | undefined {
   return skipsPermissions ? "yolo" : undefined;
 }

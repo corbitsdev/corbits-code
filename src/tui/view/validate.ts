@@ -5,10 +5,9 @@ import {
   VIEW_MAX_DEPTH,
 } from "./spec.js";
 
-// Boundary validation for an untrusted view spec (from the model or a converter).
-// Hand-rolled rather than schema-derived so failures carry a node-path message the
-// model can act on ("root.children[2].grid.rows: expected an array"). Once a node
-// validates here the renderer trusts it.
+// Boundary validation for an untrusted view spec (model or converter).
+// Hand-rolled rather than schema-derived so failures carry a node-path the
+// model can act on ("root.children[2].grid.rows: expected an array").
 
 export type ViewValidation =
   | { ok: true; node: ViewNode }
@@ -51,10 +50,10 @@ interface Counter {
   nodes: number;
 }
 
-// Shared child-list validator: validates an array of child values into nodes,
-// preserving node-path error strings (`<array-path>[<index>]`). The array
-// itself must fail with "expected an array" at its own path, so grid rows keep
-// their distinct "expected an array of nodes" check outside this helper.
+// Validates an array of child values into nodes, preserving node-path error
+// strings (`<array-path>[<index>]`). The array itself must fail with
+// "expected an array" at its own path, so grid rows keep their distinct
+// "expected an array of nodes" check outside this helper.
 function validateChildren(
   values: unknown,
   path: string,
