@@ -262,13 +262,10 @@ describe("ChatDirector tool-only loop protection", () => {
 });
 
 // The harness's own retry policy owns `timeout`/`retryable`/`quota_exhausted`
-// and exhausts its full attempt budget (3 attempts) before an
-// `inference.error` of those categories reaches the director. The director
-// must not re-wrap them in another infer() call — that multiplied the two
-// layers' budgets (up to 9 full-context sends per turn). `aborted`
-// (internal-recovery) is the one category the harness never retries, so it
-// stays the director's to recover and does not compound with harness
-// attempts.
+// and exhausts its full attempt budget before an `inference.error` reaches
+// the director; see the aborted-category comment in director.ts for why the
+// director must not re-wrap them. `aborted` (internal-recovery) is the one
+// category the harness never retries, so it stays the director's to recover.
 function inferenceErrorEvent(
   category: "retryable" | "timeout" | "aborted" | "quota_exhausted",
   raw?: unknown,
@@ -1294,11 +1291,10 @@ describe("open-task termination guard", () => {
     expect(ended.some((a) => a.type === "infer")).toBe(false);
   });
 
-  // The budget used to reset on any tool call, which taught weak
-  // models that no-op shell narration (e.g. `echo`) resets the clock. A model
-  // that only echoes between nudges must still converge to the cap within a
-  // single user turn — the budget is monotonic per inbound message, not per
-  // tool call, so it does not matter whether a tool call happens at all.
+  // The budget used to reset on any tool call, teaching weak models that
+  // no-op shell narration (e.g. `echo`) resets the clock; it is monotonic
+  // per inbound message instead, so a model that only echoes between nudges
+  // still converges to the cap within a single user turn.
   test("a no-op tool call between nudges does not reset the idle budget", async () => {
     const director = createChatDirector("base", [], {});
     await director.decide(

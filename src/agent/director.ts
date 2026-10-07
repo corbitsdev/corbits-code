@@ -56,12 +56,12 @@ import {
 const logger = getLogger([LOG_NAMESPACE_ROOT, "agent", "director"]);
 
 // The serialized `tools` array heads the provider's cached prompt prefix; any
-// change to it (mount, description edit, reorder) drops the next turn's cache
-// hit. `advertisedTools` (tool-search.ts) keeps the array deterministic, so it
-// should only change when discovery grows it. This digest proves that, because
-// prefix churn is otherwise invisible until billing and latency spike a turn
-// later. Hashed rather than logged verbatim: MCP tool descriptions are
-// arbitrary-length server text and do not belong in the log stream.
+// change (mount, description edit, reorder) drops the next turn's cache hit.
+// `advertisedTools` keeps the array deterministic, so the digest only changes
+// when discovery grows it — churn otherwise invisible until billing and
+// latency spike a turn later. Hashed, not logged verbatim: MCP tool
+// descriptions are arbitrary-length server text and do not belong in the log
+// stream.
 export function toolSetDigest(tools: readonly ToolDefinition[]): string {
   const shape = tools
     .map(
@@ -106,15 +106,12 @@ function inferWithNudge(
   return capabilities.infer(withEphemeralNudge(options ?? {}, nudge));
 }
 
-// agent.send() only resolves on connector.reply (or fatal shutdown). A bare
-// wait leaves the send promise hanging and the TUI Working spinner stuck.
-// Reply returns the reactor to waiting for the next inbound message, so it
-// must replace the terminal wait rather than be paired with it. Empty reply
-// content settles the connector without painting a transcript block.
-//
-// Assumes a terminal bare wait always means the turn is over: DefaultDirector
-// in conversational mode yields one only on an empty model turn. This helper
-// settles that leftover wait into an empty reply; halt/compaction/workflow
+// agent.send() resolves only on connector.reply (or fatal shutdown); a bare
+// wait leaves the send hanging and the TUI Working spinner stuck. Reply
+// returns the reactor to waiting, so it must replace the terminal wait, not
+// pair with it; empty content settles the connector without painting a
+// transcript block. A terminal bare wait only arises on an empty model turn,
+// so settling it into an empty reply is safe; halt/compaction/workflow
 // rewrites already carry a terminal or replace it with an infer.
 function ensureCycleSettlesWithReply(
   actions: ReactorAction | ReactorAction[],
@@ -133,11 +130,10 @@ function ensureCycleSettlesWithReply(
   return [...list.slice(0, -1), capabilities.reply("")];
 }
 
-// A terminal decision with tasks still open means the work was not finished or
-// not marked finished. Rather than idle there, the director re-infers with a
-// nudge a bounded number of times, then logs the breach and lets the session
-// end. Budgets reset only on the next inbound user message, so a model that
-// spins on no-op tool calls within one turn still converges to the cap.
+// A terminal decision with tasks still open re-infers with a nudge a bounded
+// number of times, then logs the breach and lets the session end. Budgets
+// reset only on the next inbound user message, so a model that spins on
+// no-op tool calls still converges to the cap.
 const MAX_OPEN_TASK_NUDGES = 3;
 const MAX_DECLINED_OPEN_TASK_NUDGES = 2;
 const MAX_INFERENCE_RECOVERIES = 2;
@@ -353,15 +349,14 @@ export const submitOutputDefinition: ToolDefinition = {
   },
 };
 
-// Classification of a failed tool call's model-facing text. Two flows produce
-// these texts: the middleware path (permission-plugin prefixing the gate's
-// "Operator declined: …" reason, still used by sub-agents) and the reactor
-// path, where a rejected approval answers the parked call with "denied by
-// approver…" and a deny/no-grant effect arrives as a block ("Denied by
-// policy: …" / "No matching grants for …"). A policy deny is not an operator
-// decision — the model adapts as it would to any tool error; an approver
-// rejection either carries a reason to respond to or doesn't. The marker
-// strings live in permission/decline-markers.ts.
+// Classifies a failed tool call's model-facing text. Two flows produce it:
+// the middleware path (permission-plugin prefixing the gate's "Operator
+// declined: …" reason, still used by sub-agents) and the reactor path (a
+// rejected approval answers the parked call with "denied by approver…"; a
+// deny/no-grant effect arrives as a "Denied by policy: …" / "No matching
+// grants for …" block). A policy deny is not an operator decision — the model
+// adapts as it would to any tool error; an approver rejection may or may not
+// carry a reason. Markers live in permission/decline-markers.ts.
 type DeclinedToolResult =
   | { kind: "approver-rejection"; reason?: string }
   | { kind: "policy-deny" };
@@ -419,11 +414,10 @@ function isCodeFile(path: string): boolean {
 
 // Single implementation of "what does a manage_tasks tool call do to the
 // task list", shared by the live decide() loop and hydrateTasksFromTurns.
-// Task state is owned by the director, not the tool: the manage_tasks handler
-// performs no side effect of its own, so the tool_call is the authoritative
-// event and applying it here need not wait on a tool_result. Returns null when
-// the call is not manage_tasks or its arguments don't parse, so callers can
-// distinguish that from a valid no-op call (which still counts as an update).
+// The tool_call is the authoritative event (the handler has no side effect),
+// so applying it need not wait on a tool_result. Returns null when the call
+// is not manage_tasks or its arguments don't parse — distinct from a valid
+// no-op call, which still counts as an update.
 function applyManageTasksToolCall(
   tasks: Task[],
   block: { name: string; arguments: unknown },
@@ -455,40 +449,29 @@ export const CompactionFoldNonConvergedDataSchema = type({
 });
 
 export interface ChatDirectorOptions {
-  // Task-boundary classification and workflow coordination are not
-  // host-injected closures. The taskClassifier seam had zero production
-  // suppliers and a heuristics-only hook would newly arm new-task envelopes
-  // in the TUI, so the director runs no decide()-time classification.
-  // Coordination is host-owned (WorkflowHost owns the runtime lifecycle:
-  // start/resume/reset/persist) and reaches the director only through
-  // setWorkflowCoordinator — never through options.
+  // Task classification and workflow coordination are not host-injected
+  // closures: the taskClassifier seam had zero production suppliers (a
+  // heuristics-only hook would arm new-task envelopes in the TUI), so the
+  // director runs no decide()-time classification, and coordination is
+  // host-owned, reaching the director only through setWorkflowCoordinator —
+  // never through options.
   inactivityTimeoutMs?: number | undefined;
   totalTimeoutMs?: number | undefined;
   provider?: { providerName: string; model?: string } | undefined;
   /**
-   * The two former host closures are gone; nothing new is injected.
-   *
-   * - getProviderId → reactor-supplied. The retry policy needs the live
-   *   source id per retry so mid-session /model switches remap retry stamping.
-   *   The reactor tracks currentSourceId itself (seeded from the session
-   *   providerName) and hands the policy a getter over it. Residual gap:
-   *   retries during the first inference after a switch still stamp the
-   *   previous id.
-   *
-   * - getLiveFleetCount → seeded config + live narrow setter
-   *   (setAllowIdleWithFleet). The count is external (subagent lane statuses
-   *   the reactor never sees), so neither BaseEnv-derived nor reactor-supplied
-   *   can reproduce its liveness; the fleet-wake publisher drives the setter
-   *   on count transitions, so a drained fleet resumes the open-task nudge.
+   * The former getProviderId and getLiveFleetCount host closures are gone:
+   * retry stamping reads the reactor-tracked currentSourceId (seeded from
+   * the session providerName), and the fleet allowance is a seeded value
+   * kept current by setAllowIdleWithFleet. Residual gap: retries during the
+   * first inference after a switch still stamp the previous id.
    */
   /** Explicit retry policy; when set, skips the default Corbits policy. */
   retryPolicy?: RetryPolicy | undefined;
   /**
    * Initial idle-with-fleet allowance (replaces the former getLiveFleetCount
-   * closure). When true the director allows a terminal wait/reply with open
-   * tasks; otherwise it keeps the open-task nudge. The TUI seeds this (fleet
-   * lanes may appear mid-session); exec omits it. The fleet-wake publisher
-   * keeps it current through setAllowIdleWithFleet.
+   * closure): when true, a terminal wait/reply with open tasks is allowed;
+   * otherwise the open-task nudge stays. TUI seeds true (fleet lanes may
+   * appear mid-session); exec omits it. Kept current by setAllowIdleWithFleet.
    */
   allowIdleWithFleet?: boolean | undefined;
 }
@@ -514,9 +497,8 @@ class ChatDirectorImpl extends DefaultDirector {
   private _toolDefinitions: ToolDefinition[];
   private inactivityTimeoutMs: number | undefined;
   private totalTimeoutMs: number | undefined;
-  // Host-owned live object, attached via setWorkflowCoordinator (WorkflowHost
-  // owns the runtime lifecycle). Consulted, never constructed here;
-  // deliberately not a constructor option.
+  // Host-owned live object, attached via setWorkflowCoordinator; consulted,
+  // never constructed here, deliberately not a constructor option.
   private workflowCoordinator: WorkflowCoordinator | undefined;
   private workflowIdleTurns = 0;
   private idleTerminationNudges = 0;
@@ -534,9 +516,8 @@ class ChatDirectorImpl extends DefaultDirector {
   private readonly modelFamilyPolicy: ModelFamilyPolicy;
   private readonly retryPolicy: RetryPolicy;
   // Reactor-supplied live source id for retry stamping (replaces the former
-  // getProviderId closure). Seeded from the session providerName and refreshed
-  // on every inference completion, so mid-session /model switches remap
-  // without rebuilding the agent.
+  // getProviderId closure). Seeded from the session providerName, refreshed
+  // on every inference completion so /model switches remap without a rebuild.
   private currentSourceId: string | undefined;
   /** Live replacement for the former getLiveFleetCount closure. */
   private allowIdleWithFleet: boolean;
@@ -545,24 +526,20 @@ class ChatDirectorImpl extends DefaultDirector {
   // Forget cached permission denies on the next inbound user message. Session
   // wiring points this at PermissionGate.clearDenials; unset in unit tests.
   private clearDenials: (() => void) | undefined;
-  // Consecutive assistant turns that contain tool calls and no text. Reset on
-  // any turn with text and on every fresh user message, so a model that spins
-  // on one thread of tool calls still converges to the check-in nudge. Drives
-  // the soft check-in nudge at toolOnlyTurnNudgeAt — a turn-count nudge, not
-  // a stop.
+  // Consecutive assistant turns with tool calls and no text, reset by any
+  // text or fresh user message. Drives the soft check-in nudge at
+  // toolOnlyTurnNudgeAt — a turn-count nudge, not a stop.
   private toolOnlyStreak = 0;
   private toolOnlyNudgeFired = false;
   private pendingToolOnlyNudge = false;
-  // Reactor events queued while scanning the current inbound event. Drained
-  // in decide() and appended to whatever the turn returns, so task/tool
-  // notifications ride along with every terminal action list (emit is
-  // composable with all other actions).
+  // Reactor events queued while scanning the current inbound event, drained
+  // in decide() and appended to the turn's actions (emit is composable with
+  // all other actions).
   private pendingEmits: ReactorAction[] = [];
   // Set when an inference-turn coordinator helper rethrows (the only path
-  // whose queued emits are stale by construction). decide()'s catch consults
-  // it so only that path drops the queue; any other mid-turn failure
-  // preserves the queue for the next successful turn instead of desyncing
-  // the host from already-mutated director state.
+  // whose queued emits are stale by construction). decide()'s catch drops the
+  // queue only then; other mid-turn failures keep it so the host stays in
+  // sync with already-mutated director state.
   private coordinatorRethrowNoted = false;
   private credentialRecoveryGeneration: number | undefined;
 
@@ -571,17 +548,15 @@ class ChatDirectorImpl extends DefaultDirector {
     toolDefinitions: ToolDefinition[],
     options: ChatDirectorImplOptions,
   ) {
-    // Compose before super(). The base director keeps its own copy of the
-    // system prompt and sets options.systemPrompt from it on every ordinary
-    // turn, so withCurrentTools' `?? this._systemPrompt` fallback never fires
-    // and anything appended after super() is built but never sent.
+    // Compose before super(): the base director overwrites options.
+    // systemPrompt on every ordinary turn, so anything appended after
+    // super() is built but never sent.
     const familyPolicy =
       options.modelFamilyPolicy ??
       resolveModelFamilyPolicy({ providerName: "" });
     const disciplineRules = familyPolicy.toolDisciplineRules;
-    // Family tool-discipline rules go at the tail. Appending there is
-    // prefix-safe: measured on OpenCode Go Responses, tail appends hold a
-    // 99.1% cache hit while an edit at the head drops it to 9%.
+    // Family tool-discipline rules go at the tail: tail appends hold a 99.1%
+    // prompt-cache hit while a head edit drops it to 9%.
     const composedPrompt =
       disciplineRules !== undefined && disciplineRules.length > 0
         ? `${systemPrompt}\n\n${disciplineRules}`
@@ -621,21 +596,18 @@ class ChatDirectorImpl extends DefaultDirector {
   }
 
   // Coordinator consults degrade to plain inference on non-inference events:
-  // a throwing host object must not take down the session before inference has
-  // produced a turn. On an inference turn (inference.done) the throw is
-  // preserved — the turn cannot be faithfully assembled, so the error rejects
-  // decide() (dropping the turn's queued task/tool notifications) instead of
-  // resolving a silent plain-inference batch. Shape fallbacks (non-string
-  // directive or step id, empty directive, truncation) never throw and apply
-  // on every event. Each inference-turn helper takes rethrowCoordinatorError
-  // (onTurnBoundary of the current event) to select between the two.
-  // coordinatorHandleToolDone is the exception: its sole call site runs
-  // mid-turn, so it always degrades to plain inference and takes no rethrow
-  // parameter.
+  // a throwing host object must not take down the session before inference
+  // has produced a turn. On an inference turn the throw is preserved — the
+  // turn cannot be faithfully assembled, so decide() rejects, dropping the
+  // turn's queued task/tool notifications. Shape fallbacks (non-string or
+  // empty directive / step id, truncation) never throw and apply on every
+  // event. Inference-turn helpers take rethrowCoordinatorError (the current
+  // event's onTurnBoundary); coordinatorHandleToolDone runs mid-turn, so it
+  // always degrades and takes no rethrow parameter.
   //
-  // The rethrow-capable consults below share one guard: on a coordinator
-  // throw, either rethrow (noting it so the turn drops queued notifications)
-  // or log under the consult's label and resolve the consult's fallback.
+  // The rethrow-capable consults share one guard: on a coordinator throw,
+  // rethrow (noting it, so the turn drops queued notifications) or log under
+  // the consult's label and resolve its fallback.
   private withCoordinatorGuard<T>(
     label: string,
     fallback: T,
@@ -735,8 +707,8 @@ class ChatDirectorImpl extends DefaultDirector {
   }
 
   // Narrow live setter for the idle-with-fleet allowance: the fleet-wake
-  // publisher drives this on fleet-count transitions, so a drained fleet
-  // resumes the open-task nudge instead of holding the seeded value.
+  // publisher drives it on fleet-count transitions so a drained fleet
+  // resumes the open-task nudge.
   setAllowIdleWithFleet(value: boolean): void {
     this.allowIdleWithFleet = value;
     this.liveHelperCount = value ? 1 : 0;
@@ -768,18 +740,16 @@ class ChatDirectorImpl extends DefaultDirector {
     return [...this.tasks];
   }
 
-  // A resumed session's task list lives in the transcript, not in the freshly
-  // constructed director; without this the chrome panel would read an empty
-  // list until the model calls manage_tasks again. The host emits the
-  // tasks-changed reactor event after calling this (the director cannot emit
-  // outside decide()).
+  // A resumed session's task list lives in the transcript, not in the fresh
+  // director (the chrome panel would read an empty list until the model calls
+  // manage_tasks again). The host emits the tasks-changed event after calling
+  // this — the director cannot emit outside decide().
   restoreTasks(tasks: Task[]): void {
     this.tasks = [...tasks];
   }
 
-  // The status bar's context meter falls back to this when a provider omits
-  // or zeroes usage on the latest turn — a local estimate beats displaying a
-  // number the provider never reported.
+  // Context-meter fallback when a provider omits or zeroes usage on the
+  // latest turn: a local estimate beats a number the provider never reported.
   getContextEstimate(): { tokens: number; isEstimate: boolean } {
     return {
       tokens: this.compaction.estimatedTokens,
@@ -815,8 +785,7 @@ class ChatDirectorImpl extends DefaultDirector {
   }
 
   // `/handoff` arms the shared operator fold; the caller delivers the pivot
-  // message itself, which triggers the fold on arrival and then the next
-  // infer against the folded context.
+  // message, which triggers the fold on arrival, then the next infer.
   requestHandoff(instructions: string): HandoffArming {
     return this.compaction.requestHandoff(instructions);
   }
@@ -845,9 +814,8 @@ class ChatDirectorImpl extends DefaultDirector {
 
   /**
    * Rewrites the infer action in a fall-through batch once pending tool
-   * calls have resolved, attaching the soft check-in nudge once the raw
-   * tool-only streak reaches toolOnlyTurnNudgeAt. A turn-count nudge, not a
-   * stop — the session keeps running either way.
+   * calls have resolved, attaching the soft check-in nudge at
+   * toolOnlyTurnNudgeAt. A turn-count nudge, not a stop.
    */
   private applyToolOnlyLoopProtection(
     actions: ReactorAction[],
@@ -878,10 +846,10 @@ class ChatDirectorImpl extends DefaultDirector {
     rethrowCoordinatorError: boolean,
   ): ReactorAction | ReactorAction[] {
     const active = this.coordinatorIsActive(rethrowCoordinatorError);
-    // submit_output rides on the wire every turn, workflow or not, so
-    // activating a workflow never grows the tools array and busts the cache
-    // prefix. Outside a workflow it is a harmless no-op the director ignores
-    // unless the call is a terminal task submission.
+    // submit_output rides on the wire every turn so activating a workflow
+    // never grows the tools array and busts the cache prefix. Outside a
+    // workflow it is a no-op the director ignores unless the call is a
+    // terminal task submission.
     const tools = this._toolDefinitions.some(
       (t) => t.name === submitOutputDefinition.name,
     )
@@ -936,11 +904,9 @@ class ChatDirectorImpl extends DefaultDirector {
       ];
     } catch (err) {
       // Only a coordinator rethrow on the turn boundary leaves queued
-      // task/tool notifications stale by construction (the turn cannot be
-      // faithfully assembled, so the queue is dropped and the next turn
-      // starts clean). Any other mid-turn failure preserves the queue: the
-      // turn's state mutations already persist, so dropping it would desync
-      // the host. The error still propagates either way.
+      // task/tool notifications stale (the turn cannot be faithfully
+      // assembled). Other mid-turn failures keep the queue — the state
+      // mutations already persist, so dropping it would desync the host.
       if (this.coordinatorRethrowNoted) this.pendingEmits = [];
       this.coordinatorRethrowNoted = false;
       throw err;
@@ -989,8 +955,8 @@ class ChatDirectorImpl extends DefaultDirector {
 
     // A forged or replayed compaction continuation arrives as an empty
     // message.received with no outstanding compact state (the legit resume is
-    // consumed above). Answering it with infer would burn a billable model
-    // turn and reset the loop-protection budgets, so hold the loop instead.
+    // consumed above). Answering with infer would burn a billable turn and
+    // reset the loop-protection budgets, so hold the loop.
     if (event.type === "message.received") {
       const content =
         typeof event.message.content === "string" ? event.message.content : "";
@@ -1003,13 +969,11 @@ class ChatDirectorImpl extends DefaultDirector {
     }
 
     // Only `aborted` (internal-recovery-abort) lands here: the harness retry
-    // policy owns `timeout`/`retryable`/`quota_exhausted` and exhausts its own
-    // budget before an `inference.error` of those categories reaches the
-    // director. Re-wrapping an exhausted harness retry in another infer()
-    // would multiply the two budgets (up to 9 full-context sends per turn)
-    // without recovering anything the harness had not tried. The harness
-    // never retries `aborted`, so this layer owns that category alone and
-    // does not compound with the harness's attempts.
+    // policy owns `timeout`/`retryable`/`quota_exhausted` and exhausts its
+    // own budget first. Re-wrapping an exhausted harness retry in another
+    // infer() would multiply the two budgets (up to 9 full-context sends per
+    // turn). The harness never retries `aborted`, so this layer owns that
+    // category alone.
     if (
       event.type === "inference.error" &&
       event.error.category === "aborted" &&
@@ -1032,12 +996,9 @@ class ChatDirectorImpl extends DefaultDirector {
       ];
     }
 
-    // The vendored DefaultDirector's error preamble map has no `timeout`
-    // entry, so it falls back to the `fatal` wording ("... unrecoverable
-    // inference error"). An exhausted `timeout` now routinely lands here as a
-    // terminal reply, so the misleading "unrecoverable" wording would become
-    // the routine message for an ordinary timeout. Intercept it here with
-    // accurate wording rather than patching the vendored map.
+    // The vendored DefaultDirector's preamble map has no `timeout` entry, so
+    // it falls back to the "unrecoverable" fatal wording. Intercept here
+    // with accurate wording rather than patching the vendored map.
     if (
       event.type === "inference.error" &&
       event.error.category === "timeout"
@@ -1050,11 +1011,10 @@ class ChatDirectorImpl extends DefaultDirector {
       ];
     }
 
-    // Nudge budgets are monotonic per inbound user message rather than
-    // resetting on tool work: classifying a tool call as progress is gameable
-    // (a weak model learns any call, even a no-op `echo`, buys back budget),
-    // so resetting only on a fresh message means a model that spins on one
-    // turn always converges to the cap.
+    // Nudge budgets reset only on a fresh user message, never on tool work:
+    // counting tool calls as progress is gameable (a weak model learns any
+    // call, even a no-op `echo`, buys back budget), so a model that spins on
+    // one turn always converges to the cap.
     if (event.type === "message.received") {
       this.idleTerminationNudges = 0;
       this.declinedTerminationNudges = 0;
@@ -1064,8 +1024,8 @@ class ChatDirectorImpl extends DefaultDirector {
       this.toolOnlyStreak = 0;
       this.toolOnlyNudgeFired = false;
       this.pendingToolOnlyNudge = false;
-      // Occupancy mailbox / fleet-dry / bg-shell inbounds are also
-      // message.received; only a human prompt may forget cached denies.
+      // Only a human prompt (not mailbox/fleet-dry/bg-shell inbounds) may
+      // forget cached denies.
       const inboundFlags =
         "flags" in event.message && Array.isArray(event.message.flags)
           ? event.message.flags.filter(
@@ -1089,8 +1049,8 @@ class ChatDirectorImpl extends DefaultDirector {
         ) && !isCompactSpacerEchoTurn(event.turn);
       this.lastInferenceTurnHadContent = hasToolCalls || hasText;
 
-      // toolOnlyStreak is narration-sensitive: any turn with text clears it,
-      // and it only drives the soft check-in nudge, never a stop.
+      // Narration-sensitive: any turn with text clears the streak; it only
+      // drives the soft check-in nudge, never a stop.
       if (hasToolCalls && !hasText) {
         this.toolOnlyStreak++;
       } else {
@@ -1111,9 +1071,9 @@ class ChatDirectorImpl extends DefaultDirector {
         if (hasToolCalls) {
           this.workflowIdleTurns = 0;
         } else {
-          // Echo-nudge cycles are incompleteness, not a contentful idle beat.
-          // Count them only after the echo budget is spent so the step-nudge
-          // rail still has its three turns before the stuck reply.
+          // Echo-nudge cycles are not a contentful idle beat; count them only
+          // after the echo budget is spent so the step-nudge rail keeps its
+          // three turns.
           const spacerEchoStillNudging =
             isCompactSpacerEchoTurn(event.turn) &&
             this.spacerEchoNudges < MAX_SPACER_ECHO_NUDGES;
@@ -1189,10 +1149,8 @@ class ChatDirectorImpl extends DefaultDirector {
 
     if (event.type === "tool.done") {
       const declined = classifyDeclinedToolResult(event.result);
-      // Reason-less approver rejections are the only canned case: the model
-      // has no reason to respond to. Reason-bearing approver rejections and
-      // policy denies re-infer below — the model responds to the reason or
-      // adapts to the deny text.
+      // Reason-less approver rejections are the only canned case; the
+      // reason-bearing and policy-deny cases re-infer below.
       if (
         declined !== null &&
         declined.kind === "approver-rejection" &&
@@ -1220,9 +1178,8 @@ class ChatDirectorImpl extends DefaultDirector {
     // prefers provider usage when present.
     const turns = state.turns ?? [];
     this.compaction.syncFromTurns(turns);
-    // Reactor-supplied live source id (replaces getProviderId). The completion
-    // stamps the source that served it, so a mid-session /model switch remaps
-    // retry stamping from the next completion on; the harness's
+    // Reactor-supplied live source id (replaces getProviderId). The served
+    // source remaps retry stamping from the next completion on; the harness's
     // lastCycleSource is the call-start snapshot and wins on conflict.
     if (event.type === "inference.done") {
       const served = event.source?.sourceId;
@@ -1262,9 +1219,8 @@ class ChatDirectorImpl extends DefaultDirector {
       );
     }
 
-    // Idle arming returns an emit action (continuation as a ReactorAction)
-    // so the host re-enters the loop and the governor can compact on the
-    // continuation's arrival.
+    // Idle arming returns an emit action so the host re-enters the loop and
+    // the governor can compact on the continuation's arrival.
     const idleContinuationArmed = this.compaction.noteIdleTurn(
       event,
       baseActions,
@@ -1279,10 +1235,9 @@ class ChatDirectorImpl extends DefaultDirector {
       return [...baseActions, compactionContinuationAction(capabilities)];
 
     // Loop protection takes precedence over the workflow/open-task nudges
-    // below: those keep a session moving, which is exactly what the pause
-    // guards against. It only rewrites an `infer` once pending tools have
-    // resolved and one is present in the batch — a bare user turn on top of
-    // pending tool_calls is a provider-invalid conversation.
+    // below, which keep a session moving — exactly what the pause guards
+    // against. It only rewrites an `infer` once pending tools have resolved
+    // and one is present in the batch.
     const toolOnlyRewrite = this.applyToolOnlyLoopProtection(
       baseActions,
       capabilities,
@@ -1338,9 +1293,8 @@ class ChatDirectorImpl extends DefaultDirector {
       }
     }
 
-    // A workflow gate step is a legitimate pause for operator approval, so
-    // yielding there with open tasks is not an invariant breach — leave it to
-    // the workflow runtime and do not nudge.
+    // A workflow gate step is a legitimate pause for operator approval;
+    // yielding there with open tasks is not a breach — do not nudge.
     const atWorkflowGate =
       coordinatorActive &&
       this.coordinatorCurrentStepIsGate(onTurnBoundary(event));
@@ -1350,9 +1304,8 @@ class ChatDirectorImpl extends DefaultDirector {
       );
       if (hasTerminal) {
         // Live idle-with-fleet allowance (replaces the former
-        // getLiveFleetCount closure): seeded at construction, then kept
-        // current by the fleet-wake publisher. TUI seeds true (fleet lanes
-        // may appear mid-session); exec omits it and keeps the nudge.
+        // getLiveFleetCount closure): seeded at construction, kept current
+        // by the fleet-wake publisher.
         if (this.allowIdleWithFleet) {
           return base;
         }
@@ -1366,9 +1319,8 @@ class ChatDirectorImpl extends DefaultDirector {
               { type: "wait" } | { type: "reply" }
             > => a.type !== "wait" && a.type !== "reply",
           );
-          // Inside a workflow the terminal action is submit_output with the
-          // current step id, so point the nudge at it rather than the general
-          // manage_tasks guidance.
+          // Inside a workflow the terminal is submit_output with the current
+          // step id, so point the nudge at it.
           const nudge = coordinatorActive
             ? WORKFLOW_OPEN_TASK_NUDGE
             : IDLE_OPEN_TASK_NUDGE;
@@ -1391,12 +1343,12 @@ export function createChatDirector(
   return new ChatDirectorImpl(systemPrompt, toolDefinitions, {
     ...rest,
     // `provider` is raw {providerName, model} input; the constructor wants
-    // the resolved ModelFamilyPolicy, not the input it was resolved from.
+    // the resolved ModelFamilyPolicy.
     modelFamilyPolicy:
       provider !== undefined ? resolveModelFamilyPolicy(provider) : undefined,
-    // Seed the reactor-tracked live source id (replaces getProviderId). The
-    // impl refreshes it on every inference completion so mid-session `/model`
-    // switches remap retry stamping.
+    // Seed the reactor-tracked live source id (replaces getProviderId),
+    // refreshed on every inference completion so `/model` switches remap
+    // retry stamping.
     sessionProviderName: provider?.providerName,
     // Stamp provider id onto retry errors so known-xAI short 429s remap.
     // Prefer an explicit policy; otherwise the impl builds the default policy
