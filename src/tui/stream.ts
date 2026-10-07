@@ -16,8 +16,8 @@ import {
 import { UI, onThemeChange } from "./theme.js";
 import { pastTenseToolLabel } from "./tool-formatter.js";
 
-/** One line of a pre-coloured body (an expanded call's structured args).
- * Styled runs are painted as authored, so a coloured body keeps its colours. */
+/** One pre-coloured body line (an expanded call's structured args), painted
+ * as authored rather than re-parsed. */
 export type StyledBodyLine = readonly {
   readonly text: string;
   readonly fg: string;
@@ -31,143 +31,100 @@ export interface StreamRow {
   readonly text: string;
   /** Optional secondary label (tool name, timestamp, etc.). */
   readonly meta?: string;
-  /**
-   * Force markdown on/off for this row. Defaults by role: only assistant
-   * text is authored as markdown — tool output, user echo and system chrome
-   * are literal and must not be reflowed or have markers concealed.
-   */
+  /** Force markdown on/off for this row. Only assistant text is authored
+   * as markdown — tool output, user echo and system chrome are literal and
+   * must not be reflowed or have markers concealed. */
   readonly markdown?: boolean;
-  /**
-   * Row body is still being appended to. Markdown rows keep their trailing
-   * block unstable so a half-received fence/table is not finalized early.
-   */
+  /** Row body is still being appended to; markdown keeps the trailing block
+   * unstable so a half-received fence/table is not finalized early. */
   readonly streaming?: boolean;
-  /**
-   * Structured cell grid (MCP record list / record detail). Painted as a table
-   * instead of the row body, which would otherwise be a raw JSON dump.
-   */
+  /** Structured cell grid (MCP record list / detail), painted as a table
+   * instead of the raw JSON dump. */
   readonly structured?: McpStructuredView;
-  /**
-   * Rendered file-edit diff. Painted instead of the row body, which would
-   * otherwise be the edit tool's raw JSON arguments.
-   */
+  /** Rendered file-edit diff, painted instead of the edit tool's raw JSON
+   * arguments. */
   readonly diff?: DiffView;
-  /**
-   * Tool call that came back an error. Carried as a flag rather than baked
-   * into `meta` so the paint layer can mark the row without parsing a label.
-   */
+  /** Tool call that came back an error. A flag, so the paint layer marks it
+   * without parsing a label. */
   readonly failed?: boolean;
-  /** Tool call whose result has not landed yet: the row is the call until
-   * then, and the result rewrites the subject in place, not a row of its own. */
+  /** Tool call whose result has not landed yet: the row is the call, and the
+   * result rewrites the subject in place. */
   readonly pending?: boolean;
-  /** Identity of the call a tool row opened — tool name plus its sentence.
-   * Consecutive calls sharing one collapse onto a single row. */
+  /** Identity of the call a tool row opened (tool name + sentence);
+   * consecutive repeats collapse onto one row. */
   readonly callKey?: string;
-  /**
-   * Runtime id of the call this row answers, when the source carried one.
-   * A result finds its exact row by id first — the tool name alone is
-   * ambiguous once two calls to the same tool are in flight (parallel
-   * `spawn_agent` dispatch).
-   */
+  /** Runtime id of the call this row answers, when the source carried one.
+   * A result finds its row by id first — the tool name alone is ambiguous
+   * once two calls to the same tool are in flight. */
   readonly callId?: string;
-  /** Id of the queue item this row echoes (see `SessionQueueState`). Lets a
-   * cancel find the exact row, rather than guessing by position once other
-   * rows have interleaved. */
+  /** Id of the queue item this row echoes (see `SessionQueueState`), so a
+   * cancel finds the exact row once others have interleaved. */
   readonly queueItemId?: string;
-  /**
-   * The queued/steered message this row echoed was cancelled before dispatch.
-   * Kept as a flag so the stored body stays what the operator typed; the
-   * paint layer alone decides how a cancelled row reads.
-   */
+  /** The queued/steered message this row echoed was cancelled before dispatch.
+   * A flag keeps the stored body as typed; the paint layer decides how a
+   * cancelled row reads. */
   readonly cancelled?: boolean;
-  /** Delivery settlement for a drained queue/steer row. Kept as typed state
+  /** Delivery settlement for a drained queue/steer row, kept as typed state
    * so copy/resume still sees the original body. */
   readonly deliveryStatus?: "not-delivered" | "uncertain";
-  /** Row standing for a run of repeated calls. Its subject stays the repeated
-   * call — never a total the payloads would not support — and each answer
-   * lands in the expanded body. */
+  /** Row standing for a run of repeated calls. Subject stays the repeated
+   * call (never a total the payloads would not support); answers land in the
+   * expanded body. */
   readonly coalesced?: boolean;
-  /**
-   * Calls a coalesced row still awaits. A batch dispatches every call before
-   * any answer lands, so the row stays pending until zero — otherwise the
-   * in-flight answers would find no row to fold into.
-   */
+  /** Calls a coalesced row still awaits. A batch dispatches every call before
+   * any answer lands, so the row stays pending until zero. */
   readonly outstanding?: number;
-  /** Writer of a non-user row. Absent means the session's own agent; writers
-   * are named only once a transcript carries more than one. */
+  /** Writer of a non-user row; absent means the session's own agent. Writers
+   * are named only when a transcript has more than one. */
   readonly agent?: string;
-  /**
-   * Name of the skill a `use_skill` result loaded. Present only on rows whose
-   * body is skill instructions, which collapse to a summary until expanded.
-   */
+  /** Skill a `use_skill` result loaded; its body collapses to a summary
+   * until expanded. */
   readonly skill?: string;
-  /**
-   * Human summary of a tool call's arguments. Present means the row paints the
-   * summary instead of `text`, which is the raw argument JSON.
-   */
+  /** Human summary of a tool call's arguments, painted instead of the raw
+   * argument JSON in `text`. */
   readonly summary?: string;
   /** Structured body a summarised call reveals when expanded. */
   readonly detail?: readonly StyledBodyLine[];
   /** Settled reasoning: what the row collapses to once thinking is done. */
   readonly thought?: Thought;
-  /**
-   * Bounded-rate reveal position for a still-streaming reasoning row — how far
-   * into `text` the scroll line is allowed to show. Absent means show it all
-   * (a settled row, a hydrated transcript, a fixture with no clock driving it).
-   */
+  /** Bounded-rate reveal position for a still-streaming reasoning row;
+   * absent means show it all. */
   readonly revealChars?: number;
   /** Whether a collapsible body is currently showing in full. */
   readonly expanded?: boolean;
-  /**
-   * Leading verb of a tool row read as a sentence ("Read", "Created", "$" for
-   * a shell command). Present means the row paints verb + coloured subject
-   * (`summary`) instead of the legacy meta-column layout.
-   */
+  /** Leading verb of a sentence-style tool row ("Read", "Created", "$");
+   * present means verb + coloured subject instead of the legacy meta
+   * column. */
   readonly verb?: string;
   /** Diff stat or line range painted dim after the subject, e.g. "+1/-0". */
   readonly stat?: string;
-  /**
-   * Raw tool identity of a tool row — the lane grouping key. Unlike `meta`
-   * (composed with path/stat on some rows), this is always the bare name.
-   */
+  /** Raw tool identity of a tool row — the lane grouping key. Always the
+   * bare name, unlike `meta`. */
   readonly toolName?: string;
-  /**
-   * Calls folded into a tool lane. Absent or 1 paints the single-call row
-   * exactly as before lanes.
-   */
+  /** Calls folded into a tool lane; absent or 1 paints the pre-lane
+   * single-call row. */
   readonly callCount?: number;
-  /**
-   * Call ids a lane absorbed (newest appended). Lets a result
-   * resolve its lane by id even though the lane's own `callId` moved to the
-   * newest call.
-   */
+  /** Call ids a lane absorbed (newest appended), so a result resolves its
+   * lane by id once the lane's `callId` moved to the newest call. */
   readonly memberIds?: readonly string[];
-  /** What each absorbed call was about, aligned with `memberIds` — the lane's
-   * body lines are "member — outcome" pairs, because four identical answers
-   * to four different calls say nothing. */
+  /** What each absorbed call was about, aligned with `memberIds` —
+   * "member — outcome" pairs, since four identical answers to four different
+   * calls say nothing. */
   readonly memberLabels?: readonly string[];
-  /**
-   * Most recent result's full text on a coalesced lane — the Alt+C copy
-   * source. Single rows copy `text` as before.
-   */
+  /** Most recent result's full text on a coalesced lane — the Alt+C copy
+   * source. */
   readonly resultText?: string;
-  /**
-   * Shell output preview painted collapsed between head and expand hint:
-   * up to three tail lines plus the elision marker. Hidden when expanded.
-   * Never persisted.
-   */
+  /** Shell output preview between head and expand hint: up to three tail
+   * lines plus the elision marker. Never persisted. */
   readonly previewLines?: readonly string[];
-  /**
-   * A dispatched sub-agent's row while its worker is still running: true once
-   * it reported activity within the stall window, false once the silence
-   * looks hung rather than slow. Absent off the live dispatch path.
-   */
+  /** A dispatched sub-agent's row while its worker is still running: true
+   * within the stall window, false once the silence looks hung. Absent off
+   * the live dispatch path. */
   readonly agentWorking?: boolean;
 }
 
-/** What a row needs from the surface it paints onto: the transcript's column
- * budget (bubbles and wrapped bodies are computed, not delegated) and whether
- * writers need naming at all. */
+/** What a row needs from the surface: the transcript's column budget and
+ * whether writers need naming. */
 export interface RowLayout {
   readonly width: number;
   readonly multiAgent: boolean;
@@ -176,12 +133,10 @@ export interface RowLayout {
 /** Writer of a row when none is named: the session's own agent. */
 export const MAIN_AGENT = "agent";
 
-/**
- * Key name that expands a collapsed body — Alt-combined in the transcript so
- * the focused prompt never swallows it as a typed letter. The approval
- * overlay's collapsed payloads answer to the same key but stay bare there:
- * that overlay is modal and the prompt cannot have focus while it is open.
- */
+/** Key that expands a collapsed body — Alt-combined in the transcript so the
+ * prompt never swallows it as a typed letter. The modal approval overlay
+ * answers to the same key but stays bare: the prompt cannot have focus
+ * there. */
 export const EXPAND_KEY = "e";
 
 /** Display label for the transcript/overlay row expand affordance. */
@@ -206,11 +161,9 @@ export interface PaintedStreamLine {
   readonly fg: string;
 }
 
-/**
- * Transcript rows are text, so they take the element cream. Only the tool role
- * is tinted — it is machine output threaded through a human conversation, and
- * the bronze separates it without adding a second voice.
- */
+/** Transcript rows are text, so they take the element cream. Only tool is
+ * tinted — machine output threaded through a human conversation, and the
+ * bronze separates it without a second voice. */
 const ROLE_FG: Record<StreamRole, string> = {
   user: UI.text,
   assistant: UI.text,
@@ -218,25 +171,20 @@ const ROLE_FG: Record<StreamRole, string> = {
   system: UI.textDim,
 };
 
-/**
- * Diff body palette. This is the one place orange is not the decision marker:
- * a diff is content, and add/remove is the brand's own green/orange pair.
- */
+/** Diff body palette. The one place orange is not a decision marker: a diff
+ * is content, and add/remove is the brand's green/orange pair. */
 export const DIFF_FG = {
   add: UI.done,
   del: UI.action,
   context: UI.textDim,
 } as const;
 
-/** Meta column (tool name, `queue`, `error`). Fixed so a tool call's argument
- * and its result's payload start on the same column, scannable as one list. */
+/** Meta column (tool name, `queue`, `error`). Fixed so a call's argument and
+ * its result's payload start on the same column. */
 const META_WIDTH = 12;
 
-/**
- * The mark column carries what colour cannot: cream is shared by the user
- * and the agent, so a failed call is found by its cross, the operator by its
- * bubble bar.
- */
+/** The mark column carries what colour cannot: cream is shared, so a failed
+ * call is found by its cross, the operator by its bubble bar. */
 const MARK_OK = "✓";
 const MARK_FAILED = "×";
 /** A call still in flight has no verdict yet, and must not borrow one. */
@@ -246,16 +194,13 @@ const MARK_AGENT_ACTIVE = "◐";
 /** A dispatched sub-agent gone quiet past the stall window. */
 const MARK_AGENT_STALLED = "!";
 
-/**
- * Glyphs are single-cell so nothing after them can slip out of the meta column.
- * Every one is verified against `stringWidth` by the row-shape tests.
- */
+/** Glyphs are single-cell so nothing after them slips out of the meta column;
+ * verified against `stringWidth` by the row-shape tests. */
 const BUBBLE_BAR = "▍";
 const AGENT_ICON = "●";
 
-/** Blank columns where a per-tool-family glyph used to sit: a tool row leads
- * with one success/failure marker now, but the width keeps the meta column
- * and the connector beneath it on the same column. */
+/** Blank columns where a per-tool-family glyph used to sit; the width keeps
+ * the meta column and connector aligned. */
 const TOOL_LEAD_GAP = "  ";
 
 /** Thinking is coalesced chain-of-thought, not an answer — it paints faintest. */
@@ -270,20 +215,16 @@ function rowFg(row: StreamRow): string {
   return ROLE_FG[row.role];
 }
 
-/**
- * Pad-only: a meta longer than the column (an edit summary carries its path and
- * line counts) pushes the body rather than being truncated. Losing the column
- * on those rows costs less than losing the information.
- */
+/** Pad-only: a meta longer than the column (an edit summary's path and line
+ * counts) pushes the body rather than truncating — the info matters more
+ * than the column. */
 function fitMeta(meta: string): string {
   return meta.length >= META_WIDTH ? `${meta} ` : meta.padEnd(META_WIDTH);
 }
 
-/**
- * Block label above the first row of a gap-free run from one writer. The gap
- * function already marks writer changes, so the label repeats only where a
- * gap does.
- */
+/** Block label above the first row of a gap-free run from one writer; the
+ * gap function marks writer changes, so the label repeats only where a gap
+ * does. */
 export function blockLabel(
   previous: StreamRow | undefined,
   row: StreamRow,
@@ -303,12 +244,9 @@ function toolMark(row: StreamRow): string {
   return MARK_PENDING;
 }
 
-/**
- * Tool prefix: one in-flight/success/failure mark, then either the
- * sentence-row's bare lead or the legacy meta column. A call and its answer
- * share one row, so there is no continuation to mark; writers are named once
- * per block (see `blockLabel`).
- */
+/** Tool prefix: one mark, then the sentence-row's bare lead or the legacy
+ * meta column. A call and its answer share one row, so there is no
+ * continuation to mark. */
 function toolPrefix(row: StreamRow): string {
   const mark = toolMark(row);
   if (row.verb !== undefined) return `${mark} `;
@@ -319,18 +257,12 @@ function toolPrefix(row: StreamRow): string {
 /** Columns the operator's bubble may claim before it wraps. */
 const BUBBLE_MAX_SHARE = 0.75;
 
-/**
- * Empty bar rows painted above and below the operator's text so the turn
- * reads as a block when scrolling past denser assistant/tool rows.
- */
+/** Empty bar rows above and below the operator's text so the turn reads as a
+ * block. */
 const USER_BUBBLE_PAD = 1;
 
-/**
- * The operator's turn as a block hugging the left gutter, with the bar down
- * its left edge — the bar is what makes a user turn findable now that both
- * voices share cream and the edge. Empty bar rows pad it without changing the
- * turn-boundary gap every other row uses.
- */
+/** The operator's turn as a block hugging the left gutter — the bar is what
+ * makes a user turn findable now that both voices share cream. */
 function userBubbleLines(text: string, width: number): string[] {
   const bar = `${BUBBLE_BAR} `;
   const barWidth = stringWidth(bar);
@@ -340,8 +272,8 @@ function userBubbleLines(text: string, width: number): string[] {
   );
   const lines = text.split("\n").flatMap((line) => wrapLines(line, body));
   const content = lines.map((line) => `${bar}${line}`);
-  // Bare bar (no trailing body space) so the pad reads as air, not an empty
-  // content column — same glyph column as the body lines either way.
+  // Bare bar (no trailing space) so the pad reads as air, in the same glyph
+  // column as body lines.
   const pad = BUBBLE_BAR;
   return [
     ...Array.from({ length: USER_BUBBLE_PAD }, () => pad),
@@ -350,12 +282,8 @@ function userBubbleLines(text: string, width: number): string[] {
   ];
 }
 
-/**
- * The painted width a plain row was wrapped at, for reassembling URLs split
- * across continuation lines. Mirrors the three plain-row layouts: the bubble
- * wraps its body inside the bar, while thinking and gutter-indented rows fill
- * the full width. Keep in sync with userBubbleLines/thinkingLines/indentBody.
- */
+/** Painted width a plain row wrapped at, for reassembling URLs split across
+ * lines. Keep in sync with userBubbleLines/thinkingLines/indentBody. */
 export function plainRowWrapWidth(row: StreamRow, layout: RowLayout): number {
   if (row.role !== "user") return layout.width;
   const barWidth = stringWidth(`${BUBBLE_BAR} `);
@@ -369,8 +297,8 @@ export function plainRowWrapWidth(row: StreamRow, layout: RowLayout): number {
   return body + barWidth;
 }
 
-/** Columns a reasoning block is inset by — its whole chrome, plus faint text.
- * It carries no marker: nothing above it gives a rail anything to bind to. */
+/** Columns a reasoning block is inset by. It carries no marker: nothing above
+ * it gives a rail anything to bind to. */
 const THINKING_INDENT = 2;
 
 /** Reasoning laid out as an indented block, for a row with no summary line. */
@@ -388,11 +316,9 @@ function expandHint(expanded: boolean): string {
   return ` · ${EXPAND_HINT_LABEL} ${expanded ? "collapse" : "expand"}`;
 }
 
-/**
- * Arrow affordance of a sentence-style tool row. It is a hit target as well as
- * a glyph — a click on it toggles that one row — so the paint layer needs to
- * find it back in a finished line rather than re-deriving where it landed.
- */
+/** Arrow affordance of a sentence-style tool row. A hit target as well as a
+ * glyph — a click toggles that one row, so the paint layer must find it back
+ * in a finished line. */
 export const ROW_ARROW = { collapsed: "▸", expanded: "▾" } as const;
 
 /** Small arrow affordance for a sentence-style tool row: absent, ▸, or ▾. */
@@ -401,12 +327,9 @@ function toolArrow(row: StreamRow): string {
   return row.expanded === true ? ROW_ARROW.expanded : ROW_ARROW.collapsed;
 }
 
-/**
- * A line's trailing arrow split off from the rest of it, or null when the line
- * does not end in one. The arrow becomes its own renderable so the click that
- * toggles a row lands on the glyph and nowhere else: rows are text people
- * select and copy, and a whole-row hit target would toggle under every drag.
- */
+/** A line's trailing arrow split off from it, or null when it ends in none.
+ * The arrow is its own renderable so the click that toggles a row lands on
+ * the glyph, not under every drag. */
 export function splitTrailingArrow(line: StyledBodyLine): {
   readonly body: StyledBodyLine;
   readonly arrow: StyledBodyLine[number];
@@ -426,12 +349,9 @@ function elapsedLabel(ms: number): string {
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-/**
- * Reasoning body. While text streams it wraps into a bounded inset paragraph
- * (no sideways scroll; hard line cap); once the turn moves on it collapses to
- * the opening clause, the rest behind the expand key. Rows with no settled
- * thought keep the plain block.
- */
+/** Reasoning body: bounded inset paragraph while streaming (no sideways
+ * scroll); once the turn moves on it collapses to the opening clause, the
+ * rest behind the expand key. */
 function reasoningLines(row: StreamRow, layout: RowLayout): string[] {
   const lead = " ".repeat(THINKING_INDENT);
   const columns = Math.max(1, layout.width - THINKING_INDENT);
@@ -449,8 +369,8 @@ function reasoningLines(row: StreamRow, layout: RowLayout): string[] {
   );
   const head = `${lead}${summary}${hint}`;
   if (!expanded) return [head];
-  // Elapsed time lives here rather than on the summary line: it is worth
-  // knowing after the fact, and never worth displacing the reasoning itself.
+  // Elapsed time lives here, not on the summary line — worth knowing after
+  // the fact, never worth displacing the reasoning.
   const panel = expansionTextPanel(
     row.text,
     expansionColumns(THINKING_INDENT, layout),
@@ -459,12 +379,9 @@ function reasoningLines(row: StreamRow, layout: RowLayout): string[] {
   return [head, ...detailPlainLines(panel).map((line) => `${lead}${line}`)];
 }
 
-/**
- * Revealed bodies are inset past their summary, railed down the left edge,
- * and closed by a tick. The rail earns its columns here as it does not on an
- * always-visible reasoning line: it binds content that exists only because of
- * the row above, and gives the tick something to close.
- */
+/** Revealed bodies are inset past their summary, railed down the left edge,
+ * and closed by a tick. The rail binds content that exists only because of
+ * the row above, and gives the tick something to close. */
 const EXPANSION_INDENT = 2;
 const EXPANSION_RAIL = "┆";
 const EXPANSION_END = "╵";
@@ -479,12 +396,8 @@ export function expansionColumns(
   return Math.max(1, layout.width - gutterWidth - stringWidth(EXPANSION_LEAD));
 }
 
-/**
- * Revealed content as a detail panel beneath its summary. Lines arrive already
- * laid out and keep whatever colours they were authored with. `trailer` rides
- * the closing tick, for the one fact worth knowing about a panel only after
- * having read it.
- */
+/** Revealed content as a detail panel beneath its summary. Lines keep the
+ * colours they were authored with; `trailer` rides the closing tick. */
 export function expansionPanel(
   body: readonly StyledBodyLine[],
   trailer?: string,
@@ -498,10 +411,8 @@ export function expansionPanel(
   ];
 }
 
-/**
- * Plain revealed text as a panel: wrapped to the columns the panel actually
- * owns, and painted quieter than the summary that revealed it.
- */
+/** Plain revealed text as a panel: wrapped to the columns it owns, painted
+ * quieter than the summary. */
 export function expansionTextPanel(
   text: string,
   columns: number,
@@ -536,17 +447,16 @@ export function summaryHead(row: StreamRow, summary: string): string {
   return `${summary}${row.detail === undefined ? "" : expandHint(row.expanded === true)}`;
 }
 
-/** Whether this row is a summary with its revealed body showing. Such rows
- * paint as styled lines (quieter than the summary), which a single-colour
- * text node cannot express. */
+/** Whether this row is a summary with its revealed body showing; such rows
+ * paint as styled lines, which a single-colour text node cannot express. */
 export function isExpansionRow(row: StreamRow): boolean {
   if (row.expanded !== true) return false;
   return row.skill !== undefined || row.detail !== undefined;
 }
 
 /** Head plus revealed panel for an expanded summary row, or null when it
- * reveals nothing. One layout for both kinds of revealed body — a skill's
- * instructions and a call's structured arguments. */
+ * reveals nothing. One layout for a skill's instructions and a call's
+ * structured arguments. */
 export function expandedRowLines(
   row: StreamRow,
   layout: RowLayout,
@@ -583,8 +493,8 @@ const TOOL_DETAIL_INDENT = 2;
 /** Continuation line indent for a wrapped `&&`-chained shell command. */
 const CHAIN_INDENT = "    ";
 
-/** Cut a subject to the columns it may claim: a tool row is one line, and a
- * wrapped URL or query would turn a scannable list into a wall. */
+/** Cut a subject to the columns it may claim; a wrapped URL or query would
+ * turn a scannable list into a wall. */
 function truncateLine(text: string, columns: number): string {
   if (columns <= 0 || stringWidth(text) <= columns) return text;
   let out = "";
@@ -601,11 +511,9 @@ function shellChainSegments(command: string): readonly string[] {
   return command.includes(" && ") ? command.split(" && ") : [command];
 }
 
-/**
- * The always-visible head of a sentence-style tool row: verb + coloured
- * subject, an optional dim stat, and the expand arrow on its last line. A
- * shell `&&` chain spans several lines; every other call is one.
- */
+/** The always-visible head of a sentence-style tool row: verb + coloured
+ * subject, dim stat, expand arrow. A shell `&&` chain spans several lines;
+ * every other call is one. */
 export function toolSentenceLines(
   row: StreamRow,
   columns?: number,
@@ -614,12 +522,12 @@ export function toolSentenceLines(
   const verb = row.verb ?? "";
   const subject = row.summary ?? row.text;
   // A verb that already names the whole call ("Linear: list issues") has no
-  // subject to pair with, and a lone subject (a result sentence) has no verb.
+  // subject to pair with; a lone subject has no verb.
   const laneCount = row.callCount;
   const laneSettled =
     laneCount !== undefined && laneCount > 1 && row.pending !== true;
-  // A settled lane rewrites its head to past tense over the latest subject
-  // ("Grepped ×3 · pattern"); a pending lane keeps narrating the newest call.
+  // A settled lane rewrites its head to past tense over the latest subject;
+  // a pending lane keeps narrating the newest call.
   const head =
     laneSettled && row.toolName !== undefined
       ? `${pastTenseToolLabel(row.toolName)} ×${laneCount} · `
@@ -635,14 +543,14 @@ export function toolSentenceLines(
   const stat =
     row.stat !== undefined && row.stat.length > 0 ? ` ${row.stat}` : "";
   // A collapsed row with a shell preview paints the arrow after the preview
-  // lines (toolRowLines), not on the head.
+  // lines, not on the head.
   const suppressArrow =
     row.previewLines !== undefined &&
     row.previewLines.length > 0 &&
     row.expanded !== true;
   const arrow = suppressArrow ? "" : toolArrow(row);
-  // Columns, not code units: the arrow is itself an ambiguous-width glyph and
-  // this number is subtracted from the same budget `stringWidth(head)` is.
+  // Columns, not code units: the arrow is an ambiguous-width glyph, and this
+  // number is subtracted from the same budget `stringWidth(head)` is.
   const arrowWidth = stringWidth(arrow);
   const trailer =
     stringWidth(stat) +
@@ -681,9 +589,9 @@ function indentStyledLine(
   return [{ text: " ".repeat(columns), fg: UI.text }, ...line];
 }
 
-/** Full painted body of a sentence-style tool row: the head, plus the diff or
- * structured detail indented beneath once expanded. Collapse hides only this
- * tail; the head (and a shell chain) always shows. */
+/** Full painted body of a sentence-style tool row: the head plus the
+ * diff/structured detail indented beneath once expanded. Collapse hides only
+ * this tail; the head always shows. */
 export function toolRowLines(
   row: StreamRow,
   columns?: number,
@@ -691,7 +599,7 @@ export function toolRowLines(
   const head = toolSentenceLines(row, columns);
   if (row.expanded !== true && row.previewLines !== undefined) {
     // Shell settle preview: dim tail lines between the head and the expand
-    // arrow, width-truncated to the columns left beside the indent.
+    // arrow, truncated to the columns left beside the indent.
     const preview = row.previewLines;
     const arrow = toolArrow(row);
     return [
@@ -733,10 +641,9 @@ export function paintStreamRow(
 ): PaintedStreamLine {
   const fg = rowFg(row);
   if (row.role === "user") {
-    // Only settlement state paints onto a queued/steered row itself —
-    // delivery failures and cancels (pending lives in the column above the
-    // prompt; a delivered row is ordinary). Row text stays untouched so
-    // copy/resume still sees the original body.
+    // Only settlement state paints onto a queued/steered row itself (pending
+    // lives in the column above the prompt; a delivered row is ordinary). Row
+    // text stays untouched so copy/resume still sees the original body.
     const prefix =
       row.cancelled === true
         ? "[cancelled] "
@@ -765,9 +672,9 @@ export function paintStreamRow(
   };
 }
 
-/** A body wrapped to the columns left beside its prefix and indented onto
- * them. Left to the renderer, a long line wraps to column 0 — outside the
- * gutter and meta column — breaking the transcript's one alignment. */
+/** A body wrapped to the columns left beside its prefix. Left to the renderer,
+ * a long line wraps to column 0 — outside gutter and meta column — breaking
+ * the transcript's alignment. */
 function indentBody(text: string, gutter: string, layout: RowLayout): string {
   const lead = stringWidth(gutter);
   const columns = Math.max(1, layout.width - lead);
@@ -783,20 +690,16 @@ function gapWriter(row: StreamRow): string | null {
   return row.role === "user" ? null : (row.agent ?? MAIN_AGENT);
 }
 
-/**
- * Vertical rhythm between transcript rows. A turn boundary (a different voice,
- * a different writer, or a different tool call) earns a blank row so the eye
- * can find it; a thinking row never does, so the coalesced line appearing or
- * disappearing above an answer cannot shift what is already on screen.
- */
+/** Vertical rhythm between transcript rows. A turn boundary (different voice,
+ * writer, or tool call) earns a blank row; a thinking row never does, so the
+ * coalesced line appearing above an answer cannot shift what is on screen. */
 export function rowGroupGap(
   previous: StreamRow | undefined,
   row: StreamRow,
 ): number {
   if (previous === undefined) return 0;
   // Thinking leads its answer, so the turn's one gap goes below the reasoning
-  // line: the settled phrase stays glued to its turn and the answer breathes,
-  // still costing exactly one gap.
+  // line — still exactly one gap.
   if (isThinkingRow(row)) return 0;
   if (isThinkingRow(previous)) return ROW_GROUP_GAP;
   if (previous.role !== row.role) return ROW_GROUP_GAP;
@@ -825,12 +728,9 @@ export function isStructuredRow(row: StreamRow): boolean {
   return row.structured !== undefined;
 }
 
-/**
- * Whether this row reads as a sentence — verb plus coloured subject, with an
- * arrow when there is something behind it. Calls earn it from their verb; a
- * result with no call to fold into earns it from the sentence its payload was
- * summarised into.
- */
+/** Whether this row reads as a sentence — verb plus coloured subject, with an
+ * arrow when something is behind it. A result with no call to fold into earns
+ * it from its summarised payload. */
 export function isSentenceRow(row: StreamRow): boolean {
   if (row.role !== "tool") return false;
   return row.verb !== undefined || row.summary !== undefined;
@@ -846,11 +746,9 @@ export function isDetailRow(row: StreamRow): boolean {
   return row.detail !== undefined && row.expanded === true;
 }
 
-/**
- * Whether the expand key has anything to do on this row. One idiom across the
- * product: a loaded skill, a summarised tool call and settled reasoning all
- * answer to the same key and say so on their collapsed line.
- */
+/** Whether the expand key has anything to do on this row. One idiom across
+ * the product: a loaded skill, a summarised tool call, and settled reasoning
+ * all answer to it and say so on their collapsed line. */
 export function isCollapsibleRow(row: StreamRow): boolean {
   if (row.skill !== undefined) return true;
   if (row.summary !== undefined && row.detail !== undefined) return true;
@@ -861,12 +759,10 @@ export function isCollapsibleRow(row: StreamRow): boolean {
   );
 }
 
-/**
- * Prefix painted beside a body the renderer owns (markdown, table, diff).
- * Empty for a lone agent's own prose: with nothing to disambiguate, the answer
+/** Prefix painted beside a body the renderer owns (markdown, table, diff).
+ * Empty for a lone agent's prose: with nothing to disambiguate, the answer
  * starts on the first column. Writer identity is a block-level header, not a
- * per-row prefix — see `blockLabel`.
- */
+ * per-row prefix. */
 export function streamRowGutter(
   row: StreamRow,
   _layout: RowLayout,
@@ -880,18 +776,16 @@ export function streamRowGutter(
   return { content: meta, fg };
 }
 
-/**
- * Markdown styling for transcript bodies, mapped onto the role palette.
+/** Markdown styling for transcript bodies, mapped onto the role palette.
  * Native scope names: `markup.*` for markdown, the rest for fenced-code
- * syntax highlighting. A function of the live `UI` binding — read at registry
- * build, so a theme pin rebuilds them.
- */
+ * highlighting. A function of the live `UI` binding — read at registry build,
+ * so a theme pin rebuilds them. */
 function markdownStyles() {
   return {
     default: { fg: UI.text },
     conceal: { fg: UI.textFaint, dim: true },
-    // Tree-sitter markdown tags headings by level, and SyntaxStyle matches whole
-    // scope names, so the unnumbered scope alone would never be hit.
+    // Tree-sitter tags headings by level, and SyntaxStyle matches whole scope
+    // names, so the unnumbered scope alone would never be hit.
     "markup.heading": { fg: UI.heading, bold: true },
     "markup.heading.1": { fg: UI.heading, bold: true },
     "markup.heading.2": { fg: UI.heading, bold: true },
@@ -921,9 +815,9 @@ function markdownStyles() {
 
 let cachedSyntaxStyle: SyntaxStyle | null = null;
 
-/** Shared transcript SyntaxStyle, built lazily — construction reaches into the
- * native render lib, unavailable until a renderer exists. `setTheme` drops it
- * so the next read rebuilds from the new palette. */
+/** Shared transcript SyntaxStyle, built lazily — construction reaches into
+ * the native render lib, unavailable until a renderer exists. `setTheme`
+ * drops it so the next read rebuilds from the new palette. */
 export function transcriptSyntaxStyle(): SyntaxStyle {
   if (cachedSyntaxStyle === null) {
     cachedSyntaxStyle = SyntaxStyle.fromStyles({ ...markdownStyles() });
