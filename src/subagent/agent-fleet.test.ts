@@ -1500,9 +1500,8 @@ describe("interrupt_agent unblocks wait_agents", () => {
       interrupt: true,
     });
     expect(sent.status).toBe("interrupted");
-    // The interrupt stashes the follow-up instead of starting it;
-    // the lane is still the live run, so the session stays running while
-    // wait/list stay live until the run settles and hands off.
+    // The interrupt stashes the follow-up; the lane is still the live run,
+    // so wait/list stay live until the run settles and hands off.
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
 
     const liveWait = await callFleetTool(wait, {
