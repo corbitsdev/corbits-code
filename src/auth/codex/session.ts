@@ -28,9 +28,8 @@ import {
 import { withDefaultCodexExpiry } from "./store.js";
 
 // Raised when a Codex profile cannot yield a usable access token: it is gone,
-// or its refresh token has been revoked/expired. Carries the profile name so
-// the TUI can name the affected profile in a re-login prompt. `reason`
-// distinguishes "never authorized" from "refresh rejected" for messaging.
+// or its refresh token was revoked/expired. Carries the profile name and a
+// `reason` ("missing" vs "refresh-failed") for re-login messaging.
 export class CodexAuthError extends Error {
   readonly profile: string;
   readonly reason: "missing" | "refresh-failed";
@@ -47,12 +46,10 @@ export class CodexAuthError extends Error {
   }
 }
 
-// Raised when a Codex refresh cannot even acquire the inter-process refresh
-// lock: contention or a crashed holder's leftover file, never a bad
-// credential. Deliberately NOT a CodexAuthError — folding it into
-// credential_failure tells the operator to log in again, which never removes
-// the lock file (a futile loop). Carries the profile and lock path so every
-// surface can repeat the manual-removal recovery instead of a re-login hint.
+// Raised when a Codex refresh cannot acquire the inter-process refresh lock:
+// contention or a crashed holder's leftover file, never a bad credential.
+// Deliberately NOT a CodexAuthError — folding it into credential_failure
+// sends the operator into a re-login loop that never removes the lock file.
 export class CodexRefreshLockError extends Error {
   readonly profile: string;
   readonly lockPath: string;
@@ -65,10 +62,9 @@ export class CodexRefreshLockError extends Error {
   }
 }
 
-// A usable access token plus the account id that must ride alongside it in the
+// A usable access token plus the account id that rides alongside it in the
 // chatgpt-account-id header. Returned together so callers need a single load,
-// not a token fetch followed by a separate profile read (which could observe a
-// token and account id from two different points in a concurrent refresh).
+// not a token fetch plus a profile read that could straddle a concurrent refresh.
 export interface CodexAccess {
   access: string;
   accountId?: string | undefined;
@@ -107,9 +103,9 @@ async function refreshCodexTokensForStore(
 }
 
 /**
- * Builds an independent Codex token session for a home directory. Each
- * session carries its own in-flight deduplication, so two sessions over the
- * same home behave like two processes sharing one credential store.
+ * Independent Codex token session for a home directory. Each session carries
+ * its own in-flight deduplication, so two sessions over one home behave like
+ * two processes sharing one credential store.
  */
 export function createCodexTokenSession(
   home?: string,
@@ -128,9 +124,8 @@ export function createCodexTokenSession(
       if (winner === undefined) throw new OAuthProfileNotFoundError(name);
       replaceMutableTokens(tokens, winner.tokens);
     },
-    // createTokenSession only passes (refresh, now). The package refresh
-    // helper needs prior tokens to keep chatgpt-account-id; mergeRefreshed
-    // supplies that after this stub call.
+    // createTokenSession only passes (refresh, now); mergeRefreshed supplies
+    // the prior tokens the package helper needs to keep chatgpt-account-id.
     refreshTokens: async (refreshToken, now) => {
       try {
         const refreshed = await refreshCodexTokensForStore(refreshToken, now, {
@@ -170,8 +165,7 @@ export function createCodexTokenSession(
 // Refreshes for one shared credential store serialize on a lock file so two
 // headless runs (or two sessions in one process) cannot hold overlapping
 // refresh grants and revoke each other under token rotation. Fresh tokens
-// resolve before the lock: a stalled refresh must never block healthy
-// readers behind it.
+// resolve before the lock: a stalled refresh never blocks healthy readers.
 async function withSerializedCodexRefresh(
   home: string | undefined,
   name: string,
@@ -191,9 +185,9 @@ async function withSerializedCodexRefresh(
       refresh,
     );
   } catch (err) {
-    // A refresh blocked on the lock is a contention/crash-hygiene problem,
-    // not a dead credential: surface it as its own error so classifiers and
-    // the exec layer keep the lock-path recovery instead of a re-login hint.
+    // A lock-blocked refresh is contention/crash hygiene, not a dead
+    // credential: surface it as its own error so classifiers and exec keep
+    // the lock-path recovery instead of a re-login hint.
     if (err instanceof CodexRefreshLockTimeoutError) {
       throw new CodexRefreshLockError(name, err.lockPath, err.message);
     }
@@ -201,15 +195,15 @@ async function withSerializedCodexRefresh(
   }
 }
 
-// Projects a Codex auth failure onto the shared inference credential_failure
-// shape so classifiers compose over one category: a CodexAuthError always
-// carries a re-login hint, and anything else is not ours to classify.
+// Projects a Codex auth failure onto the shared credential_failure shape:
+// a CodexAuthError always carries a re-login hint, and anything else is not
+// ours to classify.
 export function codexAuthFailureDiagnostic(
   err: unknown,
 ): InferenceErrorLike | null {
   // Lock contention is never a credential failure (see CodexRefreshLockError):
-  // exclude it explicitly so it cannot compose into credential_failure even
-  // if a future refactor subtypes it under CodexAuthError.
+  // exclude it so it cannot compose into credential_failure even if a future
+  // refactor subtypes it under CodexAuthError.
   if (err instanceof CodexRefreshLockError) return null;
   if (err instanceof CodexAuthError)
     return { category: "credential_failure", message: err.message };

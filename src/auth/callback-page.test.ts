@@ -59,8 +59,8 @@ describe("callbackPageHtml", () => {
     expect(html).toContain(link(copy.githubUrl, copy.githubLabel));
   });
 
-  // An allowlist rather than a shape match: an unexpected origin fails loudly
-  // instead of passing because it happened to be wrapped in an anchor tag.
+  // Allowlist, not shape match: an unexpected origin fails loudly instead of
+  // passing because it was wrapped in an anchor tag.
   const allowedOrigins = new Set([
     copy.siteUrl,
     copy.githubUrl,
