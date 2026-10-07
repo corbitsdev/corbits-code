@@ -152,9 +152,8 @@ const SubmitOutputArgs = type({
   "step?": "string",
 });
 
-// The operator can pick one of the offered options, type a free-form answer, or
-// dismiss the question without answering. The gate owns this distinction so the
-// tool layer can translate each outcome into the right tool result.
+// Operator picks an option, types a free-form answer, or dismisses; the gate
+// owns this distinction so the tool layer maps each outcome to a result.
 export type OperatorResult =
   | { kind: "option"; index: number }
   | { kind: "custom"; text: string }
@@ -187,107 +186,100 @@ export interface AgentToolsetArgs {
   // Skill directories (from enabled plugins) the use_skill tool resolves bodies
   // from, in addition to the project-local and bundled defaults.
   skillDirs?: string[];
-  // Session-start skill snapshot. When omitted, createAgentToolset discovers
-  // once via discoverSkills. Passed through to skill_search so the handler
-  // never rediscovers.
+  // Session-start skill snapshot; when omitted, createAgentToolset discovers
+  // once via discoverSkills. Passed to skill_search so it never rediscovers.
   skills?: readonly SkillSummary[];
-  // Shell command timeout default/cap, resolved from settings. When omitted the
-  // shell-guard plugin applies the 120s foreground default (per-call timeout
-  // overrides with no ceiling; background has no default).
+  // Shell command timeout default/cap from settings; when omitted, shell-guard
+  // applies the 120s foreground default (per-call overrides with no ceiling;
+  // background has no default).
   shellTimeout?: ShellTimeoutConfig;
-  // Outer per-invocation tool run budget (dynamic runner). When omitted built-in
-  // defaults apply.
+  // Outer per-invocation tool run budget (dynamic runner); built-in defaults
+  // when omitted.
   toolWatchdog?: ToolWatchdogConfig;
-  // Session blob store for tool-output:// reads; resolved when tools run so agent
-  // rebuilds do not require recreating the posix toolset.
+  // Session blob store for tool-output:// reads, resolved when tools run so
+  // agent rebuilds need not recreate the posix toolset.
   getBlobReader?: () => BlobReader | undefined;
-  // Session blob-store writer oversized tool results spill their full,
-  // untruncated content into (see result-truncation-plugin.ts) — the same
-  // context store getBlobReader reads from, keyed distinctly so the reactor's
-  // own size-cap transform never overwrites the spill. Resolved lazily like
-  // getBlobReader so a mid-process session rotation spills into the new
-  // session's store. Omitted only where there is no session store (tests).
+  // Session blob store oversized tool results spill into (see
+  // result-truncation-plugin.ts), keyed distinctly from getBlobReader reads so
+  // the reactor's size-cap transform never overwrites the spill. Lazy like
+  // getBlobReader; omitted where there is no session store (tests).
   getBlobWriter?: () => SpillBlobWriter | undefined;
   // Absolute session context dir (`…/context`) for the truncation notice's
-  // on-disk path. Re-read live like getBlobWriter across session rotation.
+  // on-disk path, re-read live across session rotation.
   getContextDir?: () => string | undefined;
   // Per-project settings.env, merged into the run_shell tool's spawn environment.
   shellEnv?: Record<string, string>;
   /**
-   * Runtime secret-guard denylist for the active --config path. Entry points
-   * pass [config.globalSettingsPath]; forwarded to the posix plugin stack and
-   * inherited by workers via the fleet deps below. Omitted keeps the static
-   * denylist only.
+   * Runtime secret-guard denylist for the active --config path; entry points
+   * pass [config.globalSettingsPath]. Forwarded to the posix plugin stack and
+   * workers; omitted keeps the static denylist only.
    */
   secretGuardExtraDeniedPaths?: readonly string[];
-  // Called when a background run_shell (background: true) process exits. Hosts
-  // deliver the exit as a system message so the reactor re-enters on a later
-  // turn; omit it and background runs still start/collect but never notify.
+  // Called when a background run_shell exits. Hosts deliver the exit as a
+  // system message so the reactor re-enters on a later turn; omit it and
+  // background runs never notify.
   onBackgroundShellExit?: (exit: BackgroundShellExit) => void;
   /** Primary-only evidence archive; workers omit this getter. */
   getEvidenceArchive?: () => CompactionArchive | undefined;
-  // Whether a workflow is currently running. submit_output rides the wire
-  // every turn (workflow or not), so the model can call it with nothing active;
-  // this lets its handler report an honest no-op instead of a false advance.
+  // Whether a workflow is running. submit_output rides the wire every turn,
+  // so the model can call it with nothing active; the handler then reports an
+  // honest no-op instead of a false advance.
   isWorkflowActive?: () => boolean;
-  // Compare-and-advance the live workflow. The handler reports this result
-  // instead of reconstructing the cursor; omitted (exec, tests) never claims
+  // Compare-and-advance the live workflow; the handler reports this result
+  // instead of reconstructing the cursor. Omitted (exec, tests) never claims
   // an advance.
   completeWorkflowStep?: (stepId: string) => WorkflowCompleteResult;
   // Primary session mode (always orchestrator; kept for call-site wiring).
   sessionMode?: SessionMode;
-  // Session-start facts gating lsp advertisement. Omitted callers (tests,
-  // ad-hoc toolset construction) get it advertised, matching prior behavior.
-  // Real sessions always pass their detected values — see tool-search.ts for
-  // why these must be fixed for the session's life.
+  // Session-start facts gating LSP advertisement. Omitted callers (tests,
+  // ad-hoc toolsets) get it advertised, matching prior behavior; real sessions
+  // always pass detected values — see tool-search.ts for why these must be
+  // fixed for the session's life.
   toolAvailability?: ToolAvailability;
-  // Per-project pinned tool names (local settings). They join the advertised
-  // prefix at the session layer; here they are excluded from tool_search so
+  // Per-project pinned tool names (local settings); they join the advertised
+  // prefix at the session layer, and are excluded from tool_search here so
   // discovery only surfaces names not already on the wire.
   pinnedTools?: readonly string[];
-  // Records skill loads and sub-agent dispatch. Omitted (tests, ad-hoc
-  // toolsets) means those events are never emitted.
+  // Records skill loads and sub-agent dispatch; omitted (tests, ad-hoc
+  // toolsets) means those events never emit.
   telemetry?: Telemetry;
-  // When provided, the agent gets fleet tools that delegate to autonomous
-  // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
+  // When provided, the agent gets fleet tools delegating to autonomous
+  // sub-agents; omitted where sub-agents cannot spawn (e.g. tests).
   subAgent?: {
     provider: SubAgentProvider | (() => SubAgentProvider);
     getWorkdirBase: () => string;
     onEvent?: (event: ReactorEmittedEvent) => void;
-    // Live progress for the TUI status bar / Agents strip. Prefer this over
-    // onEvent when the parent transcript must not receive sub-agent text.
+    // TUI status-bar progress; prefer over onEvent when the parent transcript
+    // must not receive sub-agent text.
     onProgress?: (info: { description: string; toolName: string }) => void;
-    // Inspectable child session records for enter-session UI. Not the parent
-    // transcript — child events stay in the store only.
+    // Child session records for enter-session UI; child events stay in the
+    // store only.
     sessions?: SubAgentSessionStore;
     settings?: Settings | (() => Settings | undefined);
     catalog?:
       | readonly ProviderCatalogEntry[]
       | (() => readonly ProviderCatalogEntry[]);
     profiles?: AgentProfile[] | (() => AgentProfile[]);
-    // Opt-in: dispatch each sub-agent into its own git worktree instead of
-    // sharing this session's cwd. See src/subagent/worktree.ts.
+    // Opt-in: each sub-agent runs in its own git worktree instead of this
+    // session's cwd. See src/subagent/worktree.ts.
     useWorktree?: boolean;
     // Retry-timing overrides forwarded to each spawned run — same seam the
     // fleet deps document for tests; production callers omit them.
     outerRetryDelayMs?: number;
     retryPolicy?: RetryPolicy;
   };
-  /**
-   * Retained so callers that still pass the Codex family flag do not break.
-   * Proxies are no longer mounted; hidden aliases dispatch onto engine tools.
-   */
+  /** Kept for callers still passing the Codex family flag: no proxies mount
+   * now, hidden aliases dispatch onto engine tools. */
   isCodex?: boolean;
   /**
    * Opt-in: mount wait_agents beside the other fleet verbs. Exec-primary only
-   * (with an advertised allow) — TUI primary and nested orchestrators omit it
-   * and collect worker reports from mailbox mail instead.
+   * (with an advertised allow); TUI primary and nested orchestrators collect
+   * worker reports from mailbox mail instead.
    */
   mountWaitAgents?: boolean;
   /**
-   * Closed allow list (exec director overlays). tool_search is mounted only
-   * when the allow includes it, and the search index only surfaces allowed
-   * tools so search cannot list names outside the allow. Omit for the product
+   * Closed allow list (exec director overlays). tool_search mounts only when
+   * allowed, and the index only surfaces allowed tools. Omit for the product
    * default (tool_search mounted, index over the live registry).
    */
   toolSearchAllow?: readonly string[];
@@ -306,8 +298,8 @@ export type MCPServerState =
       authPending?: boolean;
     }
   | { name: string; state: "disconnected" }
-  // Transport died under a live client: tools stay mounted and fail fast
-  // while backoff redials. `attempt` counts redials so the TUI can show it.
+  // Transport died: tools stay mounted as fail-fast stubs while backoff
+  // redials; `attempt` counts redials for the TUI.
   | {
       name: string;
       state: "reconnecting";
@@ -317,28 +309,28 @@ export type MCPServerState =
     };
 
 export interface MCPConnectCallbacks {
-  // Headless hosts must not advertise an auth callback they cannot complete.
-  // Its presence is how the MCP client decides an OAuth flow is interactive.
+  // Headless hosts must not advertise an auth callback they cannot complete;
+  // its presence marks the OAuth flow as interactive.
   interactiveAuth: boolean;
   // Fired whenever a server's connection state changes.
   onStatus: (state: MCPServerState) => void;
-  // Fired after a server connects and its tools are registered, with the new
-  // full definition set so the director can advertise it on the next inference.
+  // Fired after a server connects and its tools register, with the full
+  // definition set so the director can advertise it on the next inference.
   onToolsChanged: (definitions: ToolDefinition[]) => void;
 }
 
 export interface AgentToolset {
-  // The mutable runner the agent dispatches through. Seeded with posix/web/LSP
-  // tools; MCP tools are added as servers connect.
+  // Mutable runner the agent dispatches through; seeded with posix/web/LSP
+  // tools, MCP tools added as servers connect.
   dynamicRunner: DynamicToolRunner;
-  // Connect configured MCP servers in the background. Resolves once every server
-  // has either connected or failed; authorization waits are bounded by `signal`.
+  // Connect configured MCP servers in the background; resolves once every
+  // server connected or failed, with authorization waits bounded by `signal`.
   connectMCP: (
     callbacks: MCPConnectCallbacks,
     signal?: AbortSignal,
   ) => Promise<void>;
-  // Per-call bounded live-output tails of foreground shells, polled by the
-  // transcript for each pending run_shell row's live lines.
+  // Bounded live-output tails of foreground shells, polled by the transcript
+  // for each pending run_shell row's live lines.
   shellOutputFeed: ReturnType<typeof createShellOutputFeedMap>;
   // Connect one newly persisted server through the same lifecycle as startup MCP.
   connectMCPServer: (
@@ -347,21 +339,19 @@ export interface AgentToolset {
     signal?: AbortSignal,
   ) => Promise<void>;
   // Drop a server's tools in the running session. Idempotent for unknown and
-  // already-disconnected names. Persist uses hasMCPServer as occupied; this
-  // is the live teardown that disable/remove need.
+  // already-disconnected names; the live teardown disable/remove need.
   disconnectMCPServer: (
     name: string,
     callbacks: MCPConnectCallbacks,
   ) => Promise<void>;
-  // True while this name is connected, a connection is in flight, or a
-  // transport-death backoff is redialing — not after teardown, and not after
-  // a failed connect. Persist uses this to block a
-  // second add of an active name; failed rows retry through connectMCPServer
-  // without a second persist. Still true while disable is in progress.
+  // True while connected, connecting, or backoff-redialing; false after
+  // teardown or a failed connect. Persist blocks a second add of an active
+  // name with this; failed rows retry via connectMCPServer. Still true while
+  // disable is in progress.
   hasMCPServer: (name: string) => boolean;
-  // Single-dial manual retry for failed and reconnecting rows. Cancels any
-  // backoff loop first so exactly one dial runs; terminal failures stay down
-  // until this is called.
+  // Single-dial manual retry for failed/reconnecting rows; cancels any backoff
+  // loop first so exactly one dial runs. Terminal failures stay down until
+  // this is called.
   retryMCPServer: (
     config: MCPServerConfig,
     callbacks: MCPConnectCallbacks,
@@ -369,29 +359,28 @@ export interface AgentToolset {
   ) => Promise<void>;
   // Bounded wait for in-flight MCP handshakes; resolves to the remaining
   // count. Capped by `timeoutMs` so a hung authorization never hangs the
-  // caller — the tool_search bound passes briefly by default.
+  // caller.
   awaitPendingMcpConnections: (timeoutMs?: number) => Promise<number>;
-  // Catalog unshadow can change local → global/none without rebuilding the
-  // toolset; connectOne reads this on every late connect.
+  // Catalog unshadow can change the source without rebuilding the toolset;
+  // connectOne reads this on every late connect.
   setMcpServersSource: (source: "local" | "global" | "none") => void;
-  // Wire the session promoter used for promote-on-execute (a registered
-  // undeclared call declares that one name, then dispatches). Set by the
-  // runner once the director + reload loop exist.
+  // Wire the promote-on-execute promoter (an undeclared registered call
+  // declares that one name, then dispatches). Set once the director + reload
+  // loop exist.
   setToolPromoter: (promote: (names: string[]) => void) => void;
   // Session-start skill snapshot shared with the prompt listing.
   skills: SkillSummary[];
   /**
-   * The live wait mailbox this toolset already built for spawn_agent /
-   * wait_agents. Optional because a session without sub-agents has none.
-   * Callers must read this each time — do not capture a startup snapshot.
+   * Live wait mailbox built for spawn_agent / wait_agents; absent when the
+   * session has no sub-agents. Read it each time, not a startup snapshot.
    */
   fleetRecords?: FleetMailboxHandle;
   dispose: () => Promise<void>;
 }
 
-// Connect-only abort fan-out. The MCP client keeps `signal` on the live
-// transport, so a shared parent abort would tear down HTTP that already
-// connected. Forward until this handshake settles, then detach.
+// Connect-only abort fan-out: the client keeps `signal` on the live transport,
+// so a shared parent abort would tear down HTTP already connected. Forward
+// until the handshake settles, then detach.
 function forwardAbortUntilDisarmed(parent: AbortSignal): {
   signal: AbortSignal;
   disarm: () => void;
@@ -440,8 +429,8 @@ export async function createAgentToolset(
     toolAvailability = { languageServerAvailable: true },
   } = args;
   let mcpServersSource = args.mcpServersSource ?? "none";
-  // One registry per toolset: run_shell background:true starts here, dispose
-  // reads the same instance.
+  // One registry per toolset: background run_shell starts here, dispose reads
+  // the same instance.
   const backgroundShells = createBackgroundShellRegistry({
     ...(args.onBackgroundShellExit !== undefined
       ? {
@@ -452,9 +441,9 @@ export async function createAgentToolset(
         }
       : {}),
   });
-  // Per-call bounded live-output tails of foreground shells, polled by the
-  // TUI for each pending run_shell row's live lines. Workers get a map too;
-  // nothing reads it unless a transcript polls it.
+  // Bounded live-output tails of foreground shells, polled by the TUI for each
+  // pending run_shell row. Workers get a map too; nothing reads it unless a
+  // transcript polls it.
   const shellOutputFeed = createShellOutputFeedMap();
   const sessionBlobReader =
     getBlobReader !== undefined
@@ -550,10 +539,10 @@ export async function createAgentToolset(
     }),
   });
 
-  // Align the advertised run_shell timeout with shell-guard (120s foreground
-  // default; advertise settings.shell.timeoutMs when set).
-  // Orchestrator tools (search / trace / fleet) are assembled once so the fleet
-  // verbs share one sessions store — never a private mailbox allocated only for
+  // Advertise the shell-guard timeout (120s foreground default;
+  // settings.shell.timeoutMs when set).
+  // Orchestrator tools (search / trace / fleet) assemble once so the fleet
+  // verbs share one session store — never a private mailbox for
   // spawn_agent/wait_agents.
   const orchestratorTools: AgentTool[] = [];
   let fleetSessionsForDispose: SubAgentSessionStore | undefined;
@@ -571,13 +560,13 @@ export async function createAgentToolset(
       );
     }
     // Tier 1: the primary session is always an orchestrator and may target
-    // any worker, so no authority context is passed here — omitting it is
-    // treated as unrestricted, matching Tier 1's actual authority.
+    // any worker, so no authority context is passed here; omission means
+    // unrestricted, matching Tier 1's actual authority.
     orchestratorTools.push(createReadAgentTraceTool(sa.getWorkdirBase));
 
-    // Mirror nested runSubAgent's orchestrator fleet mount (run.ts), but
-    // reuse the existing TUI/exec session store — do not allocate a private
-    // store only for these verbs. spawnAllowlist stays unwired on primary.
+    // Mirror runSubAgent's orchestrator fleet mount (run.ts) but reuse the
+    // existing TUI/exec session store. spawnAllowlist stays unwired on
+    // primary.
     if (sa.sessions !== undefined && fleetRecords !== undefined) {
       const fleetSessions = sa.sessions;
       fleetSessionsForDispose = fleetSessions;
@@ -591,8 +580,8 @@ export async function createAgentToolset(
           ? { secretGuardExtraDeniedPaths }
           : {}),
         ...(skillDirs.length > 0 ? { skillDirs } : {}),
-        // The parent's already-discovered catalog. Shared-cwd lanes reuse it
-        // instead of rescanning; worktree lanes (different cwd) rediscover.
+        // Parent's already-discovered catalog; shared-cwd lanes reuse it,
+        // worktree lanes (different cwd) rediscover.
         skillSnapshot: skills,
         ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
         cwd,
@@ -628,9 +617,9 @@ export async function createAgentToolset(
         createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),
         createSendInputTool({ sessions: fleetSessions, fleetRecords }),
       );
-      // Exec-primary opt-in only: TUI primary and nested orchestrators collect
-      // via mailbox mail, so wait_agents stays unmounted (and unadvertised)
-      // there. See mountWaitAgents.
+      // Exec-primary opt-in only; TUI primary and nested orchestrators collect
+      // via mailbox mail, so wait_agents stays unmounted there. See
+      // mountWaitAgents.
       if (args.mountWaitAgents === true) {
         orchestratorTools.push(
           createWaitAgentsTool({
@@ -737,8 +726,8 @@ export async function createAgentToolset(
     stringTool({
       definition: presentDefinition,
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
-        // The TUI renders the spec from the tool-call arguments; this handler only
-        // validates so an invalid spec gives the model an actionable error to fix.
+        // The TUI renders the spec from the call args; this handler only
+        // validates so an invalid spec yields an actionable error.
         const result = validateView(rawArgs.view);
         if (result.ok) return "Rendered.";
         return `Invalid view spec at ${result.error}. Fix the spec and call present again.`;
@@ -748,9 +737,8 @@ export async function createAgentToolset(
       definition: submitOutputDefinition,
       // The director also observes this call on tool.done; complete() is
       // compare-and-advance so a second pass is a no-op. The handler reports
-      // complete()'s result so parallel submit_output cannot both claim an
-      // advance. Already-complete and not-current ids succeed without
-      // claiming one.
+      // complete()'s result so parallel calls cannot both claim an advance;
+      // already-complete and not-current ids succeed without claiming one.
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
         const parsed = SubmitOutputArgs(rawArgs);
         const step = parsed instanceof type.errors ? undefined : parsed.step;
@@ -782,9 +770,9 @@ export async function createAgentToolset(
     }),
   ];
 
-  // tool_search ranks over the live runner (set just below). The top ranked
-  // hits load onto the next infer via the session promoter (wired once
-  // advertise/reload exists); remaining cards stay name+description until call.
+  // tool_search ranks over the live runner (set below). Top hits load onto the
+  // next infer via the session promoter; remaining cards stay
+  // name+description until call.
   const runnerHolder: { current?: DynamicToolRunner } = {};
   const promoterHolder: { current?: (names: string[]) => void } = {};
   const toolIndex = createToolIndex(
@@ -792,9 +780,8 @@ export async function createAgentToolset(
     advertisedBuiltIns,
     args.toolSearchAllow,
   );
-  // Closed exec allow lists omit tool_search itself (leaf posture); when the
-  // allow excludes it the tool is never mounted, so there is nothing to
-  // search with.
+  // Closed exec allow lists omit tool_search itself; when the allow excludes
+  // it the tool is never mounted, so there is nothing to search with.
   if (
     args.toolSearchAllow === undefined ||
     args.toolSearchAllow.includes(toolSearchDefinition.name)
@@ -809,17 +796,13 @@ export async function createAgentToolset(
             .find((d) => d.name === name),
         promote: (names) => promoterHolder.current?.(names),
         // Misses wait briefly for in-flight MCP handshakes (bounded, so hung
-        // OAuth cannot hang the call) and re-search before answering. Reads the
-        // connection map live — declared below, populated by the time any
-        // search runs.
+        // OAuth cannot hang the call) and re-search before answering.
         awaitPendingConnections: (timeoutMs = TOOL_SEARCH_PENDING_WAIT_MS) =>
           awaitPendingMcpConnections(timeoutMs),
-        // Tier-2 extension predicate: true when a reconnecting server's
-        // retained tools score against the query, so the search waits once
-        // more for the redial to remount them. Reads the reconnect map live
-        // (declared below). Needs-auth servers never populate that map — only
-        // transport-death reconnects do — so this stays false for them and a
-        // hung authorization never earns the extension.
+        // Tier-2 extension: true when a reconnecting server's retained tools
+        // score against the query, so the search waits once more for the
+        // redial to remount them. Needs-auth servers never populate the map —
+        // only transport-death reconnects do — so this stays false for them.
         hasReconnectingMatch: (query: string): boolean => {
           const rawQuery = query.toLowerCase().trim();
           const queryTokens = tokenizeLexical(query);
@@ -854,8 +837,8 @@ export async function createAgentToolset(
   const connectedClients = new Map<string, MCPClient>();
   const inFlightConnections = new Map<string, Promise<void>>();
   const inFlightEpochs = new Map<string, number>();
-  // Bounded wait for in-flight handshakes; resolves to the remaining count.
-  // Capped by `timeoutMs` so a hung authorization never hangs the caller.
+  // Bounded wait for in-flight handshakes; resolves to the remaining count,
+  // capped by `timeoutMs` so a hung authorization never hangs the caller.
   const awaitPendingMcpConnections = async (
     timeoutMs = TOOL_SEARCH_PENDING_WAIT_MS,
   ): Promise<number> => {
@@ -1010,8 +993,8 @@ export async function createAgentToolset(
   };
 
   // A transport that died under a live client. Tools stay mounted as fail-fast
-  // stubs while backoff redials. One entry per server; a death for a name that
-  // already has one is a duplicate close from the same dead transport.
+  // stubs while backoff redials. One entry per server; a second death for the
+  // same name is a duplicate close from the same dead transport.
   interface McpReconnectTool {
     name: string;
     description: string;
@@ -1070,11 +1053,10 @@ export async function createAgentToolset(
     });
   };
 
-  // Redials that cannot succeed on their own stop after the attempt that
-  // surfaced them: untrusted local servers (fail closed until trust or the
-  // source changes), misconfigured servers (missing command/url), and a
-  // stdio binary the OS refuses to spawn. Everything else is transient and
-  // keeps the reconnecting row.
+  // Redials that cannot succeed stop after the attempt that surfaced them:
+  // untrusted local servers (fail closed until trust or the source changes),
+  // misconfigured servers (missing command/url), and a stdio binary the OS
+  // refuses to spawn. Everything else is transient and keeps reconnecting.
   const isTerminalReconnectError = (error: string): boolean =>
     error.includes("Not trusted for this project") ||
     error.includes("requires a command") ||
@@ -1105,8 +1087,7 @@ export async function createAgentToolset(
         return;
       }
       // Drop the stubs so the redial can mount the live set without a
-      // DuplicateToolError; transient outcomes re-mount them below, so the
-      // row never flaps to failed while redials are still due.
+      // DuplicateToolError; transient outcomes re-mount them below.
       dropServerTools(name);
       let last: MCPServerState | undefined;
       await connectOneMCPServer(
@@ -1123,8 +1104,7 @@ export async function createAgentToolset(
               case "connecting":
                 return;
               case "needs-auth":
-                // The pre-dial drop left the row bare while the operator
-                // authorizes; keep the fail-fast stubs mounted meanwhile.
+                // Keep fail-fast stubs mounted while the operator authorizes.
                 mountReconnectingStubs(name, state.tools);
                 state.callbacks.onStatus(update);
                 return;
@@ -1159,8 +1139,8 @@ export async function createAgentToolset(
         reconnectingServers.delete(name);
         return;
       }
-      // Auth and other terminal failures stay down: drop the stubs and stop
-      // redialing. Only a manual retry brings those rows back.
+      // Terminal failures stay down: drop the stubs and stop redialing; only
+      // a manual retry brings those rows back.
       if (
         last !== undefined &&
         last.name === name &&
@@ -1172,9 +1152,9 @@ export async function createAgentToolset(
         reconnectingServers.delete(name);
         return;
       }
-      // Transient failure: keep the row on reconnecting with the live
-      // attempt instead of flashing failed. The emission names the next
-      // redial, which the top of the loop then counts into state.attempt.
+      // Transient failure: keep the row reconnecting with the live attempt
+      // instead of flashing failed; the emission names the next redial, which
+      // the top of the loop counts into state.attempt.
       state.callbacks.onStatus({
         name,
         state: "reconnecting",
@@ -1287,8 +1267,8 @@ export async function createAgentToolset(
                 },
               }
             : {}),
-          // Mid-session re-auth fires needs-auth again without a later connected
-          // event. Re-emit connected only when tools are already registered so
+          // Mid-session re-auth fires needs-auth again with no later connected
+          // event; re-emit connected only when tools are already registered so
           // first-connect still waits for the real post-connect status.
           onAuthorized: (name) => {
             if (disposed || staleOrDisabled()) return;
@@ -1366,8 +1346,8 @@ export async function createAgentToolset(
             ? { excludeToolNames: ["web_fetch_exa"] }
             : {}),
         });
-        // A needs-auth pend re-mounted the fail-fast stubs mid-dial; clear
-        // them so the live set mounts without a DuplicateToolError.
+        // Clear the stubs a needs-auth pend re-mounted mid-dial so the live
+        // set mounts without a DuplicateToolError.
         dropServerTools(config.name);
         dynamicRunner.addTools(gateAgentTools(mcpTools, permissionGate));
         inheritedMcpTools.push(...mcpTools);
@@ -1477,8 +1457,8 @@ export async function createAgentToolset(
       const inFlight = inFlightConnections.get(name);
       if (inFlight !== undefined) await inFlight;
       // Always drop the aborted live client so a queued reconnect cannot no-op
-      // on connectedClients.has(name). Skip Exa-native swap and disconnected
-      // emit only when a newer generation owns the name.
+      // on connectedClients.has(name). Skip the Exa swap and disconnected emit
+      // only when a newer generation owns the name.
       await dropLiveClient(name);
       if (currentEpoch(name) !== epoch || !disabledNames.has(name)) return;
       if (builtinExaEnabled && name === EXA_MCP_SERVER_NAME) {
@@ -1515,7 +1495,7 @@ export async function createAgentToolset(
       disabledNames.delete(config.name);
       // Drop the fail-fast stubs so the single dial can mount the live set
       // without a DuplicateToolError. A failed retry leaves the row failed
-      // with no tools, like a fresh failed connect — no backoff resumes.
+      // with no tools, like a fresh connect — no backoff resumes.
       dropServerTools(config.name);
       await connectOneMCPServer(config, callbacks, signal, epoch);
     });
@@ -1553,8 +1533,8 @@ export async function createAgentToolset(
     mcpAbortController.abort(new Error("MCP toolset disposed"));
     disposal = (async () => {
       const failures: unknown[] = [];
-      // Kill every live background process group before the posix teardown so
-      // /clear, interrupt, and reload cannot leave orphans behind.
+      // Kill live background process groups before the posix teardown so
+      // reload/interrupt cannot leave orphans behind.
       backgroundShells.disposeAll("session closed");
       try {
         await posixTools.dispose();
