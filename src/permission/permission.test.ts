@@ -55,8 +55,8 @@ const toolCall = (
   id = "c",
 ): ToolCall => ({ id, name, arguments: args });
 
-// The file's most common gate config — an interactive, fully gated gate with
-// no seeded approvals. Callers pass only what differs.
+// Most common gate config — interactive, fully gated, no seeded approvals;
+// callers pass only what differs.
 const createGate = (options: Partial<PermissionGateOptions> = {}) =>
   createPermissionGate({
     approvals: [],
@@ -181,7 +181,7 @@ describe("splitChainedCommand", () => {
       "ls -l",
       "cat",
     ]);
-    // A lone continuation at operator should not yield a "\" segment.
+    // A trailing continuation must not yield a "\" segment.
     expect(splitChainedCommand("cmd1 && \\\ncmd2 && \\\ncmd3")).toEqual([
       "cmd1",
       "cmd2",
@@ -317,9 +317,9 @@ describe("matchesPattern (@intx/authz + exact escapes)", () => {
 
 describe("matchesPattern directory-grant traversal (CL-8989)", () => {
   // A Directory Always grant (`/proj/sub/*`) must never authorize a subject
-  // that lexically escapes the granted directory, even though `*` matches
-  // `/`, `.`, and `..` at the string level. Legit depth semantics (`*`
-  // crosses `/`) are locked in first so the fix cannot narrow real grants.
+  // escaping the granted directory — `*` matches `/`, `.`, `..` lexically,
+  // but legit depth (`*` crossing `/`) is locked first so the fix cannot
+  // narrow real grants.
   const grant = "/proj/sub/*";
 
   test("* still crosses directories for legit paths", () => {
@@ -366,11 +366,10 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
     { tool: "write_file", pattern: "src/*" },
     { tool: "run_shell", pattern: "rm -rf build/\\*" },
   ];
-  // No approval in these fixtures carries a cwd, so the workspace passed here
-  // is never actually consulted (cwdMatchesGrant short-circuits on
-  // grantCwd === undefined) — an explicit no-op value is threaded through
-  // instead of an optional param, so a future call site can't silently
-  // narrow the security check by forgetting to pass one.
+  // Fixture approvals carry no cwd (cwdMatchesGrant short-circuits on
+  // grantCwd === undefined), so this workspace is never consulted — the
+  // explicit no-op value keeps a future call site from silently narrowing
+  // the check.
   const noWorkspace = { resolvedCwd: "/unused", roots: [] };
 
   test("allows package-compatible wildcard grants", async () => {
@@ -401,9 +400,8 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
   });
 
   test("a directory grant denies .. walk-out through the package path (CL-8989)", async () => {
-    // evaluateApprovals delegates package-compatible grants to @intx/authz
-    // evaluateGrants, whose `*` matches `..` lexically — the containment gate
-    // must hold on this path too, while legit nested paths still match.
+    // evaluateGrants (package path) matches `*` against `..` lexically, so
+    // the containment gate must hold here too — legit nested paths still match.
     const dirApprovals: Approval[] = [
       { tool: "write_file", pattern: "/proj/sub/*" },
     ];
@@ -678,9 +676,8 @@ describe("gate authorizes shell chains as one block with per-segment security", 
 
   test("body containing variable substitution still re-prompts (dangerous-metacharacter gate)", async () => {
     // Multi-line for-loop: head is consequential, keywords are no-ops, but the
-    // body carries a `$` (variable expansion) — the same dangerous-metacharacter
-    // gate isAutoAllowedShellCommand applies to a whole command also applies per
-    // segment, so `cat "$f"` never auto-allows and every evaluation re-prompts.
+    // body carries `$` — the dangerous-metacharacter gate applies per segment
+    // too, so `cat "$f"` never auto-allows and every evaluation re-prompts.
     const script = 'for f in a b; do\ncat "$f"\ndone';
     const { gate, asked: prompted } = gatedPrompts({
       allow: true,
@@ -721,15 +718,11 @@ describe("gate authorizes shell chains as one block with per-segment security", 
 });
 
 describe("gate denies compound commands with an authz-hard-blocked segment", () => {
-  // A segment authz would hard-deny at execution must deny at the gate
-  // outright, not degrade to an operator prompt — the strictest tier across
-  // all segments wins, and "blocked" is stricter than "ask".
-  // rg downstream of a single pipe reads only the bounded stdin the upstream
-  // stage produced, not a filesystem walk — run-shell-authz exempts it (see
-  // CMD_HEAD in run-shell-authz.ts). Judging the "rg"
-  // segment in isolation loses that pipe context and denies it with no
-  // operator override possible, even though the full command the gate
-  // actually enforces would allow it.
+  // A segment authz would hard-deny at execution must deny at the gate, not
+  // degrade to an operator prompt — the strictest tier wins. rg downstream
+  // of a single pipe reads bounded stdin, not a tree walk (CMD_HEAD in
+  // run-shell-authz.ts), so judging the "rg" segment alone would deny a
+  // command the gate actually allows.
   test("does not deny rg reading bounded stdin downstream of a single pipe", async () => {
     const gate = createGate({
       requestApproval: async () => {
@@ -744,9 +737,9 @@ describe("gate denies compound commands with an authz-hard-blocked segment", () 
 });
 
 describe("gate denies path tools path-escape will reject", () => {
-  // Same shape as authz-hard-blocked shell: a call the sandbox will fail at
-  // execution must deny at authorize time, not show an Accept overlay whose
-  // approval cannot succeed. skipPermissions (yolo) remains the live escape.
+  // A call the sandbox will fail at execution must deny at authorize time,
+  // not show an Accept overlay that cannot succeed. skipPermissions (yolo)
+  // stays the live escape.
   test("reactor-gated interactive write_file of an escaped path does not ask", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "corbits-escape-ask-in-"));
     const outside = mkdtempSync(join(tmpdir(), "corbits-escape-ask-out-"));
@@ -840,9 +833,8 @@ describe("gate denies path tools path-escape will reject", () => {
 
 describe("gate cache identity matches the plugin rewrite for nested paths", () => {
   // authorizeCall caches by identityArguments; executionVerdict must hit that
-  // cache when execution hands it the plugin-rewritten (workspace-absolute)
-  // arguments. A grant seeded after authorize changes what a fresh decide
-  // would say, so a miss visibly flips to allow while a hit reuses the ask.
+  // cache with the plugin-rewritten (workspace-absolute) arguments — a miss
+  // flips a seeded grant to allow while a hit reuses the ask.
   test("nested in-bounds call authorizes once and executes without re-decide", async () => {
     const cwd = realpathSync(mkdtempSync(join(tmpdir(), "corbits-identity-")));
     const gate = createGate({
@@ -1074,9 +1066,8 @@ describe("createPermissionGate", () => {
   });
 
   // AgentId-targeted fleet calls address workers by opaque session id
-  // (`target`), never by path — nothing path-shaped for callTargetsRestricted
-  // to judge. Path restriction is enforced inside the target worker, whose
-  // own gate binds restriction to its process cwd.
+  // (`target`), never by path — nothing for callTargetsRestricted to judge;
+  // the target worker's own gate binds restriction to its process cwd.
   test("auto mode auto-allows agentId-targeted fleet calls even when every path is treated as restricted", async () => {
     const { gate, asked } = gatedPrompts({ allow: false }, { auto: true });
     const calls: ToolCall[] = [
@@ -1097,19 +1088,17 @@ describe("createPermissionGate", () => {
     );
     expect(inBounds.allowed).toBe(true);
     expect(asked.count).toBe(0);
-    // The carve-out is intentional, not an oversight: even an isRestricted
-    // that reports everything restricted does not flag these calls — they
-    // carry agent ids, not paths.
+    // Intentional: even an isRestricted that reports everything restricted
+    // does not flag these calls — they carry agent ids, not paths.
     const alwaysRestricted = () => true;
     for (const call of calls) {
       expect(callTargetsRestricted(call, alwaysRestricted)).toBe(false);
     }
   });
 
-  // manage_tasks's handler has no side effect — the task list is mutated
-  // earlier by the director, before this tool ever executes — so denying it
-  // cannot undo anything. It auto-allows unconditionally, not just in auto
-  // mode, unlike the tools above.
+  // manage_tasks's handler has no side effect — the director mutates the task
+  // list before the tool executes — so denying it undoes nothing; it
+  // auto-allows outside auto mode too, unlike the tools above.
   test("manage_tasks auto-allows outside auto mode too", async () => {
     const { gate, asked } = gatedPrompts({ allow: false });
     const verdict = await gate.evaluate(toolCall("manage_tasks", {}));
@@ -1187,9 +1176,9 @@ describe("createPermissionGate", () => {
     for (const command of [
       "git worktree add feature",
       "git worktree add feature main",
-      // Sibling worktree directly under the parent of cwd — the narrow
-      // isPermittedSiblingWorktreePath shape (path-restriction.ts): a brand
-      // new, not-yet-registered root one level up from cwd.
+      // Sibling directly under the parent of cwd — the narrow
+      // isPermittedSiblingWorktreePath shape (path-restriction.ts): a
+      // brand-new, not-yet-registered root one level up.
       "git worktree add -b feature-branch ../CL-5602 origin/main",
       "git worktree remove feature",
       "git worktree prune",
@@ -1203,12 +1192,10 @@ describe("createPermissionGate", () => {
   });
 
   test("auto mode auto-allows a relative sibling worktree next to a registered root, zero cwd-sibling roots needed", async () => {
-    // Reproduces the product need: creating a brand-new sibling worktree that
-    // by definition isn't a registered root yet. Here the registered root
-    // lives in its own parent directory (an org-style "…/wts/<repo>" layout)
-    // distinct from cwd's own parent, and cwd reaches the new sibling through
-    // a relative ../../wts/… path — still the narrow one-level-up sibling
-    // shape, just anchored at a different trusted parent than cwd's.
+    // Product need: a brand-new sibling worktree is not a registered root
+    // yet. Here the registered root lives in its own parent ("…/wts/<repo>"
+    // layout), so cwd reaches the new sibling via ../../wts/… — the same
+    // one-level-up shape, anchored at a different trusted parent.
     const base = mkdtempSync(join(tmpdir(), "corbits-worktree-org-"));
     const cwd = join(base, "main-repo");
     mkdirSync(cwd);
@@ -1242,10 +1229,9 @@ describe("createPermissionGate", () => {
       "git worktree add ../.ssh/x",
       "git worktree add ../../escape",
       // Nested siblings ("container/leaf") no longer auto-allow: the old
-      // basename-denylist-plus-depth-counter heuristic let these through with
-      // zero registered roots, but they don't fit the unified, narrow
-      // isPermittedSiblingWorktreePath shape (a direct child of the parent of
-      // cwd or of a registered root) — see path-restriction.ts.
+      // basename-plus-depth heuristic let these through with zero registered
+      // roots, but they are not the narrow isPermittedSiblingWorktreePath
+      // shape — see path-restriction.ts.
       "git worktree add -b feature-branch ../corbits-dispatch-wts/CL-5602 origin/main",
       "git worktree add ../.worktrees/CL-5602",
       "git worktree remove --force feature",
@@ -1370,8 +1356,8 @@ describe("createPermissionGate", () => {
       const verdict = await gate.evaluate(shellCall(command));
       expect(verdict.allowed).toBe(true);
     }
-    // A redirect into /dev/pts is authz-hard-blocked by policy (only /dev/null,
-    // /dev/std*, /dev/tty, /dev/fd/* are exempted), so the gate now denies it
+    // A redirect into /dev/pts is authz-hard-blocked (only /dev/null,
+    // /dev/std*, /dev/tty, /dev/fd/* are exempt), so the gate denies it
     // outright instead of letting auto mode wave it through.
     expect((await gate.evaluate(shellCall("ls > /dev/pts/0"))).allowed).toBe(
       false,
@@ -1461,9 +1447,8 @@ describe("createPermissionGate", () => {
     ]) {
       asked.count = 0;
       const verdict = await gate.evaluate(shellCall(command));
-      // `xargs rm -rf` has no static target the classifier can see, so authz
-      // treats it as catastrophic and hard-blocks it — the gate denies outright
-      // rather than asking the operator to approve a command that can never run.
+      // `xargs rm -rf` has no static target, so authz hard-blocks it — the
+      // gate denies outright rather than asking for a command that can never run.
       expect(asked.count).toBe(0);
       expect(verdict.allowed).toBe(false);
     }
@@ -1533,11 +1518,10 @@ describe("createPermissionGate", () => {
     expect(asked.count).toBe(0);
   });
 
-  // SECURITY: skipPermissions must short-circuit BEFORE the approval callback
-  // ever fires; if it fires, skipPermissions is a post-classification hint
-  // rather than a gate bypass. Uses a non-catastrophic ask-tier call:
-  // catastrophic shell has its own hard-deny above the shortcut, so `rm -rf /`
-  // would deny regardless of the callback.
+  // SECURITY: skipPermissions must short-circuit before the approval callback
+  // fires; if it fires, skip is a post-classification hint, not a bypass.
+  // Uses a non-catastrophic ask-tier call; catastrophic shell hard-denies
+  // above the shortcut, so `rm -rf /` denies regardless.
   test("skipPermissions never invokes the approval callback", async () => {
     const { gate, asked } = gatedPrompts(
       { allow: false },
@@ -1564,9 +1548,8 @@ describe("createPermissionGate", () => {
     expect(asked.count).toBe(0);
   });
 
-  // The reactor retries a denied ask-tier call with a fresh tool_call.id. The
-  // retry must deny with the identical cached reason instead of re-evaluating,
-  // or the loop never settles.
+  // The reactor retries a denied ask-tier call with a fresh tool_call.id; the
+  // retry must deny with the identical cached reason, or the loop never settles.
   test("headless denies a same-URL web_fetch retry with the identical reason", async () => {
     const gate = createGate({
       interactive: false,
@@ -1584,9 +1567,8 @@ describe("createPermissionGate", () => {
     expect(retry.reason).toBe(first.reason);
   });
 
-  // The reactor path suspends an ask-tier call, resolves the operator decline
-  // via resolveSuspended, then retries same-turn with a fresh tool_call.id.
-  // The retry must deny with the identical cached reason and ask once.
+  // Reactor path: suspend, resolve the operator decline, retry same-turn with
+  // a fresh tool_call.id — the retry must deny with the cached reason once.
   test("reactor-path decline is cached: fresh-id retry denies without re-asking", async () => {
     const { gate, asked } = gatedPrompts(
       { allow: false },
@@ -1685,10 +1667,9 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(1);
   });
 
-  // The middleware path must mirror the reactor-path guard above: only a real
-  // operator decline populates denial memory. Timeouts, aborts, and missing
-  // outcomes are never cached — the operator made no decision, so a same-turn
-  // retry with a fresh tool_call.id must re-ask instead of denying from cache.
+  // Middleware mirrors the reactor-path guard: only a real operator decline
+  // populates denial memory. Timeouts, aborts, and missing outcomes are never
+  // cached — no decision was made, so a fresh-id retry re-asks.
   test("middleware-path timeout/abort/missing outcomes are not cached: retry re-asks", async () => {
     const args = { url: "https://example.com/docs", format: "markdown" };
     const outcomes: { name: string; outcome: ApprovalOutcome | undefined }[] = [
@@ -1723,8 +1704,8 @@ describe("createPermissionGate", () => {
     }
   });
 
-  // Distinct URLs deny independently, and reset() clears the denial memory so
-  // the next turn re-denies cleanly with no stale state.
+  // Distinct URLs deny independently; reset() clears denial memory so the
+  // next turn re-denies with no stale state.
   test("headless denies distinct web_fetch URLs independently; reset clears denials", async () => {
     const gate = createGate({
       interactive: false,
@@ -1745,9 +1726,8 @@ describe("createPermissionGate", () => {
     expect(again.reason).toBe(first.reason);
   });
 
-  // SECURITY: headless with requestApproval present but interactive=false must
-  // still deny — interactive=false is the authoritative headless signal, not the
-  // absence of the callback.
+  // SECURITY: headless with requestApproval present must still deny —
+  // interactive=false is the headless signal, not the callback's absence.
   test("interactive=false denies even when a requestApproval callback is provided", async () => {
     const { gate, asked } = gatedPrompts(
       { allow: true },
@@ -1755,8 +1735,8 @@ describe("createPermissionGate", () => {
     );
     const verdict = await gate.evaluate(shellCall("curl x"));
     expect(verdict.allowed).toBe(false);
-    // The callback must never fire in headless mode — calling it would be wrong
-    // even if we ultimately denied, because it implies we surfaced a UI prompt.
+    // The callback must never fire headless — firing implies a UI prompt was
+    // surfaced.
     expect(asked.count).toBe(0);
   });
 
@@ -1778,8 +1758,8 @@ describe("createPermissionGate", () => {
     expect(persisted).toHaveLength(0);
   });
 
-  // A prior grant on only the head segment does not authorize a dangerous tail —
-  // the full block still denies, without ever reaching the operator.
+  // A head-only grant does not authorize a dangerous tail — the full block
+  // still denies without reaching the operator.
   test("a head-only grant does not authorize a hard-blocked tail", async () => {
     const full = "npm i && cat > /etc/x";
     const { gate, asked: seen } = gatedPrompts(
@@ -1791,9 +1771,8 @@ describe("createPermissionGate", () => {
     expect(seen.subjects).toEqual([]);
   });
 
-  // Prefix globs must not match across chain operators. A grant for `npm *`
-  // covers `npm i`, not `npm i && curl evil` — the unapproved tail still needs
-  // a full-block decision (exact multi-segment persist if the operator wants).
+  // Prefix globs must not match across chain operators: `npm *` covers `npm i`,
+  // not `npm i && curl evil` — the tail still needs a full-block decision.
   test("a head prefix grant does not auto-allow a multi-segment chain", async () => {
     const seen: string[] = [];
     const full = "npm i && curl evil.com";
@@ -1811,9 +1790,8 @@ describe("createPermissionGate", () => {
     expect(seen).toEqual([full]);
   });
 
-  // Persisting the exact multi-segment scope decomposes into one grant per
-  // real segment, so approving `a && b` later covers `b` on its own — a chain
-  // containing a previously-granted segment only re-prompts for the new part.
+  // Persisting the exact multi-segment scope mints one grant per real segment,
+  // so a chain reusing a granted segment only re-prompts for the new part.
   test("persisting a segment containing a glob stores an exact escaped grant", async () => {
     const full = "echo prep && bash -c 'echo *'";
     const persisted: Approval[] = [];
@@ -1851,9 +1829,9 @@ describe("createPermissionGate", () => {
   });
 
   test("escaped quotes do not mint grants for unexecuted text", async () => {
-    // splitChainedCommand has no backslash-escape support. Minting per segment
-    // would invent a phantom `touch PWNED` grant, so the gate falls back to
-    // one exact whole-pattern grant.
+    // splitChainedCommand has no backslash-escape support, so per-segment
+    // minting would invent a phantom `touch PWNED` grant — fall back to one
+    // exact whole-pattern grant.
     const full = `printf "safe \\" && touch PWNED && \\""`;
     const persisted: Approval[] = [];
     const built = buildRequests(shellCall(full))[0]?.scopes.find(
@@ -1874,9 +1852,9 @@ describe("createPermissionGate", () => {
   });
 
   test("inline comments do not mint grants for commented shell text", async () => {
-    // Inline `# …` is not stripped by stripCommentLines (full-line only), and
-    // the splitter does not treat it as a comment, so per-segment minting
-    // would invent `touch PWNED`. Fall back to one exact grant.
+    // Inline `# …` is not stripped (full-line only) and not a split boundary,
+    // so per-segment minting would invent `touch PWNED` — fall back to one
+    // exact grant.
     const full = "echo ok # && touch PWNED";
     const persisted: Approval[] = [];
     const built = buildRequests(shellCall(full))[0]?.scopes.find(
@@ -1928,15 +1906,14 @@ describe("createPermissionGate", () => {
     // Same full block is covered — both segments already granted.
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
     expect(asked).toBe(1);
-    // A chain reusing `curl x` in a different order/company only needs a
-    // fresh decision for the ungranted segment (`npm run build`), not the
-    // whole new chain — the point of granting per segment.
+    // A chain reusing `curl x` only needs a fresh decision for the ungranted
+    // segment (`npm run build`) — the point of per-segment grants.
     expect((await gate.evaluate(shellCall(later))).allowed).toBe(true);
     expect(asked).toBe(2);
   });
 
-  // Verdicts are order-independent: the same segment set granted from one
-  // ordering auto-resolves the same set in a different order.
+  // Verdicts are order-independent: the same granted segment set auto-resolves
+  // in any order.
   test("the same segment set in a different order gives the same verdict", async () => {
     const approvals: Approval[] = [
       { tool: "run_shell", pattern: "a" },
@@ -1949,9 +1926,9 @@ describe("createPermissionGate", () => {
     expect(asked.count).toBe(0);
   });
 
-  // A wrapper that hides an ungranted segment inside `bash -c "..."` still
-  // prompts — expandShellSubjects peels the wrapper so the grant can't be
-  // laundered through it.
+  // A wrapper hiding an ungranted segment inside `bash -c "..."` still prompts
+  // — expandShellSubjects peels it so grants cannot be laundered through
+  // wrappers.
   test("a wrapper hiding an ungranted segment still prompts", async () => {
     const approvals: Approval[] = [{ tool: "run_shell", pattern: "granted" }];
     const { gate, asked } = gatedPrompts({ allow: true }, { approvals });
@@ -2246,9 +2223,8 @@ describe("createPermissionGate restricted paths", () => {
     expect(asked).toBe(0);
   });
 
-  // Skip mode does not widen what the model can see via path-keyed tools: the
-  // secret-guard plugin hard-blocks sensitive-file reads/writes independent of
-  // the gate decision.
+  // Skip mode does not widen path-keyed visibility: secret-guard hard-blocks
+  // sensitive-file reads/writes independent of the gate decision.
   test(".env path reads remain hard-blocked by the secret-guard plugin under skipPermissions", async () => {
     const gate = createGate({
       cwd,
@@ -2276,10 +2252,9 @@ describe("createPermissionGate restricted paths", () => {
     expect(pluginResult.content).toMatch(/sensitive file blocked/);
   });
 
-  // A stored grant (whether a broad prefix like "cat *" or an exact
-  // full-command match) must never let a restricted-path command skip the
-  // operator. Restriction is re-evaluated against the actual command being
-  // replayed, not just at the moment the grant was minted.
+  // A stored grant (broad prefix or exact match) must never let a
+  // restricted-path command skip the operator — restriction is re-evaluated
+  // per replay, not at mint time.
   test("a broad prefix grant does not replay for a segment that targets a restricted path", async () => {
     const { gate, asked } = gatedPrompts(
       { allow: true },
@@ -2667,8 +2642,8 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
         restriction.isRestricted(join(outside, `file-${i}.ts`), false),
       ).toBe(true);
     }
-    // One call to seed the initial (empty) roots, and the debounce window
-    // suppresses every forced refresh that follows within it.
+    // One call seeds the initial (empty) roots; the debounce window suppresses
+    // every forced refresh inside it.
     expect(listCalls).toBe(1);
   });
 
@@ -2684,8 +2659,8 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
     const outside = mkdtempSync(join(tmpdir(), "corbits-window-"));
     expect(restriction.isRestricted(join(outside, "a.ts"), false)).toBe(true);
     expect(restriction.isRestricted(join(outside, "b.ts"), false)).toBe(true);
-    // A zero-width debounce window means the initial listing plus one forced
-    // refresh per subsequent check are both eligible to run.
+    // A zero-width window makes the initial listing plus one forced refresh
+    // per check both eligible.
     expect(listCalls).toBeGreaterThan(1);
   });
 
@@ -2710,10 +2685,9 @@ describe("comment-insensitive shell grants", () => {
   const withCommentB = `# Pull the last two chunks for the operator\n${rest}`;
   const withoutComment = rest;
 
-  // Approve `command`, capturing whatever gets persisted, then hand back a
-  // fresh gate seeded from that persisted state (as a new session replaying
-  // an earlier grant would see it) plus a probe that fails the test if the
-  // seeded gate ever re-asks the operator.
+  // Approve `command`, capture what persists, then hand back a gate seeded
+  // from it (a new session replaying the grant) plus a probe that fails if
+  // the seeded gate re-asks.
   async function grantThenReplayGate(command: string) {
     const persisted: Approval[] = [];
     const grantingGate = createGate({
@@ -2722,8 +2696,8 @@ describe("comment-insensitive shell grants", () => {
         const scope = request.scopes[0];
         if (scope === undefined)
           throw new Error("expected a persistable scope");
-        // Force a persisted (not merely session) grant so `persisted` below
-        // captures it, mirroring an operator picking "Always allow" broadly.
+        // Force a persisted (not session) grant so `persisted` captures it,
+        // mirroring an operator picking "Always allow" broadly.
         return { allow: true, persist: { ...scope, grant: "project" } };
       },
     });
@@ -2797,9 +2771,8 @@ describe("stripCommentLines", () => {
   });
 
   test("a backslash inside a genuine comment does not extend it to the next line", () => {
-    // Real shells give backslash no special meaning inside a comment: the
-    // comment still ends at its own newline, and the next line is a live
-    // command that must not be swallowed into the dropped comment.
+    // Backslash has no special meaning inside a comment: it ends at its own
+    // newline, so the next line is a live command that must not be swallowed.
     expect(stripCommentLines("# comment \\\nrm -rf /")).toBe("rm -rf /");
   });
 
@@ -2921,9 +2894,8 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
     execFileSync("git", args, { cwd, stdio: "ignore" });
   };
 
-  // A sibling worktree, not nested under the session root — the real-world
-  // layout where a sub-agent's worktree lives outside the repo entirely (a
-  // dispatch worktrees directory next to the checkout).
+  // A sibling worktree outside the repo entirely (a dispatch worktrees
+  // directory next to the checkout), not nested under the session root.
   const createRepoWithSiblingWorktree = (): {
     repo: string;
     worktree: string;
@@ -2938,8 +2910,8 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
     return { repo, worktree };
   };
 
-  // Each test mints a grant through a live requestApproval prompt and then
-  // checks whether a second evaluate replays it; `persist` picks the scope.
+  // Each test mints a grant through a live prompt, then checks whether a
+  // second evaluate replays it; `persist` picks the scope.
   const promptGrantingGate = (
     cwd: string,
     persist: { pattern: string; grant: "project" | "session" },
@@ -2982,10 +2954,9 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
     expect(asked.count).toBe(1);
   });
 
-  // Security test: a project grant must never leak to a request from a
-  // genuinely unrelated project's directory, even though that directory is
-  // just as "foreign" on disk as a legitimate worktree would look to a naive
-  // check. Must pass both before and after the worktree-matching fix.
+  // A project grant must never leak to a genuinely unrelated project's
+  // directory, however foreign it looks on disk. Passes before and after the
+  // worktree-matching fix.
   test("a project grant does not match a request from an unrelated project root", async () => {
     const { runWithSubAgentIdentity } =
       await import("../subagent/identity-context.js");
@@ -3005,20 +2976,17 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
       () => gate.evaluate(shellCall("npm run build")),
     );
     expect(second.allowed).toBe(true);
-    // The unrelated cwd must still ask — the grant did not leak across
-    // projects — even though the operator happens to approve it again here.
+    // The unrelated cwd still asks — the grant did not leak across projects.
     expect(asked.count).toBe(2);
   });
 
-  // Uses write_file rather than run_shell: every bare shell token is itself
-  // judged for path containment against the calling agent's cwd (a
-  // pre-existing, unrelated restriction — see classify.ts's
-  // commandTargetsRestricted), so a shell command issued from a genuinely
-  // foreign cwd always asks regardless of any grant. write_file's subject is
-  // the target path, not the agent's cwd, so it isolates the thing this test
-  // actually checks: that an unscoped (no-cwd) grant matches irrespective of
-  // where the request originated. The second call uses a sibling worktree cwd
-  // so path-escape still treats the session-root target as in-bounds.
+  // write_file rather than run_shell: shell tokens are judged for containment
+  // against the agent's cwd (commandTargetsRestricted), so a shell command
+  // from a foreign cwd always asks regardless of any grant. write_file's
+  // subject is the target path, isolating the real check — an unscoped
+  // (no-cwd) grant matches regardless of origin. The second call uses a
+  // sibling worktree cwd so path-escape still treats the session-root target
+  // as in-bounds.
   test("session and provider-model grants still match a sub-agent request regardless of cwd", async () => {
     const { runWithSubAgentIdentity } =
       await import("../subagent/identity-context.js");
@@ -3044,10 +3012,9 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
 
 describe("sub-agent auto-allow uses the process cwd, not the session cwd", () => {
   test("a relative read inside the worktree auto-allows under the process cwd", async () => {
-    // Nested worktree under the session so absolute paths stay inside the
-    // workspace roots. Auto-allow must still judge containment against the
-    // worktree (process cwd), not the session — this case is the happy path
-    // where the relative target lands inside the worktree either way.
+    // Nested worktree under the session; auto-allow must judge containment
+    // against the worktree (process cwd), not the session. Happy path: the
+    // relative target lands inside either way.
     const root = mkdtempSync(join(tmpdir(), "gate-eff-cwd-"));
     const sessionCwd = join(root, "session");
     const agentCwd = join(sessionCwd, "agent-x");
@@ -3074,10 +3041,9 @@ describe("sub-agent auto-allow uses the process cwd, not the session cwd", () =>
   });
 
   test("a relative read that escapes the worktree but not the session is not auto-allowed", async () => {
-    // Worktree nested under the session: `cat ../session-only.txt` resolves
-    // inside the session when judged against session cwd (bug → auto-allow)
-    // but escapes the worktree when judged against the process cwd (correct →
-    // ask).
+    // `cat ../session-only.txt` resolves inside the session against session
+    // cwd (bug → auto-allow) but escapes the worktree against process cwd
+    // (correct → ask).
     const root = mkdtempSync(join(tmpdir(), "gate-escape-wt-"));
     const sessionCwd = join(root, "session");
     mkdirSync(sessionCwd);
