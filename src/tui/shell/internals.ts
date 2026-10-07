@@ -890,15 +890,13 @@ export const internals = new WeakMap<AppShell, ShellInternals>();
  * sticky-scroll behaves exactly as it did before this existed.
  *
  * A real child rather than padding: the content box's `minHeight: "100%"`
- * (`@opentui/core`'s own default, so it never reads shorter than the
- * viewport) means padding cannot be measured back out of `scrollHeight` —
- * it always reads as the viewport height regardless of how little real
- * content there is. A child's own height is unaffected by that floor, so
- * `scrollHeight - spacer.height` reliably isolates the rows' real height.
+ * floor means padding always reads back as the viewport height, while a
+ * child's own height is unaffected by it — so `scrollHeight - spacer.height`
+ * reliably isolates the rows' real height.
  *
- * This does cost every row-index code path (`getChildren()`-based lookups
- * below, and the two external tests noted at their call sites) one constant
- * offset: index 0 is always the spacer, never a row.
+ * This costs every row-index code path (`getChildren()`-based lookups below,
+ * and the two external tests noted at their call sites) one constant offset:
+ * index 0 is always the spacer, never a row.
  */
 export const transcriptSpacers = new WeakMap<AppShell, BoxRenderable>();
 

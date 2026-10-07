@@ -2206,15 +2206,13 @@ export function attachSessionBridge(
   };
 
   /**
-   * Ask-deadline bound for a silent ask-wake primary turn. Only an expire
-   * this tick plus an armed (wake-sent, never settled) turn with nothing
-   * left pending can match: expireStaleAsks settled the questions and the
-   * reconciling `reportFleet` emptied `pendingAskWake`, so the wake turn is
-   * owed to nobody. send_input emptying pending is not an expire. Unlike
-   * the stall bound there is no silence clock — the questions expired, so
-   * the turn ends even inside its stall window. Shares
-   * `abortInFlightAndHandoff` with the stall abort, so occupancy (mailbox
-   * mail) still wins the next turn.
+   * Ask-deadline bound for a silent ask-wake primary turn. See the field
+   * contract above; the implementation detail is that only an expire this
+   * tick plus an armed, never-settled wake turn with nothing left pending can
+   * match — expireStaleAsks settled the questions and the reconciling
+   * `reportFleet` emptied `pendingAskWake`, so the wake turn is owed to
+   * nobody. Shares `abortInFlightAndHandoff` with the stall abort, so
+   * occupancy (mailbox mail) still wins the next turn.
    */
   const abortExpiredWakeTurn = (expiredThisTick: boolean): boolean => {
     if (!expiredThisTick) return false;

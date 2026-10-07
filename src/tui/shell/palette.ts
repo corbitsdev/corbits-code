@@ -366,9 +366,9 @@ const defaultMentionSource: MentionSuggestionSource = (prefix) =>
 /**
  * Open path suggestions for the @token under the cursor and splice the
  * accepted entry back into the prompt. Directory picks re-open one level
- * down so the operator can drill in without typing the path.
- * Returns false when the cursor is not inside an @token, nothing matched,
- * a newer lookup superseded this one, or the overlay host was taken.
+ * down so the operator can drill in without typing the path. Returns false
+ * when the cursor is not inside an @token, nothing matched, a newer lookup
+ * superseded this one, or the overlay host was taken.
  *
  * Accept requires a current generation and a live `@` token under the cursor.
  * A lookup that finishes after the cursor has left this token does not open.
@@ -728,9 +728,9 @@ function completeSlashArgRow(shell: AppShell, row: PaletteCommand): void {
  * for param commands — the typed `/name` already says what to run, and an
  * untouched Tab-accepted hint is stripped at submit so it never arrives as a
  * literal argument). Tab instead completes the name so arguments can be
- * typed. Commands carrying an
- * argumentHint or subcommands complete to `/id ` and open the second-stage
- * arg rows; param-less commands keep the bare `/id ` accept and close.
+ * typed. Commands carrying an argumentHint or subcommands complete to
+ * `/id ` and open the second-stage arg rows; param-less commands keep the
+ * bare `/id ` accept and close.
  */
 export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
   if (!isSlashPopupOpen(shell) || shell.overlayList === null) return false;

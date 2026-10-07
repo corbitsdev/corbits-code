@@ -541,16 +541,15 @@ function formatTerminalRow(session: ChromeAgentSession): AgentPanelRow {
 /**
  * Overlay live per-agent tool names onto the agents zone.
  *
- * This is now an identity: the subagent store is the sole source of truth for
- * what a worker is doing, via `currentToolName` paired with the matching
- * `currentToolStartedAt` clock. The `subagent.progress` ping carries only a
- * tool name with no clock of its own, so painting it onto a lane with no
- * outstanding call would announce a dead tool — exactly the false "quiet ·
- * read_file" stall this surface exists to expose. Progress pings are also
- * emitted on tool completion, so any name they hand us may already be stale.
+ * An identity now: the subagent store is the sole source of truth for what a
+ * worker is doing, via `currentToolName` paired with its `currentToolStartedAt`
+ * clock. The `subagent.progress` ping carries only a tool name with no clock,
+ * so painting it onto a lane with no outstanding call would announce a dead
+ * tool — the false "quiet · read_file" stall this surface exists to expose —
+ * and pings also fire on tool completion, so their names may already be stale.
  *
- * The signature is kept so call sites and tests can be updated in their own
- * diffs; passing a map here no longer changes any row.
+ * Signature kept so call sites and tests can migrate in their own diffs;
+ * passing a map here no longer changes any row.
  */
 export function annotateAgentTools(
   state: ChromeLiveState,

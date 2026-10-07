@@ -27,21 +27,18 @@ const CYCLE_FINGERPRINT_MIN_CHARS = 24;
 // How many consecutive cycles must fingerprint identically before it counts
 // as a loop rather than ordinary phrasing. The fingerprint covers the whole
 // cycle's text, so any variation at all — a changing filename, index, or
-// detail ("Editing src/module_47.ts next.") produces a different hash and
-// never advances the streak, no matter how many cycles run. That is what
-// makes this bar tolerable at a bare-number glance: it only ever governs
-// content that is byte-for-byte invariant, cycle after cycle, which ordinary
-// narration is not. The verified false positive is a model saying the exact
-// same short line before each of 9-12 separate tool calls in one turn — that
-// must not abort, so the bar sits above that range with headroom. Set well
-// below the reported repro (an unvarying 46-char block repeated every cycle
-// for 500 cycles, which the unconditional-reset version never caught at
-// all): at this bar the streak still trips a small fraction of the way in, a
-// few thousand characters and under two dozen tool calls, not after 500 and
-// 88,000 characters. The remaining exposure is narrow and explicit: an
-// exact, invariant line of at least `CYCLE_FINGERPRINT_MIN_CHARS` chars
-// repeated with zero variation for this many cycles running straight through
-// tool calls — contentless boilerplate, not narration.
+// detail ("Editing src/module_47.ts next.") — never advances the streak.
+// That makes the bar tolerable: it only ever governs byte-for-byte invariant
+// content, which ordinary narration is not. The verified false positive is a
+// model repeating the same short line before each of 9-12 tool calls in one
+// turn — that must not abort, so the bar sits above that range, while
+// staying well below the reported repro (an unvarying 46-char block for 500
+// cycles): the streak still trips a small fraction of the way in, a few
+// thousand characters and under two dozen tool calls. The remaining exposure
+// is narrow and explicit: an exact, invariant line of at least
+// `CYCLE_FINGERPRINT_MIN_CHARS` chars repeated with zero variation for this
+// many cycles running straight through tool calls — contentless boilerplate,
+// not narration.
 const CYCLE_REPETITION_MIN_CONSECUTIVE = 20;
 
 /**

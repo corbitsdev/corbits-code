@@ -620,14 +620,14 @@ export async function assembleTUISession(
 
   // Compaction summarizer: structured handoff via the live model. Failure
   // substitutes a statistics-only stub; the pruning wrapper tells the operator
-  // only after that fold commits. Workflow state
-  // is read at compaction time so a pass mid-/build or mid-/plan still names
-  // the active step. The archive, when mounted, supplies the unclipped excerpt.
-  // Abort-aware compaction lifecycle. The summary call is the only
-  // unbounded await in the compact path, so the lifecycle aborts it on
-  // interrupt/rotation (via getSignal below) and bounds apply itself, so the
-  // vendored reactor always returns to dequeue. Reset per agent build so a
-  // prior abort never pre-aborts the replacement agent's compacts.
+  // only after that fold commits. Workflow state is read at compaction time so
+  // a pass mid-/build or mid-/plan still names the active step. The archive,
+  // when mounted, supplies the unclipped excerpt.
+  // Abort-aware compaction lifecycle. The summary call is the only unbounded
+  // await in the compact path, so the lifecycle aborts it on interrupt/rotation
+  // (via getSignal below) and bounds apply itself, so the vendored reactor
+  // always returns to dequeue. Reset per agent build so a prior abort never
+  // pre-aborts the replacement agent's compacts.
   const compactionLifecycle = createCompactionLifecycle(
     createCompactionEventNotices((text) => state.systemNotice?.(text)),
   );

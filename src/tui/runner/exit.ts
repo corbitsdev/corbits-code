@@ -664,15 +664,13 @@ export async function createRunLifecycle(
         // settles, and a dead cycle's partial must land in the session that
         // produced it, not the fresh one.
         await services.cycleRecorder.dispose("rotation");
-        // Deliberately not routed through closeAgentForRebuild/
-        // agentRebuildFailure (unlike interrupt and reloadIfIdle): rotation
-        // mints a fresh sessionId/workdir below before calling buildAgent(),
-        // so even a close() that leaks the old workdir's lock (see
-        // closeAgentForRebuild's doc comment) can never cause a second
-        // acquisition on that same workdir — buildAgent() always targets
-        // the new, unlocked directory. The old lock still leaks for the
-        // rest of the process, but nothing ever tries to re-acquire it, so
-        // there is no crash to guard against here.
+        // Not routed through closeAgentForRebuild/agentRebuildFailure
+        // (unlike interrupt and reloadIfIdle): rotation mints a fresh
+        // sessionId/workdir below before calling buildAgent(), so a leaked
+        // lock on the old workdir can never cause a second acquisition —
+        // buildAgent() always targets the new, unlocked directory, and
+        // nothing ever re-acquires the old one. There is no crash to guard
+        // against here (see closeAgentForRebuild's doc comment).
         await liveAgent(state)
           .close()
           .catch((err: unknown) => {
