@@ -1150,9 +1150,8 @@ describe("advertisedTools", () => {
   });
 
   test("the built-in prefix is byte-identical across repeated turns of the same session", () => {
-    // Session-start availability is computed once and must never be
-    // re-evaluated per turn — simulate several turns by calling with the same
-    // captured prefix and confirm the wire array never drifts.
+    // Session-start availability is computed once, never per turn — call with
+    // the same captured prefix and confirm the wire array never drifts.
     const prefix = advertisedToolNamesForSessionMode("orchestrator", {
       languageServerAvailable: true,
     });

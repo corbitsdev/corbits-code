@@ -46,9 +46,8 @@ export interface SystemPromptOverrides {
   append: string[];
 }
 
-// Project-level system-prompt overrides, resolved repo-root first then .corbits/.
-// SYSTEM.md replaces the base block; APPEND_SYSTEM.md is appended. Mirrors Pi's
-// SYSTEM.md / APPEND_SYSTEM.md convention.
+// Project-level system-prompt overrides, resolved repo-root first then
+// .corbits/. Mirrors Pi's SYSTEM.md / APPEND_SYSTEM.md convention.
 export async function loadSystemPromptOverrides(
   cwd: string,
 ): Promise<SystemPromptOverrides> {
