@@ -14,19 +14,13 @@
  * The store's finished-session retention is a TUI display cap (`maxCompleted`,
  * default 20): `complete()`/`fail()` evict the oldest finished session —
  * report and all — once more than that many have finished. A caller can spawn
- * far more workers than the cap in one turn and only
- * `wait_agents` them later, so an evicted report would otherwise vanish
- * silently. Mailbox `register` pins the session (honored by pruneCompleted
- * and pruneRetained) until collect unpins. Heavy payloads are still capped at
- * `MAX_FLEET_RECORDS`: past that, the oldest never-collected pin is compacted
- * to a tombstone (status only, plus a pointer at `read_agent_trace`).
- *
- * Argument shape includes description/prompt/context/goals/intent/
- * success_criteria/do_not/report_focus. Dispatch supports both closed
- * directors and local/plugin AgentProfile ids returned by search_agents.
- * Implement/review (and their default directors) fail closed without
- * non-empty success_criteria.
- *
+ * far more workers than the cap in one turn and only `wait_agents` them
+ * later, so an evicted report would otherwise vanish silently. Mailbox
+ * `register` pins the session (honored by pruneCompleted and pruneRetained)
+ * until collect unpins. Heavy payloads are still capped at `MAX_FLEET_RECORDS`:
+ * past that, the oldest never-collected pin is compacted to a tombstone
+ * (status only, plus a pointer at `read_agent_trace`). Implement/review
+ * dispatches fail closed without non-empty success_criteria.
  */
 
 import { join } from "node:path";
@@ -334,8 +328,8 @@ class FleetMailbox {
   /**
    * Mark that a send_input interrupt:true followup owns this lane. Suppresses
    * any interrupt overlay so wait stays live (running/queued) until the
-   * followup settles. No-op on an unknown id; safe to call on a collected
-   * mailbox (frozen status still wins for projection).
+   * followup settles. No-op on an unknown id; safe on a collected mailbox
+   * (frozen status still wins for projection).
    */
   noteFollowup(id: string): void {
     const existing = this.records.get(id);
@@ -347,9 +341,10 @@ class FleetMailbox {
 
   /**
    * send_input interrupt:true followup finished. Clear the followup lane flag
-   * (and any admission queued overlay) so wait can project the settled session.
-   * Leaves a close/interrupt overlay in place — a followup reply must not undo
-   * interrupt_agent or close_agent. No-op if wait_agents already collected.
+   * (and any admission queued overlay) so wait can project the settled
+   * session. Leaves a close/interrupt overlay in place — a followup reply
+   * must not undo interrupt_agent or close_agent. No-op if wait_agents
+   * already collected.
    */
   completeAfterInterrupt(id: string, _report?: string): void {
     const existing = this.records.get(id);
@@ -707,10 +702,10 @@ function fleetJson(value: unknown): string {
 }
 
 /**
- * Tier gate for stamped requires_tools. run.ts mounts submit_result
- * and ask_director on Tier 3 leaves only, and fleet verbs on orchestrator
- * tiers only — a requirement the dispatch tier can never mount rejects here
- * as missing_tool (pre-spawn) instead of surviving to the mount-time stale
+ * Tier gate for stamped requires_tools. run.ts mounts submit_result and
+ * ask_director on Tier 3 leaves only, and fleet verbs on orchestrator tiers
+ * only — a requirement the dispatch tier can never mount rejects here as
+ * missing_tool (pre-spawn) instead of surviving to the mount-time stale
  * echo. Returns the rejection, or undefined when the tier mounts everything
  * required.
  */
@@ -928,10 +923,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   // stomp each other's writes. Keyed by call.id for finally cleanup; the
   // session store is authoritative for liveness, since cancel can stamp
   // finishedAt before the run promise settles.
-  // Warnings are for mutating cwd waves only: declared read-only modelRoles
-  // (explore/plan/review/test) never participate, and a cwd emits at most one
-  // conflict while any live mutating writer remains; the wave flag clears when
-  // that set empties so a later independent wave can warn once again.
+  // Warnings are for mutating cwd waves only: read-only modelRoles never
+  // participate, and a cwd emits at most one conflict while any live
+  // mutating writer remains; the wave flag clears when that set empties so a
+  // later wave can warn once again.
   const activeLanes = new Map<
     string,
     { description: string; cwd: string; modelRole: ModelRole | undefined }
@@ -1465,13 +1460,14 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             return;
           }
 
-          // Detect, don't lock: warn when another live mutating lane is already
-          // working in this same cwd. Worktree-isolated lanes never collide
-          // (each gets its own directory); this only fires in the shared-cwd
-          // fallback, where two writers genuinely can overwrite each other's
-          // writes. Declared read-only modelRoles are ignored; at most one
-          // conflict per cwd wave. Never blocks the spawn — a shared cwd does
-          // not prove the two lanes touch the same files, only that they could.
+          // Detect, don't lock: warn when another live mutating lane is
+          // already working in this same cwd. Worktree-isolated lanes never
+          // collide (each gets its own directory); this only fires in the
+          // shared-cwd fallback, where two writers genuinely can overwrite
+          // each other's writes. Declared read-only modelRoles are ignored;
+          // at most one conflict per cwd wave. Never blocks the spawn — a
+          // shared cwd does not prove the two lanes touch the same files,
+          // only that they could.
           const laneCwd = worktreeCwd ?? deps.cwd;
           const laneModelRole = resolved.pkg?.modelRole;
           const laneIsWriter = !isDeclaredReadOnly(laneModelRole);
@@ -1576,11 +1572,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             ...(deps.skillDirs !== undefined
               ? { skillDirs: deps.skillDirs }
               : {}),
-            // Shared-cwd lanes reuse the dispatcher's skill catalog instead of
-            // rescanning — the snapshot was discovered for this exact cwd.
-            // Worktree lanes run elsewhere, so they rediscover for their own
-            // directory. Every fleet-spawned worker skips the pricing-cache
-            // seed read: the parent runtime already applied it at boot.
+            // Shared-cwd lanes reuse the dispatcher's skill catalog instead
+            // of rescanning — the snapshot was discovered for this exact
+            // cwd. Worktree lanes run elsewhere, so they rediscover for
+            // their own directory. Every fleet-spawned worker skips the
+            // pricing-cache seed read: the parent applied it at boot.
             ...(deps.skillSnapshot !== undefined && worktreeCwd === undefined
               ? { skills: deps.skillSnapshot }
               : {}),
@@ -1601,11 +1597,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             ...(deps.deadlineMs !== undefined
               ? { deadlineMs: deps.deadlineMs }
               : {}),
-            // Single tier derivation (dispatchTier above): the tier gate and
-            // the mount agree by construction, so a gated requirement can
-            // never die as a stale snapshot at mount, or vice versa. An
-            // orchestrator dispatch without a resolved package carries no
-            // tier — run.ts fails closed on fleet mounts from there.
+            // Same dispatchTier as the tier gate above — mount and gate
+            // agree by construction, so a gated requirement can never die
+            // as a stale snapshot at mount, or vice versa. An orchestrator
+            // dispatch without a resolved package carries no tier — run.ts
+            // fails closed on fleet mounts from there.
             ...(resolved.pkg !== undefined || !orchestrator
               ? { tier: dispatchTier }
               : {}),
@@ -1729,9 +1725,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               if (isProviderFailure || providerFailureObserved) {
                 deps.fleetRecords.markProviderFailure(session.id);
               }
-              // A classified transient failure stays wait-terminal failed, but
-              // carries a continuable marker so the parent can spawn one
-              // successor instead of stalling on the failure. Fatal categories
+              // A classified transient failure stays wait-terminal failed,
+              // but carries a continuable marker so the parent can spawn one
+              // successor instead of stalling. Fatal categories
               // (credential/quota/context-overflow) and unclassified throws
               // never mark — no auto-retry is added here.
               if (
@@ -1781,8 +1777,8 @@ interface WaitAgentsDeps {
    * (TUI does not mount wait_agents; exec mounts without the predicate).
    * When true, finish the wait as a timeout so occupancy can deliver
    * mailbox mail or a queued operator steer. Live and awaiting_director
-   * records stay peeked (workers keep running); terminals are taken
-   * unless already bodyHanded.
+   * records stay peeked (workers keep running); terminals are taken unless
+   * already bodyHanded.
    */
   shouldYieldWait?: () => boolean;
 }
@@ -1917,12 +1913,11 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
       // Terminal overlay/session projections are marked collected once
       // delivered here; a running record is only peeked, so it stays waitable.
       // A yield leaves live records for occupancy (mailbox mail / ask-wake):
-      // running/queued stay peeked and the awaiting_director question above
-      // stays with the wake path. Terminal records are always taken, even on
-      // a yield or timeout: reporting done with no report while the record
-      // stays uncollected blocks resume_agent ("call wait_agents first") and
-      // keeps the occupancy yield predicate true, so every later wait yields
-      // the same way.
+      // running/queued stay peeked and the awaiting_director question stays
+      // with the wake path. Terminal records are always taken, even on a
+      // yield or timeout: an uncollected "done" blocks resume_agent ("call
+      // wait_agents first") and keeps the occupancy yield predicate true, so
+      // every later wait yields the same way.
       const results = targets.map((id) => {
         const record = deps.fleetRecords.peek(id);
         if (record === undefined) {

@@ -211,9 +211,8 @@ import { runWithSubAgentIdentity } from "./identity-context.js";
 /**
  * Worker authorization denies unresolved approvals without suspending, so the
  * reactor should never park a gate and Agent.send should always settle on
- * "reply". This guard is the sound fallback if that ever drifts: instead of
- * flattening the suspension into an opaque message, the thrown error carries
- * the correlationId and approval snapshot needed to resume or diagnose.
+ * "reply". Sound fallback if that drifts: the thrown error carries the
+ * correlationId and approval snapshot needed to resume or diagnose.
  */
 export function assertReplySend(
   result: SendResult,
@@ -237,11 +236,10 @@ export function assertReplySend(
 // Bounded outer retry for the main send. The harness policy in
 // vendor/intx-inference/src/retry-policy.ts already retries retryable faults
 // up to 3 times per send; this loop covers the case where the harness gives
-// up and the failure terminalizes the worker anyway. The outer budget is one
-// retry, not a second full schedule — worst case is 2 outer x 3 inner sends.
-// The single delay matches the first step of the harness backoff (500ms
-// before attempt 2) with the same jitter applied below, so only the first
-// backoff step is ever reached — a table would be dead weight.
+// up and the failure terminalizes the worker anyway. One outer retry, not a
+// second full schedule — worst case is 2 outer x 3 inner sends. The single
+// delay matches the first step of the harness backoff (500ms before attempt
+// 2) with the same jitter applied below, so only that step is ever reached.
 // createCorbitsRetryPolicy decides per-attempt retry inside a live send and
 // must not drive this loop.
 // Retrying after a tool already executed is unsafe — the second send would
@@ -389,16 +387,16 @@ export function coreSubAgentWebTools(
  * Inherited MCP tools (`mcp__<server>__<tool>`) mount only when the dispatch
  * requested them. An explicit stamp always counts: a `requiresTools` entry
  * (the requires_tools gate, validated pre-spawn against the live inherited
- * set) or an allowlist naming in `capabilities.tools`. Inheritance itself
- * also counts: names in `inheritedMcpTools` — the live set returned by
- * `inheritMcpTools` for this worker — mount without an extra stamp when no
- * narrower constraint applies (no `capabilities`, no `requiresTools`), so
- * the inherit-by-default contract holds and the worker gate (parent grant)
- * governs execution. An explicit stamp narrows: with `requiresTools`
- * present only stamped MCP names mount, even inherited siblings. An
- * `mcp__*` name outside both sets never mounts. An explicit exclude still
- * withholds a requested live MCP tool (surfacing downstream as a stale
- * snapshot, normally pre-empted by the dispatch preflight).
+ * set) or an allowlist naming in `capabilities.tools`. Inheritance also
+ * counts: names in `inheritedMcpTools` — the live set returned by
+ * `inheritMcpTools` — mount without an extra stamp when no narrower
+ * constraint applies (no `capabilities`, no `requiresTools`), so the
+ * inherit-by-default contract holds and the worker gate (parent grant)
+ * governs execution. An explicit stamp narrows: with `requiresTools` only
+ * stamped MCP names mount, even inherited siblings. An `mcp__*` name
+ * outside both sets never mounts. An explicit exclude still withholds a
+ * requested live MCP tool (surfacing downstream as a stale snapshot,
+ * normally pre-empted by the dispatch preflight).
  */
 export function applyCapabilityFilter(
   tools: AgentTool[],
@@ -608,12 +606,12 @@ const askDirectorDefinition: ToolDefinition = {
   },
 };
 
-// Spin up an isolated, autonomous agent loop, hand it one task, and return
-// its final report. `params.cwd` is either the dispatcher's own cwd (shared
-// mode) or a worktree snapshotted from the dispatcher's last commit
-// (isolated mode, see agent-fleet.ts's useWorktree) — either way this loop
-// gets its own posix tool instances and its own git-backed context store so
-// the two loops never trample each other's state.
+// Spin up an isolated agent loop, hand it one task, and return its final
+// report. `params.cwd` is either the dispatcher's own cwd (shared mode) or a
+// worktree snapshotted from the dispatcher's last commit (isolated mode, see
+// agent-fleet.ts's useWorktree) — either way this loop gets its own posix
+// tool instances and its own git-backed context store so the two loops never
+// trample each other's state.
 export async function runSubAgent(
   params: RunSubAgentParams,
 ): Promise<RunSubAgentResult> {
@@ -763,13 +761,11 @@ async function runSubAgentInner(
   let interruptedKeepAlive = false;
   // Scoped to this run's `agent.send()` call only. Firing it rejects that
   // one send's promise (per Agent.send's documented signal option) without
-  // touching agent.close() or runController — the reactor cycle it belongs
-  // to keeps running in the background, so a later resume_agent's
-  // agent.send() simply queues behind it rather than racing a half-torn-down
-  // session.
-  // Per-turn abort for interrupt_agent. Recreated at the start of each
-  // followup send so a prior abort cannot immediately reject the next turn,
-  // and so interrupt_agent can stop a resumed agent.send().
+  // touching agent.close() or runController — the reactor cycle keeps
+  // running in the background, so a later resume_agent's agent.send() queues
+  // behind it rather than racing a half-torn-down session.
+  // Per-turn abort for interrupt_agent, recreated at each followup send so a
+  // prior abort cannot immediately reject the next turn.
   let interruptController = new AbortController();
   // Declared before try (same reasoning as closeOnAbort above): assigned once
   // requestContinuation/modelFamilyPolicy exist inside the try, but must be
@@ -1102,7 +1098,7 @@ async function runSubAgentInner(
     // Mount echo: dispatch verified requires_tools pre-spawn, but the filter
     // or mount may have shifted since — a stamped tool missing here is a
     // stale snapshot, a setup_error that never retries (non-continuable).
-    // Dispatch-side rejection is the normal path. This check runs after ALL
+    // Dispatch-side rejection is the normal path; this check runs after ALL
     // mounts (manage_tasks, leaf submit_result/ask_director, fleet verbs), so
     // a dispatch that passed preflight against the same mount never throws.
     if (params.requiresTools !== undefined && params.requiresTools.length > 0) {
@@ -1303,8 +1299,8 @@ async function runSubAgentInner(
     // external nudge to even get a decide() call. Ping the same continuation
     // channel compaction uses at the stall interval; the director only acts
     // on a ping if nothing happened since the last one. Drop the ping while
-    // ask_director is parked — do not defer it through compactContinue, or
-    // the post-unpark flush would look like a stall-window empty continuation.
+    // ask_director is parked — deferring it through compactContinue would
+    // make the post-unpark flush look like a stall-window empty continuation.
     stallWatchdog = setInterval(() => {
       if (askDirectorState.pending) return;
       deliverCompactContinue();
