@@ -30,11 +30,10 @@ import {
   ZEN_MESSAGES_PROVIDER,
 } from "./anthropic-session-adapter.js";
 
-// Corbits Code ships first-party adapters on top of the built-in provider set:
-// openai-compatible and OpenCode Go chat-completions adapters, Codex/Grok
-// responses, Bifrost, generic openai-responses (OpenCode Go gpt-* Luna family),
-// the OpenCode Go Anthropic messages adapter, and the Zen Anthropic messages
-// adapter.
+// First-party adapters on top of the built-in provider set: openai-compatible
+// and OpenCode Go chat-completions, Codex/Grok responses, Bifrost, generic
+// openai-responses (OpenCode Go gpt-* Luna family), and the OpenCode Go / Zen
+// Anthropic messages adapters.
 const manifest: AdapterManifest = [
   {
     provider: "openai-compatible",
@@ -96,9 +95,9 @@ const localModules: Record<string, unknown> = {
 
 let cached: Promise<Dependencies> | undefined;
 
-// The registry is built from pure factories and holds no per-call state, so a
-// single instance is shared across the primary agent, sub-agents, and the
-// compaction summarizer — every inference path resolves the same provider set.
+// Built from pure factories with no per-call state, so one instance is shared
+// across the primary agent, sub-agents, and the compaction summarizer — every
+// inference path resolves the same provider set.
 export function createInferenceDependencies(): Promise<Dependencies> {
   if (cached === undefined) {
     cached = loadAdapterRegistry(manifest, {

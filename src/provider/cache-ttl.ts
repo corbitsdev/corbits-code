@@ -1,21 +1,21 @@
 // Provider prompt-cache TTLs for idle recompression.
 //
-// The fold is a re-compress, not a cache play: it runs only after a
-// published cache expiry, so the next turn rewrites a smaller prefix instead
-// of compacting while a warm cache would still have been a cheap read.
+// The fold is a re-compress, not a cache play: it runs only after a published
+// cache expiry, so the next turn rewrites a smaller prefix instead of
+// compacting while a warm cache would still be a cheap read.
 //
-// Anthropic is the only provider with a published idle expiry we use: the
-// default ephemeral cache lasts 5 minutes and refreshes on each hit. The
-// 1-hour TTL costs more to write and this client never sets it.
-// `zen-messages` and `opencode-go-messages` speak that same messages
-// protocol, so they share the 5-minute window.
+// Only Anthropic has a published idle expiry we use: the default ephemeral
+// cache lasts 5 minutes and refreshes on each hit. The 1-hour TTL costs more
+// to write and this client never sets it. `zen-messages` and
+// `opencode-go-messages` speak that same messages protocol, so they share the
+// 5-minute window.
 //
-// Everyone else is disabled. OpenAI GPT-5.6+ stays eligible for at least 30
-// minutes. Gemini's implicit cache has no published eviction window and its
-// explicit cache defaults to 1 hour. DeepSeek's disk cache is cleared over
-// hours to days. xAI publishes no TTL. Guessing a shorter window would fold
-// a cache that is still warm. Ollama has no remote cache. Unknown providers
-// stay off rather than inheriting a default.
+// Everyone else is disabled: OpenAI GPT-5.6+ stays eligible ≥30 minutes;
+// Gemini's implicit cache has no published eviction window (explicit defaults
+// to 1 hour); DeepSeek's disk cache clears over hours to days; xAI publishes
+// no TTL; Ollama has no remote cache. Guessing a shorter window would fold a
+// cache that is still warm; unknown providers stay off rather than inheriting
+// a default.
 //
 // Non-goal: the summary call itself carries no `cache_control` —
 // prompt-caching the fold is not attempted.
@@ -40,8 +40,8 @@ type CacheTtlIdentity = {
 };
 
 // Canonical provider segment of a `provider/model` string: the account or
-// adapter name before the first "/" (custom names like `xai/alice`
-// carry the provider there), else the head before ":".
+// adapter name before the first "/" (custom names like `xai/alice` carry the
+// provider there), else the head before ":".
 function canonicalSegment(model: string): string {
   const lower = model.toLowerCase();
   const slash = lower.indexOf("/");
@@ -56,12 +56,12 @@ function ttlForSegment(segment: string): number | undefined {
 }
 
 /**
- * Milliseconds of provider-cache idle after which a recompress is allowed,
- * or `undefined` when idle recompress must not run. Never throws.
+ * Milliseconds of provider-cache idle after which a recompress is allowed, or
+ * `undefined` when idle recompress must not run. Never throws.
  *
  * Accepts a slash-form `provider/model` string or a LastCycleSource-shaped
  * identity. An explicit provider wins: only the Anthropic messages protocol
- * returns the 5-minute window. A non-Anthropic provider stays disabled even
+ * returns the 5-minute window; a non-Anthropic provider stays disabled even
  * when the model id contains "claude". Ollama is recognized from `sourceId`
  * (`isOllamaProviderId`) before that, because production stamps
  * `provider: openai-compatible` for local inference.
@@ -99,17 +99,16 @@ export function anthropicCacheWriteAt(
 
 /**
  * Seed for a resumed session's pre-infer fold. Absent unless the provider
- * about to be called speaks the Anthropic messages protocol. A stamp alone
+ * about to be called speaks the Anthropic messages protocol — a stamp alone
  * is not enough: a non-Anthropic live adapter must not fold.
  *
- * `liveProvider` is the catalog id (`source.id`). Runners persist
- * `${id}:${model}`, and that id is `zen`, `opencode-go`, or a custom account
- * name — not `zen-messages`, `opencode-go-messages`, or `anthropic`.
- * `liveProtocol` is `source.provider`, the adapter that actually wrote the
- * cache. A catalog-form stamp is accepted only for this same catalog id, and
- * the returned model uses the protocol name so the governor's TTL check
- * follows the adapter. A protocol-form stamp (the in-memory `provider:model`
- * recorded at inference.done) is kept as-is.
+ * `liveProvider` is the catalog id (`source.id`): runners persist
+ * `${id}:${model}` with that id (`zen`, `opencode-go`, or a custom account
+ * name, not the protocol names). `liveProtocol` is `source.provider`, the
+ * adapter that actually wrote the cache. A catalog-form stamp is accepted
+ * only for this same catalog id, and the returned model uses the protocol
+ * name so the governor's TTL check follows the adapter; a protocol-form
+ * stamp (in-memory `provider:model` at inference.done) is kept as-is.
  */
 export function resumeCacheWriteSeed(args: {
   at: number | undefined;

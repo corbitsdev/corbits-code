@@ -51,9 +51,8 @@ function withHostReasoningEffort(adapter: ProviderAdapter): ProviderAdapter {
   };
 }
 
-// The ChatGPT Codex backend accepts parallel_tool_calls:true (HTTP 200 on
-// POST /codex/responses, echoed true in response.created). The packaged
-// adapter still pins false, so the host rewrites the field on the wire; the
+// The Codex backend accepts parallel_tool_calls:true, but the packaged
+// adapter pins false; the host rewrites the field on the wire because the
 // reactor already fans out a multi-call batch concurrently.
 export function withParallelToolCalls(
   adapter: ProviderAdapter,

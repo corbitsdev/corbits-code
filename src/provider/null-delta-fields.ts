@@ -1,6 +1,6 @@
 // Some OpenAI-shaped streams send null for delta fields the upstream schema
 // requires to be non-null (role: string, tool_calls: array). Fields that
-// legitimately accept null (content, reasoning_content, etc.) are left alone.
+// legitimately accept null (content, reasoning_content, etc.) stay untouched.
 export const NULL_DELTA_FIELDS = ["role", "tool_calls"] as const;
 
 export function normalizeNullDeltaFields(

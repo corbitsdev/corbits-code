@@ -41,8 +41,8 @@ export function isBareZenBaseURL(baseURL: string): boolean {
 
 /**
  * Resolve the billing product for a catalog/provider entry.
- * - OpenCode Go (flag, known id/label, or Go baseURL) → subscription
- * - Zen by name or bare zen baseURL → credits
+ * OpenCode Go (flag, known id/label, or Go baseURL) → subscription;
+ * Zen by name or bare zen baseURL → credits.
  */
 export function billingProductForProvider(
   entry: BillingProductProvider,
@@ -58,9 +58,9 @@ export function billingProductForProvider(
 }
 
 /**
- * True when a protocol-map Go model id is configured on a Zen-billed provider path.
- * "Known" is local PROTOCOL_BY_ID membership, not live-picker membership.
- * Used to surface a cross-product warning (Go model would bill as Zen PAYG).
+ * True when a protocol-map Go model id sits on a Zen-billed provider path.
+ * "Known" is local PROTOCOL_BY_ID membership, not live-picker membership;
+ * used to surface a cross-product warning (Go model bills as Zen PAYG).
  */
 export function isGoModelOnZenPath(
   modelId: string,

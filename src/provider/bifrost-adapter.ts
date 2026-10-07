@@ -5,9 +5,9 @@ import {
 } from "@intx/inference";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 
-// Small adapter for Bifrost (https://docs.getbifrost.ai).
-// Bifrost is OpenAI-compatible for chat but scopes requests to a virtual
-// key's permissions and model list via an `x-bf-vk` header (raw key value)
+// Small adapter for Bifrost (https://docs.getbifrost.ai). Bifrost is
+// OpenAI-compatible for chat but scopes requests to a virtual key's
+// permissions and model list via an `x-bf-vk` header (raw key value)
 // alongside Authorization: Bearer. `bifrostVirtualKey: true` providers get
 // this adapter, the x-bf-vk sentinel, and provider: "bifrost" from
 // buildInferenceSourceForRef. Model listing uses fetchBifrostModels, which
@@ -35,9 +35,9 @@ export function createBifrostAdapter(source: AdapterSource): ProviderAdapter {
       headers: {
         ...req.headers,
         "x-bf-vk": CREDENTIAL_SENTINEL,
-        // The base adapter will have already emitted authorization as the
-        // BEARER sentinel; we ensure it is present (spread keeps it) and also
-        // tolerate gateways that only look at x-bf-vk.
+        // The base adapter has already emitted authorization as the BEARER
+        // sentinel; spread keeps it, and gateways that only look at x-bf-vk
+        // are tolerated.
       },
     } as BuiltRequest;
   };

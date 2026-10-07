@@ -1,4 +1,4 @@
-// Onboarding submits provider credentials before they've ever been used for
+// Onboarding submits provider credentials before they have ever been used for
 // inference — a bad base URL or key otherwise only surfaces as a stream error
 // mid-conversation. Do a lightweight GET against the OpenAI-compatible
 // /models endpoint (supported by every provider corbits targets, including

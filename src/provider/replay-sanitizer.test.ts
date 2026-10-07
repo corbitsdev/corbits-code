@@ -343,11 +343,11 @@ describe("withReplaySanitizer", () => {
     }
   });
 
-  // Regression: sanitizeReplayTurns runs INSIDE buildRequest,
-  // before the adapter's own toResponsesItems ever sees a turn. A turn
-  // missing `model` must survive stripForeignBlocks's foreign-turn gate, not
-  // just signatureForModel's gate inside the adapter — otherwise the
-  // signature never reaches the adapter's own (correctly fixed) check.
+  // Regression: sanitizeReplayTurns runs INSIDE buildRequest, before the
+  // adapter's own toResponsesItems ever sees a turn. A turn missing `model`
+  // must survive stripForeignBlocks's foreign-turn gate, not just
+  // signatureForModel's gate inside the adapter — otherwise the signature
+  // never reaches the adapter's own (correctly fixed) check.
   it("carries a reasoning signature through the real buildRequest path when the turn has no model", () => {
     const adapter = withReplaySanitizer(codexRegistry()).resolve({
       sourceId: "s1",

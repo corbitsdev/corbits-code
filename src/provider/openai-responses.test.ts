@@ -81,8 +81,8 @@ describe("openai-responses promotion cache safety", () => {
     };
   }
 
-  // The tools array is the head of the provider's cached prefix, so
-  // a mid-session activation must not change the serialized request body —
+  // The tools array is the head of the provider's cached prefix, so a
+  // mid-session activation must not change the serialized request body —
   // the turns differ only in activated tools.
   test("activating a tool mid-session leaves the serialized wire body byte-identical", () => {
     const advertised = createAdvertisedToolset({

@@ -1,8 +1,7 @@
 /**
  * Golden tests: sanitized Responses SSE fixtures → InferenceEvent sequences.
- *
- * Fixtures live under fixtures/codex-sse/ (JSON arrays of SSE data payloads).
- * These pin edge-event handling without live network or real tokens/prompts.
+ * Fixtures live under fixtures/codex-sse/ (JSON arrays of SSE data payloads)
+ * and pin edge-event handling without live network or real tokens/prompts.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
