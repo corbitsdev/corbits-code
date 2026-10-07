@@ -44,9 +44,8 @@ export const AGENTS_PANEL_MAX_VISIBLE = 10;
 
 /**
  * Share of the terminal the fleet board may take before it starts hiding
- * lanes. The board is sized to its content, so a single lane costs two rows
- * and a dozen costs thirteen; this only bounds the large fan-out, and the
- * transcript keeps everything the board does not ask for.
+ * lanes. The board is sized to its content (one lane costs two rows, a dozen
+ * thirteen); this only bounds the large fan-out.
  */
 export const FLEET_BOARD_CAP_FRACTION = 0.62;
 
@@ -184,10 +183,9 @@ export const OVERLAY_MAX_FRACTION = 0.7;
 
 /**
  * Smallest overlay_host an open overlay can render into: two border rows plus
- * one content row. The transcript floor exists to keep conversation visible,
- * but it must not starve an overlay the operator just opened below the rows
- * its own border costs — that renders past its box instead of shrinking.
- * When even this minimum cannot be granted beside the prompt floor, the
+ * one content row. The transcript floor must not starve a just-opened overlay
+ * below the rows its own border costs — that renders past its box instead of
+ * shrinking. When even this minimum cannot sit beside the prompt floor, the
  * overlay may take rows from below PROMPT_BASE_ROWS.
  */
 export const OVERLAY_MIN_ROWS = 3;
@@ -246,17 +244,6 @@ export const PAINT_ORDER = [
   "pending",
   "prompt",
 ] as const satisfies readonly ZoneId[];
-
-/**
- * Optical breathing room shared by every shell surface.
- *
- * The side gutter is one number for the whole interface — transcript, prompt
- * box, model bar, hint row and overlay host all sit inside it — so the shell
- * reads as a single column of content rather than panes that happen to be
- * stacked. Top and bottom pads are carved out of the transcript residual by
- * the shell after the geometry resolver has assigned heights, so they never
- * change the resolver's row budget.
- */
 
 /**
  * Gutter columns on each side once the terminal can afford them.

@@ -52,9 +52,9 @@ export interface ToolWatchdogConfig {
   salvageGraceMs?: number;
 }
 
-// Default wall-clock budget for a single MCP tool call when settings.mcp.timeoutMs
-// is unset. Live forensics showed multi-minute MCP calls that were merely slow
-// and later completed successfully, not deadlocked — so this stays generous
+// Default wall-clock budget for a single MCP tool call when
+// settings.mcp.timeoutMs is unset. Live forensics showed multi-minute MCP
+// calls that were merely slow and later completed, so this stays generous
 // (5 minutes) rather than the shorter default used for other tools, while
 // still bounding a genuinely wedged server.
 export const DEFAULT_MCP_TOOL_TIMEOUT_MS = 300_000;
@@ -64,8 +64,8 @@ export const DEFAULT_MCP_TOOL_TIMEOUT_MS = 300_000;
 export const MAX_TOOL_EXECUTION_TIMEOUT_MS = 1_800_000;
 
 /**
- * Watchdog arms before shell-guard, so the outer budget must outlast a matching
- * requested run_shell timeout or this layer wins the race and aborts first.
+ * The watchdog arms before shell-guard, so its budget must outlast a matching
+ * requested run_shell timeout or it aborts first.
  */
 export const RUN_SHELL_WATCHDOG_SLACK_MS = 1_000;
 
@@ -77,10 +77,9 @@ export const RUN_SHELL_WATCHDOG_SLACK_MS = 1_000;
 export const TOOL_EXECUTION_SALVAGE_GRACE_MS = 5_000;
 
 /**
- * Upper bound on how long a paused budget may stay frozen. A permission prompt
- * that never becomes visible (overlay open, gate listener gone) never resumes
- * the budget; after this ceiling the clock resumes on its own so a frozen
- * budget cannot hang a tool run indefinitely.
+ * Upper bound on how long a paused budget may stay frozen. A permission
+ * prompt that never becomes visible never resumes the budget; after this
+ * ceiling the clock resumes on its own so a frozen budget cannot hang a run.
  */
 export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
 
@@ -95,14 +94,12 @@ export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
  *
  * spawn_agent, wait_agents and ask_director are exempt: spawn_agent returns
  * immediately, and aborting wait_agents/ask_director would not stop the
- * workers or director they wait on — wait_agents can outlast the settings
- * timeout while workers still run, and aborting the ask cancels the pending
- * ask so later send_input steers instead of answering. run_shell
- * background:true is exempt because the process outlives the turn.
+ * workers or director they wait on. run_shell background:true is exempt
+ * because the process outlives the turn.
  *
- * mcp__* calls are the opposite: they arm unconditionally (see
- * resolveMcpToolTimeoutMs) even with no Settings configured, because an MCP
- * server can wedge a call forever with no other watchdog to bound it.
+ * mcp__* calls arm unconditionally even with no Settings configured (see
+ * resolveMcpToolTimeoutMs): an MCP server can wedge a call forever with no
+ * other watchdog to bound it.
  */
 export function resolveToolExecutionTimeoutMs(
   config?: ToolWatchdogConfig,
@@ -186,12 +183,9 @@ export function resolveWaitForApproval(config?: ToolWatchdogConfig): boolean {
   return config?.waitForApproval !== false;
 }
 
-/**
- * Identifies the pause generation a `pause()` call belonged to. A forced
- * ceiling resume bumps the generation, so a `resume(token)` call made after
- * the ceiling already fired for that pause can recognize itself as stale
- * instead of decrementing a newer, unrelated pause's depth.
- */
+/** A pause()/resume() pair's generation. A forced ceiling resume bumps it, so
+ * a resume() after the ceiling fired for its pause is recognized as stale
+ * instead of decrementing a newer, unrelated pause's depth. */
 export type PauseToken = number;
 
 export interface PauseableTimeout {
@@ -280,11 +274,9 @@ export function withPauseableTimeout(
       startedAt = null;
     }
     clearTimer();
-    // Ceiling on the freeze: an invisible or orphaned prompt never calls
-    // resume, so force the clock back on after pauseCeilingMs. That bumps the
-    // generation, so a resume() for this pause arriving afterward is stale
-    // and recognized as such by its token (see resume() below) rather than
-    // decrementing whatever pause is active by then.
+    // Ceiling on the freeze: an invisible or orphaned prompt never resumes,
+    // so force the clock back on after pauseCeilingMs. Bumping the
+    // generation makes a late resume() for this pause stale (see resume()).
     ceilingTimer = setTimeout(() => {
       ceilingTimer = null;
       pauseDepth = 0;
@@ -388,9 +380,9 @@ export async function settleWithGrace<T>(
 }
 
 /**
- * After budget abort, prefer a late non-error execute body (wait_agents salvage) when
- * it settles within grace. Errors / empty bodies / grace expiry → undefined so
- * the caller can emit the synthetic abort/timeout result.
+ * After budget abort, prefer a late non-error execute body (wait_agents
+ * salvage) when it settles within grace. Errors / empty bodies / grace
+ * expiry → undefined so the caller emits the synthetic abort/timeout result.
  */
 export async function preferExecuteSalvageAfterAbort(
   executePromise: Promise<ToolResult>,

@@ -54,19 +54,15 @@ export const LANDING_HERO_GAP = 3;
 /**
  * The running build, read from `package.json` so it cannot drift from what
  * shipped. Rendered in the shell's persistent chrome (bottom-right of the
- * terminal), not as part of this module's landing composition — see
- * `versionBadgeVisible` and `shell.ts`'s `versionBadge`.
+ * terminal), not as part of this module's composition.
  */
 export const LANDING_VERSION = `v${pkg.version}`;
 
 /**
  * Minimum terminal size the version badge needs before it hides. 16 rows is
- * above `IDLE_TRANSCRIPT_FLOOR` (12) — the only row floor real chrome is
- * actually held to at rest — so the badge is gone well before the
- * transcript itself would be squeezed. It is also below
- * `BOTTOM_MARGIN_MIN_ROWS` (24): the bottom pad is optical room carved from
- * the transcript residual, not a second reserved chrome row, so the badge's
- * own threshold does not need to clear it.
+ * above the transcript floor (12) and below the bottom-margin threshold (24),
+ * so the badge is gone before the transcript would be squeezed, without
+ * reserving a second chrome row.
  */
 export const VERSION_BADGE_MIN_COLUMNS = 60;
 export const VERSION_BADGE_MIN_ROWS = 16;
@@ -76,9 +72,8 @@ export function versionBadgeVisible(columns: number, rows: number): boolean {
 }
 
 /**
- * The two doors off the landing screen. `/help` is among the commands `/`
- * opens; `/yolo` is the other way in, so permission prompts do not have to be
- * discovered the hard way.
+ * The two doors off the landing screen: `/` for commands and `/yolo` so
+ * permission prompts do not have to be discovered the hard way.
  */
 export const LANDING_HINTS: readonly {
   readonly key: string;
@@ -240,13 +235,10 @@ const SUGGESTION_HEADER = "try";
 /**
  * Text rows painted below the prompt box, top to bottom.
  *
- * `suggestionsVisible` is false once the operator has typed anything. The
- * starters are whole-prompt replacements — `applyLandingSuggestion` already
- * refuses to overwrite typed text — so leaving a numbered list on screen would
- * advertise keys that do nothing, and the digits would land in the prompt
- * instead. Offering different, "complementary" text while someone is mid-
- * sentence would be worse still: it competes with the thing being typed. So
- * the starters withdraw and come back the moment the prompt is empty again.
+ * `suggestionsVisible` is false once the operator has typed anything: the
+ * starters are whole-prompt replacements, so a visible numbered list would
+ * advertise keys that do nothing (and the digits would land in the prompt),
+ * and different "complementary" text would compete with what is being typed.
  * The rows stay, blank, so the layout does not jump on the first keystroke.
  */
 export function landingBelowRows(

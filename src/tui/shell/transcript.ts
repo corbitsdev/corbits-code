@@ -132,12 +132,10 @@ export function streamRowAt(
 export const evictionMarkers = new WeakSet<BaseRenderable>();
 
 /**
- * Row-index code paths (below, and the two windowed-rebuild callers) treat
- * `getChildren()` as a 1:1 array with `streamLog`. The leading bottom-anchor
- * spacer (see `transcriptSpacers`) and, once retention has evicted anything,
- * the eviction notice above the oldest retained row both break that — every
- * consumer that needs the row-only view goes through here rather than the
- * raw call.
+ * Row-index code paths treat `getChildren()` as a 1:1 array with
+ * `streamLog`. The leading bottom-anchor spacer and, once retention has
+ * evicted anything, the eviction notice above the oldest retained row both
+ * break that — every consumer needing the row-only view goes through here.
  */
 export function transcriptRowChildren(
   shell: AppShell,
@@ -191,7 +189,7 @@ export function retextStreamRow(
 
 /** Last painted state per split markdown body, keyed by its column node. A
  * rebuilt row gets a fresh node, so stale entries collect with the old row;
- * a retext that finds no entry treats the paint as first and repaints. */
+ * a retext with no entry treats the paint as first. */
 const splitBodyMemory = new WeakMap<BaseRenderable, StreamMarkdownSnapshot>();
 
 /** The shape-matching rewrite shared by labelled and unlabelled rows. */
@@ -301,9 +299,8 @@ function markdownBodyColumns(
 
 /**
  * Markdown tables shrink to the row's column budget rather than overflowing:
- * columns are fitted proportionally and cells wrap on word boundaries. A table
- * still too wide for its narrowest fit is clipped by the body's pinned width,
- * which keeps it inside the transcript instead of painting over the chrome.
+ * columns fit proportionally and cells wrap on word boundaries; a table still
+ * too wide for its narrowest fit is clipped by the body's pinned width.
  */
 const TRANSCRIPT_TABLE_OPTIONS = {
   wrapMode: "word",
@@ -406,9 +403,9 @@ function markdownBodyOptions(gutter: PaintedStreamLine, width: number) {
 }
 
 /**
- * A literal-text row's paint node: always a single text node, as before. Rows
- * holding URLs paint styled text (URL spans carry OSC-8 metadata) and arm as
- * Ctrl+click targets; URL-free rows paint the plain string they always have.
+ * A literal-text row's paint node: always a single text node. Rows holding
+ * URLs paint styled text (URL spans carry OSC-8 metadata) and arm as
+ * Ctrl+click targets; URL-free rows paint the plain string.
  */
 function buildPlainRowNode(
   ctx: CliRenderer,
@@ -468,9 +465,7 @@ function paintPlainRowNode(
  * Once a block settles — a heading with content behind it, a closed fence, a
  * complete table — the body becomes a settled `frozen` renderer (everything
  * through that boundary, never streamed or re-highlighted) stacked above the
- * still `live` one, which carries the row's own streaming flag. Both halves
- * use the library's default block mode, so content inside either one lays
- * out exactly as a single unsplit body would.
+ * still `live` one, which carries the row's streaming flag.
  */
 function createMarkdownBody(
   ctx: CliRenderer,
@@ -548,7 +543,7 @@ function createStyledLinesRowRenderable(
  * One painted body line. A line ending in an expand arrow is split so the
  * arrow is its own renderable and can answer a click; a line holding URLs
  * paints styled text and arms as a Ctrl+click target (see url-links.ts);
- * every other line is a single text node, as before.
+ * every other line is a single text node.
  */
 function bodyLineNode(
   ctx: CliRenderer,

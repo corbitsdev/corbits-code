@@ -1,10 +1,8 @@
 /**
  * Delivery queue: mid-run queue / steer / interrupt state machine, the serial
- * operation chain that drains it, and the generation-gated delivery hops.
- *
- * One module: `session-queue.ts` (pure item state), `session-operation-queue.ts`
- * (serial promise chain), and `queued-delivery.ts` (kind routing + delivery
- * hops) were three slices of the same drain pipeline, now moved together.
+ * operation chain that drains it, and the generation-gated delivery hops
+ * (the former session-queue, session-operation-queue, and queued-delivery
+ * modules, moved together).
  *
  * Pure data — no paint, no OpenTUI. Shell + demo own delivery and UI flash.
  *
@@ -46,10 +44,9 @@ export interface DeliverAgentMessageDeps {
 
 /**
  * Guards a queued/steer deliver against a mid-rebuild or closed agent. The
- * shell paints the delivered row and pops the queue item before this runs, so
- * the caller must settle ownership from the structured result — a swallowed
- * failure here means the transcript claims delivery for a message that never
- * reached the agent.
+ * shell paints the row and pops the queue item before this runs, so the
+ * caller must settle ownership from the structured result — a swallowed
+ * failure would claim delivery for a message that never reached the agent.
  */
 export async function deliverAgentMessage(
   deps: DeliverAgentMessageDeps,
@@ -81,15 +78,11 @@ export async function deliverAgentMessage(
 }
 
 /**
- * Settles a deliver that was enqueued on the serial operation queue against
- * the shoot generation captured at enqueue time. The queue is FIFO with no
- * preemption, so a deliver queued ahead of a reload still executes after the
- * reload has replaced the agent — the generation must be re-checked when the
- * queued closure runs, not just when it enqueues. A stale deliver takes the
- * `onStale` path (the caller reports `not-delivered`); a current deliver runs
- * the real settle. This is what closes the reload-vs-async-deliver race: a
- * reload that lands while a continuation answer is queued wins, and the stale
- * answer is dropped instead of reaching the replaced agent.
+ * Runs a queued deliver against the generation captured at enqueue time. The
+ * queue is FIFO with no preemption, so a deliver queued ahead of a reload
+ * still executes after the reload replaced the agent — the generation must be
+ * re-checked when the closure runs, not when it enqueues. A stale deliver
+ * takes the `onStale` path; a current one runs the real settle.
  */
 export async function runGenerationGuardedDeliver(options: {
   stillCurrent: () => boolean;
@@ -262,9 +255,9 @@ export function setRunState(
 }
 
 /**
- * Enqueue a mid-run message. Empty / whitespace-only is a no-op.
- * When idle, still accepts into the queue bag for tests; product shell
- * may route idle Enter as immediate send instead of calling this.
+ * Enqueue a mid-run message. Empty / whitespace-only is a no-op. Idle still
+ * accepts into the queue bag for tests; the product shell routes idle Enter
+ * as an immediate send instead of calling this.
  */
 export function enqueue(
   state: SessionQueueState,
@@ -309,10 +302,9 @@ export function enqueueSteer(
 
 /**
  * Hard interrupt: stop the run, keep everything the operator queued. Typing a
- * correction and then interrupting so it lands sooner is the common shape of
- * this gesture, so discarding the queue destroyed exactly the input the
- * operator most wanted delivered. Pending items survive to the next drain
- * boundary; only the run state and the flash change here.
+ * correction and then interrupting so it lands sooner is the common shape, so
+ * discarding the queue would destroy the input the operator most wanted
+ * delivered. Pending items survive to the next drain boundary.
  */
 export function interrupt(state: SessionQueueState): SessionQueueState {
   return {
@@ -467,8 +459,8 @@ export function createSessionOperationQueue(): SessionOperationQueue {
  * previous session. Kind routing lives here, not on SessionPort.
  *
  * Live inject (`deliverSteer` → Agent.deliver) is only for an in-flight
- * parent tool.boundary. Leftover steers at idle, idle-with-fleet, or
- * post-interrupt share the send path (sendQueue, inFlight, token refresh).
+ * parent tool.boundary; leftover steers at idle, idle-with-fleet, or
+ * post-interrupt share the send path.
  */
 
 export type DeliverySettle = (result: AgentDeliveryResult) => void;
@@ -676,8 +668,8 @@ function createGenerationGatedHop(
 }
 
 /**
- * Live inject: enqueue ingest, then deliver, in drain order. Previously
- * each item started ingest immediately, so Agent.deliver could reverse.
+ * Live inject: enqueue ingest, then deliver, in drain order — previously each
+ * item started ingest immediately, so Agent.deliver could reverse.
  */
 export function createLiveSteerDeliver(
   args: CreateLiveSteerDeliverArgs,
@@ -691,9 +683,9 @@ export function createLiveSteerDeliver(
 
 /**
  * Leftover / queue drain hop: capture generation at hop time, ingest, then
- * send only if /clear|/new has not bumped. Operator Enter must not use this.
- * `ask_director wake` leftover is passed through raw so worker @paths and
- * image mentions are not rewritten as operator attachments.
+ * send only if /clear|/new has not bumped. Operator Enter must not use this;
+ * `ask_director wake` leftovers pass through raw so worker @paths and image
+ * mentions are not rewritten as operator attachments.
  */
 export function createLeftoverSend(
   args: CreateLeftoverSendArgs,

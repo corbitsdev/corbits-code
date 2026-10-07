@@ -125,14 +125,12 @@ function isPrintableInsertKey(key: KeyEvent): boolean {
  * Which open surface a chord toggles shut, or null when the chord is not a
  * toggling opener.
  *
- * Only pickers appear here. An opener that performs an action (Ctrl+P
- * attaches an image, Ctrl+C interrupts, the expand key expands a row) has
- * nothing to toggle, and a decision surface — a permission or operator
- * question — is deliberately absent: re-pressing the chord underneath it
- * must not count as an answer. Those leave via a choice or Esc.
- *
- * `@` and `/` are openers too, but they are also characters being typed, so
- * pressing them again inserts them rather than closing the popup.
+ * Only pickers appear here: an opener that performs an action (Ctrl+P,
+ * Ctrl+C, the expand key) has nothing to toggle, and a decision surface is
+ * deliberately absent — re-pressing the chord underneath it must not count as
+ * an answer (those leave via a choice or Esc). `@` and `/` are openers too,
+ * but they are also characters being typed, so re-pressing them inserts
+ * rather than closes.
  */
 function toggledSurfaceFor(key: KeyEvent): PrimaryOverlayKind | null {
   if (
@@ -189,9 +187,8 @@ const ctrlCArmedAt = new WeakMap<AppShell, CtrlCArmed>();
 
 /**
  * Ctrl+C: interrupt / clear, and quit on a second press inside the window.
- * The double press replaces the old Ink y/n exit confirm — same intent (an
- * explicit second confirmation), no modal. Quitting routes through the
- * registered exit handler so host finalize still runs.
+ * The double press replaces the old y/n exit confirm — same intent, no modal.
+ * Quitting routes through the registered exit handler so host finalize runs.
  */
 export function handleCtrlC(
   shell: AppShell,
@@ -301,14 +298,9 @@ export function readStopAffordance(shell: AppShell): {
 
 /**
  * Wheel/trackpad scroll landing on the prompt scrolls the chat instead.
- *
- * The prompt textarea is an editable buffer with its own `scrollY`, so
- * OpenTUI's default routing happily scrolls the prompt's own (usually
- * nothing-to-scroll) content. The prompt also holds keyboard focus for the
- * whole session, so it is the fallback target for any wheel event that lands
- * off the transcript. Overriding the scroll case here — rather than teaching
- * the transcript's scroll lease about wheel events — keeps the fix to where
- * wheel input actually arrives.
+ * The prompt has its own scrollY (usually nothing to scroll) and holds focus
+ * all session, so OpenTUI routes wheel events to it. Overriding the scroll
+ * case here keeps the fix to where wheel input actually arrives.
  */
 export function routePromptWheelToTranscript(
   prompt: BaseRenderable,
@@ -338,12 +330,10 @@ export function createShellKeyHandlers(
   shell: AppShell,
   opts: { isDisposed: () => boolean },
 ): ShellKeyHandlers {
-  // A real bracketed-paste event proves this terminal negotiates DEC 2004:
-  // every paste from here on arrives as one `paste` event, never as raw
-  // keystrokes, so the CRLF-submit fallback below turns itself off for the
-  // rest of the session. Terminals that never send one keep the guard. This
-  // bookkeeping only this key handler reads, so it lives in this closure
-  // rather than on the shared AppShell.
+  // A real bracketed-paste event proves DEC 2004: every paste from here on
+  // arrives as one `paste` event, so the CRLF-submit fallback below turns
+  // itself off for the rest of the session. Only these handlers read the
+  // flag, so it lives in this closure rather than on the shared AppShell.
   let sawBracketedPaste = false;
   let lastKeyAt = 0;
   let lastKeyWasPrintable = false;
@@ -363,10 +353,8 @@ export function createShellKeyHandlers(
       }
       return;
     }
-    // A paste into the prompt is composer input like any other key: it ends
-    // a pending-column selection instead of editing under it. The prompt
-    // textarea still consumes the event itself, so this only drops the
-    // selection and falls through.
+    // A paste is composer input like any other key: it ends a pending-column
+    // selection instead of editing under it.
     clearPendingSelection(shell);
   };
 
@@ -382,11 +370,10 @@ export function createShellKeyHandlers(
       if (shell.overlayList) {
         key.preventDefault();
         abortOverlayHostReservations(shell);
-        // closeSlashPopup owns the slash entry's cleanup and closes the inset
-        // overlay itself; a second closeInsetOverlay after it would idle-notify
-        // twice and kill a gate the first notify drains. Non-slash overlays
-        // carry no entry, so closeSlashPopup no-ops on them (same list still
-        // open) and the shared close handles those.
+        // closeSlashPopup closes the inset overlay itself; a second
+        // closeInsetOverlay would idle-notify twice and kill a gate the first
+        // notify drains. Non-slash overlays carry no entry, so it no-ops and
+        // the shared close handles those.
         const list = shell.overlayList;
         closeSlashPopup(shell);
         if (list !== null && shell.overlayList === list)
@@ -550,12 +537,11 @@ export function createShellKeyHandlers(
           return;
         }
       }
-      // Unclaimed printables fall through to the prompt instead of vanishing:
-      // the prompt does not hold focus while the overlay is open, so the
-      // InputRenderable cannot insert them itself. Decision surfaces are the
-      // modal exception (focus-routing): a permission/operator gate keeps
-      // every key until it is answered or dismissed. The overlay stays open
-      // (no dismiss, no idle-notify) so a queued gate cannot drain mid-list.
+      // Unclaimed printables fall through to the prompt, which does not hold
+      // focus while the overlay is open. Decision surfaces are the modal
+      // exception: a gate keeps every key until answered or dismissed, and
+      // the overlay stays open (no idle-notify) so a queued gate cannot
+      // drain mid-list.
       if (
         shell.overlayKind !== "permissions" &&
         shell.overlayKind !== "operator" &&
@@ -569,11 +555,9 @@ export function createShellKeyHandlers(
       return;
     }
 
-    // Emacs-style prompt editing: Ctrl+B/F/D, arrow motion, and Alt+B/F word
-    // motion are already native InputRenderable bindings (see
-    // defaultTextareaKeyBindings in @opentui/core). What's missing is the
-    // kill ring — Ctrl+K/U/W and Alt+D delete natively but discard the text;
-    // Ctrl+Y/Alt+Y need somewhere to yank it back from.
+    // Emacs-style prompt editing: Ctrl+K/U/W and Alt+D delete natively but
+    // discard the text, and Ctrl+Y/Alt+Y need somewhere to yank it back from
+    // — the kill ring, implemented below.
     const keyName = typeof key.name === "string" ? key.name.toLowerCase() : "";
 
     // Everything below this line is the un-bracketed-paste fallback: a
@@ -596,13 +580,12 @@ export function createShellKeyHandlers(
         return;
       }
 
-      // A bare CR is the same "return" that submits. Left alone, pasting
-      // three lines here sends three separate messages instead of composing
-      // one. Detecting it needs two signals: a printable character landing,
-      // then Enter, both inside a keystroke burst — that shape is unique to a
-      // paste being replayed byte-for-byte. Gating on both keeps a deliberate
-      // Ctrl+J-then-Enter (newline, then send) safe, since Ctrl+J is not a
-      // printable character.
+      // A bare CR is the same "return" that submits; pasting three lines
+      // would otherwise send three messages instead of composing one. Two
+      // signals detect it — a printable character landing, then Enter, both
+      // inside a keystroke burst — which is unique to a paste replay.
+      // Gating on both keeps a deliberate Ctrl+J-then-Enter safe, since
+      // Ctrl+J is not a printable character.
       const now = Date.now();
       const sincePreviousKey = now - lastKeyAt;
       const previousKeyWasPrintable = lastKeyWasPrintable;
@@ -625,11 +608,9 @@ export function createShellKeyHandlers(
       }
     }
 
-    // A pending-column selection owns Enter (kill the held item and send it
-    // now), ^X (drop it) and ^G (pop it back for editing) outright; every
-    // other key just ends the selection and falls through to its normal
-    // handling. ↑/↓ are exempt — they stay with the column and are claimed
-    // by the nav block below.
+    // A pending-column selection owns Enter (kill and send now), ^X (drop)
+    // and ^G (pop back for editing); every other key ends the selection and
+    // falls through. ↑/↓ stay with the column (nav block below).
     if (pendingSelectionActive(shell)) {
       if (
         (keyName === "return" || keyName === "kpenter") &&
@@ -767,10 +748,9 @@ export function createShellKeyHandlers(
       return;
     }
 
-    // Ctrl+V is a real keypress (0x16), not the system paste: the terminal
-    // turns CMD+V into bracketed paste, which OpenTUI delivers as its own
-    // `paste` event and the InputRenderable inserts as text. Binding Ctrl+V
-    // here therefore cannot swallow an ordinary text paste.
+    // Ctrl+V is a real keypress (0x16), not the system paste: CMD+V arrives
+    // as a bracketed `paste` event the InputRenderable inserts as text, so
+    // binding Ctrl+V here cannot swallow an ordinary text paste.
     if (
       key.ctrl &&
       !key.meta &&
@@ -783,8 +763,8 @@ export function createShellKeyHandlers(
     }
 
     // Typing @ at a token boundary opens path suggestions. The overlay owns
-    // focus while open, so the @ is inserted here rather than left to the
-    // InputRenderable, which would race the focus change.
+    // focus while open, so the @ is inserted here rather than racing the
+    // focus change.
     if (
       !key.ctrl &&
       !key.meta &&
@@ -917,8 +897,7 @@ export function createShellKeyHandlers(
       (key.name === "t" || key.name === "T") &&
       !key.ctrl
     ) {
-      // Alt+T: the task panel's only entry point now that the palette is gone.
-      // Losing the palette must not lose the toggle with it.
+      // Alt+T: the task panel toggle (the palette that used to own it is gone).
       key.preventDefault();
       toggleTasksPanel(shell);
       return;
@@ -929,9 +908,7 @@ export function createShellKeyHandlers(
       (key.name === "o" || key.name === "O") &&
       !key.ctrl
     ) {
-      // Alt+O: observe a live subagent, same rationale as Alt+T — the
-      // palette's "observe" action, given a real chord now the palette is
-      // gone.
+      // Alt+O: observe a live subagent, same rationale as Alt+T.
       key.preventDefault();
       observeActiveSubagent(shell);
       return;
@@ -958,9 +935,7 @@ export function createShellKeyHandlers(
       !key.ctrl
     ) {
       // Alt+Enter: follow-up — enqueue kind "queue"; deliver only when the
-      // run goes idle. Does not interrupt or reinject. Idle / empty: no-op.
-      // Soft steer is plain Enter below; reinject is not wired to any
-      // product chord.
+      // run goes idle. Does not interrupt or reinject; idle/empty is a no-op.
       key.preventDefault();
       if (shell.session.run !== "busy") return;
       submitPrompt(shell, "queue");

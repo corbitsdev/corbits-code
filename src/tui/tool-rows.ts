@@ -155,13 +155,12 @@ function failedAddendum(payload: string): string | undefined {
 }
 
 /**
- * What an answer adds to the line its call already wrote. A success contributes
- * a count or a short status — never prose, and never the payload itself. A
+ * What an answer adds to the line its call already wrote. A success
+ * contributes a count or short status — never prose or the payload itself. A
  * failure contributes the error, abbreviated, because that is the one thing
- * the operator must be able to read without pressing expand. A fetched page, a
- * file body or a search dump says nothing on one line and would push the
- * subject (the URL, the path, the query) off the row, so anything unbounded
- * is left behind the expand key.
+ * the operator must read without pressing expand. A fetched page, file body
+ * or search dump says nothing on one line and would push the subject off the
+ * row, so anything unbounded stays behind the expand key.
  */
 export function resultAddendum(result: StreamRow): string | undefined {
   const payload = result.text.trim();
@@ -201,13 +200,11 @@ export function shellPreviewLines(content: string): string[] | undefined {
 const SHELL_EXIT_ENVELOPE = /^exit code (\d+)\n/;
 
 /**
- * Fold a tool result into the lane/call row it answers.
- *
- * The row keeps saying what the call was — the URL fetched, the path read, the
- * query searched. That is the stable identifier, and it is the one thing the
- * payload can never be trusted to reproduce. The answer contributes the marker,
- * a short factual addendum where it has one (the error, when it failed), and
- * the body behind the arrow.
+ * Fold a tool result into the lane/call row it answers. The row keeps saying
+ * what the call was (the stable identifier — the payload can never be trusted
+ * to reproduce it); the answer contributes the marker, a short factual
+ * addendum where it has one (the error, when it failed), and the body behind
+ * the arrow.
  */
 export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   const failed = result.failed === true;
@@ -331,8 +328,6 @@ export function canCoalesceCall(
   if (toolName === undefined || toolName !== next.toolName) return false;
   return toolName !== "spawn_agent";
 }
-
-/** Calls a lane remembers so a later result can still find this row. */
 
 function laneMembers(
   tail: StreamRow,
