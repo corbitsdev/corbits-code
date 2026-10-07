@@ -9,10 +9,8 @@
  *   UpdateFile := "*** Update File: " path NEWLINE [ "*** Move to: " path NEWLINE ] { Hunk }
  *   Hunk := "@@" [ " " header ] NEWLINE { (" "|"-"|"+") text NEWLINE } [ "*** End of File" NEWLINE ]
  *
- * Stacked `@@` anchors (class → method) are accepted as consecutive header-only
- * hunks that advance the apply cursor before a hunk with +/- lines.
- *
- * No filesystem I/O, no shell, no dependencies — parse + string apply only.
+ * Stacked `@@` anchors (class → method) parse as header-only hunks that advance
+ * the apply cursor before the hunk carrying +/- lines. Parse + string apply only.
  */
 
 import { isAbsolute } from "node:path";
@@ -43,9 +41,8 @@ export interface PatchAddOp {
   type: "add";
   path: string;
   /**
-   * File body reconstructed from `+` lines. Each `+` line contributes
-   * `text + "\n"` (Codex-rs parity), so non-empty adds end with a trailing newline.
-   * An Add File with no `+` lines yields `""`.
+   * File body rebuilt from `+` lines: each contributes `text + "\n"` (Codex-rs
+   * parity), so non-empty adds end with a trailing newline; none → `""`.
    */
   content: string;
 }
@@ -188,10 +185,7 @@ export function parseCodexApplyPatch(input: string): ParsedPatch {
   return { ops };
 }
 
-/**
- * Relative paths touched by the patch, in encounter order.
- * Update-with-move contributes both source and destination.
- */
+/** Relative paths touched by the patch, in encounter order (move: source + dest). */
 export function extractAffectedPaths(patch: ParsedPatch): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -212,8 +206,8 @@ export function extractAffectedPaths(patch: ParsedPatch): string[] {
 }
 
 /**
- * Apply update hunks to an in-memory file body. Returns the updated string.
- * NormalizeToLf-ish: non-empty results end with `\n` (Codex default update mode).
+ * Apply update hunks to an in-memory file body; non-empty results end
+ * with `\n` (Codex default update mode).
  */
 export function applyUpdateHunks(original: string, hunks: PatchHunk[]): string {
   let lines = original === "" ? [] : original.replace(/\n$/, "").split("\n");
@@ -271,8 +265,7 @@ export function applyUpdateHunks(original: string, hunks: PatchHunk[]): string {
   }
 
   if (lines.length === 0) {
-    // Empty file: preserve empty; a prior lone newline becomes "\n" only when
-    // original had content-as-newline — NormalizeToLf leaves truly empty as "".
+    // Empty result: lone-newline input keeps "\n"; truly empty input stays "".
     return original.length > 0 ? "\n" : "";
   }
   return `${lines.join("\n")}\n`;
@@ -394,10 +387,7 @@ function findLineFrom(lines: string[], target: string, from: number): number {
   return -1;
 }
 
-/**
- * Codex seek_sequence subset: exact, then rstrip, then trim.
- * Unicode punctuation normalize is intentionally omitted.
- */
+/** Codex seek_sequence subset: exact, then rstrip, then trim (no unicode normalize). */
 function findSequence(
   lines: string[],
   pattern: string[],
