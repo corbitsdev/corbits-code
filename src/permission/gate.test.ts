@@ -26,20 +26,12 @@ const shellCall = (command: string): ToolCall => ({
   arguments: { command },
 });
 
-// Every guard evaluate() applies before a grant is ever consulted, keyed to a
-// command that trips it. isRequestCoveredByGrant must refuse to cover each of
-// these even when handed a grant that would otherwise match verbatim.
-//
-// The secret-path and restricted-path cases are a genuine reconciliation
-// path: evaluate() forces those through to the operator (queuing the request)
-// rather than denying outright, so isRequestCoveredByGrant is the only thing
-// standing between a queued one and a silent auto-approve once a broad grant
-// lands.
-//
-// The shell-authz hard-deny cases are not independently reachable through
-// reconciliation today — evaluate() denies and returns before such a request
-// is ever queued. They stay here as drift-resistance: if a future refactor
-// let a hard-denied command reach the queue, this still catches it.
+// Every pre-grant guard, keyed to a command that trips it.
+// isRequestCoveredByGrant must refuse to cover each of these even when a
+// grant would otherwise match verbatim. The secret/restricted-path cases
+// queue and could be auto-approved by reconciliation once a broad grant
+// lands; the shell-authz hard-denies are unreachable today (evaluate()
+// denies before anything queues) and stay here as drift-resistance.
 const GUARD_CASES: { name: string; command: string }[] = [
   { name: "shell authz hard-deny (destructive rm)", command: "rm -rf /" },
   {
@@ -263,9 +255,8 @@ describe("expanded secret wrapper guards", () => {
 
 describe("lone-& bypass at the gate (CL-7781)", () => {
   // A standing grant for a benign head must not auto-allow a payload hidden
-  // behind a `&` with no trailing space. Per-segment coverage leaves the
-  // hidden second segment uncovered, so the gate prompts — same as the spaced
-  // form.
+  // behind `&` with no trailing space; per-segment coverage leaves the hidden
+  // second segment uncovered, so the gate prompts — same as the spaced form.
   const cwd = mkdtempSync(join(tmpdir(), "gate-lone-amp-"));
   const isRestricted = createPathRestriction(
     cwd,
