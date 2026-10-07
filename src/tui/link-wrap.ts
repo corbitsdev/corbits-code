@@ -16,23 +16,17 @@ import {
  * lines resolves to one target: every fragment highlights and opens the
  * full URL.
  *
- * `wrapWidth` is the painted width the row was wrapped at. Only a full line
- * ending in a URL run can start a chain, and only a full line the run
- * reaches the end of continues one — a short line ends the chain unless
- * nothing textual follows it (end of text, bubble padding), because a short
- * line with text after it is a natural break, not a wrap. A chain is
- * accepted when its fragments reassemble to one of `sourceUrls`, the links
- * the row's pre-wrap text actually holds: word wrap can orphan a short
- * fragment line with wrapped text after it (indistinguishable from a
- * natural break by geometry alone), and the source is what tells the two
- * apart. Without known source URLs the joined candidate still has to scan
- * as exactly one clean http(s) URL, which keeps an unfortunate line break
- * from fusing two unrelated runs. A seed with no detectable hit on its own
- * line (a hard split inside the scheme or host) only continues through a
- * full first line: the full line broke at a wrap edge, while a short next
- * line behind a bare scheme reads as prose that happens to scan, not a
- * wrap — unless the fragments reassemble to a known source URL, which
- * settles it.
+ * `wrapWidth` is the painted width the row was wrapped at. A chain starts
+ * only on a full line ending in a URL run and continues only through full
+ * lines — a short line ends the chain unless nothing textual follows it
+ * (end of text, bubble padding), because a short line with text after it is
+ * a natural break, not a wrap. A chain is accepted when its fragments
+ * reassemble to one of `sourceUrls`, the links the row's pre-wrap text
+ * actually holds: word wrap can orphan a short fragment line with wrapped
+ * text after it, indistinguishable from a natural break by geometry alone.
+ * Without known source URLs the joined candidate still has to scan as
+ * exactly one clean http(s) URL, so an unfortunate line break cannot fuse
+ * two unrelated runs.
  */
 export function splitWrappedLinkSpans(
   lines: readonly { text: string; fg: string }[],
@@ -125,16 +119,13 @@ interface WrapChain {
 
 /**
  * Walk continuation lines past their indent, fusing leading runs onto the
- * seed. A run ending mid-line ends the chain; a run reaching its line's end
- * continues it only through a full line, and a short line ends the chain
- * unless nothing textual follows it (end of text, bubble padding) — a short
- * line with text after it is a natural break, not a wrap. A hitless seed
- * only continues through a full first line, because a short next line behind
- * a bare scheme reads as prose that happens to scan. Against known source
- * URLs the chain also ends the moment its fragments reassemble to one of
- * them, which is what resolves a wrap the geometry alone cannot see: a
- * short fragment line with wrapped text after it. Without source URLs the
- * joined candidate has to scan as one clean URL instead.
+ * seed under the module's chain rules: a run reaching its line's end
+ * continues only through a full line; a short line ends the chain unless
+ * nothing textual follows it; and a hitless seed only continues through a
+ * full first line (a short line behind a bare scheme reads as prose).
+ * Against known source URLs the chain also ends the moment its fragments
+ * reassemble to one of them — what resolves a wrap the geometry alone
+ * cannot see.
  */
 function followWrapChain(
   lines: readonly { text: string; fg: string }[],

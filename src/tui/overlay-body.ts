@@ -2,16 +2,16 @@
  * Text shaping for the decision overlay — the permission approval and the
  * operator question.
  *
- * This is the one framed surface in the shell and the moment a human is asked
- * to authorize something, so its body is shaped rather than listed: a dithered
- * header carrying the subject, air between the subject and the context rows,
- * and a trailing blank row so the choices never abut the question. Choices
- * themselves are bare single-line action names painted by the overlay list —
+ * This is the one framed surface in the shell and the moment a human is
+ * asked to authorize something, so its body is shaped rather than listed: a
+ * dithered header carrying the subject, air between subject and context
+ * rows, and a trailing blank row so the choices never abut the question.
+ * Choices are bare single-line action names painted by the overlay list —
  * all consequence text lives in the body above them.
  *
- * Wrapping is on word boundaries. A token longer than the line (a path, a URL)
- * is broken deliberately — preferring a separator the reader already parses as
- * a boundary — rather than sliced blind at the column.
+ * Wrapping is on word boundaries. A token longer than the line (a path, a
+ * URL) breaks deliberately — preferring a separator the reader already
+ * parses as a boundary — rather than sliced blind at the column.
  */
 
 import { prefixIndexForWidth, stringWidth } from "./view/height.js";
@@ -297,20 +297,18 @@ const DECISION_CONTEXT_BLANK_ROWS = 1;
 
 /**
  * Shrink the decision body's context budget so its own chrome never crowds
- * out the one thing this fix guarantees down to a 10-row terminal: at least
- * one choice row, with the prompt box still seated at its floor below it. A
- * generous, fixed context budget reads fine on a tall terminal, but on a
- * short one it can consume the entire overlay host, leaving no room to
- * paint a single option. Shrinking the context first, down to dropping it
- * entirely on the shortest terminals, is the deliberate trade: the header
- * (which tool, which question) and the choices are the two things an
- * approval cannot render without; the surrounding detail can give way
- * first.
+ * out the one thing this guarantees down to a 10-row terminal: at least one
+ * choice row, with the prompt box still seated at its floor below it. A
+ * generous fixed budget reads fine on a tall terminal but can consume the
+ * whole overlay host on a short one, leaving no room to paint a single
+ * option — so the context shrinks first, down to dropping entirely on the
+ * shortest terminals: the header (which tool, which question) and the
+ * choices are the two things an approval cannot render without.
  *
- * Below 10 rows this budget alone cannot save the frame: the resolver then
- * falls back to best effort (`resolveGeometry` in geometry/resolve.ts) and
- * may take rows from below the prompt floor so the overlay still meets its
- * render minimum. This budget does not control that fallback.
+ * Below 10 rows this budget alone cannot save the frame: the resolver falls
+ * back to best effort (`resolveGeometry` in geometry/resolve.ts) and may
+ * take rows from below the prompt floor. This budget does not control that
+ * fallback.
  */
 export function decisionContextBudget(input: {
   readonly terminalHeight: number;

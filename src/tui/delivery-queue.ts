@@ -4,10 +4,8 @@
  *
  * One module: `session-queue.ts` (pure item state), `session-operation-queue.ts`
  * (serial promise chain), and `queued-delivery.ts` (kind routing + delivery
- * hops) were three slices of the same drain pipeline. No behavior change —
- * sections below are verbatim moves.
+ * hops) were three slices of the same drain pipeline, now moved together.
  *
- * Mid-run queue / steer / interrupt state machine (interaction contract §3).
  * Pure data — no paint, no OpenTUI. Shell + demo own delivery and UI flash.
  *
  * Product chords:

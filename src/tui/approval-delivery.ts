@@ -2,20 +2,18 @@
  * Bounded deliver-and-await-acceptance for approval decisions.
  *
  * The reactor accepts a correlated decision asynchronously after deliver()
- * returns, so the sessionOps tail waits for the correlation-acceptance
- * signal. That wait was unbounded: any delivery that produces no observed
- * stream event wedged the serial tail forever, and every later approval
- * queued behind it until the reactor approval timeout. The vendored reactor
- * surface ({ start, deliver, abort }) exposes no liveness query, so absent
- * acceptance is treated as delivery failure: bound the wait with a deadline
- * race that settles the waiter, logs, and lets the tail advance.
+ * returns, so the sessionOps tail waits for the acceptance signal. The wait
+ * must be bounded: a delivery that produces no observed stream event would
+ * wedge the serial tail forever, queuing every later approval behind it. The
+ * vendored reactor surface exposes no liveness query, so absent acceptance
+ * is treated as delivery failure — a deadline race settles the waiter, logs,
+ * and lets the tail advance.
  *
  * Retry safety: once deliver() has returned, the reactor may hold the
  * decision even though no acceptance was observed. A retry for the same
- * correlationId must not hand the decision over twice (a duplicate approved
- * decision could re-dispatch the parked call), so it re-awaits acceptance
- * only. A retry after a deliver() throw re-delivers, because nothing was
- * handed over.
+ * correlationId re-awaits acceptance only — handing the decision over twice
+ * could re-dispatch the parked call. A retry after a deliver() throw
+ * re-delivers, because nothing was handed over.
  */
 
 import type { InboundMessage } from "@intx/types/runtime";

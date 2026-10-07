@@ -2,20 +2,19 @@
  * The shell's prompt input: a genuine multi-line composing area.
  *
  * OpenTUI's `InputRenderable` is hard-wired to one row, no wrapping, and
- * newlines stripped, so the prompt is built on `TextareaRenderable` instead —
- * the same widget `InputRenderable` derives from, minus those constraints.
- * Two things have to be put back on top of it:
+ * newlines stripped, so the prompt is built on `TextareaRenderable` — the
+ * same widget minus those constraints. Two things have to be put back on
+ * top of it:
  *
  * - **Enter sends.** The textarea's default is Enter-inserts-newline, which
- *   would swallow the shell's primary action. The bindings below flip it: Enter
- *   submits and a newline needs an explicit chord. Alt+Enter (follow-up) is
- *   claimed by the shell's key listener before the widget ever sees it.
- * - **`value`.** `InputRenderable` exposes the buffer as `value`; the textarea
- *   calls it `plainText` and has no setter that also parks the caret. The whole
- *   shell — kill ring, history recall, the `/` and `@` popups, attachments —
- *   reads and writes `value` as one logical string with global offsets, which
- *   stays true for a multi-line buffer, so the accessor is defined here rather
- *   than rewritten at every call site.
+ *   would swallow the shell's primary action, so the bindings below flip it:
+ *   Enter submits and a newline needs an explicit chord. Alt+Enter
+ *   (follow-up) is claimed by the shell's key listener first.
+ * - **`value`.** The textarea calls the buffer `plainText` and has no setter
+ *   that parks the caret. The whole shell — kill ring, history recall, the
+ *   `/` and `@` popups, attachments — reads and writes `value` as one
+ *   logical string, so the accessor is defined here rather than rewritten at
+ *   every call site.
  */
 
 import {
@@ -28,12 +27,11 @@ import {
 export type PromptInput = TextareaRenderable & { value: string };
 
 /**
- * Enter sends the message, so a literal newline needs a chord of its own.
+ * Enter sends the message, so a literal newline needs a chord of its own:
  * Shift+Enter or Ctrl+Enter where the terminal reports the modifier, Ctrl+J
  * (`linefeed`) everywhere else — terminals that don't negotiate the kitty
- * keyboard protocol can't report Shift+Enter at all, so the fallback chords
- * are what make this work in practice. Alt+Enter is left alone; the shell
- * claims it for the follow-up action before the widget ever sees it.
+ * keyboard protocol can't report Shift+Enter at all. Alt+Enter is left
+ * alone; the shell claims it for the follow-up action first.
  */
 // Modifier-qualified entries lead: a first-match table would otherwise resolve
 // Shift+Enter against the bare `return` submit binding and send the message.

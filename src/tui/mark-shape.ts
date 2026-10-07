@@ -12,11 +12,10 @@
  * is fitted into W x 2H square units and the mark's 1.62 aspect ratio
  * survives.
  *
- * Three grids are baked, because one size cannot serve every job. The
- * landing picks the largest that fits its zone; below the largest, the
- * ridgeline's crossings start to collapse into each other and the silhouette
- * drifts from mark toward noise, so the smaller grids are fallbacks, not
- * preferences.
+ * Three grids are baked because one size cannot serve every job: below the
+ * largest, the ridgeline's crossings collapse into each other and the
+ * silhouette drifts from mark toward noise, so the smaller grids are
+ * fallbacks, not preferences.
  *
  *   `MARK_LARGE`  40x12 — the landing hero.
  *   `MARK_MID`    30x9  — a tall-enough terminal that still cannot seat 12 rows.

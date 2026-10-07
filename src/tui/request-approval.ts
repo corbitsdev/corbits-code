@@ -36,14 +36,13 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "tui", "permission"]);
 /**
  * Wires a gate's settle callback to the ALS tool-approval budget, so every
  * gate (permission, ask_operator, MCP TOFU) freezes the tool's wall-clock
- * budget the same way while a human decides. The budget is paused the moment
- * the gate is raised, not deferred until its overlay shows: it guards the
- * tool's execution timeout, which keeps running whether or not an approval
- * overlay is on screen — deferring the pause would let a queued-and-invisible
- * request burn its tool timeout. `resolve` is called at most once no matter
- * how many times the returned `finish` is invoked. The budget handle is
- * captured at gate time: `finish` may run on the UI thread outside the tool
- * ALS, where a re-lookup would no-op.
+ * budget the same way while a human decides. The budget pauses the moment
+ * the gate is raised, not when its overlay shows — the timeout keeps running
+ * whether or not the overlay is on screen, and deferring would let a
+ * queued-and-invisible request burn it. `resolve` is called at most once no
+ * matter how many times the returned `finish` is invoked; the budget handle
+ * is captured at gate time, since `finish` may run on the UI thread outside
+ * the tool ALS, where a re-lookup would no-op.
  */
 export function attachApprovalBudget<T>(
   resolve: (value: T) => void,

@@ -85,28 +85,24 @@ export const TOOL_EXECUTION_SALVAGE_GRACE_MS = 5_000;
 export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
 
 /**
- * Wall-clock budget for one tool `run()`, or undefined to leave the timer unarmed.
- * Parent cancel and eval `--agent-timeout-ms` still bound the run.
+ * Wall-clock budget for one tool `run()`, or undefined to leave the timer
+ * unarmed. Parent cancel and eval `--agent-timeout-ms` still bound the run.
  *
  * Arms only when Settings pass tools.timeoutMs / tools.maxTimeoutMs, when
  * foreground run_shell has an effective timeout (120s default or per-call,
  * plus slack so this layer cannot beat shell-guard), or for mcp__* calls.
- * A requested run_shell timeout is not clamped to MAX_TOOL_EXECUTION_TIMEOUT_MS
- * or tools.maxTimeoutMs.
+ * A requested run_shell timeout is not clamped to the max constants.
  *
- * spawn_agent returns immediately; wait_agents and ask_director are the long
- * blocks. All three are exempt: wait_agents can outlast settings.tools.timeoutMs
- * while workers still run, and aborting collect would not stop those workers.
- * spawn_agent stays exempt so the generic per-tool budget cannot abort a
- * dispatch that should return at once (or a worker that carries its own bound).
- * ask_director is a long block awaiting the director; aborting it cancels the
- * pending ask so later send_input steers instead of answering.
- * run_shell background:true stays exempt: start returns at once and the
- * process outlives the turn.
+ * spawn_agent, wait_agents and ask_director are exempt: spawn_agent returns
+ * immediately, and aborting wait_agents/ask_director would not stop the
+ * workers or director they wait on — wait_agents can outlast the settings
+ * timeout while workers still run, and aborting the ask cancels the pending
+ * ask so later send_input steers instead of answering. run_shell
+ * background:true is exempt because the process outlives the turn.
  *
- * mcp__* tool calls are the opposite of exempt: they arm unconditionally (see
- * resolveMcpToolTimeoutMs) even when no Settings are configured, because an
- * MCP server can wedge a call forever with no other watchdog to bound it.
+ * mcp__* calls are the opposite: they arm unconditionally (see
+ * resolveMcpToolTimeoutMs) even with no Settings configured, because an MCP
+ * server can wedge a call forever with no other watchdog to bound it.
  */
 export function resolveToolExecutionTimeoutMs(
   config?: ToolWatchdogConfig,
@@ -423,12 +419,13 @@ export interface ToolExecutionWatchdogOptions {
 /**
  * Runs `execute` under a race against `parentSignal` and, when `timeoutMs` is
  * set, a wall-clock budget. `undefined` timeout does not arm a timer — parent
- * cancel and the approval-budget ALS still apply. Permission pause ceiling
- * (`MAX_TOOL_APPROVAL_PAUSE_MS`) stays a stuck-prompt guard, not a run cap.
+ * cancel and the approval-budget ALS still apply. The permission pause
+ * ceiling stays a stuck-prompt guard, not a run cap.
  *
- * When budget/parent abort wins the race, the signal is still aborted, but we
- * give the in-flight execute a short grace to return a usable non-error body
- * (e.g. wait_agents structured salvage) before synthesizing "aborted"/timeout.
+ * When budget/parent abort wins, the signal is still aborted, but the
+ * in-flight execute gets a short grace to return a usable non-error body
+ * (e.g. wait_agents structured salvage) before the caller synthesizes
+ * "aborted"/timeout.
  */
 export async function runWithToolExecutionWatchdog(
   call: ToolCall,

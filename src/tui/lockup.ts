@@ -1,22 +1,18 @@
 /**
  * The bottom-left status slot: whatever the session is currently doing.
  *
- * It rides the prompt box's bottom border, at the left end, opposite the
- * working directory and branch. Idle it reads `corbits code`; while a turn
- * runs it reads the live phase — `thinking`, `responding`, the running
- * tool's name — led by a single density cell (`rampPulse` in `ramp.ts`)
- * that carries the state the word cannot.
- *
- * The word alone was the original failure: a live run and a hung one
- * printed the same static `working`. The cell fixes that in one column,
- * which is all the border row can spare. It cycles while the turn moves,
- * holds one static half block while the turn is blocked on an operator
- * gate, and blinks a bang while the run has gone stalled-silent. Every
- * distinction is a glyph or a motion before it is a color, so the three
- * states separate on a monochrome terminal.
+ * It rides the prompt box's bottom border, opposite the working directory
+ * and branch. Idle it reads `corbits code`; while a turn runs it reads the
+ * live phase — `thinking`, `responding`, the running tool's name — led by a
+ * single density cell (`rampPulse` in `ramp.ts`) that carries the state the
+ * word cannot: the word alone printed the same static `working` for a live
+ * run and a hung one. The cell cycles while the turn moves, holds a static
+ * half block while the turn waits on an operator gate, and blinks a bang
+ * while the run is stalled-silent — every distinction is a glyph or motion
+ * before it is a color, so the states separate on a monochrome terminal.
  *
  * The cell and the word share `rampFor`'s phase and color rather than
- * re-deriving them, so this slot can never disagree with the phase itself.
+ * re-deriving them, so the slot can never disagree with the phase itself.
  *
  * Pure and clock-injected: `nowMs` in, cells out, no timer.
  */

@@ -2,17 +2,14 @@
  * Readline-style kill ring for the OpenTUI prompt.
  *
  * The prompt's text buffer lives in `@opentui/core`'s InputRenderable, which
- * already implements Ctrl+B/F/D, Ctrl+K/U/W (as one-shot deletes), Alt+D,
- * arrow motion, and Alt+B/F word motion natively. What it does not have is
- * a kill ring: deleted text is simply discarded, so Ctrl+Y (yank) and Alt+Y
- * (yank-pop) have nothing to restore.
+ * implements the delete and word-motion keys natively but discards deleted
+ * text, so Ctrl+Y (yank) and Alt+Y (yank-pop) have nothing to restore.
  *
  * This module is the pure, testable half of that gap: shell.ts calls the
- * native delete methods on the InputRenderable (so column/width handling
- * stays correct) and diffs the value/cursor before and after to learn what
- * was removed, then hands that text to `recordKill`. `beginYank` and
- * `rotateYank` hand back the text to splice in; shell.ts performs the splice
- * against the InputRenderable directly.
+ * native delete methods (so column/width handling stays correct), diffs
+ * value/cursor before and after to learn what was removed, and hands that
+ * text to `recordKill`. `beginYank` / `rotateYank` hand back the text to
+ * splice in; shell.ts performs the splice against the InputRenderable.
  */
 
 export const KILL_RING_MAX = 10;

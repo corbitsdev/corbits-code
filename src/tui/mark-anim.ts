@@ -3,21 +3,18 @@
  *
  * The mark is the real silhouette (`mark-shape.ts`) drawn as a solid body,
  * revealed left to right by `drawProg` and filled bottom-up by `fillProg`.
- * The canvas version shades it with an ordered Bayer dither of a travelling
- * sine wave; at hero size a terminal renders that as visible noise rather
- * than as shimmer, so the terminal mark is opaque instead.
+ * The canvas version shades it with an ordered Bayer dither; at hero size a
+ * terminal renders that as visible noise, so the terminal mark is opaque.
  *
  * Over the sky (zero-coverage cells) a sparse field of pixel snow falls on
- * the same injected clock. Density and speed stay low so the ridgeline keeps
- * its silhouette. `still` freezes the mountain's own draw/fill/fade timeline
- * to its fully-filled frame but leaves snow drifting — the landing screen is
- * idle by definition, so tying snow to the same flag that freezes the
- * mountain would mean it never falls. `reducedMotion` is the separate hook
- * that does suppress snow. Mountain cells always win over flakes.
+ * the same injected clock. `still` freezes the mountain's draw/fill/fade
+ * timeline to its fully-filled frame but leaves snow drifting — the landing
+ * screen is idle by definition, so freezing the mountain must not stop the
+ * snow; `reducedMotion` is the separate hook that does suppress it.
+ * Mountain cells always win over flakes.
  *
- * Everything here is pure and clock-injected: `nowMs` is the only time
- * source, so tests drive it deterministically. There is no timer in this
- * module.
+ * Pure and clock-injected: `nowMs` is the only time source; there is no
+ * timer in this module.
  */
 
 import { MARK_SMALL, type MarkGrid } from "./mark-shape.js";
@@ -144,14 +141,13 @@ function snowflakeAt(
 /**
  * Composite one frame into a row-major cell grid.
  *
- * The silhouette is drawn solid: a wholly covered cell is `█` and a partly
+ * The silhouette is drawn solid: a wholly covered cell is `█`, a partly
  * covered one is the eighth block matching its coverage, so the ridgeline
- * slopes instead of staircasing. No dither texture survives inside the shape —
- * the mark is a mountain, and a mountain is opaque.
+ * slopes instead of staircasing.
  *
- * Sky cells (zero coverage) may hold a single falling snow pixel. Flakes never
- * overwrite mountain coverage; `reducedMotion` suppresses them, `still` does
- * not (see `snowOn` below).
+ * Sky cells (zero coverage) may hold a single falling snow pixel. Flakes
+ * never overwrite mountain coverage; `reducedMotion` suppresses them,
+ * `still` does not (see `snowOn` below).
  *
  * `alpha` has no terminal equivalent, so it scales the block height instead:
  * the mark sinks toward empty rather than blending to black.

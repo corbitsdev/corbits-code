@@ -1,23 +1,16 @@
 /**
  * Allow-once must not stall a second destructive command.
  *
- * The overlay host is a single slot. Before the fix, accepting the first
- * permission card let a deferred replaceable surface (slash help, settings,
- * MCP) take the host while the second permission card stayed queued forever:
- * its overlay never opened and its evaluation never settled. These tests pin
- * the fixed contract:
- *
- * 1. After Accept once, an already-queued or newly raised permission /
- *    operator card takes the host before a deferred slash/settings/MCP
- *    surface.
- * 2. A replaceable command surface already on screen yields to a new
- *    decision gate and returns after that gate settles.
- * 3. A slash requested while a live gate holds the host still waits.
- * 4. A queued card's auto-deny timer does not run until actually shown.
- * 5. A pending tool row does not advance elapsed while a decision gate is
- *    outstanding but not on screen.
- * 6. Allow Once persists nothing; Allow Always / Reject drain in the same
- *    order as Accept once.
+ * The overlay host is a single slot: before the fix, accepting the first
+ * card let a deferred surface (slash help, settings, MCP) take the host
+ * while a second permission card stayed queued forever — its overlay never
+ * opened and its evaluation never settled. These tests pin the fixed
+ * contract: queued and new decision cards win the host over deferred
+ * surfaces, a visible replaceable surface yields to a gate and returns
+ * after it settles, a slash behind a live gate still waits, a queued card's
+ * auto-deny timer and a pending row's elapsed clock do not run while the
+ * gate is off-screen, and Allow Once persists nothing while Allow Always /
+ * Reject drain in the same order as Accept once.
  */
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";

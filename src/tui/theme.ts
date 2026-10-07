@@ -5,8 +5,8 @@
  * Three rules the rest of the TUI depends on:
  *
  * 1. Gray never sits on the ground. Dimmed text is a dimmed *cream*
- *    (`textDim`, `textFaint`) so the warm bias survives at every emphasis
- *    level. There is deliberately no neutral gray in this file to reach for.
+ *    (`textDim`, `textFaint`), so the warm bias survives at every emphasis
+ *    level; there is deliberately no neutral gray in this file to reach for.
  * 2. Orange is spent once per screen. It marks the session and whatever
  *    awaits a human decision — nothing else. Ongoing status uses the bronze
  *    ramp and `done` (green) so it never competes with the one thing asking
@@ -14,13 +14,11 @@
  *    is content, not chrome.
  * 3. The chrome ramp is warm but never saturated. Every bronze sits at or
  *    below 54% HSL saturation against Breakthrough Orange's 81%, so full
- *    orange still arrives as an event rather than as another shade of the
- *    furniture.
+ *    orange arrives as an event, not as another shade of the furniture.
  *
- * Summit Blue is deliberately absent: cool information read as foreign
- * against cream, black and orange chrome. The brand's discipline is kept —
- * small palette, roles not decoration, no hue without a job — only the cool
- * end of it is replaced by warm structure.
+ * Summit Blue is deliberately absent: cool information reads foreign
+ * against cream, black and orange chrome. The warm structure keeps the
+ * brand's discipline — small palette, roles not decoration.
  */
 
 /**
@@ -102,23 +100,22 @@ export const corbitsDark: Theme = {
 
 /**
  * Light companion to `corbitsDark`: the same roles on a warm light ground.
+ * Data-only — no interface change, no new roles, no per-theme branches.
  *
- * Data-only — no interface change, no new roles, no per-theme branches at
- * call sites. Every value was picked by relative luminance against the cream
- * ground, not by eye: body text holds ~14:1 (near the dark theme's ~15:1),
- * and every essential text role holds >=4.5:1. Orange still appears once per
- * screen (action/actionDim); it is darkened here because Breakthrough Orange
- * itself is ~2.3:1 on cream and unreadable as text. The bronze ramp is
- * darkened for the same reason SAND is ~1.8:1 on cream. Dimmed text is a
- * dimmed ink, never a neutral gray, so the warm bias survives at every
- * emphasis level. Standing caution moves to a muted plum: a bronze warning
- * collapses into the machine ramp on cream, while red or orange would spend
- * the failure/action hues.
+ * Every value was picked by relative luminance against the cream ground,
+ * not by eye: body text holds ~14:1 (near the dark theme's ~15:1) and every
+ * essential text role holds >=4.5:1. The dark theme's rules carry over:
+ * orange stays a one-per-screen decision marker (darkened, since
+ * Breakthrough Orange is ~2.3:1 on cream and unreadable as text), dimmed
+ * text is a dimmed ink rather than a neutral gray, and the bronze ramp is
+ * darkened (SAND is ~1.8:1 on cream). Standing caution moves to a muted
+ * plum: a bronze warning collapses into the machine ramp on cream, while
+ * red or orange would spend the failure/action hues.
  *
- * The warm roles separate by lightness first, hue second. Action is the
- * darkest warm (~10.5:1) and the most saturated, so the decision marker never
- * shares a step with chrome. The dim tier (actionDim, inFlight) sits near
- * ~6.4-7:1 and the bright tier (inFlightBright, heading) at ~4.5:1; each
+ * The warm roles separate by lightness first, hue second: action is the
+ * darkest warm (~10.5:1) and most saturated, so the decision marker never
+ * shares a step with chrome; the dim tier (actionDim, inFlight) sits near
+ * ~6.4-7:1, the bright tier (inFlightBright, heading) at ~4.5:1, and each
  * intra-ramp step spans >=1.5:1 so each ramp still reads as a ramp.
  * Same-tier collisions across ramps are carried by hue and saturation:
  * actionDim stays orange against the olive machine, and the gold heading

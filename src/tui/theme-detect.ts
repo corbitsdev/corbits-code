@@ -4,16 +4,15 @@
  * Precedence, highest first:
  *
  * 1. Explicit `theme` setting (`light` | `dark`; `auto` defers).
- * 2. Sync sniff of COLORFGBG (and TERM_PROGRAM, which currently carries no
- *    theme signal on its own — consulted so the step owns both vars).
+ * 2. Sync sniff of COLORFGBG (and TERM_PROGRAM, which carries no theme
+ *    signal on its own — consulted so the step owns both vars).
  * 3. OS appearance (best-effort per platform; unknown platforms abstain).
  * 4. Default dark.
  *
- * Everything here is pure over injected inputs: no direct `process.env`,
- * `process.platform`, or stdin access. Callers read the environment once and
- * pass it in, which keeps the precedence matrix unit-testable and leaves OS
- * appearance lookup at the startup wiring edge. Nothing is cached across
- * restarts — every launch re-detects.
+ * Pure over injected inputs: no direct `process.env`, `process.platform`, or
+ * stdin access — callers read the environment once and pass it in, keeping
+ * the precedence matrix unit-testable. Nothing is cached across restarts;
+ * every launch re-detects.
  */
 
 import type { ThemeName } from "./theme.js";

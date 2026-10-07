@@ -20,11 +20,9 @@
  *   blocked    ▌            orange, one static half block — stillness is the signal
  *   stalled    ! / █        orange, bangs alternating with a block, then static !
  *
- * `blocked` and `stalled` share a color deliberately — both name a turn
- * waiting on outside action — but must never be confused for each other,
- * and neither may be confused with a live one. Every distinction above is
- * carried by glyph and motion before color, so all four survive a
- * monochrome terminal.
+ * `blocked` and `stalled` share a color on purpose — both name a turn
+ * waiting on outside action — but differ by glyph and motion, so all four
+ * states survive a monochrome terminal.
  *
  * Pure and clock-injected: `nowMs` is the only time source, so the caller's
  * existing tick drives the animation and tests drive it deterministically.
@@ -67,17 +65,12 @@ export const STALL_BLINK_CYCLE_MS = 900;
 /**
  * How long the stall blink runs before settling to a static bang.
  *
- * A stall notice arms at 90s of silence and the abort does not land until 900s,
- * so an unbounded blink would strobe for a quarter of an hour. An alarm that is
- * identical at second one and minute thirteen stops being an alarm — the
- * operator learns to filter it, which is the exact failure this indicator
- * exists to fix. So the blink is a burst: it spends its attention up front,
- * where the state is news, then holds a bang that still reads as a problem to
- * anyone arriving late and still differs from working (which moves) and blocked
- * (which is a block glyph) with no color and no motion at all. Settling also
- * lets the tick fall back to the slow cadence instead of holding an animation
- * frame budget open for the rest of the stall, and gives a motion-sensitive
- * operator a bounded rather than indefinite strobe.
+ * A stall can last minutes (notice at 90s, abort at 900s), so an unbounded
+ * blink would strobe the whole time and stop meaning anything — the burst
+ * spends attention up front, where the state is news, then a static bang
+ * still reads as a problem. The bang stays distinct from working (moves)
+ * and blocked (block glyph), and settling lets the tick fall back to its
+ * slow cadence.
  */
 export const STALL_BLINK_BURST_MS = STALL_BLINK_CYCLE_MS * 9;
 

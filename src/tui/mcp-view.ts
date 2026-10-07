@@ -5,14 +5,12 @@
  * records (get_issue). Painted verbatim they are an unreadable dump, so we
  * derive a cell grid: a header + one row per record for lists, label/value
  * pairs for a single record, with status/priority tone and date truncation.
+ * The grid rides the row and `TextTableRenderable` does the column
+ * alignment — we do not reimplement layout.
  *
- * The grid is carried on the row and painted by `TextTableRenderable`, whose
- * native column measurement does the alignment. We do not reimplement layout.
- *
- * This module also owns what a tool result *says* when collapsed — one
+ * This module also owns what a tool result *says* when collapsed: one
  * sentence derived from the shape of the payload ("Grabbed 10 Linear
- * issues") rather than from the arguments that asked for it, since nobody
- * reads a transcript for the pagination cursor.
+ * issues"), not from the arguments that asked for it.
  */
 
 import { isSameTool } from "../agent/canonical-tool-name.js";
