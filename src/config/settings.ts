@@ -64,15 +64,10 @@ export interface ProviderSettings {
   // OpenCode Go multi-protocol provider; per-model adapter selection.
   opencodeGo?: boolean;
   // False when this credential was persisted without a passing connection
-  // test (e.g. the onboarding "save anyway" bypass). Absent/true means either
-  // the test passed or the provider is exempt from it by design. Read once at
-  // startup to warn the operator instead of surfacing a raw auth error.
-  //
-  // Deliberately defaults to trusted: this field did not exist before it was
-  // introduced, so every provider in an existing settings.json has no value
-  // for it, and that must not retroactively flag every current user's
-  // already-working setup as unverified. Only paths that persist a
-  // credential without testing it write `false` explicitly.
+  // test (e.g. the onboarding "save anyway" bypass). Absent/true means tested
+  // or exempt by design. Read once at startup to warn instead of surfacing a
+  // raw auth error. Defaults to trusted so existing settings.json files are
+  // not retroactively flagged; only untested persists write `false`.
   verified?: boolean;
   // Operator-declared reasoning-effort ladder for a custom OpenAI-compatible
   // provider. When present, the runtime uses exactly these levels for cycling
@@ -98,34 +93,30 @@ export interface Settings {
   providers: Record<string, ProviderSettings>;
   mcpServers?: MCPServerSettingsEntry[];
   // Per-phase model overrides for workflows. Keyed by profile name, then by
-  // workflow step profile key. Example:
-  //   { "fast": { "implement": "gpt-4o-mini", "review": "gpt-4o" } }
-  // Each workflow step may declare a `profile` field; at execution time the
-  // runtime resolves the model by looking up workflowProfiles[activeProfile][step.profile].
+  // workflow step profile key; a step's `profile` field selects the entry.
+  // Example: { "fast": { "implement": "gpt-4o-mini", "review": "gpt-4o" } }
   workflowProfiles?: Record<string, Record<string, string>>;
-  // Per-plugin configuration, keyed by plugin id. Holds the enabled flag and any
-  // credentials the plugin's manifest declares (e.g. an Exa API key). Lives in
-  // the global settings file because it carries secrets; the /plugins UI writes
-  // it. Plugins themselves are auto-discovered from the plugins directories.
+  // Per-plugin configuration, keyed by plugin id: enabled flag plus any
+  // credentials the plugin's manifest declares (e.g. an Exa API key). Lives
+  // in the global settings file because it carries secrets; the /plugins UI
+  // writes it.
   plugins?: Record<string, PluginConfig>;
   // Explicit plugin paths (file or directory) to load in addition to the
-  // auto-discovered plugin directories. Added through the /plugins UI so a
-  // plugin can be registered from anywhere on disk, not just by dropping it
-  // into .corbits/plugins/.
+  // auto-discovered plugin directories. Set through the /plugins UI so a
+  // plugin can be registered from anywhere on disk.
   pluginPaths?: string[];
-  // Per-hook enable/disable state, keyed by LifecycleHook.id (its discovered file
-  // path). Absent entry means enabled (matches discovery's default). Written by
-  // the /hooks UI; discovery re-seeds each hook's initial LifecycleHookStatus from
-  // this on every launch.
+  // Per-hook enable/disable state, keyed by LifecycleHook.id (its discovered
+  // file path). Absent entry means enabled. Written by the /hooks UI;
+  // discovery re-seeds each hook's initial status from this on launch.
   hooks?: Record<string, { enabled: boolean }>;
   // When true, also discover plugins listed in ~/.claude/plugins/installed_plugins.json
   // (Claude Code marketplace installs under the cache). Default false — opt-in so
   // Corbits Code never silently imports a large third-party plugin set. Discovered
   // modules still require settings.plugins[id].enabled before agents/tools wire.
   discoverClaudePlugins?: boolean;
-  // Id of the plugin (kind "web") to use as the web_search/web_fetch backend.
-  // When unset, the single enabled web plugin is used; when no web plugin is
-  // enabled, the built-in local provider is used.
+  // Plugin (kind "web") to use as the web_search/web_fetch backend. When
+  // unset, the single enabled web plugin is used, else the built-in local
+  // provider.
   web?: string;
 
   // Slash commands to suppress from the command palette and completions.
@@ -136,15 +127,15 @@ export interface Settings {
   onboarded?: boolean;
   // Last package version whose release notes were shown (or stamped on first
   // interactive install). Upgrade stamps only after notes are actually shown
-  // so a missing surface cannot silently swallow them (CL-5475).
+  // so a missing surface cannot silently swallow them.
   lastChangelogVersion?: string;
   // Deprecated: summarize vs drop is no longer operator-selectable. Primary
   // compaction is always the evidence-backed LLM handoff. Legacy values may
   // still appear in on-disk settings and are ignored; new writes omit this field.
   compactionMode?: "llm" | "pruning";
-  // Deprecated (CL-5814): orchestrator is the only product path. Legacy values
-  // may still appear in on-disk settings and are ignored at resolve time; new
-  // writes should omit this field. Kept on the type so old files still load.
+  // Deprecated: orchestrator is the only product path. Legacy values may still
+  // appear in on-disk settings and are ignored at resolve time; new writes
+  // omit this field. Kept on the type so old files still load.
   sessionMode?: SessionMode;
   // When an agent profile pins a provider/model combo (via its `inference`
   // field) and none of the listed legs are available in the user's configured
@@ -157,21 +148,18 @@ export interface Settings {
   // run_shell has no default. `maxTimeoutMs` clamps that default path only —
   // a positive per-call timeout is the bound with no ceiling.
   shell?: { timeoutMs?: number; maxTimeoutMs?: number };
-  // Outer wall-clock budget for each tool `run()` (dynamic runner / agent dispatch).
-  //
-  // waitForApproval (default true when unset): freeze this budget while a
-  // permission prompt is open so a late approve still runs the tool. When false,
-  // the budget keeps ticking during the prompt; if it expires first the tool is
-  // skipped and the prompt is dismissed.
+  // Outer wall-clock budget for each tool `run()` (dynamic runner / agent
+  // dispatch). waitForApproval (default true) freezes the budget while a
+  // permission prompt is open so a late approve still runs the tool; when
+  // false the budget keeps ticking and expiry skips the tool.
   tools?: {
     timeoutMs?: number;
     maxTimeoutMs?: number;
     waitForApproval?: boolean;
   };
-  // Wall-clock budget for MCP tool calls specifically (mcp__* names). Unlike
-  // the generic `tools` budget, this one is armed by default (see
-  // DEFAULT_MCP_TOOL_TIMEOUT_MS) since a wedged MCP server otherwise hangs a
-  // tool call forever with nothing to bound it.
+  // Wall-clock budget for MCP tool calls (mcp__* names). Armed by default
+  // (see DEFAULT_MCP_TOOL_TIMEOUT_MS) since a wedged MCP server would
+  // otherwise hang a tool call forever.
   mcp?: { timeoutMs?: number };
   // Anonymous PostHog telemetry. Global only — never written to per-repo
   // local settings. `enabled` defaults to true (opt-out); `installationId`
@@ -193,18 +181,16 @@ export interface Settings {
   // Operator-starred provider+model pairs for the models-first picker.
   favoriteModels?: ModelRef[];
   // Show the running session cost next to the context percentage in the
-  // prompt border's bottom rule. Default false: `/cost` still gives the full
-  // breakdown on demand, so the border only needs to opt in to the running
-  // total.
+  // prompt border's bottom rule. Default false — `/cost` still gives the
+  // full breakdown on demand.
   showPromptCost?: boolean;
   // User-global YOLO default; `/yolo` writes it.
   dangerouslySkipPermissions?: boolean;
-  // Experimental. When true, an expired Anthropic prompt cache stubs old tool
-  // results on the outgoing prompt only. Default off: sessions do not depend
-  // on that shrink.
+  // Experimental. When true, an expired Anthropic prompt cache stubs old
+  // tool results on the outgoing prompt only. Default off.
   anthropicCachePrompt?: boolean;
-  // Terminal palette selection (CL-8993). "auto" (default when unset) follows
-  // the terminal/OS detection chain; "light"/"dark" pin the palette.
+  // Terminal palette selection. "auto" (default when unset) follows the
+  // terminal/OS detection chain; "light"/"dark" pin the palette.
   theme?: "auto" | "light" | "dark";
 }
 
@@ -527,9 +513,8 @@ export interface LocalSettings {
   // instead of a shell command that mutates the environment mid-session.
   env?: Record<string, string>;
   // Tool names always advertised on the wire for this project — e.g. hot MCP
-  // integrations ("mcp__linear__save_issue") that should never need a
-  // tool_search activation round-trip. Names that resolve to no registered
-  // tool are inert.
+  // integrations that should never need a tool_search activation round-trip.
+  // Names that resolve to no registered tool are inert.
   pinnedTools?: string[];
 }
 
@@ -678,8 +663,8 @@ const SettingsSchema = type({
   // mcpServers accepts both array and object forms, so it is validated by
   // normalizeMcpServers rather than expressed structurally here.
   "mcpServers?": "unknown",
-  // Model tiers were removed; an older settings file may still carry this key.
-  // Accepted and ignored so the file still loads, then dropped on next save.
+  // Model tiers were removed; older files may still carry this key. Accepted
+  // and ignored so the file loads, then dropped on next save.
   "tiers?": "unknown",
   "workflowProfiles?": type({ "[string]": type({ "[string]": "string" }) }),
   "plugins?": type({
@@ -697,7 +682,7 @@ const SettingsSchema = type({
   "onboarded?": "boolean",
   "lastChangelogVersion?": "string",
   "compactionMode?": "'llm' | 'pruning'",
-  // Legacy disk values still load; product resolve ignores them (CL-5814).
+  // Legacy disk values still load; product resolve ignores them.
   "sessionMode?": "'single' | 'orchestrator'",
 
   "agentModelFallback?": "'active' | 'none'",
@@ -746,7 +731,7 @@ const LocalSettingsSchema = type({
   "model?": "string",
   "reasoningEffort?": type.enumerated(...REASONING_EFFORTS),
   "mcpServers?": "unknown",
-  // Legacy disk values still load; product resolve ignores them (CL-5814).
+  // Legacy disk values still load; product resolve ignores them.
   "sessionMode?": "'single' | 'orchestrator'",
 
   "env?": "Record<string, string>",
@@ -1092,8 +1077,8 @@ function normalizeParsedSettings(path: string, parsed: unknown): Settings {
   const s = parsed as unknown as Record<string, unknown>;
   warnOnIgnoredProviderFields(path, parsed.providers);
   // These keys were removed when plugins moved to discovery; they are now
-  // silently dropped on the next save. Warn so a user who relied on them knows
-  // to re-enable the equivalent plugins in /plugins instead of losing the
+  // dropped on the next save. Warn so a user who relied on them knows to
+  // re-enable the equivalent plugins in /plugins instead of losing the
   // feature without a trace.
   if (s.workflowPlugins !== undefined || s.agentPlugins !== undefined) {
     process.stderr.write(
@@ -1131,7 +1116,7 @@ function normalizeParsedSettings(path: string, parsed: unknown): Settings {
       s.compactionMode === "llm" || s.compactionMode === "pruning"
         ? s.compactionMode
         : undefined,
-    // CL-5814: drop legacy "single"; only keep explicit orchestrator if present.
+    // Drop legacy "single"; keep only explicit orchestrator if present.
     sessionMode: s.sessionMode === "orchestrator" ? "orchestrator" : undefined,
     agentModelFallback:
       s.agentModelFallback === "active" || s.agentModelFallback === "none"
@@ -1170,10 +1155,9 @@ async function loadStrictSettings(
   parsed: unknown,
 ): Promise<Settings> {
   const settings = normalizeParsedSettings(path, parsed);
-  // Hard cutover: pin Go flag + canonical baseURL on disk when any Go signal matches.
-  // Only rewrite disk when heal actually mutates (no write-on-read for no-op reloads).
-  // Fail open on save: keep the in-memory heal so startup is not bricked by a
-  // read-only or otherwise unwritable settings path.
+  // Pin the Go flag + canonical baseURL on disk when any Go signal matches.
+  // Only rewrite when heal actually mutates. Fail open on save: keep the
+  // in-memory heal so a read-only settings path cannot brick startup.
   const healedIds = healOpenCodeGoProviders(settings);
   if (healedIds.length > 0) {
     process.stderr.write(
@@ -1484,8 +1468,8 @@ export async function persistSkipPermissionsDefault(
 // Stamp the global `onboarded` flag. Reads the on-disk global settings fresh
 // (never an in-memory Settings that may carry injected OAuth provider entries
 // with short-lived access tokens) and re-saves with onboarded set. When the
-// file is absent a minimal valid Settings is written, so no provider — and thus
-// no credential — is ever invented here.
+// file is absent a minimal valid Settings is written — no provider or
+// credential is ever invented here.
 export async function markOnboarded(path: string): Promise<void> {
   const onDisk = await loadSettings(path);
   const base: Settings = onDisk ?? { providers: {} };
@@ -1514,9 +1498,8 @@ export async function ensureTelemetrySettings(path: string): Promise<Settings> {
   const base: Settings = onDisk ?? { providers: {} };
   // Read-then-write, not read-then-lock: two concurrent first launches could
   // each generate a different installationId and the second save wins. This
-  // only matters once, at first run, and the cost of colliding is a rare
-  // duplicate distinct_id rather than any correctness or security issue, so
-  // it's accepted rather than adding cross-process locking for it.
+  // only matters once, at first run, and a rare duplicate distinct_id is
+  // accepted rather than adding cross-process locking.
   if (base.telemetry?.installationId !== undefined) return base;
   const next: Settings = {
     ...base,
@@ -1538,11 +1521,10 @@ export async function markTelemetryNoticeShown(path: string): Promise<void> {
   });
 }
 
-// Persist the per-repo provider/model selection. This is where the /agent modal
-// writes a "default for this project": selection only, never credentials, so
-// the file stays safe to leave gitignored in the repo. Validated before writing
-// so a written file always round-trips back through loadLocalSettings, and
-// written via temp-file + rename so a concurrent reader never sees a torn file.
+// Persist the per-repo provider/model selection. This is where the /agent
+// modal writes a "default for this project": selection only, never
+// credentials, so the file stays safe to leave gitignored in the repo.
+// Validated before writing and written via temp-file + rename.
 export async function saveLocalSettings(
   path: string,
   local: LocalSettings,

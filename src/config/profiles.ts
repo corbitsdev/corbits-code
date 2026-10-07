@@ -11,18 +11,16 @@ const ProfileSchema = type({
   "systemPromptExtensions?": "string[]",
   // Guideline sub-block ids to drop from the chat system prompt (see
   // GUIDELINE_SUB_BLOCK_IDS in agent/prompts.ts). Omitted = full guidelines.
-  // Unknown ids are rejected here so profile typos fail closed at load
-  // instead of silently keeping the full guidelines.
+  // Unknown ids are rejected so a profile typo fails closed at load.
   "promptSectionOmit?": type.enumerated(...GUIDELINE_SUB_BLOCK_IDS).array(),
   // Per-call inactivity timeout in milliseconds. If the provider yields no
-  // inference event for this many ms, the call is aborted and the user sees
-  // "Request timed out". Default in the inference harness is 120_000 (2 min).
-  // Tune higher for reasoning models that exhibit long silent-thinking
-  // stretches between token bursts.
+  // inference event for this long, the call aborts with "Request timed out".
+  // Default in the inference harness is 120_000 (2 min); tune higher for
+  // reasoning models with long silent-thinking stretches.
   "inactivityTimeoutMs?": "number >= 1",
-  // Per-call total wall-clock cap in milliseconds. Starts at fetch.
-  // Default in the inference harness is 600_000 (10 min). Backstop for
-  // streams that keep emitting forever without terminating.
+  // Per-call total wall-clock cap in milliseconds. Starts at fetch. Default
+  // in the inference harness is 600_000 (10 min). Backstop for streams that
+  // never terminate.
   "totalTimeoutMs?": "number >= 1",
   // Per-call cap for the compaction summary call in milliseconds. Default
   // 90_000 — well under totalTimeoutMs because compaction runs inline on the

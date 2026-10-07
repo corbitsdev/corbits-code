@@ -22,7 +22,7 @@ describe("codex provider naming", () => {
   });
 });
 
-// The CL-5691 default-model agreement is pinned without literals in
+// The default-model agreement is pinned without literals in
 // provider/identity-divergence.test.ts — no second literal re-pin here.
 describe("codexProvidersAsSettings", () => {
   test("projects profiles into provider settings seeded with the access token", () => {

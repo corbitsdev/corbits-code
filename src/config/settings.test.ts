@@ -93,8 +93,8 @@ afterEach(() => {
 
 // Rejects immediately instead of touching the network. loadConfig's pricing
 // refresh is fire-and-forget, so a resolved run proves only that the injected
-// impl was reached — which is exactly the regression this file guards against:
-// the default impl performs a real fetch of models.dev from inside the suite.
+// impl was reached — exactly the regression this guards against: the default
+// impl performs a real fetch of models.dev from inside the suite.
 function offlineFetch(): { impl: typeof fetch; calls: () => number } {
   let count = 0;
   const impl = (() => {
@@ -156,9 +156,8 @@ async function writeXaiAuthProfile(home: string): Promise<void> {
 }
 
 // loadConfig's OAuth profile merge reads the real os.homedir() with no
-// override parameter (Bun's homedir does not observe a post-startup HOME
-// change), so the only way to point it at a synthetic auth store is to stub
-// node:os for the duration of the call.
+// override parameter (Bun's homedir ignores post-startup HOME changes), so
+// the only way to point it at a synthetic auth store is to stub node:os.
 async function loadConfigAtHome(
   home: string,
   args: string[],
@@ -585,14 +584,10 @@ test("loadConfig ignores a persisted OAuth entry whose auth profile is gone", as
 // from settings.json — home-level auth stores are the source of truth, and
 // loadConfig merges them into the catalog it hands to resolveProvider (see
 // "OAuth profiles live in home-level auth stores" in src/config/index.ts).
-// --config only overrides where provider *definitions* come from (CL-6973);
-// it must still merge in the OAuth catalog, or every codex/xai OAuth run
-// through --config reaches the provider unauthenticated. Only the
-// programmatic `globalSettingsPath` test override (never exposed as a CLI
-// flag) opts out, for full test isolation. This proves loadConfig picks an
-// OAuth-ish catalog provider that exists in no settings file at all, using a
-// synthetic profile written straight to the home-level auth store loadConfig
-// actually reads.
+// --config only overrides where provider *definitions* come from; it must
+// still merge in the OAuth catalog, or every codex/xai OAuth run through
+// --config reaches the provider unauthenticated. Only the programmatic
+// `globalSettingsPath` test override (never exposed as a CLI flag) opts out.
 test("loadConfig resolves an OAuth-profile provider absent from any settings file", async () => {
   const fakeHome = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-home-"));
   const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-cwd-"));
@@ -615,14 +610,14 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
   }
 });
 
-// CL-6973: --config <path> passes a settings-file override for provider
-// *definitions*, but credentials for OAuth-profile providers (codex/<name>,
-// xai/<name>) live in separate home-level auth stores that --config never
-// touches. Before this fix, an explicit --config unconditionally suppressed
-// the OAuth catalog merge, so any codex/xai run through --config resolved to
-// an unauthenticated provider (HTTP 426/404 on the first turn). This proves
-// --config composes with auth: the OAuth profile still resolves even though
-// a --config file is also given, and the file's own settings still apply.
+// --config <path> passes a settings-file override for provider *definitions*,
+// but credentials for OAuth-profile providers (codex/<name>, xai/<name>) live
+// in separate home-level auth stores that --config never touches. Before this
+// fix, an explicit --config unconditionally suppressed the OAuth catalog
+// merge, so any codex/xai run through --config resolved to an unauthenticated
+// provider. This proves --config composes with auth: the OAuth profile still
+// resolves even though a --config file is also given, and the file's own
+// settings still apply.
 test("--config composes with OAuth profile auth instead of suppressing it", async () => {
   const fakeHome = await mkdtemp(
     join(tmpdir(), "ic-unit-config-oauth-compose-home-"),

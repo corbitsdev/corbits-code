@@ -20,13 +20,13 @@ import type {
   Settings,
 } from "./settings.js";
 
-// Regression tests for CL-5606: after a successful ChatGPT browser login the
-// merged catalog must not list a separately-added legacy bare `codex` row
-// alongside the credential-backed `codex/<profile>` entry.
+// Regression: after a successful ChatGPT browser login the merged catalog
+// must not list a separately-added legacy bare `codex` row alongside the
+// credential-backed `codex/<profile>` entry.
 //
-// CL-7929: the drop only applies when the bare row points at the OAuth
-// endpoint. A bare row pointed at a proxy/mirror is a distinct provider and
-// stays alongside the credential-backed entries.
+// The drop only applies when the bare row points at the OAuth endpoint. A
+// bare row pointed at a proxy/mirror is a distinct provider and stays
+// alongside the credential-backed entries.
 
 const resolved: ResolvedProvider = {
   providerName: "openai",

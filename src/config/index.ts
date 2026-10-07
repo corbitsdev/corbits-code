@@ -108,9 +108,8 @@ import {
 import { resolveProfile } from "./profiles.js";
 
 // The per-call token ceiling for the inference source. Lives here so agent
-// creation (runner.ts) and live provider switching (the /agent
-// modal) all build the source the same way and a live switch can never silently
-// revert the ceiling.
+// creation (runner.ts) and live provider switching (the /agent modal) build
+// the source the same way and a live switch cannot silently revert it.
 export const SOURCE_MAX_TOKENS = 16384;
 
 // Placeholder resolved from the credential cell for keyless local providers
@@ -190,7 +189,7 @@ export function dropOrphanedOAuthEntries(
 // A codex/<slug> or xai/<slug> settings row carrying its own credential is the
 // operator's explicit config, not an OAuth placeholder: OAuth profile
 // projections must never overwrite it, orphan-sweep it, or drop it from the
-// catalog. Credential-less namespaced rows stay placeholders (CL-6728).
+// catalog. Credential-less namespaced rows stay placeholders.
 function isHandNamedProviderEntry(
   entry: Pick<ProviderSettings, "apiKey" | "keyless"> | undefined,
 ): boolean {
@@ -307,19 +306,18 @@ export function buildOpenAISource(fields: {
 }
 
 // One configured provider the /agent modal can switch to. Carries credentials
-// because live switching builds an InferenceSource from it; the modal only ever
-// receives fields needed for provider management, never the key. Derived from
-// ProviderSettings (the persisted record) so the field *set* stays tied to it:
-// a newly required ProviderSettings field forces every catalog-entry literal
-// to supply it. `name` becomes required (every catalog entry is resolved to a
-// concrete provider id) and `contextWindow` is dropped (it is a settings-only
-// override, never surfaced to the /agent modal). The OAuth-profile markers
-// below have no ProviderSettings counterpart because such entries are never
-// written to settings.json (their credentials live in the Codex/xAI auth
-// stores). Optional fields still need the round-trip test in config.test.ts —
-// TS does not flag a missing optional property against an explicitly-typed
-// object literal, so forwarding of an optional field can only be caught at
-// runtime.
+// because live switching builds an InferenceSource from it; the modal only
+// ever receives fields needed for provider management, never the key. Derived
+// from ProviderSettings (the persisted record) so the field *set* stays tied
+// to it: a newly required ProviderSettings field forces every catalog-entry
+// literal to supply it. `name` becomes required (every catalog entry is a
+// concrete provider id) and `contextWindow` is dropped (a settings-only
+// override, never surfaced to the modal). The OAuth-profile markers have no
+// ProviderSettings counterpart because such entries are never written to
+// settings.json (their credentials live in the Codex/xAI auth stores).
+// Optional fields still need the round-trip test in config.test.ts — TS does
+// not flag a missing optional property against an explicitly-typed object
+// literal, so forwarding an optional field is only caught at runtime.
 export type ProviderCatalogEntry = Omit<
   ProviderSettings,
   "name" | "contextWindow"
@@ -391,10 +389,10 @@ export function buildCodexSource(fields: {
 // Build the InferenceSource for an xAI/Grok OAuth profile. Routes to the
 // "grok-responses" adapter (the grok-cli proxy speaks the Responses API, not
 // Chat Completions). The access token is registered in the credential cell
-// under the source id; the caller's user id is
-// decoded from it and lifted into the x-grok-user-id header by the adapter.
-// The session id becomes the request's prompt_cache_key so every call in the
-// thread routes to the same cache shard (store:false has no other signal).
+// under the source id; the caller's user id is decoded from it and lifted
+// into the x-grok-user-id header by the adapter. The session id becomes the
+// request's prompt_cache_key so every call in the thread routes to the same
+// cache shard (store:false has no other signal).
 export function buildXaiSource(fields: {
   id: string;
   profile: string;
@@ -1033,10 +1031,9 @@ export async function loadConfig(
   // xai-auth.json), entirely separate from settings.json. --config only
   // overrides where provider *definitions* come from, so it must still merge
   // in OAuth profiles or every codex/xai OAuth run through --config reaches
-  // the provider unauthenticated (CL-6973: HTTP 426/404 before a single
-  // turn). Only the programmatic `globalSettingsPath` test override — never
-  // exposed as a CLI flag — opts out, for tests that want a fully controlled
-  // provider set with no home-directory reads at all.
+  // the provider unauthenticated. Only the programmatic `globalSettingsPath`
+  // test override — never exposed as a CLI flag — opts out, for tests that
+  // want a fully controlled provider set with no home-directory reads at all.
   const useOAuthProfiles = options.globalSettingsPath === undefined;
   const [codexProfiles, xaiProfiles]: [CodexProfile[], XaiProfile[]] =
     useOAuthProfiles
@@ -1301,24 +1298,21 @@ export async function loadConfig(
 // catalog after writing new credentials, instead of only taking effect on
 // the next process start.
 //
-// Credential-removal convergence (CL-5446) is rebuild-only: every rebuild
-// derives rows from the current settings file plus the live Codex/xAI
-// stores, so a provider without a credential is rebuilt without one and
-// re-auth restores it on the next rebuild. Settings-file rows are
-// re-projected verbatim and never deleted — with one exception: the legacy
-// bare `codex`/`xai` row dedupe (CL-5606), which drops the bare settings row
-// once that family has a live credential-backed profile. Otherwise the
-// disable-not-delete rationale holds: nothing the operator wrote is lost, and
-// nothing stale survives past the next rebuild. A dedicated disabled flag
-// was rejected: no such state exists on the catalog entry, the picker
-// option, or the host boundary, and no removal event drives a refresh
-// (there is no logout/disconnect surface or auth-store watcher; refresh
-// runs on connect, prefetch, and startup), so removal takes effect on the
-// next rebuild, not live.
-// Compare a settings-row baseURL against the OAuth endpoint so a
-// proxy/mirror row is never mistaken for the legacy bare-row duplicate.
-// Normalization failures fall back to a trailing-slash-insensitive compare
-// rather than dropping a row whose URL cannot be parsed.
+// Credential-removal convergence is rebuild-only: every rebuild derives rows
+// from the current settings file plus the live Codex/xAI stores, so a
+// provider without a credential is rebuilt without one and re-auth restores
+// it on the next rebuild. Settings-file rows are re-projected verbatim and
+// never deleted — with one exception: the legacy bare `codex`/`xai` row
+// dedupe drops the bare settings row once that family has a live
+// credential-backed profile. Nothing the operator wrote is lost, nothing
+// stale survives past the next rebuild; a dedicated disabled flag was
+// rejected (no removal event drives a refresh — there is no logout/disconnect
+// surface or auth-store watcher), so removal takes effect on the next
+// rebuild, not live.
+// Compare a settings-row baseURL against the OAuth endpoint so a proxy/mirror
+// row is never mistaken for the legacy bare-row duplicate. Normalization
+// failures fall back to a trailing-slash-insensitive compare rather than
+// dropping a row whose URL cannot be parsed.
 function sameEndpoint(raw: string | undefined, oauthBaseURL: string): boolean {
   if (raw === undefined) return false;
   const normalized = (value: string): string => {
@@ -1342,9 +1336,9 @@ export function mergeOAuthCatalog(
   // connect key) reads as a second, separately-added provider next to the
   // credential-backed `<kind>/<profile>` entries. Drop it once that family
   // has a live profile; when nothing is connected the bare row is the only
-  // ChatGPT/Grok access and stays. A bare row pointed at a different
-  // endpoint (proxy/mirror) is a distinct provider, not the legacy
-  // duplicate, so it stays alongside the credential-backed entries.
+  // ChatGPT/Grok access and stays. A bare row at a different endpoint
+  // (proxy/mirror) is a distinct provider, not the legacy duplicate, so it
+  // stays too.
   const dropBare = new Set([
     ...(codexEntries.length > 0 &&
     sameEndpoint(settings?.providers["codex"]?.baseURL, CODEX_BASE_URL)
@@ -1358,7 +1352,7 @@ export function mergeOAuthCatalog(
   const settingsRows = buildProviderCatalog(settings, resolved);
   // A hand-named codex/<slug> or xai/<slug> API-key row is the operator's
   // explicit config, not an OAuth placeholder: keep it and skip the colliding
-  // live profile projection instead of overwriting it (CL-6728). Read the raw
+  // live profile projection instead of overwriting it. Read the raw
   // settings rows only: buildProviderCatalog synthesizes a [resolved] row when
   // settings is null/empty, and when resolved is itself codex/<slug> that row
   // carries the live apiKey with no profile marker — treating it as hand-named
@@ -1507,7 +1501,7 @@ export function runtimeSettingsWithCatalog(
     return { providers: fromCatalog };
   }
   // OAuth-marked catalog rows carry live profile tokens; they overlay
-  // credential-less placeholders but never a hand-named API-key row (CL-6728).
+  // credential-less placeholders but never a hand-named API-key row.
   const overlaid = Object.fromEntries(
     Object.entries(fromCatalog).filter(
       ([name]) =>
