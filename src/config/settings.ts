@@ -22,54 +22,48 @@ import {
   isOpenCodeGoProvider,
 } from "../../packages/opencode-go/src/index.js";
 
-// A configured inference provider. `apiKey` is secret and lives only in the
-// global settings file; `baseURL` is editable provider metadata. `models` is
-// always an array so single- and multi-model providers are handled uniformly;
-// `defaultModel` (or the first entry) is used when no model is selected.
+// A configured inference provider. `apiKey` is secret (global settings file
+// only); `models` is always an array so single- and multi-model providers are
+// handled uniformly; `defaultModel` (or the first entry) is the default.
 export interface ProviderSettings {
   name?: string;
   baseURL: string;
-  // Optional for keyless local providers (e.g. Ollama); when `keyless` is
-  // true the resolution path skips the non-empty apiKey check entirely.
+  // Optional for keyless local providers (e.g. Ollama); `keyless` skips the
+  // non-empty apiKey check entirely.
   apiKey?: string;
   models: string[];
   defaultModel?: string;
   keyless?: boolean;
-  // Suppresses the status-bar dollar cost regardless of model pricing — e.g.
-  // a prepaid coding plan or a gateway whose models.dev prices do not apply.
+  // Hides the status-bar dollar cost regardless of model pricing — e.g. a
+  // prepaid coding plan or a gateway whose models.dev prices do not apply.
   free?: boolean;
   // Token-window override for compaction and the status-bar meter, applied at
-  // load into contextWindowFor. OAuth-projected Codex/xAI entries drop it, so
-  // a hand-edited value on those providers is ignored.
+  // load into contextWindowFor; OAuth-projected Codex/xAI entries drop it.
   contextWindow?: number;
   // Per-call output cap, overriding SOURCE_MAX_TOKENS when set.
   maxTokens?: number;
-  // Sampling temperature (0..2, OpenAI-compatible). Mutually exclusive with
+  // Sampling temperature (0..2, OpenAI-compatible); mutually exclusive with
   // topP — never send both on the wire.
   temperature?: number;
-  // Sampling top-p (0..1, OpenAI-compatible). Mutually exclusive with
+  // Sampling top-p (0..1, OpenAI-compatible); mutually exclusive with
   // temperature — never send both on the wire.
   topP?: number;
-  // Uses a Bifrost virtual key (sk-bf-...): the source routes through the
-  // Bifrost adapter (injects the x-bf-vk header) and enables model
-  // auto-discovery via the Bifrost /v1/models endpoint.
+  // Bifrost virtual key (sk-bf-...): routes through the Bifrost adapter
+  // (injects the x-bf-vk header) and enables /v1/models auto-discovery.
   bifrostVirtualKey?: boolean;
   // Anthropic Messages API provider (x-api-key auth).
   anthropic?: boolean;
   // OpenCode Go multi-protocol provider; per-model adapter selection.
   opencodeGo?: boolean;
-  // False when persisted without a passing connection test (e.g. the
-  // onboarding "save anyway" bypass); absent/true means tested. Read once at
-  // startup to warn instead of surfacing a raw auth error. Defaults to
-  // trusted so existing files are not retroactively flagged; only untested
-  // persists write `false`.
+  // False when persisted without a passing connection test ("save anyway"
+  // bypass); absent/true means tested. Defaults to trusted so existing files
+  // are not flagged; only untested persists write `false`.
   verified?: boolean;
-  // Custom reasoning-effort ladder for an OpenAI-compatible provider. When
-  // present the runtime uses exactly these levels for cycling and validation
-  // instead of the family table. Absent means "family table".
+  // Custom reasoning-effort ladder; when present the runtime uses exactly
+  // these levels instead of the family table. Absent means "family table".
   reasoningEfforts?: ReasoningEffort[];
-  // Level new sessions start at for a custom provider; only meaningful
-  // alongside `reasoningEfforts`.
+  // Starting level for new sessions; only meaningful alongside
+  // `reasoningEfforts`.
   defaultReasoningEffort?: ReasoningEffort;
 }
 
@@ -87,27 +81,22 @@ export interface Settings {
   defaultProvider?: string;
   providers: Record<string, ProviderSettings>;
   mcpServers?: MCPServerSettingsEntry[];
-  // Per-phase model overrides for workflows. Keyed by profile name, then by
+  // Per-phase model overrides for workflows. Keyed by profile name, then
   // workflow step profile key; a step's `profile` field selects the entry.
-  // Example: { "fast": { "implement": "gpt-4o-mini", "review": "gpt-4o" } }
   workflowProfiles?: Record<string, Record<string, string>>;
-  // Per-plugin configuration, keyed by plugin id: enabled flag plus any
-  // credentials the plugin's manifest declares (e.g. an Exa API key). Lives
-  // in the global settings file because it carries secrets; the /plugins UI
-  // writes it.
+  // Per-plugin config keyed by plugin id: enabled flag plus manifest-declared
+  // credentials (e.g. an Exa API key). Global-only because it carries secrets;
+  // the /plugins UI writes it.
   plugins?: Record<string, PluginConfig>;
-  // Extra plugin paths (file or directory) beyond the auto-discovered plugin
-  // directories. Set through the /plugins UI so a plugin can be registered
-  // from anywhere on disk.
+  // Extra plugin paths beyond the auto-discovered plugin directories; the
+  // /plugins UI writes here so a plugin can register from anywhere on disk.
   pluginPaths?: string[];
-  // Per-hook enable/disable state, keyed by LifecycleHook.id (its discovered
-  // file path). Absent means enabled. Written by the /hooks UI; discovery
-  // re-seeds each hook's initial status from this on launch.
+  // Per-hook enable/disable state keyed by LifecycleHook.id (its discovered
+  // file path). Absent means enabled; the /hooks UI writes it.
   hooks?: Record<string, { enabled: boolean }>;
-  // When true, also discover plugins from ~/.claude/plugins/installed_plugins.json
-  // (Claude Code marketplace installs). Default false — opt-in so we never
-  // silently import a large third-party plugin set. Discovered modules still
-  // require settings.plugins[id].enabled before agents/tools wire.
+  // Also discover plugins from ~/.claude/plugins/installed_plugins.json (Claude
+  // Code marketplace installs). Default false — opt-in so we never silently
+  // import third-party plugins; they still need settings.plugins[id].enabled.
   discoverClaudePlugins?: boolean;
   // Plugin (kind "web") used as the web_search/web_fetch backend. When unset:
   // the single enabled web plugin, else the built-in local provider.
@@ -120,32 +109,26 @@ export interface Settings {
   // whether subsequent launches show "Welcome to" vs "Welcome back".
   onboarded?: boolean;
   // Last package version whose release notes were shown (or stamped on first
-  // interactive install). Stamps only after notes are actually shown so a
-  // missing surface cannot silently swallow them.
+  // interactive install). Stamps only after notes are actually shown.
   lastChangelogVersion?: string;
-  // Deprecated: summarize vs drop is no longer operator-selectable — primary
-  // compaction is always the evidence-backed LLM handoff. Legacy values may
-  // still appear on disk and are ignored; new writes omit this field.
+  // Deprecated: compaction is always the evidence-backed LLM handoff now.
+  // Legacy values still load but are ignored; new writes omit this field.
   compactionMode?: "llm" | "pruning";
-  // Deprecated: orchestrator is the only product path. Legacy values may
-  // still appear on disk and are ignored at resolve time; new writes omit
-  // this field. Kept on the type so old files still load.
+  // Deprecated: orchestrator is the only product path. Legacy values still
+  // load but are ignored; kept on the type so old files load.
   sessionMode?: SessionMode;
-  // When an agent profile pins a provider/model combo (via its `inference`
-  // field) and none of the listed legs exist in the user's providers:
-  // "active" (default) silently falls back to whatever the user's main
-  // session is using so the agent still runs; "none" is a hard error and the
-  // profile fails to load.
+  // When a pinned agent profile has no viable provider leg: "active" (default)
+  // falls back to the user's main session so the agent still runs; "none"
+  // fails the profile load.
   agentModelFallback?: "active" | "none";
-  // Shell command timeouts. `timeoutMs` overrides the 120s foreground
-  // run_shell default when the model omits a per-command timeout. Background
-  // run_shell has no default. `maxTimeoutMs` clamps that default path only —
-  // a positive per-call timeout is the bound with no ceiling.
+  // Shell command timeouts. `timeoutMs` overrides the 120s foreground run_shell
+  // default when the model omits a per-command timeout; `maxTimeoutMs` clamps
+  // that default path only — a per-call timeout is the bound, no ceiling.
+  // Background run_shell has no default.
   shell?: { timeoutMs?: number; maxTimeoutMs?: number };
-  // Outer wall-clock budget for each tool `run()` (dynamic runner / agent
-  // dispatch). waitForApproval (default true) freezes the budget while a
-  // permission prompt is open so a late approve still runs the tool; when
-  // false the budget keeps ticking and expiry skips the tool.
+  // Outer wall-clock budget for each tool run(). waitForApproval (default true)
+  // freezes the budget while a permission prompt is open so a late approve
+  // still runs the tool; false keeps ticking and expiry skips the tool.
   tools?: {
     timeoutMs?: number;
     maxTimeoutMs?: number;
@@ -155,28 +138,26 @@ export interface Settings {
   // (DEFAULT_MCP_TOOL_TIMEOUT_MS); a wedged MCP server would otherwise hang a
   // tool call forever.
   mcp?: { timeoutMs?: number };
-  // Anonymous PostHog telemetry. Global only — never written to per-repo
-  // local settings. `enabled` defaults to true (opt-out); `installationId`
-  // is a random UUID generated once on first use; `noticeShown` marks that
-  // the first-run notice has already been shown.
+  // Anonymous PostHog telemetry, global only — never written to per-repo local
+  // settings. `enabled` defaults to true (opt-out); `installationId` is a
+  // UUID generated once on first use; `noticeShown` marks the first-run notice.
   telemetry?: {
     enabled?: boolean;
     installationId?: string;
     noticeShown?: boolean;
   };
-  // Opt-in OTEL export (operator-owned collector), separate from PostHog
-  // telemetry. Prefer OTEL_* env vars for secrets; see docs/PERFTRACE.md.
-  // Local PerfTrace stays always-on regardless of this block.
+  // Opt-in OTEL export (operator-owned collector), separate from PostHog.
+  // Prefer OTEL_* env vars for secrets; see docs/PERFTRACE.md. Local PerfTrace
+  // stays always-on regardless of this block.
   otel?: OtelSettings;
-  // Models-first /model picker: most-recently-used provider+model pairs
-  // (newest first). Global preference only — no credentials. Stored list
-  // capped (~10); UI surfaces fewer via listRecentModels.
+  // Models-first /model picker recents (newest first). Global preference only
+  // — no credentials. Stored list capped (~10); UI shows fewer via
+  // listRecentModels.
   recentModels?: ModelRef[];
   // Operator-starred provider+model pairs for the models-first picker.
   favoriteModels?: ModelRef[];
-  // Show the running session cost next to the context percentage in the
-  // prompt border's bottom rule. Default false — `/cost` still gives the full
-  // breakdown.
+  // Show session cost next to the context percentage in the prompt border's
+  // bottom rule. Default false — `/cost` still gives the full breakdown.
   showPromptCost?: boolean;
   // User-global YOLO default; `/yolo` writes it.
   dangerouslySkipPermissions?: boolean;
@@ -710,8 +691,8 @@ const SettingsSchema = type({
   "theme?": "'auto' | 'light' | 'dark'",
 });
 
-// Per-entry MCP shape without the name key. The "exactly one transport" rule
-// is a cross-field constraint enforced after the structural check.
+// Per-entry MCP shape without the name key. "Exactly one transport" is a
+// cross-field constraint enforced after the structural check.
 const McpEntrySchema = type({
   "enabled?": "boolean",
   "type?": "'stdio' | 'http'",
@@ -805,8 +786,8 @@ function normalizeMcpEntry(
   };
 }
 
-// Accepts both array format [{ name, command, ... }] and object format
-// { "name": { command, ... } }. Returns the normalized array.
+// Accepts both array [{ name, ... }] and object { name: {...} } formats;
+// returns the normalized array.
 export function normalizeMcpServers(
   value: unknown,
 ): MCPServerSettingsEntry[] | undefined {
@@ -832,8 +813,8 @@ export function normalizeMcpServers(
 }
 
 // Local settings are selection-only for provider/model (no credentials
-// allowed). The mcpServers key is permitted because MCP server configs are
-// expected to live in the repo.
+// allowed); mcpServers is permitted because MCP server configs are expected
+// to live in the repo.
 export function isLocalSettings(value: unknown): value is LocalSettings {
   if (!LocalSettingsSchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
@@ -854,9 +835,9 @@ export function isLocalSettings(value: unknown): value is LocalSettings {
   return true;
 }
 
-// Drop keys whose value is undefined so JSON omit + optional Settings fields
-// stay aligned. Transforms (normalize, clamp, enum checks) happen before this
-// — the helper only filters undefined, it does not validate.
+// Drop undefined keys so JSON omit + optional Settings fields stay aligned.
+// Transforms run before this; the helper only filters undefined, it does not
+// validate.
 type DefinedFields<T> = {
   [
     K in keyof T as undefined extends T[K]
@@ -877,9 +858,8 @@ function pickDefined<T extends Record<string, unknown>>(
   return out as DefinedFields<T>;
 }
 
-// Every optional Settings key must appear here so a new type field without a
-// load-path assignment fails at compile time instead of silently dropping on
-// the next load/save cycle.
+// Every optional Settings key must appear here so a new field without a
+// load-path assignment fails at compile time instead of silently dropping.
 type OptionalSettingsFields = {
   [K in Exclude<keyof Settings, "providers">]: Settings[K] | undefined;
 };
@@ -929,8 +909,7 @@ export const LOCAL_SETTINGS_OPTIONAL_KEYS = [
 /**
  * Hard-cutover heal: any provider that is Go by flag, known id/label, or
  * `/zen/go` baseURL gets `opencodeGo: true` and the canonical Go baseURL.
- * Mutates `settings.providers` only when at least one entry changes; returns
- * the names of providers that were mutated (empty when no-op).
+ * Mutates only when at least one entry changes; returns the mutated names.
  */
 export function healOpenCodeGoProviders(settings: Settings): string[] {
   const healed: string[] = [];
@@ -1072,9 +1051,8 @@ function normalizeParsedSettings(path: string, parsed: unknown): Settings {
   const s = parsed as unknown as Record<string, unknown>;
   warnOnIgnoredProviderFields(path, parsed.providers);
   // These keys were removed when plugins moved to discovery; they are now
-  // dropped on the next save. Warn so a user who relied on them knows to
-  // re-enable the equivalent plugins in /plugins instead of losing the
-  // feature without a trace.
+  // dropped on the next save. Warn so a user who relied on them re-enables
+  // the equivalent plugins in /plugins instead of losing the feature silently.
   if (s.workflowPlugins !== undefined || s.agentPlugins !== undefined) {
     process.stderr.write(
       `settings: "workflowPlugins"/"agentPlugins" are no longer supported and will be dropped. Install those plugins under .corbits/plugins/ (or via /plugins "add by path") and enable them in /plugins.\n`,
@@ -1151,8 +1129,8 @@ async function loadStrictSettings(
 ): Promise<Settings> {
   const settings = normalizeParsedSettings(path, parsed);
   // Pin the Go flag + canonical baseURL on disk when any Go signal matches.
-  // Only rewrite when heal actually mutates. Fail open on save: keep the
-  // in-memory heal so a read-only settings path cannot brick startup.
+  // Fail open on save: keep the in-memory heal so a read-only settings path
+  // cannot brick startup.
   const healedIds = healOpenCodeGoProviders(settings);
   if (healedIds.length > 0) {
     process.stderr.write(
@@ -1374,16 +1352,15 @@ export async function loadLocalSettingsResult(
 export async function loadLocalSettings(
   path: string,
 ): Promise<LocalSettings | null> {
-  // Fail open: never throw for schema/unknown-key problems. Callers that need
-  // diagnostics should use loadLocalSettingsResult.
+  // Fail open: never throw for schema/unknown-key problems; callers needing
+  // diagnostics use loadLocalSettingsResult.
   const { settings } = await loadLocalSettingsResult(path);
   return settings;
 }
 
-// Resolve the base for a read-modify-write of the local selection file.
-// Absent file → empty base (create OK). Partial fail-open → cleaned fields.
-// Invalid JSON / unreadable / fully unusable → null so the caller skips the
-// write instead of collapsing to {} and wiping the file.
+// Read-modify-write base for the local selection file. Absent file → empty
+// base (create OK); partial fail-open → cleaned fields; unreadable/unusable
+// → null so the caller skips the write instead of wiping the file.
 export async function loadLocalSettingsWriteBase(
   path: string,
 ): Promise<LocalSettings | null> {
@@ -1398,10 +1375,9 @@ export async function loadLocalSettingsWriteBase(
   }
 }
 
-// Resolve the base for a read-modify-write of the global settings file. An
-// absent file yields a fresh minimal base; an unreadable or invalid file
-// yields null so the caller skips the write — a minimal base there would
-// overwrite the whole file to flip one key.
+// Read-modify-write base for the global settings file. Absent file → fresh
+// minimal base; unreadable/invalid → null so the caller skips the write (a
+// minimal base would overwrite the whole file to flip one key).
 export async function loadGlobalSettingsWriteBase(
   path: string,
 ): Promise<Settings | null> {
@@ -1412,9 +1388,9 @@ export async function loadGlobalSettingsWriteBase(
   }
 }
 
-// Upsert one provider onto existing settings without dropping plugins,
-// pluginPaths, sessionMode, shell, tools, or any other non-provider field.
-// Used by first-run onboarding and any similar single-provider write.
+// Upsert one provider without dropping plugins, pluginPaths, sessionMode,
+// shell, tools, or any other non-provider field. Used by first-run onboarding
+// and similar single-provider writes.
 export function mergeProviderIntoSettings(
   existing: Settings | null | undefined,
   providerName: string,
@@ -1428,9 +1404,9 @@ export function mergeProviderIntoSettings(
   };
 }
 
-// Persist the global settings file. Validates before writing so a written
-// file always round-trips through loadSettings; writes via temp-file + rename
-// so a concurrent reader never sees a torn file.
+// Persist the global settings file. Validates before writing so the file
+// always round-trips through loadSettings; writes via temp-file + rename so a
+// concurrent reader never sees a torn file.
 export async function saveGlobalSettings(
   path: string,
   settings: Settings,
@@ -1445,8 +1421,8 @@ export async function saveGlobalSettings(
   await rename(tmp, path);
 }
 
-// Silent helper: callers log or notice. Skips when the write base is null so a
-// corrupt settings file is never replaced with a one-key rewrite.
+// Silent helper: callers log or notice. Skips when the write base is null so
+// a corrupt settings file is never replaced with a one-key rewrite.
 export async function persistSkipPermissionsDefault(
   path: string,
   value: boolean,
@@ -1460,11 +1436,10 @@ export async function persistSkipPermissionsDefault(
   return "ok";
 }
 
-// Stamp the global `onboarded` flag. Reads the on-disk settings fresh (never
-// an in-memory Settings that may carry injected OAuth provider entries with
-// short-lived access tokens) and re-saves with onboarded set. When the file
-// is absent a minimal valid Settings is written — no provider or credential
-// is ever invented here.
+// Stamp the global `onboarded` flag. Reads on-disk settings fresh (never an
+// in-memory Settings that may carry injected OAuth entries with short-lived
+// access tokens) and re-saves with onboarded set. Absent file → minimal valid
+// Settings; no provider or credential is ever invented here.
 export async function markOnboarded(path: string): Promise<void> {
   const onDisk = await loadSettings(path);
   const base: Settings = onDisk ?? { providers: {} };
@@ -1484,17 +1459,15 @@ export async function markLastChangelogVersion(
   await saveGlobalSettings(path, { ...base, lastChangelogVersion: trimmed });
 }
 
-// Ensure a persisted telemetry installationId exists, generating and saving
-// one on first use. Reads on-disk settings fresh (same rationale as
-// markOnboarded: never trust an in-memory Settings that may carry injected
-// credentials). Returns the settings with telemetry.installationId set.
+// Ensure a persisted telemetry installationId exists, generating one on first
+// use. Reads on-disk settings fresh (same rationale as markOnboarded: never
+// trust an in-memory Settings that may carry injected credentials).
 export async function ensureTelemetrySettings(path: string): Promise<Settings> {
   const onDisk = await loadSettings(path);
   const base: Settings = onDisk ?? { providers: {} };
-  // Read-then-write, not read-then-lock: two concurrent first launches could
-  // each generate a different installationId and the second save wins. This
-  // matters only once, at first run; a rare duplicate distinct_id is accepted
-  // rather than adding cross-process locking.
+  // Read-then-write, not read-then-lock: concurrent first launches could each
+  // generate a different installationId and the second save wins. Accepted —
+  // it matters only once at first run; no cross-process locking.
   if (base.telemetry?.installationId !== undefined) return base;
   const next: Settings = {
     ...base,
@@ -1504,8 +1477,7 @@ export async function ensureTelemetrySettings(path: string): Promise<Settings> {
   return next;
 }
 
-// Stamp the global telemetry first-run notice as shown, without disturbing
-// any other telemetry field or settings.
+// Stamp the telemetry first-run notice as shown, leaving other fields alone.
 export async function markTelemetryNoticeShown(path: string): Promise<void> {
   const onDisk = await loadSettings(path);
   const base: Settings = onDisk ?? { providers: {} };
@@ -1516,10 +1488,9 @@ export async function markTelemetryNoticeShown(path: string): Promise<void> {
   });
 }
 
-// Persist the per-repo provider/model selection. This is where the /agent
-// modal writes a "default for this project": selection only, never
-// credentials, so the file stays safe to leave gitignored in the repo.
-// Validated before writing; written via temp-file + rename.
+// Persist the per-repo provider/model selection (the /agent modal's "default
+// for this project"). Selection only, never credentials, so the file is safe
+// to leave gitignored. Validated before writing; temp-file + rename.
 export async function saveLocalSettings(
   path: string,
   local: LocalSettings,
@@ -1546,15 +1517,13 @@ export interface ResolveInput {
 }
 
 // Resolve the active provider. Precedence per field (highest first):
-//   providerName: --provider > local > settings.defaultProvider > sole provider
-//   If that pick is unusable and --provider was not set, walk local, defaultProvider,
-//   recentModels provider names (newest-first, unique), then remaining catalog keys.
-//   model: --model > local (original pick only) > recent pair (recent fallback only)
-//     > provider.defaultModel > provider.models[0]
+//   providerName: --provider > local > defaultProvider > sole provider
+//   unusable pick (no --provider): walk local, defaultProvider, recentModels
+//     (newest-first, unique), then remaining catalog keys
+//   model: --model > local > recent pair (recent fallback only) > defaultModel > models[0]
 //   baseURL/apiKey: from the selected provider only
-// Credentials and provider definitions come exclusively from the settings
-// catalog; environment variables have no influence on resolution. Session-only:
-// this function does not write settings or mutate input.settings.
+// Definitions come exclusively from the settings catalog; env vars have no
+// influence. Pure: does not write settings or mutate input.settings.
 export function resolveProvider(input: ResolveInput): ResolvedProvider {
   const { settings, local, cli } = input;
   const providers = settings?.providers ?? {};
@@ -1784,8 +1753,8 @@ export function resolveInferenceSpec(
   return null;
 }
 
-// Resolve with policy. Used by the sub-agent dispatcher to decide between
-// fallback and hard failure based on the spec's mode and the user's setting.
+// Resolve with policy: the sub-agent dispatcher decides between fallback and
+// hard failure from the spec's mode and the user's setting.
 export function resolveInferenceWithPolicy(
   spec: InferenceSpec | undefined,
   settings: Settings,
