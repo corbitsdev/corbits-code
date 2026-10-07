@@ -8,10 +8,10 @@ import { createHarness, type Harness } from "./harness.js";
 import { connectProviderInline } from "./provider/connect.js";
 import { loadSettings } from "../config/settings.js";
 
-// The mid-session "connect a new provider" flow shares its persistence and
-// validation with first-run onboarding (see provider-setup-submit.ts) — this
-// pins that an empty key on a key-required preset is rejected here too,
-// rather than silently downgraded to a keyless credential.
+// The mid-session "connect a new provider" flow shares persistence and
+// validation with first-run onboarding (provider-setup-submit.ts): an empty
+// key on a key-required preset is rejected here too, never silently
+// downgraded to a keyless credential.
 describe("connectProviderInline", () => {
   let harness: Harness | undefined;
 

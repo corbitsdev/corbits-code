@@ -10,8 +10,7 @@ import { setStatusFlash } from "./chrome.js";
 
 /**
  * Enter copy mode (Alt+C / palette copy_active): freeze targets from the
- * active streamLog, open inset overlay with the last target selected.
- * Empty log → status flash only; no stream mutation.
+ * active streamLog and open the inset overlay. Empty log → status flash only.
  */
 export function enterCopyMode(shell: AppShell): boolean {
   // Single host: do not stack copy over another primary overlay.
@@ -36,10 +35,9 @@ export function enterCopyMode(shell: AppShell): boolean {
 }
 
 /**
- * Alt+M: take DEC mouse reporting, or hand it back to the terminal.
- * Reporting is on by default so wheel scroll and click-to-expand work;
- * releasing it restores the terminal's own drag-select and copy.
- * Returns the new enabled state, or null when the host exposes no control.
+ * Alt+M: take DEC mouse reporting or hand it back. On by default for wheel
+ * scroll and click-to-expand; releasing restores native drag-select and copy.
+ * Returns the new state, or null when the host exposes no control.
  */
 export function toggleMouseCapture(shell: AppShell): boolean | null {
   const port = shell.mouseCapture;

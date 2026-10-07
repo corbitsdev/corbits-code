@@ -38,9 +38,9 @@ describe("blind tool dispatch", () => {
       stringTool("mcp__acme__do", "blind-result"),
     ]);
 
-    // The on-demand tool is intentionally absent from the advertised wire set,
-    // yet dispatch resolves it — this is how tool_search discovery stays usable
-    // without growing the cached tools prefix.
+    // The on-demand tool is absent from the advertised wire set yet dispatch
+    // resolves it — tool_search discovery stays usable without growing the
+    // cached tools prefix.
     const advertised = advertisedTools(runner.currentDefinitions()).map(
       (d) => d.name,
     );

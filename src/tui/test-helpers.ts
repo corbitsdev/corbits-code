@@ -1,16 +1,16 @@
 /**
  * Shared shell fixture for TUI tests: a headless renderer plus an AppShell
- * that is always disposed. Defaults match the common 80×24 / wireKeys-off
- * scaffold the suite used to copy into every file.
+ * that is always disposed. Defaults match the 80×24 / wireKeys-off scaffold
+ * the suite used to copy into every file.
  */
 import { withTestRenderer, type Harness } from "./harness.js";
 import { createAppShell } from "./shell/index.js";
 import type { AppShell, AppShellOptions } from "./shell/internals.js";
 
 export interface AppShellFixtureOptions {
-  /** Renderer width; also the shell's terminal columns. Default 80. */
+  /** Renderer width, also the shell's terminal columns. Default 80. */
   readonly width?: number;
-  /** Renderer height; also the shell's terminal rows. Default 24. */
+  /** Renderer height, also the shell's terminal rows. Default 24. */
   readonly height?: number;
   /** Extra createAppShell options. `terminal` always follows width/height. */
   readonly shell?: AppShellOptions;

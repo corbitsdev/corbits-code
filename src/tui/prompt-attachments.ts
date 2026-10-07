@@ -1,7 +1,6 @@
 /**
- * Pure prompt-composition helpers shared by the OpenTUI shell: path-mention
- * ingestion and @-mention splicing.
- * No renderer access — the shell owns paint and key wiring.
+ * Pure prompt-composition helpers shared by the shell: path-mention
+ * ingestion and @-mention splicing. No renderer access.
  */
 
 import {
@@ -20,10 +19,10 @@ export interface PathMentionIngestion {
 }
 
 /**
- * Replace image paths written inline in the prompt with attachment markers and
- * return only attachments whose content hash is not already in `pending` or
- * earlier in this batch. Duplicate tokens still rewrite to the kept name.
- * `load` is injected so this stays testable without touching the filesystem.
+ * Replace inline image paths with attachment markers; return only
+ * attachments whose hash is not already in `pending` or this batch
+ * (duplicate tokens still rewrite to the kept name). `load` is injected
+ * for filesystem-free tests.
  */
 export async function ingestPathMentions(
   text: string,
@@ -51,8 +50,8 @@ export async function ingestPathMentions(
 }
 
 /**
- * Shared operator-prompt ingest for send and live-steer deliver: inline image
- * paths become attachments and @mentions are expanded. Does not send.
+ * Shared operator-prompt ingest for send and live-steer deliver: image
+ * paths become attachments, @mentions expand. Does not send.
  */
 export async function ingestOperatorPrompt(
   text: string,

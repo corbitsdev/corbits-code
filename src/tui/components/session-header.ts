@@ -9,10 +9,10 @@ export interface SessionHeaderInput {
 const WORDMARK = LOCKUP_WORDMARK;
 
 /**
- * First among the deferred startup rows once the landing clears: the wordmark
- * leading the quiet essentials line. Wordmark alone when nothing applies. A
- * re-filed telemetry disclosure still lands ahead of it, and later /yolo or
- * effort toggles move the prompt border label only — the header is a startup
+ * First deferred startup row after the landing clears: the wordmark leading
+ * the quiet essentials line, wordmark alone when nothing applies. A re-filed
+ * telemetry disclosure still lands ahead of it; later /yolo or effort
+ * toggles move the prompt border label only — the header is a startup
  * snapshot.
  */
 export function composeSessionHeader(input: SessionHeaderInput = {}): string {

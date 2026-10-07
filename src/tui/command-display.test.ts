@@ -232,8 +232,8 @@ test("collapseSegmentPayloads never collapses a single-line quoted argument", ()
 });
 
 // Fail-open on anything that could smuggle executable code behind a
-// placeholder: interpreters, -c/-e flags, wrapped invocations, heredocs and
-// pipes into shells all stay verbatim so the approval surface shows them.
+// placeholder: interpreters, -c/-e flags, wrapped invocations, heredocs,
+// and pipes into shells stay verbatim for the approval surface.
 const NEVER_COLLAPSED: readonly (readonly [label: string, segment: string])[] =
   [
     ["eval'd heredoc", "eval \"$(cat <<'EOF'\necho hi\nrm -rf /\nEOF\n)\""],

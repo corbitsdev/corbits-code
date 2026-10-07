@@ -32,8 +32,8 @@ describe("View rendering", () => {
       ],
     };
     const columns = 80;
-    // The viewport cuts by line, so each produced line must paint as a single
-    // row no wider than the budget — otherwise it would overflow.
+    // The viewport cuts by line; each produced line must paint as one row
+    // no wider than the budget, or it overflows.
     for (const line of textLines(node, columns))
       expect(line.length).toBeLessThanOrEqual(columns - 2);
   });
@@ -90,7 +90,7 @@ describe("view line count", () => {
         { type: "text", text: "b" },
       ],
     };
-    expect(at(node)).toBe(5); // title + two items + two inter-item gaps (gap adds a blank row before each child after the first)
+    expect(at(node)).toBe(5); // title + two items + gaps (gap adds a blank row before each child after the first)
   });
 
   test("row contributes one line", () => {

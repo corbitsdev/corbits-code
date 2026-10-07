@@ -1,7 +1,4 @@
-/**
- * Step tables, labels, and prompts for the provider setup flow: which screens
- * each provider path walks through and the copy shown on them.
- */
+/** Step tables, labels, and prompts for the provider setup flow. */
 
 import { isOllamaProviderId } from "../../provider/ollama.js";
 import type { ProviderChoice } from "./types.js";
@@ -48,9 +45,8 @@ export const OLLAMA_STEPS: readonly SetupStep[] = [
 ];
 
 /**
- * Subscription path: pick, name the account (a suggested slug is prefilled;
- * reusing an existing name asks for confirmation before re-authorizing it),
- * sign in through the browser, pick a model.
+ * Subscription path: pick, name the account (reusing an existing name asks
+ * before re-authorizing it), sign in through the browser, pick a model.
  */
 export const OAUTH_STEPS: readonly SetupStep[] = [
   "provider",
@@ -133,9 +129,8 @@ export function stepsFor(choice: ProviderChoice | null): readonly SetupStep[] {
   return choice.oauth !== null ? OAUTH_STEPS : PRESET_STEPS;
 }
 
-// Inference options XOR temperature and topP on the wire. The wizard still
-// lists both steps so either can be filled; skip/clear is navigation, not
-// a range check (stepReady stays range-only).
+// Temperature and topP XOR on the wire; both steps stay listed so either
+// can be filled, and skip/clear is navigation, not a range check.
 export function skipTopPWhenTemperatureSet(temperature: string): boolean {
   return temperature.trim().length > 0;
 }

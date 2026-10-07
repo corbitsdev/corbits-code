@@ -28,8 +28,8 @@ import type { RunnerState, RunnerServices } from "./runner/state.js";
 import pkg from "../../package.json" with { type: "json" };
 
 const SEED_TELEMETRY = { noticeShown: true } as const;
-// Stamp the watermark the startup path would write, so the harness owns every
-// byte the test snapshots: without it the async first-install stamp races the
+// Stamp the watermark the startup path would write so the harness owns every
+// snapshotted byte; otherwise the async first-install stamp races the
 // "zero writes" assertions.
 const SEED_WATERMARKS = {
   telemetry: { ...SEED_TELEMETRY },

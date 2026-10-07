@@ -1,9 +1,8 @@
 /**
- * In-place retext for the styled-line and structured row kinds (diff, tool
- * sentence, expansion, MCP structured): these rewrite their paint nodes'
- * content instead of being destroyed and rebuilt on every update. A shape
- * change (line count, arrow presence) still returns false so the caller
- * rebuilds — only how updates apply changes, never what renders.
+ * In-place retext for styled-line and structured rows (diff, tool sentence,
+ * expansion, MCP structured): rewrite the paint nodes' content instead of
+ * rebuilding on every update. A shape change (line count, arrow presence)
+ * still returns false so the caller rebuilds.
  */
 import {
   BoxRenderable,
@@ -48,10 +47,9 @@ function sentenceColumns(row: StreamRow, layout: RowLayout): number {
 }
 
 /**
- * Retext a styled-lines or structured row kind on its existing node, mirroring
- * `buildRowNode`'s kind dispatch. Returns false when the row is not one of
- * these kinds or the node shape no longer matches, leaving the caller to
- * rebuild.
+ * Retext a styled-lines or structured row on its existing node, mirroring
+ * `buildRowNode`'s kind dispatch. Returns false when the kind or node shape
+ * no longer matches, so the caller rebuilds.
  */
 export function retextStyledKindRow(
   node: BaseRenderable,
@@ -126,8 +124,8 @@ function retextBodyLine(
   const split = splitTrailingArrow(line);
   if (node instanceof TextRenderable) {
     if (split !== null) return false;
-    // A URL appearing or disappearing repaints on the same node; re-arming
-    // refreshes the hit ranges, so hover never resolves against stale text.
+    // A URL appears or disappears on the same node; re-arming refreshes the
+    // hit ranges so hover never resolves against stale text.
     paintLinkLine(node, [splitLinkSpans(line)]);
     return true;
   }

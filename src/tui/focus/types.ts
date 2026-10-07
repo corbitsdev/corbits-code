@@ -1,8 +1,7 @@
 /**
  * Focus tree + scroll lease types (interaction contract §5 / §6).
- *
- * Pure data — no paint, no OpenTUI/Ink. One focus owner and one scroll lease
- * at a time; the stack records prior focus so Esc restores it.
+ * Pure data. One focus owner and one scroll lease at a time; the stack
+ * records prior focus so Esc restores it.
  */
 
 /** Known surfaces plus open string brand for list/kit consumers. */
@@ -21,23 +20,14 @@ export interface FocusFrame {
   readonly scrollOwner: FocusTarget;
 }
 
-/**
- * Focus stack, bottom → top.
- * Index 0 is always the shell base frame. Overlays and observe push above it.
- */
+/** Focus stack, bottom → top; index 0 is the shell base frame. */
 export interface FocusState {
   readonly frames: readonly FocusFrame[];
 }
 
 export interface OpenOverlayOpts {
-  /**
-   * Surface kind. Defaults to `"overlay"`.
-   * Use `"palette"` for the command palette (still an overlay-priority slot).
-   */
+  /** Surface kind; defaults to "overlay". "palette" is the command palette. */
   readonly target?: FocusTarget;
-  /**
-   * Who receives wheel/page while this frame is top.
-   * Defaults to `target` (list/body owns scroll).
-   */
+  /** Wheel/page owner while this frame is top; defaults to `target`. */
   readonly scrollOwner?: FocusTarget;
 }

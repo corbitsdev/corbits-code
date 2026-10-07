@@ -1,9 +1,8 @@
 /**
  * Residual list-overlay helpers + observe session types (pure, production).
- * Hosts build rows with {@link residualListFromCatalog} and resolve accept
- * callbacks via {@link residualIdFromSelection}; overlay openers require
- * `items` from the caller that owns the data. Fixture data lives with the
- * caller, not here.
+ * Hosts build rows via {@link residualListFromCatalog} and resolve accept
+ * callbacks via {@link residualIdFromSelection}; fixture data lives with
+ * the caller.
  */
 
 import type { StreamRow } from "./stream.js";
@@ -29,10 +28,7 @@ export function residualListFromCatalog(
   };
 }
 
-/**
- * Resolve the stable id for an accepted residual selection.
- * Prefers `selection.id`; falls back to itemIds[index] when provided.
- */
+/** Resolve the stable id for an accepted selection; prefers `selection.id`, else itemIds[index]. */
 export function residualIdFromSelection(
   selection: { readonly index: number; readonly id?: string },
   itemIds?: readonly string[],

@@ -229,8 +229,8 @@ describe("diff transcript rows", () => {
       const resultRow = rows.find((line) => line.includes("30 lines"));
       expect(callRow).toBeDefined();
       expect(resultRow).toBeDefined();
-      // Two distinct rows, not one row carrying both — a merged row would
-      // mean interleaved characters and neither string would appear intact.
+      // Two distinct rows, not one row carrying both: a merged row would
+      // interleave characters, and neither string would appear intact.
       expect(callRow).not.toBe(resultRow);
       expect(callRow).toContain("package.json");
       expect(resultRow).toContain("30 lines");
