@@ -11,8 +11,7 @@ import { snapshot, type PerfSpan } from "./index.js";
 import { createPerfReactorObserver } from "./reactor-spans.js";
 import { createTurnContextCollector } from "../session/hooks.js";
 
-// The span store is process-wide, so a perf test cannot assume the tests that
-// ran before it in this process left it empty. Reset on both edges.
+// Span store is process-wide: earlier tests may leave it non-empty. Reset both edges.
 useCleanSpanStore();
 
 function byName(spans: PerfSpan[], name: string): PerfSpan[] {
@@ -325,8 +324,7 @@ describe("turn collector durationMs unchanged with perf observer", () => {
   });
 
   test("durationMs with tools waits until tool.done", () => {
-    // Construction stamps cycleStartedAt, inference.start re-stamps, tool.done
-    // completePending reads finish.
+    // Same stamping; completePending waits until tool.done here.
     const times = [5_000, 5_000, 5_400];
     let i = 0;
     const now = (): number => defined(times[Math.min(i++, times.length - 1)]);

@@ -332,7 +332,7 @@ describe("otelConfigForDump", () => {
       expect(dump.headerNames).toEqual(["Authorization", "x-api-key"]);
       expect(dump.endpoint).toBe("https://collector.example");
       expect(dump.serviceName).toBe("dump-test");
-      // No headers field with values
+      // headers field absent
       expect("headers" in dump).toBe(false);
     }
   });
