@@ -1,10 +1,8 @@
 /**
- * Behavior metrics derived from the product run's turn stream.
- *
- * Pure functions only: the eval runner captures the post-run summary (turns
- * with tool calls and assistant content) and hands it here for derivation.
- * Command analysis is a quote-aware token scan, not a full shell parser —
- * substitutions inside `$(...)` and backticks are treated as opaque text.
+ * Behavior metrics derived from the product run's turn stream. Pure functions
+ * only: the runner captures the post-run summary (turns with tool calls and
+ * assistant content) and hands it here. Command analysis is a quote-aware
+ * token scan, not a full shell parser — `$(...)` and backticks stay opaque.
  */
 
 import { type } from "arktype";
@@ -90,9 +88,8 @@ export function isNumericBehaviorMetric(
 }
 
 /**
- * Baseline-diff direction per metric. "lower" means a smaller median is an
- * improvement (the metric counts a misbehavior); "neutral" metrics are
- * informational and never produce improve/regress verdicts.
+ * Baseline-diff direction per metric: "lower" means a smaller median is an
+ * improvement; "neutral" metrics are informational and never verdict.
  */
 export const BEHAVIOR_METRIC_DIRECTIONS: Record<
   NumericBehaviorMetric,
@@ -144,11 +141,7 @@ function countParentFileMutations(callsByName: Record<string, number>): number {
   );
 }
 
-/**
- * Split a shell command into chain segments, using the same quote-aware
- * tokenizer the permission gate classifies commands with, so the eval
- * measures what the real gate actually sees.
- */
+/** Split a shell command into chain segments with the same quote-aware tokenizer the permission gate uses. */
 export const splitChainSegments = splitChainedCommand;
 
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
