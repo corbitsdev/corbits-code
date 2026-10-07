@@ -98,9 +98,9 @@ function userTurn(text: string): ConversationTurn {
   return makeTurn({ role: "user", content: [{ type: "text", text }] });
 }
 
-// A representative folded region: a goal with a constraint, a user decision
-// carrying an evidence token, a replayable read, a verification command with
-// a passing result, a failed command, and a closing ask.
+// A representative folded region: a constrained goal, a decision with an
+// evidence token, a replayable read, passing and failing verification
+// commands, and a closing ask.
 function foldedRegion(): ConversationTurn[] {
   return [
     userTurn(
@@ -1225,7 +1225,7 @@ describe("CL-9007 repeated compactions update the summary", () => {
         ...first.output,
         // New tool activity after the first fold: the second tail holds this
         // fresh excerpt while the first fold's excerpt is summarized from its
-        // shortened text — never re-summarized raw, never duplicated live.
+        // shortened text — never raw, never duplicated live.
         ...fileReadTurns("c", "src/c.ts", `c-result:${"c".repeat(4000)}`),
         userTurn("follow-up ask"),
         makeTurn({
