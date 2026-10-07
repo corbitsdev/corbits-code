@@ -17,9 +17,9 @@ export interface StyledSegment {
   backgroundColor?: string;
   linkUrl?: string;
   codeFence?: boolean;
-  // Wall-clock start of a still-running tool call. Present only on the first
-  // segment of a pending tool row; the event log animates such rows with a live
-  // spinner and elapsed clock instead of painting a static line.
+  // Wall-clock start of a still-running tool call, on the first segment of a
+  // pending tool row; the event log animates those rows with a live spinner
+  // and elapsed clock instead of a static line.
   toolRunningSince?: number;
 }
 
@@ -61,9 +61,8 @@ function parseSegments(text: string): StyledSegment[] {
       continue;
     }
 
-    // Italic: *text* or _text_ (but not ** or __)
-    // For _, enforce word boundaries: must open after start/whitespace/punctuation
-    // and close before end/whitespace/punctuation. For *, intraword is allowed.
+    // Italic: *text* or _text_ (but not ** or __). `_` enforces word
+    // boundaries; `*` allows intraword.
     const starMatch = remaining.match(STAR_ITALIC_RE);
     if (starMatch && starMatch[1]) {
       segments.push({ text: starMatch[1], italic: true });
@@ -72,9 +71,8 @@ function parseSegments(text: string): StyledSegment[] {
       continue;
     }
 
-    // Underscore italic with word-boundary enforcement.
-    // Underscore can only open italic if the previous char (in original text) is
-    // not a word character, or we're at the start of the string.
+    // `_` can only open italic when the previous char (in the original text)
+    // is not a word character, or at the start of the string.
     if (remaining[0] === "_" && remaining[1] !== "_") {
       const prevChar = offset > 0 ? text[offset - 1] : null;
       const isPrecededByNonWord = !prevChar || !WORD_CHAR_RE.test(prevChar);
@@ -99,9 +97,8 @@ function parseSegments(text: string): StyledSegment[] {
       continue;
     }
 
-    // Link: [text](url) — show the text, then the url in parentheses if short.
-    // For URLs with balanced parens (e.g., fn(arg)), try to match a single level
-    // of nesting. If URL is long (> 40 chars), omit the URL from output.
+    // Link: [text](url) — show the text, then the url in parentheses if short
+    // (≤ 40 chars; balanced-paren URLs match one level of nesting).
     const linkMatch = remaining.match(LINK_RE);
     if (linkMatch && linkMatch[1] !== undefined && linkMatch[2] !== undefined) {
       const text = linkMatch[1];
@@ -208,11 +205,9 @@ function parseLine(line: string): StyledSegment[] {
 const FENCE_OPEN_RE = /^\s*(```+|~~~+)/;
 const FENCE_CLOSE_RE = /^\s*(```+|~~~+)\s*$/;
 // A closing fence typed one character at a time: zero, one, or two lone fence
-// chars on a line, not yet the three needed to close. Zero chars covers the
-// still-empty line right after the body's last newline — the first position a
-// closing fence could start from. Stripped from the streaming tail so the
-// block does not flicker (a visible line appearing then disappearing) as the
-// fence is typed in.
+// chars on a line, not yet the three needed to close (zero covers the empty
+// line right after the body's last newline). Stripped from the streaming tail
+// so the block does not flicker as the fence is typed.
 const PARTIAL_FENCE_RE = /^\s*[`~]{0,2}\s*$/;
 const INDENTED_CODE_RE = /^(?: {4}|\t)(.*)$/;
 const CODE_GUTTER = "▏ ";
@@ -222,9 +217,8 @@ interface FencedBlock {
   consumed: number;
 }
 
-// Always paint the gutter, including on blank body lines. Skipping empty lines
-// left disconnected bar fragments (a floating language cap, gaps mid-block, a
-// dangling foot) instead of one continuous container.
+// Always paint the gutter, including on blank body lines — skipping them left
+// disconnected bar fragments instead of one continuous container.
 function codeGutterPrefix(line: StyledSegment[]): StyledSegment[] {
   return [
     { text: CODE_GUTTER, code: true, dim: true, codeFence: true },
@@ -243,10 +237,10 @@ function fencedFoot(): StyledSegment[] {
   return [{ text: "╰", dim: true, codeFence: true }];
 }
 
-// Collect a fenced block starting at `start`, highlight its body by the fence's
-// language token, and frame it with cap/gutter glyphs. The block may be
-// unclosed while it streams; in that case a nascent closing fence is dropped so
-// the trailing block re-highlights cleanly rather than flickering.
+// Collect a fenced block from `start`, highlight its body by the fence's
+// language token, and frame it with cap/gutter glyphs. An unclosed streaming
+// block drops a nascent closing fence so the tail re-highlights cleanly
+// rather than flickering.
 function parseFencedBlock(
   input: string[],
   start: number,

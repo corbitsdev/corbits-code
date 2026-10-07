@@ -344,32 +344,26 @@ export async function mountProductHost(
   const renderer = config.createRenderer
     ? await config.createRenderer()
     : await createCliRenderer({
-        // Leaves Ctrl+C entirely to shell.ts's own double-tap-to-quit
-        // gesture (CTRL_C_EXIT_WINDOW_MS). index.ts's SIGINT handler also
-        // depends on this staying false: Ctrl+C only reaches it as a real
-        // OS signal when nothing already consumed it as a keypress.
+        // Ctrl+C stays entirely with shell.ts's double-tap-to-quit
+        // (CTRL_C_EXIT_WINDOW_MS): the SIGINT handler depends on this, since
+        // Ctrl+C only reaches it as a real OS signal when nothing consumed it.
         exitOnCtrlC: false,
         targetFps: 30,
-        // Mouse reporting on by default: without it, wheel/trackpad scroll
-        // never reaches OpenTUI — the terminal's own alternate-scroll mode
-        // swallows it and resends it as arrow keys, which the prompt then
-        // reads as history navigation instead of the transcript scrolling.
-        // Cost accepted: this suppresses the terminal's *native* drag-select
-        // in the main shell. OpenTUI selection still works and auto-copies
-        // on mouse-up; Alt+M hands the mouse back when native select is wanted.
-        // enableMouseMovement stays on (?1003): URL hover highlighting
-        // needs pointer motion with the modifier held — clicks and wheel
-        // alone never report where an unpressed pointer is. Cost accepted
-        // alongside the native-drag-select one above: a motion event per
-        // pointer move while capture is on; Alt+M still hands the mouse
-        // back when native select is wanted.
+        // Mouse reporting on by default: without it, alternate-scroll mode
+        // resends wheel input as arrow keys, which the prompt reads as history
+        // navigation instead of transcript scrolling. Cost: native drag-select
+        // is suppressed (OpenTUI select still auto-copies; Alt+M hands the
+        // mouse back when native select is wanted).
+        // enableMouseMovement stays on (?1003): URL hover needs pointer
+        // motion with the modifier held — clicks and wheel never report an
+        // unpressed pointer. Cost accepted alongside the one above; Alt+M
+        // still hands the mouse back when native select is wanted.
         useMouse: config.useMouse ?? true,
         enableMouseMovement: true,
-        // A plain terminal sends a bare CR for both Enter and Shift+Enter, so
-        // the modifier only arrives once the kitty keyboard protocol is
-        // negotiated. Empty object, not explicit flags: this matches what
-        // OpenCode passes, and it is the configuration Shift+Enter is known
-        // to work under on the same OpenTUI renderer.
+        // A plain terminal sends bare CR for Enter and Shift+Enter alike; the
+        // modifier arrives only once the kitty keyboard protocol negotiates.
+        // Empty object, not explicit flags: matches what OpenCode passes and
+        // is the config Shift+Enter works under on the same renderer.
         useKittyKeyboard: {},
       });
 
@@ -397,11 +391,10 @@ export async function mountProductHost(
     ...(config.reducedMotion === true ? { reducedMotion: true } : {}),
   });
 
-  // Announced on the notice strip (or transcript once the session has content)
-  // rather than logged: a log line is invisible behind a full-screen shell, and
-  // the operator is the only one who can fix a terminal setting. Using the
-  // startup-notice path keeps the landing mountain painted when this fires
-  // before the first turn.
+  // Announced on the notice strip (or transcript once there is content)
+  // rather than logged: a log line is invisible behind a full-screen shell,
+  // and only the operator can fix a terminal setting. The startup-notice path
+  // keeps the landing mountain painted when this fires before the first turn.
   const widthReport = checkWidthContract(renderer.widthMethod);
   if (!widthReport.agrees) {
     surfaceSystemNotice(shell, widthContractNotice(widthReport));
@@ -449,10 +442,9 @@ export async function mountProductHost(
     resolveExit = resolve;
   });
 
-  // The poll outlives the renderer whenever a caller tears the renderer down
-  // without disposing the host. Painting into freed buffers throws, and a host
-  // that can no longer paint has nothing left to keep fresh, so it stands down.
-  // Track sticky so a true→false falling edge still paints once — otherwise the
+  // The poll outlives the renderer when a caller tears it down without
+  // disposing the host; painting into freed buffers throws, so it stands down.
+  // Sticky is tracked so a true→false edge still paints once — otherwise the
   // strip never clears when linger expires without a store notify.
   let stickyWasNeeded =
     chromeState !== null &&
@@ -464,10 +456,8 @@ export async function mountProductHost(
   const stickyPoll = setInterval(() => {
     if (disposed) return;
     try {
-      // The poll's own state is sticky alone: paintChrome's compose gate makes
-      // an unchanged pass free, but do not even schedule it while idle — the
-      // whole point of the poll is the strip, not the chrome. True→false and
-      // false→true edges both paint via the stickyWasNeeded latch below.
+      // The poll exists for the strip, not the chrome, and both edges paint
+      // via the stickyWasNeeded latch below.
       const stickyNeeded =
         chromeState !== null &&
         agentsChromeNeedsSticky(
@@ -478,21 +468,19 @@ export async function mountProductHost(
       if (stickyNeeded || stickyWasNeeded) {
         paintChrome(shell);
       }
-      // While the agents strip owns live clocks / linger, skip transcript
-      // syncAgentProgress rewrites — spawn/final/fail anchors still arrive via
-      // event paths; only the sticky clock tick is frozen here.
+      // While the strip owns live clocks / linger, skip syncAgentProgress
+      // rewrites — anchors still arrive via event paths; only the sticky
+      // clock tick is frozen.
       if (config.subAgentSessions !== undefined && !stickyNeeded) {
         bridge.syncAgentProgress(config.subAgentSessions());
       }
       // Live shell tail: deduped in the bridge, so an unchanged snapshot is a
       // no-op and this poll cadence (200 ms) is the paint cadence.
       bridge.syncShellOutputs(config.shellOutputFeed);
-      // Elapsed clock, stall flip, and post-finish linger are wall-time — repaint
-      // the strip on this tick while sticky is needed. paintChromeZones re-enters
-      // setChromeZones (which may paintChrome again on an unchanged-zone path),
-      // so gate on sticky rather than calling it every tick for idle chrome.
-      // Falling edge (stickyWasNeeded && !stickyNeeded) clears the zone when
-      // formatAgentsPanel returns null after linger without a setChrome push.
+      // Elapsed clock, stall flip, and linger are wall-time — repaint the
+      // strip while sticky is needed; paintChromeZones re-enters
+      // setChromeZones, so gate on sticky rather than every tick. The falling
+      // edge clears the zone when formatAgentsPanel returns null after linger.
       if (stickyNeeded || stickyWasNeeded) {
         paintChromeZones();
       }
@@ -552,9 +540,8 @@ export async function mountProductHost(
   function show(notice: RuntimeNotice | null): void {
     if (notice === null) return;
     if (notice.kind === "row") {
-      // MCP load failures and hook failures must not wipe the landing mark.
-      // surfaceSystemNotice keeps the mountain while the notice strip carries
-      // the wording, then flushes a durable row once the session starts.
+      // MCP/hook failures must not wipe the landing mark: surfaceSystemNotice
+      // keeps the mountain, then flushes a durable row once the session starts.
       surfaceSystemNotice(shell, notice.text);
       return;
     }
@@ -606,9 +593,8 @@ export async function mountProductHost(
     workflowWasActive = info.current.active;
   }
 
-  // The renderer already owns the alternate screen and raw mode by this point,
-  // but `dispose` has not been handed to any caller yet — a throw here would
-  // leave the terminal wedged with nobody able to restore it.
+  // The renderer already owns the alternate screen and raw mode, but `dispose`
+  // has not reached a caller yet — a throw here would wedge the terminal.
   let disposeGates: () => void;
   try {
     disposeGates = wireGates(config.eventEmitter, shell, {
@@ -639,9 +625,9 @@ export async function mountProductHost(
     }
   }
 
-  // /clear and /new rotate the backend session in the runner; the host must
-  // wipe the painted transcript so the screen matches a brand-new session.
-  // The Ink App used to own this unconditionally — OpenTUI regressed it.
+  // /clear and /new rotate the backend session; the host must wipe the painted
+  // transcript so the screen matches a brand-new session (the Ink App used to
+  // own this — OpenTUI regressed it).
   function onSessionClear(): void {
     if (disposed) return;
     clearTranscript(shell);
@@ -671,10 +657,8 @@ export async function mountProductHost(
       onRemoveProvider !== undefined && describeRemoveProvider !== undefined;
 
     // Alt+R armed-confirm state, per picker mount. Only the latest arm can
-    // ever confirm (a new arm replaces it), and every picker exit clears it
-    // — Esc/dismiss, Enter, the Alt+A switch, and each fresh open. Focus
-    // moves disarm through the describe wrapper below, whose repaints
-    // evaluate on every focus change.
+    // confirm, and every exit clears it — Esc/dismiss, Enter, Alt+A, and each
+    // fresh open. Focus moves disarm through the describe wrapper below.
     let armedRemove: RemoveArmed | null = null;
     let armedRemoveFlash: string | null = null;
     const disarmRemove = (): void => {
@@ -686,12 +670,10 @@ export async function mountProductHost(
     };
 
     // Alt+A from the model picker: close it and open a fresh selector over
-    // every first-class provider kind, no already-connected filtering. This
-    // gets its own PrimaryOverlayKind opened through the same reserved
-    // close-then-open path openModels itself uses, rather than the palette's
-    // priorOverlay stack — that stack exists so the palette can float over a
-    // permission or operator question without dropping the awaited promise
-    // underneath it, which does not apply here.
+    // every provider kind, no already-connected filtering. It opens through
+    // the same reserved close-then-open path openModels uses, not the
+    // palette's priorOverlay stack (which exists to float over a question
+    // without dropping its awaited promise — not applicable here).
     openAddProvider =
       addProviderChoices !== undefined && onConnect !== undefined
         ? (opts?: {
@@ -746,9 +728,8 @@ export async function mountProductHost(
                   tone: "plain",
                 };
               },
-              // Alt+A from the model picker: Esc returns through the same entry
-              // point Alt+A itself, /model, and a completed connect all use.
-              // /connect from a closed prompt omits this so Esc dismisses.
+              // Esc returns through the same entry Alt+A, /model, and a
+              // completed connect use; /connect omits this so Esc dismisses.
               ...(opts?.returnToModels === true
                 ? { onCancel: () => openModels?.() }
                 : {}),
@@ -774,18 +755,16 @@ export async function mountProductHost(
         ...(focusIndex >= 0 ? { activeIndex: focusIndex } : {}),
         onAccept: (sel) => {
           disarmRemove();
-          // Prefer the stable id from the (possibly filtered) row. Do not fall
-          // back to `items[sel.index]` — that index is into the filtered list,
-          // not the unfiltered catalog, so it would pick the wrong model.
+          // Prefer the stable id from the (possibly filtered) row; the index
+          // is into the filtered list, not the catalog, and would pick wrong.
           const id = sel.id;
           if (id === undefined) return;
           onSelect(id);
         },
         describe: (itemId) => {
           if (armedRemove !== null && armedRemove.itemId !== itemId) {
-            // Focus left the armed row (arrows, filter re-narrow): disarm
-            // with no write. State only — paint-safe; the arm flash expires
-            // on its own TTL, and Esc still clears it early via onCancel.
+            // Focus left the armed row (arrows, filter re-narrow): disarm with
+            // no write — state only; the flash expires on its own TTL.
             armedRemove = null;
           }
           if (armedRemove !== null && armedRemoveFlash !== null) {
@@ -807,7 +786,7 @@ export async function mountProductHost(
           ? {
               onAction: (itemId, key) => {
                 if (key.ctrl) return false;
-                // Alt+A / composed Option+A (å/Å) — never bare ASCII `a`;
+                // Alt+A / composed Option+A (å/Å) — never bare `a`;
                 // type-to-filter claims ordinary printables.
                 if (
                   openAddProvider !== undefined &&

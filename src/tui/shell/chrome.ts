@@ -223,20 +223,17 @@ export function chromeComposeCount(shell: AppShell): number {
 
 /**
  * Repaint the prompt borders and the transient notice row from live state.
- *
- * Recomposes only when a composed input actually changed; passes with an
- * unchanged key cost one key build and a string compare. `force` bypasses the
- * gate for paths that must repaint regardless (layout application, where the
- * column budget and the render tree may have moved under identical text).
+ * Recomposes only when the composed key changed (one key build + compare);
+ * `force` bypasses the gate for layout application, where the column budget
+ * and render tree may have moved under identical text.
  */
 export function paintChrome(
   shell: AppShell,
   opts?: { readonly force?: boolean },
 ): void {
   if (shell.disposed) return;
-  // Headless tests often destroy the renderer without dispose
-  // (`withTestRenderer` cleanup). A TTL flash armed before that teardown
-  // must not write a TextBuffer the harness already freed.
+  // Headless tests destroy the renderer without dispose; a TTL flash armed
+  // before that teardown must not write a buffer the harness already freed.
   if (shell.renderer.isDestroyed || shell.notice.isDestroyed) return;
   syncPending(shell);
   const notice = noticeText(shell);
@@ -255,8 +252,7 @@ export function paintChrome(
 }
 
 /**
- * Rebuild pendingBox's row children when the column's painted content moved —
- * the items themselves, the fold, the granted height, or the column budget.
+ * Rebuild pendingBox's row children when the column's painted content moved.
  * Runs inside the compose-key gate, so an unchanged queue costs one signature
  * compare rather than a row rebuild.
  */
@@ -508,14 +504,11 @@ const OVERLAY_FLOAT_Z = 10;
 
 /**
  * Lift the overlay host out of the root's column, or drop it back in.
- *
- * On the landing the host is a modal: the mark and the disclosure are the
- * screen, and shoving them around to open a command list would make every
- * overlay feel like a navigation. Absolute positioning takes the host out of
- * flow so the composition beneath is untouched, anchored above the chrome the
- * host used to sit on top of. With a transcript on screen the opposite is
- * true — rows there are content the operator is reading, and covering them is
- * worse than pushing them — so the host goes back into the column.
+ * On the landing the host is a modal: the mark and disclosure are the screen,
+ * and shoving them around for a command list would make every overlay feel
+ * like navigation — absolute positioning keeps the composition beneath
+ * untouched. With a transcript on screen covering rows is worse than pushing
+ * them, so the host goes back into the column.
  */
 function floatOverlayHost(
   shell: AppShell,
@@ -536,12 +529,10 @@ function floatOverlayHost(
     return;
   }
   host.position = "absolute";
-  // Absolute positioning escapes root's padding, so the same sideMargin the
-  // prompt box gets for free in normal flow has to be given back explicitly.
-  // width is set to the same contentWidth the prompt box resolves to via
-  // "100%" of root's padded box — one source, not a second computed here —
-  // rather than left+right insets, since those combine with the existing
-  // width:"100%" to overshoot the right edge.
+  // Absolute positioning escapes root's padding, so the sideMargin the prompt
+  // box gets for free must be given back explicitly; width is the same
+  // contentWidth the box resolves to, not left+right insets (which would
+  // overshoot the existing width:"100%").
   host.left = shell.layout.sideMargin;
   host.width = shell.layout.contentWidth;
   host.top = top;
@@ -668,10 +659,9 @@ function lockupFrameInput(shell: AppShell): LockupInput {
 }
 
 /**
- * Repaint both border rules. Reached through `paintChrome`, which gates on the
- * compose key: a resize changes the column budget without changing any label,
- * and the lockup changes every animation frame without changing the geometry —
- * both move the key (width, lockup fields) and so pass the gate.
+ * Repaint both border rules. Reached through `paintChrome`: a resize changes
+ * the column budget and the lockup changes every frame without moving the
+ * geometry — both move the compose key (width, lockup fields) and pass.
  */
 export function paintPromptBorder(shell: AppShell): void {
   const width = shell.layout.contentWidth;
@@ -687,10 +677,9 @@ export function paintPromptBorder(shell: AppShell): void {
   });
   shell.promptTopRule.content = new StyledText(ruleChunks(shell, top));
 
-  // Corners, both rule margins, the gap and the spaces around each label are
-  // what the workspace has to fit inside — with the lockup if the rule can
-  // seat both, without it if it cannot. Where the row can only afford one, the
-  // information wins and the mark goes.
+  // The workspace fits inside the corners, rule margins, gaps and label
+  // spacing — with the lockup only when the rule can seat both; when the row
+  // affords one, the information wins and the mark goes.
   const withBrand = Math.max(
     0,
     width - 9 - lockupWidth(lockupFrameInput(shell)),
@@ -701,9 +690,9 @@ export function paintPromptBorder(shell: AppShell): void {
     branch: shell.workspace.branch,
     home: homedir(),
   };
-  // A workspace that has lost its path is a branch floating with no context,
-  // which is worth less than the mark it displaced. So the mark yields not just
-  // when the label cannot fit at all, but when keeping it would starve the path.
+  // A workspace that lost its path is a branch with no context, worth less
+  // than the mark it displaced: the mark yields when keeping it would starve
+  // the path, not only when the label cannot fit.
   const roomyRaw = composeWorkspaceLabel({
     ...workspaceInput,
     maxWidth: withBrand,
@@ -730,12 +719,9 @@ export function paintPromptBorder(shell: AppShell): void {
   shell.promptBottomRule.content = new StyledText(ruleChunks(shell, bottom));
 }
 
-/**
- * Shrink overlay body and list so they fit the assigned host. A short
- * terminal can leave fewer rows than chrome plus a full-height choice;
- * dropping context first keeps one choice row inside the box so the
- * operator can still answer.
- */
+/** Shrink overlay body and list to fit the assigned host: on a short
+ * terminal, dropping context first keeps one choice row so the operator can
+ * still answer. */
 function fitOverlayListToHost(shell: AppShell, hostH: number): void {
   const list = shell.overlayList;
   if (!list || hostH <= 0) return;
@@ -782,9 +768,8 @@ function fitOverlayListToHost(shell: AppShell, hostH: number): void {
 }
 
 export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
-  // Rows lay themselves out against the column budget (right-aligned bubbles,
-  // pre-wrapped reasoning blocks), so a width change invalidates every painted
-  // row rather than just reflowing it.
+  // Rows lay out against the column budget, so a width change invalidates
+  // every painted row rather than reflowing it.
   const widthChanged =
     shell.layout.contentWidth !== layout.contentWidth ||
     shell.layout.chatWidth !== layout.chatWidth ||
@@ -795,9 +780,9 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.root.paddingLeft = layout.sideMargin;
   shell.root.paddingRight = layout.sideMargin;
 
-  // Raw renderer size, not `layout.terminal` — that is already net of the row
-  // this badge itself reserves (see `terminalForGeometry`), which would make
-  // the threshold check its own effect. Landing-only: see `relayout`.
+  // Raw renderer size, not `layout.terminal`, which is already net of the row
+  // this badge reserves (see `terminalForGeometry`) — that would make the
+  // threshold check its own effect. Landing-only.
   shell.versionRow.visible =
     isLanding(shell) &&
     versionBadgeVisible(shell.renderer.width, shell.renderer.height);
@@ -822,19 +807,16 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
 
   const overlayH = Math.max(0, h.overlay_host);
 
-  // The landing splits the transcript residual around the prompt box so the box
-  // sits on the terminal's middle row instead of at its foot. An open overlay
-  // floats over that composition rather than displacing it, so the rows the
-  // resolver took for the overlay host are handed back to the split.
+  // The landing splits the residual around the prompt box so the box sits on
+  // the terminal's middle row; an open overlay floats over that composition,
+  // so the rows taken for the overlay host go back to the split.
   const bag = shellInternals(shell);
   const landing = bag?.landing ?? null;
   const landingRows =
     transcriptH - padH - bottomPadH + (landing === null ? 0 : overlayH);
-  // The resolver already sized overlayH to the overlay's real content (list
-  // included) and capped it against the fraction/floor limits, so it is the
-  // correct minimum to ask the landing split to make room for — asking for
-  // less (e.g. just enough for one choice row) starves the list underneath
-  // the title down to nearly nothing once floatOverlayHost pins the host to it.
+  // overlayH is already the overlay's real content, capped by the
+  // fraction/floor limits, so it is the correct minimum to ask the landing
+  // split for — asking for less starves the list under the title.
   const split =
     landing === null ? null : landingSplitFor(landingRows, overlayH, padH);
   if (bag !== undefined && landing !== null && split !== null) {
@@ -894,15 +876,13 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // input has to scroll inside a fixed window instead of pushing the frame open.
   shell.prompt.height = promptInnerH;
 
-  // Sized last: the float is anchored against chrome sized earlier in this
-  // pass. Modal over the landing, an in-flow band once there is a transcript
-  // to push.
+  // Sized last: the float anchors against chrome sized earlier in this pass —
+  // modal over the landing, an in-flow band once a transcript is there to push.
   const floating = landing !== null && overlayH > 0;
-  // Rows the flow spends before the prompt box — where a floated host's bottom
-  // edge has to land, since the landing's box sits mid-screen rather than at
-  // the foot and covering it would hide the thing the operator types into.
-  // Stack: topPad, transcript, agents, task, then prompt (notice and the
-  // pending column omitted — both are transient chrome above the prompt).
+  // Rows the flow spends before the prompt box — where a floated host's
+  // bottom edge must land, since the landing's box sits mid-screen and
+  // covering it would hide what the operator types into. Stack: topPad,
+  // transcript, agents, task, prompt (notice and pending are transient).
   const promptTop = padH + transcriptBody + agentsH + taskH;
   const hostH = floating
     ? Math.min(overlayH, Math.max(1, promptTop))
@@ -916,8 +896,8 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
 
   paintPromptBorder(shell);
 
-  // The landing owns the transcript's children until the first row lands, so a
-  // resize there must not rebuild them out from under it.
+  // The landing owns the transcript's children until the first row lands, so
+  // a resize there must not rebuild them out from under it.
   if (widthChanged && shell.streamLog.length > 0 && !isLanding(shell)) {
     repaintTranscriptWindow(shell);
   }
@@ -958,24 +938,19 @@ export function syncPromptRows(shell: AppShell): void {
 
 /**
  * Resize the transcript's leading filler to soak up leftover viewport space.
- * Reads `scrollHeight` (content height, filler included) net of the filler's
- * own last-applied height, so it stays correct regardless of wrapping,
- * markdown, or windowed long-log rebuilds.
+ * Reads `scrollHeight` net of the filler's own last-applied height, so it
+ * stays right across wrapping, markdown, and windowed rebuilds.
  *
- * Deliberately NOT called at row-mutation time: `scrollHeight` reflects the
- * last completed layout, not the tree as it stands the instant a row lands —
- * a row whose own box needs a layout pass to size itself (structured/tool/
- * collapsible rows) reads back as shorter than it really is for one frame.
- * Growing the filler on that stale reading would claim room the row still
- * needs and bury it. Called from the render-frame hook instead, once that
- * pass has actually run.
+ * Deliberately not called at row-mutation time: `scrollHeight` reflects the
+ * last completed layout, and a row that needs its own layout pass reads back
+ * shorter for one frame — growing the filler on that stale reading would bury
+ * it. Called from the render-frame hook once that pass has run.
  */
 export function syncTranscriptSpacer(shell: AppShell): void {
   const spacer = transcriptSpacers.get(shell);
   if (spacer === undefined) return;
-  // The landing screen already bottom-anchors its own mark against the box
-  // via the above/below split; a filler competing for the same content box
-  // would double-count that space and squeeze the mark.
+  // The landing already bottom-anchors its mark via the above/below split; a
+  // filler competing for the same box would double-count and squeeze it.
   if (isLanding(shell)) {
     if (spacer.height !== 0) spacer.height = 0;
     return;
@@ -1004,10 +979,9 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
   const columns = opts?.columns ?? shell.renderer.width;
   const rows = opts?.rows ?? shell.renderer.height;
   const terminal = terminalOf(shell.renderer, { columns, rows });
-  // Only the landing screen ever gives up a row for the version badge — once
-  // a session has real transcript content every row is that content's, and
-  // the badge simply stops showing (see `applyLayout`) rather than taking
-  // space back from it.
+  // Only the landing gives up a row for the version badge — once a session
+  // has transcript content every row is that content's, and the badge stops
+  // showing rather than taking space back.
   const versionReserved = isLanding(shell);
   const layout = resolveGeometry({
     terminal: versionReserved ? terminalForGeometry(terminal) : terminal,
