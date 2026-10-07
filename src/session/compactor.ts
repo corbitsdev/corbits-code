@@ -57,24 +57,22 @@ export interface CompactorConfig {
    * and full constraint/goal text instead of storing spine-truncated cuts.
    */
   readPriorHandoff?: () => Promise<string | undefined>;
-  // Recorded for compatibility. Live fold does not pull full-body anchors
-  // (edit_file/write_file pairs) into the prompt; those turns fold into the
-  // fat handoff instead. The live set is the thin spine plus the token-capped
-  // tail.
+  // Recorded for compatibility. Live fold keeps only the thin spine plus the
+  // token-capped tail; file-edit anchors fold into the fat handoff.
   maxAnchorTurns: number;
   /**
-   * CL-9489 budgeted-tail shape. The live tail is a token budget, not a
-   * turn-count floor — zero turns stay whole because they are "recent".
-   * Partial: missing fields resolve against DEFAULT_TAIL_COMPACTION_SHAPE.
+   * Budgeted-tail shape. The live tail is a token budget, not a turn-count
+   * floor. Partial: missing fields resolve against
+   * DEFAULT_TAIL_COMPACTION_SHAPE.
    */
   compactionShape?: Partial<CompactionShape>;
 }
 
 /**
- * CL-9489 shape of the live tail the fold keeps: extract + summary + actions
- * (the thin spine / fat handoff file) plus a token-capped raw tail (~2–3k
- * tokens by default). One object so family research can tune later; the
- * governor (CL-9006) reads the resolved copy off record.parameters.
+ * Shape of the live tail the fold keeps: extract + summary + actions (the
+ * thin spine / fat handoff file) plus a token-capped raw tail (~2–3k tokens
+ * by default). One object so family research can tune later; the governor
+ * reads the resolved copy off record.parameters.
  */
 export interface CompactionShape {
   /** Live-tail budget in tokens (chars/4 estimate). Default ~2500. */
@@ -106,18 +104,14 @@ export function resolveCompactionShape(
   return { ...DEFAULT_TAIL_COMPACTION_SHAPE, ...partial };
 }
 
-// Fold marker. Canonical home is ./compaction-handoff.js (the fat-handoff /
-// thin-spine module owns the handoff format); re-exported here so existing
-// importers keep working. Later compact cycles fold these turns into one new
-// handoff rather than accumulating a frozen prefix of prior summaries.
+// Fold marker. Canonical home is ./compaction-handoff.js, which owns the
+// handoff format; re-exported here so existing importers keep working.
 export { COMPACTED_PREFIX };
 
 // Inserted between adjacent user turns so assembled history stays
-// role-alternating. Visible, non-format (not Unicode Cf) sentinel so Chat
-// Completions adapters keep a non-empty assistant turn. Identity is the
-// reserved producer id on `compactSpacerTurn`, not this text and not a
-// missing `model` field. Later cycles fold it with the previous handoff
-// instead of stacking a frozen prefix.
+// role-alternating. Visible, non-format sentinel so Chat Completions adapters
+// keep a non-empty assistant turn. Identity is the reserved producer id on
+// `compactSpacerTurn`, not this text and not a missing `model` field.
 export const COMPACT_SPACER_TEXT = "[compact]";
 export const LEGACY_COMPACT_SPACER_TEXT = "[compaction]";
 export const HARNESS_COMPACT_SPACER_MODEL = "harness";
@@ -143,11 +137,8 @@ export function compactorNoOpFloor(): number {
 // Replayable query tools deduped by full-argument identity: a later identical
 // grep/search_files/list_dir call reflects newer workspace state, so an older
 // identical result is stale the same way an older read_file body is.
-// run_shell is deliberately excluded — the same command is not idempotent
-// (builds, tests, mutations), so an older run_shell result can be the only
-// record of a genuinely distinct outcome. Built on the shared SEARCH_QUERY_TOOLS
-// base plus list_dir, which compaction treats as replayable the same way
-// (unlike thrash's narrower SEARCH_TOOLS — see tool-classification.ts).
+// run_shell is excluded — the same command is not idempotent, so an older
+// result can be the only record of a genuinely distinct outcome.
 const QUERY_TOOLS = new Set([...SEARCH_QUERY_TOOLS, "list_dir"]);
 
 function isReplayableResultTool(name: string): boolean {
@@ -275,14 +266,12 @@ function buildCallIndex(
 
 /**
  * Read-identity → every replayable read/query result that matched it, in
- * session order. Groups repeated full-file (or same-range) reads and repeated
- * identical query calls so older successful results can be stubbed when a
- * later identical call survives compaction.
+ * session order, so older successful results can be stubbed when a later
+ * identical call survives compaction.
  *
- * Callers must pass only turns that survive compaction (anchors + recent).
- * Computing supersession over the full transcript would hollow a kept older
- * read when the newer re-read was summarized away — leaving the model with a
- * stub and no full body.
+ * Callers must pass only turns that survive compaction. Supersession over
+ * the full transcript would hollow a kept older read when the newer re-read
+ * was summarized away.
  */
 function buildPathToReads(
   turns: readonly ConversationTurn[],
@@ -386,9 +375,9 @@ function erroredResultSignature(
 
 /**
  * Call ids of errored results whose (tool name, error-text prefix) signature
- * recurs on a later turn in the same set. Every occurrence but the last is
- * returned, collapsing a retry loop's repeats to one representative — the
- * most recent failure, which is the state the agent must resume from.
+ * recurs on a later turn. Every occurrence but the last is returned,
+ * collapsing a retry loop to its most recent failure — the state the agent
+ * must resume from.
  */
 function repeatedErroredResultCallIds(
   turns: readonly ConversationTurn[],
@@ -549,22 +538,14 @@ async function ageImagesOutsidePicked(
 // prepending the summary turn can place two same-role turns next to each
 // other, which the Anthropic Messages API rejects.
 //
-// Given well-formed alternating input, every same-role adjacency compaction
-// itself introduces has a plain-text later turn — the pairing pass keeps each
-// tool_result next to its tool_call, so tool-bearing turns stay alternating —
-// so this removes all of them. It does not repair a non-alternating sequence
-// that was already present in the input.
-//
-// A turn carrying a tool_result body never fuses into a neighbor: result
-// bodies are the bulk the tail budgets and excerpts per turn, and fusing an
-// already-excerpted result into adjacent text would build a heavy hybrid turn
-// the next fold cannot budget independently — live user text dragged into the
-// summarized region together with old bulk instead of riding the tail
-// forward. Call headers stay fusible (merging a following text turn into its
-// call turn preserves role alternation without moving bulk), and a surviving
-// result still lands immediately after its assistant tool_call either way, so
-// no tool_call/tool_result sequence is disturbed. Result/text neighbors that
-// no longer fuse get a [compact] spacer from separateAdjacentUserTurns.
+// The pairing pass keeps each tool_result next to its tool_call, so every
+// same-role adjacency compaction introduces has a plain-text later turn and
+// fuses. A turn carrying a tool_result body never fuses: result bodies are
+// bulk the tail budgets per turn, and fusing would build a hybrid turn the
+// next fold cannot budget independently. Call headers stay fusible; a
+// surviving result still lands right after its tool_call, so no
+// tool_call/tool_result sequence is disturbed. Result/text neighbors that no
+// longer fuse get a [compact] spacer from separateAdjacentUserTurns.
 function carriesToolResult(turn: ConversationTurn): boolean {
   return turn.content.some((block) => block.type === "tool_result");
 }
@@ -648,8 +629,8 @@ function isCompactedSummaryTurn(turn: ConversationTurn): boolean {
 
 // Harness spacers stamp `model: "harness"`. Missing `model` is unattributed
 // (replay sanitizer), except persisted `[compaction]` spacers from before
-// producer-id stamping, which still freeze. Model-produced copies always
-// carry a real model id and must not enter the frozen prefix.
+// producer-id stamping. Model-produced copies carry a real model id and must
+// not enter the frozen prefix.
 export function isHarnessCompactSpacer(turn: ConversationTurn): boolean {
   if (turn.role !== "assistant") return false;
   const text = firstTextBlock(turn);
@@ -672,22 +653,19 @@ function compactSpacerTurn(timestamp: number): ConversationTurn {
 }
 
 // ---------------------------------------------------------------------------
-// CL-9007 budgeted tail
+// Budgeted tail
 // ---------------------------------------------------------------------------
 
-// Marker stamped by excerptTailText below. A tail turn carried forward into
-// the next fold already wears it: excerpting is idempotent so a live excerpt
-// rides unchanged (summarized from its shortened text, never re-expanded raw
-// and never re-shortened into nested sentinels).
+// Marker stamped by excerptTailText below. Excerpting is idempotent: a live
+// excerpt rides unchanged into the next fold, never re-expanded or nested.
 const TAIL_EXCERPT_SENTINEL = "[tail-shortened ";
-// Match the stamped marker (`[tail-shortened N→`), not a raw prefix: a body
-// that happens to mention the substring must still be excerpted.
+// Match the stamped marker, not a raw prefix: a body that happens to mention
+// the substring must still be excerpted.
 const TAIL_EXCERPT_MARKER = /\[tail-shortened \d+→/;
 
 // Shorten one oversized text part of a tail tool result to a head+tail
-// excerpt. The excerpt carries a sentinel, the original length, and the kept
-// length so the tail is visibly lossy; the full text stays stored (archive
-// blob / adopted handoff file) and is never rewritten by excerpting.
+// excerpt. The excerpt carries a sentinel and lengths so the tail is visibly
+// lossy; the full text stays stored and is never rewritten by excerpting.
 function excerptTailText(
   text: string,
   shape: CompactionShape,
@@ -714,14 +692,12 @@ function excerptTailText(
   };
 }
 
-// Excerpted live copy of a tail turn: thinking/redacted_thinking are dropped
-// from the live copy except on the last assistant that still has a tool_call
-// (Anthropic continuation requires unmodified thinking+signature on that
-// tool_use). Full bodies stay in the archive. Drop whole blocks so
-// signatures are not sent with truncated text. Large tool_result
-// text parts shrink to head+tail excerpts; everything else (user text,
-// attachments, tool calls, error results stay whole — errors are resume
-// state, not bulk) passes through untouched.
+// Excerpted live copy of a tail turn: thinking/redacted_thinking drop except
+// on the last assistant that still has a tool_call (Anthropic continuation
+// needs the unmodified thinking+signature on that tool_use). Whole blocks
+// drop so signatures never ship with truncated text. Large tool_result text
+// parts shrink to head+tail excerpts; user text, attachments, tool calls,
+// and error results pass through whole (errors are resume state, not bulk).
 function excerptTailTurn(
   turn: ConversationTurn,
   shape: CompactionShape,
@@ -823,11 +799,10 @@ function isUserAskTurn(turn: ConversationTurn): boolean {
 // Newest→oldest budgeted tail. Zero turns stay whole because they are
 // "recent": take whole call/result pairs until the token budget, excerpt
 // oversized tool outputs, then stop. Unpicked gap turns between a dragged
-// pair partner and the newest pick stay out of the tail (CL-9346). The
-// newest pair is kept even when it still exceeds the budget after excerpt
-// so the live prompt is never empty of resume state. Images count via the
-// shared media estimate (context-estimate.ts). When preserveWholeUserMessages
-// is set, the newest operator ask is paid first and stays whole.
+// pair partner and the newest pick stay out of the tail. The newest pair is
+// kept even when it still exceeds the budget so the live prompt never lacks
+// resume state. When preserveWholeUserMessages is set, the newest operator
+// ask is paid first and stays whole.
 function selectTail(
   turns: readonly ConversationTurn[],
   shape: CompactionShape,
@@ -979,11 +954,10 @@ export function createPruningCompactor(
       const pairs = buildPairIndex(turns);
       const partnerIndex = buildPartnerIndex(pairs);
 
-      // CL-9489 budgeted tail: newest→oldest whole pairs until the token
-      // budget, then excerpt. No turn-count floor. Unpicked gap turns between
-      // a dragged pair partner and the newest pick stay out of the live set
-      // (CL-9346). Large tail tool outputs ride excerpted; stored turns
-      // (handoff file, archive) keep full bodies.
+      // Budgeted tail: newest→oldest whole pairs until the token budget,
+      // then excerpt. No turn-count floor. Unpicked gap turns between a
+      // dragged pair partner and the newest pick stay out of the live set.
+      // Large tail tool outputs ride excerpted; stored turns keep full bodies.
       const tail = selectTail(turns, shape, partnerIndex);
       const aged = await ageImagesOutsidePicked(turns, tail.picked);
       const picked = tail.picked;
@@ -1055,8 +1029,8 @@ export function createPruningCompactor(
       }
 
       // Path-dedup only among turns that survive. Supersession over the full
-      // transcript would hollow a kept older read when the newer re-read is only
-      // in the summary (CL-4374 review follow-up).
+      // transcript would hollow a kept older read when the newer re-read is
+      // only in the summary.
       const pathToReads = buildPathToReads(tailTurns, callIndex);
       const supersededReads = supersededReadCallIds(pathToReads);
 
@@ -1163,27 +1137,21 @@ export function createPruningCompactor(
           : {};
 
       // A user-role turn survives every adapter unchanged. A system-role turn
-      // does not: the Anthropic builder drops mid-conversation system turns
-      // whenever a system-prompt override is set, and the Grok builder emits
-      // them as a stray mid-stream system message. Framing the summary as user
-      // content keeps it in the conversation on every provider.
-      // The activated set outlives the fold (it rides the wire, not the
-      // dropped turns), so the handoff states it verbatim — the summary would
-      // otherwise leave the model guessing whether the names it saw activated
-      // earlier are still callable.
+      // does not (Anthropic drops mid-conversation system turns under a
+      // system-prompt override; Grok emits them as a stray mid-stream system
+      // message), so the summary is framed as user content. Activated tools
+      // outlive the fold, so the handoff states them verbatim.
       //
-      // CL-8744: the fold writes a fat structured handoff file (goal,
-      // constraints, decisions, evidence markers, files/commands,
-      // verification, dead ends, next actions, plus a verbatim exact-facts
-      // appendix) persisted as a context-store blob under one stable latest
-      // key, and keeps only a thin spine plus an explicit pointer to that
-      // file in the live prompt. Exact-required facts are copied verbatim
-      // into the file so they survive paraphrase; tool-body dumps leave the
-      // prompt and live in the file instead. The spine unions carried facts
-      // with newly discovered constraints/decisions/evidence; dropped prior
-      // spines are adopted into the evidence archive so the completeness
-      // gate still certifies the fold. Activated tools ride the spine so a
-      // later fold can parse them instead of appending outside the parser.
+      // The fold writes a fat structured handoff file (goal, constraints,
+      // decisions, evidence markers, files/commands, verification, dead ends,
+      // next actions, plus a verbatim exact-facts appendix) under one stable
+      // latest key, and keeps only a thin spine plus an explicit pointer to
+      // that file in the live prompt. Exact-required facts are copied
+      // verbatim into the file so they survive paraphrase; tool-body dumps
+      // live in the file instead. The spine unions carried facts with new
+      // constraints/decisions/evidence; dropped prior spines are adopted into
+      // the evidence archive so the completeness gate still certifies the
+      // fold. Activated tools ride the spine so a later fold can parse them.
       const priorFileText = await cfg.readPriorHandoff?.();
       const handoff = buildHandoffFold(summarizedTurns, summary, {
         ...(priorFileText !== undefined ? { priorFileText } : {}),

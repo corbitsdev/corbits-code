@@ -1128,9 +1128,9 @@ describe("approval resume retry re-await", () => {
     expect(delivered).toHaveLength(1);
   });
 
-  // CL-7992 K3: concurrent duplicates share one in-flight rejection (one
-  // gate, zero deliveries), then a retry re-gates and delivers exactly
-  // once, and later retries memoize.
+  // Concurrent duplicates share one in-flight rejection (one gate, zero
+  // deliveries), then a retry re-gates and delivers exactly once, and later
+  // retries memoize.
   test("a shared rejection re-gates once, delivers once, then memoizes", async () => {
     const gate = Promise.withResolvers<{ allow: boolean }>();
     const { resume, delivered, resolveSuspended } = retryHarness({

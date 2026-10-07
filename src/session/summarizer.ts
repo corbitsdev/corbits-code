@@ -1,13 +1,13 @@
 // Model-backed compaction summarizer.
 //
 // When the context crosses the compaction threshold, the pruning compactor
-// replaces older turns with a summary. A deterministic stats blob ("Turns: N,
-// Tools called: ...") loses everything that matters for resuming work, so this
-// module produces a structured, workflow-aware narrative via a one-shot
-// inference call against the session's own model. Empty output or a failed
-// call throws so the compact cycle can substitute a statistics-only stub.
-// The operator notice for that fallback is owned by the session pruning
-// wrapper, which fires it only after the fold actually commits.
+// replaces older turns with a summary. A deterministic stats blob loses
+// everything that matters for resuming work, so this module produces a
+// structured, workflow-aware narrative via a one-shot inference call against
+// the session's own model. Empty output or a failed call throws so the
+// compact cycle can substitute a statistics-only stub. The operator notice
+// for that fallback is owned by the session pruning wrapper, which fires it
+// only after the fold actually commits.
 
 import { type } from "arktype";
 import { runInference, type Dependencies } from "@intx/inference";
@@ -40,7 +40,6 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "session", "summarizer"]);
 // rather than 400-character stubs. Budget is the control: later kinds yield
 // when earlier ones fill the window. Gap rows contribute metadata only.
 export const SUMMARY_EXCERPT_DEFAULT_BUDGET_CHARS = 80_000;
-
 const KIND_PRIORITY: readonly ArchiveKind[] = [
   "user_message",
   "attachment",
@@ -187,9 +186,8 @@ const SYSTEM_INSTRUCTION = [
 ].join("\n");
 
 // The user-message window is recency-bounded, which starves the standing
-// goal once the session runs long: the summary call would only see the last
-// dumps. Pin the first user message — the initiating ask — ahead of the
-// recent window so the goal survives no matter how many turns pile up.
+// goal once the session runs long. Pin the first user message — the
+// initiating ask — ahead of the recent window so the goal survives.
 const CONDENSED_USER_WINDOW = 6;
 
 function withPinnedGoal(userMessages: string[]): string[] {
@@ -321,7 +319,6 @@ export const DEFAULT_SUMMARIZER_TIMEOUT_MS = 90_000;
 // one retry per failure class below — so a stalled call cannot multiply into
 // minutes of frozen reactor.
 const NO_HARNESS_RETRY: RetryPolicy = () => ({ kind: "abort" });
-
 // Low-level completion: one inference round-trip returning assistant text.
 // Injectable so tests can drive the summarizer without a live model.
 export type CompletionFn = (
@@ -379,7 +376,6 @@ const EMPTY_SUMMARY_MESSAGE = "compaction summary returned empty text";
 // response.failed envelope, which the adapter classifies protocol_mismatch —
 // a category the harness never retries, though the fault is transient.
 const PROVIDER_INTERNAL_ERROR = /internal error during token generation/i;
-
 // defaultComplete attaches the harness's classified InferenceError as `cause`;
 // errors without one (injected fakes, thrown parser detail) classify by
 // bounded message markers.
@@ -473,9 +469,8 @@ export interface ModelSummarizerOptions {
  * Build a `summarize(turns, ctx)` function suitable for `CompactorConfig`.
  * Produces a structured, workflow-aware summary via the model. Empty output
  * or a failed call throws so the compact cycle can substitute a
- * statistics-only stub. The operator-visible fallback notice is owned by
- * the session pruning wrapper, which fires it only after that stub fold
- * actually commits.
+ * statistics-only stub. The operator-visible fallback notice is owned by the
+ * session pruning wrapper, which fires it only after that stub fold commits.
  */
 export function createModelSummarizer(
   options: ModelSummarizerOptions,

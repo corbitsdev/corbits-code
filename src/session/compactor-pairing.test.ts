@@ -58,8 +58,8 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("g"),
     ];
     const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
+      // Pin a tiny tail budget so the fold covers the same older region the
+      // old keepRecentTurns cut folded.
       compactionShape: { tailBudgetTokens: 120 },
       maxAnchorTurns: 2,
     });
@@ -81,8 +81,8 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("g"),
     ];
     const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
+      // Pin a tiny tail budget so the fold covers the same older region the
+      // old keepRecentTurns cut folded.
       compactionShape: { tailBudgetTokens: 120 },
       maxAnchorTurns: 2,
     });
@@ -126,8 +126,8 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("g"),
     ];
     const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
+      // Pin a tiny tail budget so the fold covers the same older region the
+      // old keepRecentTurns cut folded.
       compactionShape: { tailBudgetTokens: 120 },
       maxAnchorTurns: 2,
     });
@@ -179,8 +179,8 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("g"),
     ];
     const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
+      // Pin a tiny tail budget so the fold covers the same older region the
+      // old keepRecentTurns cut folded.
       compactionShape: { tailBudgetTokens: 120 },
       maxAnchorTurns: 2,
     });
@@ -451,7 +451,7 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
 
 // grep/search_files/list_dir are replayable the same way read_file is: an
 // identical later call reflects newer workspace state, so an older identical
-// result is stubbed the same way an older full-file read is (CL-6906).
+// result is stubbed the same way an older full-file read is.
 function assistantQuery(
   id: string,
   name: string,

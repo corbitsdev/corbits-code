@@ -74,10 +74,10 @@ function isENOENT(err: unknown): boolean {
 
 let tmpWriteCounter = 0;
 
-// Write atomically: serialize to a unique temp file, then rename into place so a
-// crash mid-write never leaves torn JSON. The temp name combines the pid with a
-// monotonic counter so concurrent or rapid successive saves within one process
-// never collide on the same temp path (pid alone is not unique per call).
+// Write atomically: serialize to a unique temp file, then rename into place so
+// a crash mid-write never leaves torn JSON. The temp name combines the pid
+// with a monotonic counter so concurrent or rapid successive saves within one
+// process never collide on the same temp path.
 export async function atomicWrite(
   path: string,
   content: string,
@@ -92,19 +92,16 @@ export async function atomicWrite(
 // snapshot racing a terminal finalize write) have no ordering guarantee
 // between their underlying rename()s — the later call could still finish
 // first and resurrect a closed run.json as "running". Chaining each session's
-// writes onto the previous one forces them to apply in call order, so a
-// write issued after another always lands after it regardless of how long
-// either write's fs calls take. Keyed by sessionId, not path, since callers
-// only ever address one file per session.
+// writes onto the previous one forces them to apply in call order. Keyed by
+// sessionId, not path, since callers only ever address one file per session.
 const writeChains = new Map<string, Promise<void>>();
 
 // Checked right before a chained write actually fires (not at saveState()
-// call time) so a snapshot write still queued behind another one, at the
-// moment the crash handler flips this flag, sees it and no-ops instead of
-// landing after (and clobbering) the crash write issued via saveCrashState.
-// This cannot recall a write whose writeFile/rename has already been
-// dispatched to the kernel — that residual window is one atomicWrite call
-// wide (a small local JSON write), not the remaining lifetime of the process.
+// call time) so a snapshot still queued behind another one, at the moment the
+// crash handler flips this flag, sees it and no-ops instead of landing after
+// (and clobbering) the crash write issued via saveCrashState. The residual
+// window of a write already dispatched to the kernel is one atomicWrite call
+// wide, not the remaining lifetime of the process.
 async function atomicWriteUnlessCrashed(
   path: string,
   content: string,
@@ -131,12 +128,12 @@ export async function saveState(
     () => atomicWriteUnlessCrashed(path, content),
   );
   // Swallow the error in the chain tail (not in `write`, which still rejects
-  // for this caller) so one failed save doesn't permanently wedge later
+  // for this caller) so one failed save does not permanently wedge later
   // saves for the same session.
   const tail = write.catch(() => undefined);
   writeChains.set(sessionId, tail);
   // Once this is the last write for the session, drop the entry so a
-  // long-lived process doesn't retain a chain per session forever.
+  // long-lived process does not retain a chain per session forever.
   void tail.then(() => {
     if (writeChains.get(sessionId) === tail) writeChains.delete(sessionId);
   });
@@ -147,16 +144,13 @@ export async function saveState(
 // clearing the in-memory active-run handle (active-run.ts) so the two facts
 // are set together instead of at two independent call sites that could drift.
 // Callers writing a non-terminal ("running") snapshot should call saveState
-// directly — clearing the active-run handle on a running snapshot would be
-// wrong, not merely redundant.
+// directly.
 //
-// The clear happens before the saveState await, not after: this run is
-// closing out regardless of whether the write below succeeds, and a signal
-// or uncaught exception landing during that await must see the handle
-// already gone, or it races a second "crashed" write (src/index.ts's process
-// handlers, via saveCrashState) against the terminal write in flight here.
-// Clearing after the await leaves that exact window open on every terminal
-// write, not only the crash path's own.
+// The clear happens before the saveState await: this run is closing out
+// regardless of whether the write succeeds, and a signal or uncaught
+// exception landing during that await must see the handle already gone, or
+// it races a second "crashed" write (src/index.ts's process handlers, via
+// saveCrashState) against the terminal write in flight here.
 export async function finalizeRunState(
   cwd: string,
   sessionId: string,
@@ -171,18 +165,16 @@ export async function finalizeRunState(
 // still-pending write for this session (possibly the very write mid-flight
 // when the process crashed) must never be awaited here, or a queued write
 // that never settles would block the crash handler's process.exit forever.
-// Callers must call markCrashed() (src/session/active-run.ts) before this, so
-// any snapshot write still queued behind another one in the chain steps
-// aside instead of racing this write's rename().
+// Callers must call markCrashed() (src/session/active-run.ts) before this,
+// so any snapshot write still queued in the chain steps aside instead of
+// racing this write's rename().
 //
 // This is a second terminal write path alongside finalizeRunState, and stays
 // separate on purpose: its only callers are index.ts's process-level
 // uncaughtException/unhandledRejection and signal handlers, reached when a
 // crash escapes runTUI's own try/catch entirely. finalizeRunState routes
 // through saveState's per-session write chain so writes apply in call order;
-// that chain is exactly what a crash exit cannot afford to wait on, since
-// process.exit must happen deterministically and a stuck earlier write
-// (possibly the one that caused the crash) would otherwise hang it.
+// that chain is exactly what a crash exit cannot afford to wait on.
 export async function saveCrashState(
   cwd: string,
   sessionId: string,

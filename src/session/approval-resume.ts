@@ -5,11 +5,10 @@
 // parked call has no tool result and no resolve closure — its identity is the
 // correlationId, persisted as a PendingOperation by the reactor. This module
 // rebuilds the operator-facing request from the approval snapshot, resolves it
-// through the gate's requestApproval seam (the same modal surface the
-// middleware path uses), and delivers the operator's decision back to the
-// reactor as a correlated inbound message. An approved decision grants the
-// call's one-shot bypass and the reactor re-dispatches the exact parked call;
-// a rejected one answers it with an error result.
+// through the gate's requestApproval seam, and delivers the operator's
+// decision back to the reactor as a correlated inbound message. An approved
+// decision grants the call's one-shot bypass and the reactor re-dispatches the
+// exact parked call; a rejected one answers it with an error result.
 
 import type { Agent, SendResult } from "@intx/agent";
 import type {
@@ -188,8 +187,7 @@ export function createSuspendedApprovalRecovery(args: {
 }
 
 // Rebuild the operator-facing request from the persisted snapshot. The parked
-// name is canonicalized first so resume matches live decide() (file scopes for
-// write_file, not a generic tool grant for default.write_file). Scopes come
+// name is canonicalized first so resume matches live decide(). Scopes come
 // from buildRequests (the same decomposition the middleware path shows), with
 // the secret-path rule re-applied: secret shell never offers a persistent
 // scope, because future secret-path shell always re-asks.
@@ -409,7 +407,6 @@ export function createApprovalResume(args: {
   // concurrent duplicate handle shares the one in-flight outcome instead of
   // opening a second gate, so no waiter is lost and none double-resumes.
   const inflight = new Map<string, Promise<boolean>>();
-
   const settleSuspended = async (
     result: Extract<SendResult, { type: "suspended" }>,
   ): Promise<boolean> => {

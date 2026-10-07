@@ -85,21 +85,21 @@ function sanitizeCallId(callId: string): string {
 }
 
 /**
- * Parse conversation turns out of one JSONL segment. A crash can tear the final
- * line of the active (last) segment mid-write; when `tolerateTornTail` is set a
- * final line that fails to parse is dropped rather than aborting the resume.
+ * Parse conversation turns out of one JSONL segment. A crash can tear the
+ * final line of the active (last) segment mid-write; when `tolerateTornTail`
+ * is set a final line that fails to parse is dropped rather than aborting
+ * the resume.
  *
- * Null bytes (truncate-past-EOF padding from a stale keepBytes write) are stripped
- * so a poisoned segment can still yield its usable turns on resume. Errors name
- * `fileName` when provided so diagnostics point at the on-disk file, not a bare
- * Bun JSON token.
+ * Null bytes (truncate-past-EOF padding from a stale keepBytes write) are
+ * stripped so a poisoned segment can still yield its usable turns. Errors
+ * name `fileName` when provided so diagnostics point at the on-disk file.
  *
  * `skipMalformed` drops (or partially recovers) a bad line anywhere in the
  * segment and keeps surrounding history. Used by display-only reads
  * (`loadRecentTurns`) and by the reactor's own `load()` recovery path so a
- * mid-file garbage/interleaved record does not kill resume (CL-7052). Earlier
- * CL-5935 kept reactor load strict; killing the session on one bad line was
- * worse than a hole in history.
+ * mid-file garbage/interleaved record does not kill resume. Earlier reactor
+ * load was strict; killing the session on one bad line was worse than a hole
+ * in history.
  *
  * When a crash left a truncated stub glued to the next append (no newline),
  * the line fails as a whole; `recoverTurnFromGluedLine` still salvages a
@@ -300,12 +300,12 @@ export type RecentTurns = {
 
 /**
  * Read only the tail of the turn history needed to satisfy `minTurns`, walking
- * segments from newest to oldest and stopping as soon as enough turns have
- * accumulated. Older segments are never read. This is for display-only resume
- * paths (e.g. TUI transcript hydration) that only need a recent window; the
- * canonical full-history read stays on `ContextStore.load()` — the reactor's
- * own initialization contract requires the complete turn history, since that
- * is the actual live conversation state, not a bounded view of it.
+ * segments newest to oldest and stopping as soon as enough turns accumulate.
+ * This is for display-only resume paths (e.g. TUI transcript hydration) that
+ * only need a recent window; the canonical full-history read stays on
+ * `ContextStore.load()` — the reactor's own initialization contract requires
+ * the complete turn history, since that is the actual live conversation
+ * state, not a bounded view of it.
  *
  * Orphan-tail recovery lives on `load()`, not here: this path must stay
  * O(window) so resume does not re-pay full-history I/O on healthy sessions.
@@ -327,8 +327,8 @@ export async function loadRecentTurns(
     // Only the active (last) segment can be mid-write; sealed ones are complete.
     // Display-only: skip lines that will not parse rather than losing the whole
     // transcript to one bad line, and name the segment in any error that does
-    // escape (CL-5935). Reactor load uses the same skip path for mid-file
-    // garbage so resume does not die (CL-7052).
+    // escape. Reactor load uses the same skip path for mid-file garbage so
+    // resume does not die.
     const turns = parseSegmentTurns(
       text,
       i === segments.length - 1,
@@ -636,9 +636,8 @@ export async function createSessionStores(
 
   // The reactor checkpoints the materialized prompt every cycle, but most
   // cycles run no transform that changes it — writing an identical snapshot
-  // next to turns.jsonl doubles disk and re-hash cost for zero information.
-  // load() never reads prompt.jsonl (base turns + TURNS_FILE extras only),
-  // so skipping the write leaves resume behavior unchanged; prompts that
+  // doubles disk and re-hash cost for zero information. load() never reads
+  // prompt.jsonl, so skipping the write leaves resume unchanged; prompts that
   // actually differ still write exactly as before.
   async function writePromptIfDiffered(
     turns: readonly ConversationTurn[],
@@ -729,13 +728,13 @@ export async function createSessionStores(
   const store: ContextStore & AuditStore = {
     // Full-history read. Called by the reactor during initialization, where
     // the complete turn history is the actual live conversation state, not an
-    // optional convenience — callers that only need a recent tail (e.g. TUI
-    // resume hydration) should use `loadRecentTurns` instead.
+    // optional convenience — callers that only need a recent tail should use
+    // `loadRecentTurns` instead.
     //
     // When the base isogit store hard-fails (e.g. null-padded or mid-file
     // garbage turns.jsonl), recover usable turns via resilient segment parse
     // and re-read metadata via the base schema (soft-empty only if that fails
-    // too) so resume does not die on a bare Bun JSON token or wipe pending ops.
+    // too) so resume does not die or wipe pending ops.
     async load(signal) {
       try {
         const baseResult = await base.load(signal);
@@ -756,8 +755,8 @@ export async function createSessionStores(
         let baseTurns: ConversationTurn[];
         try {
           // Prefer resilient parse of segment 0 alone so orphan-tail heal still runs.
-          // skipMalformed: mid-file garbage/interleaved records must not kill resume
-          // (CL-7052); null-pad stripping and torn-tail drop still apply.
+          // skipMalformed: mid-file garbage/interleaved records must not kill resume;
+          // null-pad stripping and torn-tail drop still apply.
           baseTurns = await readBaseTurnsFromDisk(dir);
         } catch (parseCause) {
           // Unrecoverable: rethrow with the file name in the message.

@@ -79,8 +79,8 @@ export function getActiveRun(): RunStateHandle | null {
 // waiting behind another one in its per-session chain sees the flag and
 // no-ops instead of firing after (and clobbering) the crash write. It cannot
 // stop a write whose writeFile/rename has already been dispatched to the
-// kernel at the moment the flag flips — that window is one atomicWrite call
-// wide, not the full remaining lifetime of the process.
+// kernel — that window is one atomicWrite call wide, not the full remaining
+// lifetime of the process.
 let crashed = false;
 
 export function markCrashed(): void {
@@ -97,7 +97,6 @@ export function isCrashed(): boolean {
 // real filesystem timing happens to interleave that way. No effect on
 // production callers, which never install a gate.
 let testWriteGate: Promise<void> | null = null;
-
 export function setTestWriteGate(gate: Promise<void> | null): void {
   testWriteGate = gate;
 }

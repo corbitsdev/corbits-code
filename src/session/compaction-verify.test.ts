@@ -646,8 +646,8 @@ describe("pruning compactor verify pass", () => {
   ])("$title", async ({ summarizeText, kind }) => {
     const compactor = createPruningCompactor({
       summaryMaxChars: 2000,
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
+      // Pin a tiny tail budget so the fold covers the same older region the
+      // old keepRecentTurns cut folded.
       compactionShape: { tailBudgetTokens: 10 },
       summarize: async () => summarizeText,
     });
@@ -916,8 +916,8 @@ describe("completeness gate plus verify repair", () => {
     let priorFile: string | undefined;
     const inner = createPruningCompactor({
       summaryMaxChars: 4000,
-      // CL-9007: pin a tiny tail budget so each fold covers the same older
-      // region the old keepRecentTurns cut folded.
+      // Pin a tiny tail budget so each fold covers the same older region the
+      // old keepRecentTurns cut folded.
       compactionShape: { tailBudgetTokens: 10 },
       summarize: async () => "Work continues. Next: fix tests.",
       readPriorHandoff: async () => priorFile,

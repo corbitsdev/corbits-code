@@ -1,9 +1,8 @@
 // Shared runtime assembly used by the exec and TUI runners.
 //
 // Only near-verbatim blocks live here. The composed entry-point wiring built
-// from them (trust → gate → agent → lifecycle) lives in
-// `./assemble-runtime.ts`, which both runners consume; this module stays the
-// home of the individual blocks.
+// from them lives in `./assemble-runtime.ts`, which both runners consume;
+// this module stays the home of the individual blocks.
 
 import { getLogger } from "@intx/log";
 import type {
@@ -122,8 +121,8 @@ export interface LiveSubAgentSources {
  * session config is reassigned by each switch path (model picker, /agent,
  * post-connect refresh, favorite toggle), so all three derive from a config
  * getter per spawn. Snapshot copies kept in sync by hand went stale whenever
- * a new switch path forgot to update them, which is what stranded workers on
- * a provider the operator had already switched away from.
+ * a new switch path forgot to update them, which stranded workers on a
+ * provider the operator had already switched away from.
  */
 export function createLiveSubAgentSources(
   getConfig: () => SubAgentSourcesConfig,
@@ -149,8 +148,7 @@ export async function loadSeededApprovals(
   // One-time migration: purge persisted update_plan keys (dropped at load by
   // normalizeSeededApprovals but never rewritten) so removing the normalizer
   // later cannot resurrect them. Best-effort and idempotent — a clean tree is
-  // a no-op, and the normalizer stays as defense-in-depth regardless. Guarded
-  // so a future throw can never break session start.
+  // a no-op — and guarded so a future throw cannot break session start.
   try {
     await migratePersistedApprovalStores(cwd, sessionId, home);
   } catch (err) {
@@ -222,8 +220,8 @@ function persistBestEffort(
  * Session grants never reach here — the gate keeps those in memory only.
  * `getActiveProviderModel` is read at persist time so a live model switch
  * stores new provider-model grants under the pair now in use.
- * Disk failures are logged, surfaced to the operator when a notice hook is
- * provided, and swallowed so they cannot crash the session.
+ * Disk failures are logged, surfaced when a notice hook is provided, and
+ * swallowed so they cannot crash the session.
  */
 export function createApprovalPersist(
   cwd: string,
@@ -318,7 +316,7 @@ export interface SessionChatPromptArgs {
   // Omitted = full guidelines.
   promptSectionOmit?: readonly GuidelineSubBlockId[];
   // Active session provider/model, for family residuals on the primary
-  // prompt (CL-8310: GPT narrate-before-tools). Omitted = no family residual.
+  // prompt (GPT narrate-before-tools). Omitted = no family residual.
   providerName?: string;
   model?: string;
   // Session-start snapshot from createAgentToolset. When provided, skip
@@ -368,9 +366,9 @@ export async function loadSessionChatPrompt(
     mcpServerNames.length > 0
       ? { ...environment, mcpServers: mcpServerNames }
       : environment;
-  // Family residual on the primary prompt (CL-8310): resolved from the model
-  // family policy as an orchestrator — primaries dispatch rather than doing
-  // the work directly, so grok/claude primaries stay untouched (their rows
+  // Family residual on the primary prompt: resolved from the model family
+  // policy as an orchestrator — primaries dispatch rather than doing the
+  // work directly, so grok/claude primaries stay untouched (their rows
   // withhold the residual from orchestrators) while the gpt row carries its
   // narrate-before-tools note primary and leaf alike.
   const { promptResidual } =
@@ -480,8 +478,8 @@ export interface SessionPruningCompactorArgs {
   wrapPruning?: (pruning: Compactor) => Compactor;
 
   /**
-   * CL-9489 budgeted-tail shape override. Absent means the shared production
-   * default (DEFAULT_TAIL_COMPACTION_SHAPE); tests pin a tiny budget so small
+   * Budgeted-tail shape override. Absent means the shared production default
+   * (DEFAULT_TAIL_COMPACTION_SHAPE); tests pin a tiny budget so small
    * fixtures still fold the same region a keep-window used to cut.
    */
   compactionShape?: Partial<CompactionShape>;
@@ -522,9 +520,9 @@ export function createSessionPruningCompactor(
         };
   const pruning = createPruningCompactor({
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
-    // CL-9489 budgeted-tail shape: explicit defaults (same object the record
-    // carries under parameters.compactionShape). Zero recent turns stay whole
-    // because they are recent — the token budget is the only tail cap.
+    // Budgeted-tail shape: explicit defaults (same object the record carries
+    // under parameters.compactionShape). Zero recent turns stay whole because
+    // they are recent — the token budget is the only tail cap.
     compactionShape: {
       ...DEFAULT_TAIL_COMPACTION_SHAPE,
       ...args.compactionShape,
@@ -550,8 +548,8 @@ export function createSessionPruningCompactor(
       const result = await compactor.apply(turns, ctx);
       // A discarded compact reports nothing. When the lifecycle abort wins
       // the outer race, this inner run may still complete with a genuine
-      // fold — but the reactor threw that output away, so emitting telemetry
-      // or onFolded would describe work that never landed (phantom fold).
+      // fold — but the reactor threw that output away, so telemetry or
+      // onFolded would describe work that never landed (phantom fold).
       if (isAborted() || result.record.reason === COMPACTION_ABORTED_REASON) {
         return result;
       }
@@ -598,7 +596,7 @@ export function createSessionPruningCompactor(
 /**
  * Content-less inbound the compaction governor self-delivers after a compact
  * cycle so the reactor re-enters instead of idling (the reactor emits no
- * event after compact). Single owner for the TUI, exec, and sub-agent loops —
+ * event after compact). Single owner for the TUI, exec, and sub-agent loops;
  * the three copies were byte-identical, so a new field is a one-site change.
  */
 export function buildCompactionContinuationMessage(): InboundMessage {
@@ -618,15 +616,13 @@ export function buildCompactionContinuationMessage(): InboundMessage {
 
 /**
  * Per-host consume-once gate for the compaction continuation emit. The
- * reactor emits the continuation before compact runs and emits nothing
- * after, so a host that only sees the stream cannot observe "compact
- * occurred" — the emission itself is the outstanding-continuation claim.
- * Each emission (keyed by its session-scoped seq) is answered at most once:
- * a replayed duplicate of an already-answered emission is ignored instead
- * of re-delivered, since each delivery costs a billable inference. A forged
- * emission with a fresh seq still delivers, but the director answers an
- * unsolicited continuation with wait rather than infer, so that path cannot
- * burn a model turn either.
+ * reactor emits the continuation before compact runs and nothing after, so
+ * the emission itself is the outstanding-continuation claim. Each emission
+ * (keyed by its session-scoped seq) is answered at most once: a replayed
+ * duplicate is ignored instead of re-delivered, since each delivery costs a
+ * billable inference. A forged emission with a fresh seq still delivers, but
+ * the director answers an unsolicited continuation with wait, so that path
+ * cannot burn a model turn either.
  */
 export function createContinuationGate(): {
   shouldDeliver: (seq: number) => boolean;
@@ -644,9 +640,9 @@ export function createContinuationGate(): {
 /**
  * System-originated inbound that re-enters the parent after the fleet goes dry
  * with todo/doing tasks still open. Not operator input, so no
- * OPERATOR_ORIGINATED_FLAG. ChatDirector still resets idle and tool-only
- * nudge counters on any message.received — occupancy therefore fires one
- * deferred shot per dry edge rather than re-driving on every settle.
+ * OPERATOR_ORIGINATED_FLAG. ChatDirector resets idle and tool-only nudge
+ * counters on any message.received, so occupancy fires one deferred shot per
+ * dry edge rather than re-driving on every settle.
  */
 export function buildFleetDryContinuationMessage(text: string): InboundMessage {
   return {

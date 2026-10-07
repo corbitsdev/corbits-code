@@ -4,8 +4,8 @@
 // enter) durable history — never raw secrets, never a divergent scrubbed copy
 // while history stays raw. Storage is owned by the session context directory
 // via ContextStore blobs plus an append-only occurrence index. Completeness is
-// an explicit certificate over an expected occurrence range and verified blobs;
-// readAt salvage is not a certificate.
+// an explicit certificate over an expected occurrence range and verified
+// blobs; readAt salvage is not a certificate.
 
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -1013,7 +1013,6 @@ export function wrapCompactorWithCompletenessGate(
 // The archive's own addressing scheme: `archive:///<occurrenceId>` refs name
 // where an occurrence's payload bytes live. Kept on the archive module so the
 // URI scheme and the store that honors it cannot drift apart.
-
 /** Prefix for every archive target, including the bare `archive:///` root. */
 export const ARCHIVE_URI_PREFIX = "archive:";
 const ARCHIVE_URI_CANONICAL = "archive:///";

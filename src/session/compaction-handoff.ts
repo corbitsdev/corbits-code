@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-2.0-only WITH AI-Exception-2.0
 //
-// CL-8744: fat handoff file + thin live spine with pointer.
+// Fat handoff file + thin live spine with pointer.
 //
 // A fold writes two things instead of one inline summary:
 //   - a fat structured handoff file (goal, constraints, decisions, evidence
@@ -19,28 +19,26 @@
 // never paraphrased — so exact-required facts (paths, commands, counts, user
 // decisions) survive the fold. Each fold's file unions the previous fat file
 // with fresh verbatim detail (iterative fold) instead of stacking competing
-// summaries or storing spine-truncated cuts. The spine format below starts
-// with COMPACTED_PREFIX, so the compactor's existing foldable-handoff
-// detection picks it up and it never becomes an anchor.
+// summaries or storing spine-truncated cuts. The spine starts with
+// COMPACTED_PREFIX, so the compactor's existing foldable-handoff detection
+// picks it up and it never becomes an anchor.
 //
-// COMPLETENESS: a prior spine is dropped text. The completeness gate accepts
-// the drop when the bytes are archived as a user_message (recordAdoptedHandoff)
-// or still present verbatim in the output. The live spine therefore may grow
-// with new constraints, decisions, and evidence tokens. Pre-format fat
-// `[Compacted prior context]` summaries are adopted the same way.
+// A prior spine is dropped text; the completeness gate accepts the drop only
+// when the bytes are archived as a user_message or still present verbatim in
+// the output, so the live spine may grow with new constraint/decision/
+// evidence tokens.
 
 import { ArkErrors, type } from "arktype";
 import type { ConversationTurn, StrategyBlob } from "@intx/types/runtime";
 import { VERIFY_REPAIR_HEADING } from "./compaction-verify.js";
 
-// Canonical home of the fold marker. compactor.ts re-exports it so existing
-// importers keep working; this module owns the literal.
+// Canonical home of the fold marker. compactor.ts re-exports it; this module
+// owns the literal.
 export const COMPACTED_PREFIX = "[Compacted prior context]";
 
 // Stable blob key for the fat handoff file. Every fold overwrites the same
 // "latest" file (a per-fold unique key would make each spine novel). The
-// overwrite unions the previous file so no verbatim fact is lost — only
-// per-fold prose snapshots, which the spine never carried anyway.
+// overwrite unions the previous file so no verbatim fact is lost.
 export const HANDOFF_LATEST_KEY = "compaction-handoff-latest.md";
 
 const HANDOFF_TOOLS_LINE_PREFIX =
@@ -98,8 +96,8 @@ const EVIDENCE_TOKEN = /\[\[evidence:[^[\]\r\n]+\]\]/g;
 
 // Standing reply-contract tokens (FILES_DONE=..., SUMMARY=...). The spine
 // and the file goal must keep these whole; a char slice is how they become
-// FILES_DO. Harvest from the uncapped source so a 500-char cap cannot drop
-// a token that starts just past the cut.
+// FILES_DO. Harvest from the uncapped source so a cap cannot drop a token
+// that starts just past the cut.
 function outputFormatTokenRe(): RegExp {
   return /\b[A-Z][A-Z0-9_]+=\S+/g;
 }
@@ -601,14 +599,13 @@ export function extractHandoffArtifact(
   const nonEmptyUserTexts = freshUserTexts.filter(
     (text) => text.trim().length > 0,
   );
-  // CL-9007: the budgeted tail can lift every user turn out of the folded
-  // region (anchored initiating task, whole newest messages), leaving no fresh
-  // user text to name the goal. Fall back to the fold's own summary narrative
-  // — the model's statement of what the region was about — before Unknown, so
-  // the next fold's "update this" context still names the work (e.g. src/a.ts)
-  // instead of dropping it. The verify-repair appendix is stripped first: it
-  // carries exact file lists that stay in the fat file by design (CL-8744) and
-  // must not leak into the thin spine.
+  // The budgeted tail can lift every user turn out of the folded region,
+  // leaving no fresh user text to name the goal. Fall back to the fold's own
+  // summary narrative — the model's statement of what the region was about —
+  // before Unknown, so the next fold's "update this" context still names the
+  // work instead of dropping it. The verify-repair appendix is stripped
+  // first: it carries exact file lists that stay in the fat file and must
+  // not leak into the thin spine.
   const narrativeGoal = capGoal(
     narrative.split(VERIFY_REPAIR_HEADING)[0] ?? "",
     MAX_GOAL_CHARS,

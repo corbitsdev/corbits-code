@@ -84,12 +84,10 @@ export interface CycleTextRecorder {
   flush: (reason: PartialFlushReason) => Promise<void>;
   /**
    * Close the recorder against a dead cycle and salvage its text. Marks the
-   * recorder closed immediately (before draining), so any stray terminal
-   * event delivered during the drain cannot auto-flush over this call's
-   * reason label. Snapshots the buffer at entry, awaits `opts.drain` (if
-   * given) so a delayed teardown finishes before the write, then flushes the
-   * entry snapshot under `reason` and returns it. A second call on an
-   * already-closed recorder is a no-op that returns "".
+   * recorder closed immediately so a stray terminal event during the drain
+   * cannot auto-flush over this call's reason label. Snapshots the buffer at
+   * entry, awaits `opts.drain` (if given), then flushes under `reason` and
+   * returns the snapshot. A second call on a closed recorder no-ops to "".
    */
   dispose: (
     reason: PartialFlushReason,

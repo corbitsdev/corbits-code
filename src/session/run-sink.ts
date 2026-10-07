@@ -52,13 +52,12 @@ export interface RunSinkArgs {
   // guarantees; `reactor.done` fires once, at shutdown, and never between
   // turns of a long-lived interactive session. Keying the mid-run snapshot
   // off `reactor.done` left turnsUsed frozen at its resume-time value for
-  // the entire session — a live monorepo session showed turnsUsed: 0 with
-  // dozens of turns already in the turns log. This cadence lives here,
-  // alongside the turn count it reports, rather than in a second
-  // subscription to the same event stream in a renderer: the renderer has
-  // already been swapped out from under this constraint three times.
-  // The event is the inference that just finished, so the snapshot can stamp
-  // an Anthropic cache write before the director's own bookkeeping runs.
+  // the entire session. This cadence lives here, alongside the turn count it
+  // reports, rather than in a second subscription in a renderer — the
+  // renderer has already been swapped out from under this constraint three
+  // times. The event is the inference that just finished, so the snapshot
+  // can stamp an Anthropic cache write before the director's own
+  // bookkeeping runs.
   onTurnBoundarySnapshot?: (
     event: Extract<ReactorEmittedEvent, { type: "inference.done" }>,
   ) => void;

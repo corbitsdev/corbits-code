@@ -100,7 +100,6 @@ export const RETAINED_TURN_CONTEXT_LIMIT = 200;
 // keeps up to 200 turns of tool output from becoming a second full copy of
 // recent history in memory.
 export const HOOK_PAYLOAD_TOOL_RESULT_CHARS = 4_000;
-
 export function localHooksDirectory(cwd: string = process.cwd()): string {
   return join(cwd, SETTINGS_DIR_NAME, "hooks");
 }
@@ -180,7 +179,6 @@ export interface TurnContextCollectorOptions {
   // rather than restart it at zero.
   initialTurnCount?: number;
 }
-
 export function createTurnContextCollector(
   onTurn: (ctx: TurnContext) => void,
   now: () => number = Date.now,
@@ -317,8 +315,8 @@ export function createLifecycleHookManager(args: {
   hooks: LifecycleHook[];
   onEvent?: ((event: LifecycleHookEvent) => void) | undefined;
   logError?: ((message: string) => void) | undefined;
-  // Persisted enable/disable state, keyed by hook id. A hook absent here starts
-  // enabled, matching discovery's default before any state was ever saved.
+  // Persisted enable/disable state, keyed by hook id. A hook absent here
+  // starts enabled, matching discovery's default before any state was saved.
   initialEnabled?: Record<string, boolean> | undefined;
 }): LifecycleHookManager {
   const onEvent = args.onEvent ?? (() => undefined);

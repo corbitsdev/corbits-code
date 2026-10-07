@@ -128,11 +128,11 @@ export async function readExtraSegmentTexts(
 /**
  * Append-oriented writer for a JSONL snapshot that the caller rebuilds with the
  * full record history on every checkpoint. Serializing the whole history each
- * time is O(session length) per turn and stalls the single-process TUI; equally,
- * re-hashing one ever-growing file on every `git add` is O(session length) per
- * commit. This writer serializes only records past the longest unchanged prefix
- * (matched by reference) and rolls the file into fixed-size segments so sealed
- * segments never change and only the active segment is re-hashed.
+ * time is O(session length) per turn; re-hashing one ever-growing file on every
+ * `git add` is O(session length) per commit. This writer serializes only
+ * records past the longest unchanged prefix (matched by reference) and rolls
+ * the file into fixed-size segments so sealed segments never change and only
+ * the active segment is re-hashed.
  *
  * A history rewrite such as compaction replaces the record objects, fails the
  * reference match, truncates back to the first changed record, and deletes any

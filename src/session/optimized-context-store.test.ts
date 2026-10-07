@@ -215,7 +215,7 @@ describe("createOptimizedContextStore load", () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
 
-    // Mid-file garbage that is not null padding and not a torn tail (CL-7052).
+    // Mid-file garbage that is not null padding and not a torn tail.
     fs.writeFileSync(
       path.join(dir, TURNS_FILE),
       jsonl([turn("a")]) + "THIS IS NOT JSON\n" + jsonl([turn("b")]),
@@ -230,7 +230,7 @@ describe("createOptimizedContextStore load", () => {
     const store = await createOptimizedContextStore(dir);
 
     // Crash mid-write left a stub; the next append continued without a newline,
-    // so a truncated prefix is glued onto the following valid record (CL-7052).
+    // so a truncated prefix is glued onto the following valid record.
     const glued =
       '{"role":"user","content":[{"type":"te' + JSON.stringify(turn("b"));
     fs.writeFileSync(
@@ -418,7 +418,7 @@ describe("loadRecentTurns", () => {
     const segmentName = segmentFileName(TURNS_FILE, 1);
 
     fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]));
-    // Mid-file garbage that is neither null padding nor a torn tail (CL-7052).
+    // Mid-file garbage that is neither null padding nor a torn tail.
     fs.writeFileSync(
       path.join(dir, segmentName),
       jsonl([turn("b")]) + "THIS IS NOT JSON\n" + jsonl([turn("c")]),

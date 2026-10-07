@@ -808,8 +808,8 @@ describe("wrapCompactorWithCompletenessGate", () => {
     const inner = createPruningCompactor({
       maxAnchorTurns: 0,
       summaryMaxChars: 500,
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
+      // Pin a tiny tail budget so the fold covers the same older region the
+      // old keepRecentTurns cut folded.
       compactionShape: { tailBudgetTokens: 10 },
     });
     const wrapped = wrapCompactorWithCompletenessGate(inner, archive);

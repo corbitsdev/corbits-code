@@ -3,15 +3,12 @@
 // Layered assemblers, one per near-verbatim bootstrap block both entry points
 // used to hand-wire separately. The runners keep only their genuinely distinct
 // surface (TUI chrome, exec I/O, sub-agent stops) and consume these for the
-// rest. A new config-derived runtime dependency is a one-site change: read it
-// from `config` inside the assembler that owns the block, instead of touching
-// every entry point.
+// rest. A new config-derived runtime dependency is a one-site change.
 //
 // runSubAgent consumes the same layer-1 primitives (inference deps, pricing
 // seed, context store, attachment transform, summarizer, cycle recorder,
 // compaction continuation) but keeps its own tool/director stack — posix tools
-// and SubAgentDirector share nothing with the main-session toolset, so
-// unifying further would be abstraction for its own sake.
+// and SubAgentDirector share nothing with the main-session toolset.
 
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
@@ -142,9 +139,8 @@ import {
  * log and continue instead. Without onError a seed failure rejects, matching
  * the previous TUI boot behavior.
  *
- * CL-9010: fleet-spawned workers pass skipPricingSeed — the parent runtime
- * already applied the process seed at boot (and the inference singleton is
- * a no-op on repeat resolves), so the worker skips the cache re-read.
+ * Fleet-spawned workers pass skipPricingSeed — the parent runtime already
+ * applied the process seed at boot, so the worker skips the cache re-read.
  */
 export async function assembleInferenceBase(
   onPricingError?: (err: unknown) => void,
@@ -402,8 +398,8 @@ export interface AdvertisedToolset {
  * the call gate at once (isAdvertised flips). flushPromotions copies those
  * names onto the wire array the next infer sends. Promote-on-execute flushes
  * the one called name so strict providers see it declared; tool_search flushes
- * only the top ranked hits (not the whole match set). Fold is a free cache
- * break — pruneIdlePromotions drops the advertised tail back to the frozen prefix.
+ * only the top ranked hits. Fold is a free cache break — pruneIdlePromotions
+ * drops the advertised tail back to the frozen prefix.
  *
  * `pinnedTools` (local settings) merge into the prefix — advertised from the
  * first turn and exempt from activation state, so a resume needs no
@@ -442,14 +438,10 @@ export function createAdvertisedToolset(args: {
       wireActivatedSet.clear();
     },
   };
-  // Advertise then family-gate wire schemas (kimi gets a non-recursive present).
-  // The primary session is always the orchestrator (SessionMode is the single
-  // literal "orchestrator"), so orchestrator: true is passed directly instead
-  // of comparing against sessionMode — the comparison was always true and the
-  // deny always [], an unexecuted committed claim. Leaf gating lives at the
-  // worker mount in subagent/run.ts, which resolves the same policy with the
-  // leaf's provider and its own orchestrator flag.
-  // use_skill is never denied — leaves load brief-named skills by exact name.
+  // Advertise then family-gate wire schemas (kimi gets a non-recursive
+  // present). The primary session is always the orchestrator, so
+  // orchestrator: true is passed directly. use_skill is never denied — leaves
+  // load brief-named skills by exact name.
   const deniedFor = (provider: {
     providerName: string;
     model: string;
@@ -554,10 +546,10 @@ export interface ChatAgentWiring {
   inactivityTimeoutMs: number;
   totalTimeoutMs?: number | undefined;
   /**
-   * Seed for the idle-with-fleet allowance for the chat director (CL-7918:
-   * replaces the former getLiveFleetCount closure; CL-7972 keeps it live via
-   * the fleet-wake publisher). Omitted in exec (keeps the open-task nudge);
-   * the TUI seeds it (fleet lanes may appear mid-session).
+   * Seed for the idle-with-fleet allowance for the chat director (replaces
+   * the former getLiveFleetCount closure; kept live via the fleet-wake
+   * publisher). Omitted in exec (keeps the open-task nudge); the TUI seeds it
+   * (fleet lanes may appear mid-session).
    */
   allowIdleWithFleet?: boolean;
   /**
@@ -668,10 +660,8 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
           inactivityTimeoutMs: wiring.inactivityTimeoutMs,
           totalTimeoutMs: wiring.totalTimeoutMs,
           provider: { ...wiring.getProvider() },
-          // CL-7918: idle-with-fleet seed replaces the former
-          // getLiveFleetCount closure (CL-7972 keeps it live via the
-          // fleet-wake publisher); the live source id for retry stamping
-          // is reactor-tracked now (no getProviderId).
+          // Idle-with-fleet seed replaces the former getLiveFleetCount closure;
+          // kept live via the fleet-wake publisher.
           allowIdleWithFleet: wiring.allowIdleWithFleet,
         },
       );

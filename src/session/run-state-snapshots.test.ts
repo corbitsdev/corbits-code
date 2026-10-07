@@ -8,7 +8,7 @@ import { createRunSink } from "./run-sink.js";
 import { saveState, loadState, type RunState } from "./state.js";
 import { createTempDirs } from "../../testkit/temporary-dirs.js";
 
-// End-to-end coverage for the run.json turn-boundary snapshot fix (CL-5534):
+// End-to-end coverage for the run.json turn-boundary snapshot fix:
 // createRunSink, saveState, and loadState run for real against a temp
 // session directory — nothing mocked. The snapshot cadence itself now lives
 // in createRunSink's onTurnBoundarySnapshot callback (moved out of
