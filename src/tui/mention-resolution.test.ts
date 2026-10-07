@@ -210,11 +210,8 @@ describe("resolveAtMentions", () => {
   });
 
   test("blocks a symlink that points outside the workspace at a sensitive file", async () => {
-    // Combines the two cases the other tests exercise separately: the symlink
-    // test above targets a sensitive file *inside* the workspace, and the
-    // outside-workspace sensitivity test above uses a direct path. Realpath
-    // must resolve the symlink before the sensitivity check runs regardless
-    // of which boundary (workspace, sensitivity) the target crosses.
+    // Realpath must resolve the symlink before the sensitivity check runs,
+    // whichever boundary (workspace, sensitivity) the target crosses.
     const dir = await fixture();
     const outside = await mkdtemp(
       join(tmpdir(), "at-mention-resolution-outside-"),

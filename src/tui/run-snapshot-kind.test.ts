@@ -22,11 +22,9 @@ describe("clearsActiveRun", () => {
   test("only the run-ending write clears the active-run handle", () => {
     expect(clearsActiveRun("run-end")).toBe(true);
     expect(clearsActiveRun("progress")).toBe(false);
-    // The regression this pins: a /clear or /new rotation persists a
-    // terminal "done" for the outgoing session, but the process lives on.
-    // Clearing liveness here leaves every later session uncovered by the
-    // crash handler, so a crash after the first rotation never writes a
-    // terminal record and the session reads as "running" forever.
+    // A /clear or /new rotation persists a terminal "done" for the outgoing
+    // session, but the process lives on. Clearing liveness here would leave
+    // every later session uncovered by the crash handler.
     expect(clearsActiveRun("session-rotation")).toBe(false);
   });
 });

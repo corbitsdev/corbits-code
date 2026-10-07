@@ -47,14 +47,11 @@ async function summarizeDir(abs: string): Promise<string> {
   return parts.length > 0 ? parts.join(", ") : "empty directory";
 }
 
-// `~` expansion lives in secret-guard-plugin.ts (single owner); the comment
-// there documents the ordering. An @mention is the operator directly asking the agent to read one path, once,
-// right now — the same consent that already lets the agent read any workspace
-// file. There is no workspace-boundary check here: mentioning a path outside
-// the workspace inlines it exactly like a workspace path would, gated only by
-// the sensitive-path and size checks below. Nothing here authorizes a *later*
-// read of the same path — that still goes through the permission gate on its
-// own terms, and an @mention grants it no standing there.
+// `~` expansion lives in secret-guard-plugin.ts (single owner). An @mention
+// asks the agent to read one path once, with the consent an agent already has
+// for workspace files; there is no workspace-boundary check here, only the
+// sensitive-path and size checks below. A later read of the same path still
+// goes through the permission gate — the @mention grants no standing there.
 export async function resolveAtMentions(
   message: string,
   cwd: string,

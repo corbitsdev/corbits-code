@@ -75,8 +75,8 @@ async function paint(
 
 describe("tool bodies stay inside the gutter", () => {
   test("a wrapped tool body never starts at column 0", async () => {
-    // A body with no summary of its own (a long result) is the case that used
-    // to hard-wrap to column 0, outside both the gutter and the meta column.
+    // A body with no summary of its own (a long result) must not hard-wrap to
+    // column 0, outside both the gutter and the meta column.
     const row: StreamRow = {
       role: "tool",
       meta: "bash",

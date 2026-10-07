@@ -5,11 +5,9 @@ export interface AtState {
   atStart: number;
 }
 
-// Pure function: returns non-null when the cursor is inside an @token — i.e.
-// there is an @ somewhere before the cursor with no whitespace between it and
-// the cursor. Handles @ at the start of the field and @ mid-sentence.
-// Returns null when the cursor is not inside an @token (e.g. cursor is right
-// after a completed, space-terminated path, or the input has no @ at all).
+// Non-null when the cursor is inside an @token: an @ before the cursor with
+// no whitespace between them (@ at field start or mid-sentence). Null after
+// a completed, space-terminated path or when the input has no @ at all.
 export function parseAtState(value: string, cursor: number): AtState | null {
   if (cursor === 0) return null;
   // Walk backwards from cursor-1 looking for @ with no intervening whitespace.

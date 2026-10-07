@@ -100,9 +100,7 @@ export function leaveSubagentObserve(shell: AppShell): void {
 }
 
 /**
- * Alt+O: observe a live subagent (its only entry point now that the palette
- * is gone — the palette's "observe" action used to call this same
- * `onObserveRequest` host hook). An honest "nothing to observe" flash rather
+ * Alt+O: observe a live subagent. An honest "nothing to observe" flash rather
  * than doing nothing when there is no live session, so the chord is
  * discoverable as working even when it currently has nothing to show.
  */

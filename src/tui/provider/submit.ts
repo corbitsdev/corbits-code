@@ -212,10 +212,9 @@ export function buildProviderSubmitHandler(
       preset !== undefined && preset.models.includes(selectedModel)
         ? [...preset.models]
         : [selectedModel];
-    // Custom provider effort declaration: the operator's enabled levels and
-    // picked default flow through to the catalog so /model cycling and
-    // session resolution use the operator set. Only the custom path carries
-    // these values (presets/OAuth never set them on the form).
+    // The operator's enabled levels and picked default flow to the catalog so
+    // /model cycling and session resolution use the operator set. Only the
+    // custom path carries these values (presets/OAuth never set them).
     const newProvider: ProviderSettings = {
       baseURL: persistedBaseURL,
       models,
@@ -237,9 +236,9 @@ export function buildProviderSubmitHandler(
       // instead of surfacing a bare adapter error.
       ...(skipValidation ? { verified: false } : {}),
     };
-    // Merge new provider with any pre-existing ones. Single write — the form
-    // stays open (phase label) until saveGlobalSettings resolves, so the user
-    // sees confirmation before the screen is cleared. Full-spread merge so
+    // Merge new provider with any pre-existing ones in one write — the form
+    // stays open until saveGlobalSettings resolves, so the user sees
+    // confirmation before the screen clears. Full-spread merge so
     // plugins/pluginPaths/sessionMode/shell/tools survive re-onboarding.
     await persistSettings((base) =>
       mergeProviderIntoSettings(base, providerName, newProvider),

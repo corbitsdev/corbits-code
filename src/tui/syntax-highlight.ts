@@ -2,10 +2,10 @@
  * Fenced-code styling for the synchronous markdown model.
  *
  * Tree-sitter highlighting is asynchronous, so the synchronous StyledSegment
- * model cannot colour tokens. Live transcript colour belongs to the native
- * MarkdownRenderable/CodeRenderable path with transcriptSyntaxStyle() over the
- * bundled tree-sitter grammars (javascript, typescript, markdown, zig). This
- * module keeps the legacy path's geometry with plain segments.
+ * model cannot colour tokens — live colour belongs to the native
+ * MarkdownRenderable path (transcriptSyntaxStyle() over the bundled
+ * tree-sitter grammars). This module keeps the legacy path's geometry with
+ * plain segments.
  */
 import type { StyledSegment } from "./markdown-parser.js";
 

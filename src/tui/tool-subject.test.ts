@@ -1,9 +1,8 @@
 /**
- * A tool row's subject is one argument.
- *
- * A serialised argument list spends the row's columns naming keys and then cuts
- * the second value off mid-word ("numR…"), which says nothing at all. The row
- * names the argument the call is about; the rest is behind the arrow.
+ * A tool row's subject is one argument. A serialised argument list spends the
+ * row's columns naming keys and cuts the second value off mid-word
+ * ("numR…"), which says nothing at all — the row names the argument the call
+ * is about; the rest is behind the arrow.
  */
 import { describe, expect, test } from "bun:test";
 

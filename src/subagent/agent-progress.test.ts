@@ -152,9 +152,9 @@ describe("agentProgress", () => {
     });
   });
 
-  // The defect the whole surface turned on: a worker inside one long tool call
-  // emits nothing for the entire execution, so every lane of a fleet running
-  // e.g. a test suite flipped to "stalled" simultaneously while working fine.
+  // A worker inside one long tool call emits nothing for its whole execution,
+  // so a fleet running e.g. a test suite must not flip every lane to
+  // "stalled" simultaneously while working fine.
   test("silence inside an outstanding tool call is not a stall", () => {
     const progress = agentProgress(
       {

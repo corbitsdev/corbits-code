@@ -684,8 +684,7 @@ describe("annotateAgentTools", () => {
 describe("lane state survives the mapping hops", () => {
   // The panel and the transcript trailer reach laneState by different routes.
   // A hop that drops currentToolStartedAt silently reclassifies a busy lane as
-  // stalled — which is exactly how this shipped broken once, caught only by
-  // running it. The types make the drop a compile error; this proves the two
+  // stalled; the types make the drop a compile error, and this proves the two
   // routes still agree on a live example.
   const inTool = {
     id: "sess-1",

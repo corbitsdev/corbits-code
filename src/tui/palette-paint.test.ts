@@ -493,8 +493,8 @@ describe("command list height cap", () => {
           openPalette(shell, { catalog: BIG_CATALOG, title: "commands · /" });
           await h.renderOnce();
           const lines = h.captureCharFrame().split("\n");
-          // captureCharFrame's trailing newline yields one extra split
-          // element — the frame itself must not exceed the terminal rows.
+          // The trailing newline in captureCharFrame adds one split element;
+          // the frame itself must not exceed the terminal rows.
           expect(lines.length).toBeLessThanOrEqual(height + 1);
           expect(lines.some((l) => l.includes("Fake command"))).toBe(true);
           if (height >= 12) {

@@ -1,12 +1,9 @@
 /**
- * Fenced-code highlighting after the highlight.js → tree-sitter swap.
- *
- * Colour lives in the native renderer: a fenced block paints through
- * MarkdownRenderable with transcriptSyntaxStyle() over the bundled
- * tree-sitter grammars (javascript, typescript, markdown, zig). The
- * synchronous StyledSegment model keeps geometry only — plain code segments
- * cached by width. These tests pin both halves: the plain sync fallback and
- * the supported/unsupported language parity the native renderer applies.
+ * Fenced-code highlighting: colour lives in the native renderer
+ * (transcriptSyntaxStyle() over the bundled tree-sitter grammars), while the
+ * synchronous StyledSegment model keeps geometry only. These tests pin both
+ * halves: the plain sync fallback and the language parity the native renderer
+ * applies.
  */
 
 import { describe, expect, test } from "bun:test";

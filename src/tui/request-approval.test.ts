@@ -157,10 +157,9 @@ describe("createGateRequestApproval", () => {
   });
 });
 
-// attachApprovalBudget is the mechanism createGateRequestApproval builds on
-// (see above) and is reused directly by the operator-gate emission sites in
-// runner.ts (ask_operator, MCP TOFU) — it must generalize past
-// ApprovalOutcome and enforce single-resolution on its own.
+// attachApprovalBudget is what createGateRequestApproval builds on and the
+// operator-gate emission sites in runner.ts reuse directly — it must
+// generalize past ApprovalOutcome and enforce single-resolution on its own.
 describe("attachApprovalBudget", () => {
   test("pauses the budget at call time and resumes exactly once no matter how many times finish is called", async () => {
     let resolveCount = 0;

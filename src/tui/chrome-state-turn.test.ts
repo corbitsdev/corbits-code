@@ -12,11 +12,10 @@ import {
   shouldSettleUiAfterSendFailure,
 } from "./chrome-state.js";
 
-// The load-bearing guarantee: whatever tool identifier, MCP server name, or
-// plugin name the runtime hands us, the rendered ticker string must land in
-// the small closed set of human activity states — never the raw identifier.
-// A previously-unmapped tool (or one this test doesn't enumerate) must still
-// fall back into the set rather than leaking through verbatim.
+// Whatever tool identifier, MCP server name, or plugin name the runtime hands
+// us, the rendered ticker must land in the closed set of human activity
+// states — never the raw identifier. An unmapped tool must still fall back
+// into the set rather than leaking through verbatim.
 describe("resolveTurnLabel closed-set guarantee", () => {
   const leakingIdentifiers = [
     "run_shell",
