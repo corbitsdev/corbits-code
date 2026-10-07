@@ -34,10 +34,8 @@ describe("mcp auth-store", () => {
       home,
     );
 
-    // Reproduce the bug: one writer saves tokens while another updates the
-    // client registration from a concurrent OAuth start. With full-snapshot
-    // persists, the registration write wiped tokens; with updateAuthState,
-    // both land.
+    // Reproduce the bug: a concurrent registration write must not wipe the
+    // other writer's tokens (updateAuthState merges).
     const writes = await Promise.all([
       updateAuthState(
         linear,

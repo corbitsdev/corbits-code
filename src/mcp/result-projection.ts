@@ -1,8 +1,8 @@
 import type { MCPContentBlock } from "./client.js";
 
 /**
- * Default model-facing keys for Linear write/list results. Identifier stays so
- * callers that only need the issue id still work; body/description do not.
+ * Default model-facing keys for Linear results. `id` stays so callers that
+ * only need the issue id work; body/description do not.
  */
 export const MCP_DEFAULT_ENTITY_FIELDS = [
   "id",

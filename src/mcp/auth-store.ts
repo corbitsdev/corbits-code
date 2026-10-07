@@ -18,11 +18,9 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 
-// Per-server OAuth state persisted between sessions. Only the durable pair —
-// dynamically-registered client info and tokens — reaches disk; the PKCE
-// verifier is instance-local transient memory in the OAuth provider, since the
-// browser flow starts and finishes inside one provider episode. Legacy files
-// may still carry a codeVerifier key, which is stripped on write.
+// Per-server OAuth state. The durable pair — registered client info and
+// tokens — reaches disk; the PKCE verifier stays instance-local in the
+// provider. Legacy codeVerifier keys are stripped on write.
 export interface MCPAuthState {
   clientInformation?: OAuthClientInformationFull;
   tokens?: OAuthTokens;
@@ -82,8 +80,7 @@ function parseAuthState(raw: string): MCPAuthState | undefined {
     if (typeof parsed === "object" && parsed !== null)
       return parsed as MCPAuthState;
   } catch {
-    // A corrupt auth file should not wedge the session; treat it as no state and
-    // let a fresh authorization overwrite it.
+    // Corrupt auth file: treat as no state; a fresh authorization overwrites it.
   }
   return undefined;
 }
@@ -118,9 +115,8 @@ export async function loadAuthState(
   return stateFromRaw(await readAuthFile(authFilePath(identity, home)));
 }
 
-// Cache refresh for a live provider: missing, unreadable, or corrupt files
-// return undefined so the caller keeps its in-memory mirror. Empty-on-corrupt
-// is loadAuthState's connect contract, not cache invalidation.
+// Cache refresh: missing/unreadable/corrupt files return undefined so the
+// caller keeps its in-memory mirror. Empty-on-corrupt is loadAuthState's contract.
 export function tryLoadAuthStateSync(
   identity: MCPAuthIdentity,
   home: string = homedir(),
@@ -144,13 +140,12 @@ function isEexist(err: unknown): boolean {
   );
 }
 
-// pid alone is not unique per call — concurrent saves in one process must not
-// share a temp path or the second rename hits ENOENT after the first moves it.
+// pid alone is not unique per call, so concurrent saves must not share a temp
+// path or the second rename hits ENOENT.
 let tmpWriteCounter = 0;
 
-// Serialize read-modify-write per auth file so two OAuth provider instances for
-// the same server cannot clobber each other's fields (classic lost-update: one
-// session's saveTokens wiping another's just-saved client registration).
+// Serialize read-modify-write per auth file so two providers for the same
+// server cannot clobber each other's fields (lost-update).
 const updateChains = new Map<string, Promise<unknown>>();
 
 const LOCK_STALE_MS = 5_000;
@@ -220,9 +215,7 @@ function enqueueAuthFileOp<T>(path: string, op: () => Promise<T>): Promise<T> {
   return run;
 }
 
-// Legacy auth files may carry a codeVerifier key from when the PKCE verifier
-// flowed through disk. The verifier is instance-local transient memory now —
-// strip the key so it never reaches disk again.
+// Strip legacy codeVerifier keys; the PKCE verifier is instance-local memory now.
 function withoutLegacyVerifier(state: MCPAuthState): MCPAuthState {
   if (!("codeVerifier" in state)) return state;
   const copy: Record<string, unknown> = { ...state };
@@ -239,9 +232,8 @@ async function writeAuthFile(path: string, state: MCPAuthState): Promise<void> {
   await rename(tmp, path);
 }
 
-// Tokens are credentials, so the directory and file are restricted to the owner.
-// Full replace — prefer updateAuthState when mutating a single field so concurrent
-// writers merge instead of last-writer-wins on a stale snapshot.
+// Tokens are credentials: owner-only file mode. Full replace; prefer
+// updateAuthState for single-field mutations so concurrent writers merge.
 export async function saveAuthState(
   identity: MCPAuthIdentity,
   state: MCPAuthState,
@@ -251,8 +243,8 @@ export async function saveAuthState(
   await enqueueAuthFileOp(path, () => writeAuthFile(path, state));
 }
 
-// Load → mutate → save under the per-file chain. Mutator receives a mutable
-// snapshot of the latest on-disk state; the returned object is what was written.
+// Load → mutate → save under the per-file chain. The mutator gets the latest
+// on-disk snapshot; the returned object is what was written.
 export async function updateAuthState(
   identity: MCPAuthIdentity,
   mutator: (state: MCPAuthState) => void,

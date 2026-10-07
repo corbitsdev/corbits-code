@@ -91,8 +91,7 @@ function freshMockState(): MockState {
   };
 }
 
-// The SDK mocks below close over this object, so per-test resets must
-// mutate it via Object.assign rather than rebind the binding.
+// SDK mocks close over this object, so per-test resets Object.assign, not rebind.
 const mock = freshMockState();
 
 const fakeProvider = {
@@ -291,10 +290,9 @@ async function connectWithAuthPrompt(): Promise<{
 }
 
 /**
- * Drives MAX_BROWSER_AUTH_ATTEMPTS failed live-call auth episodes against an
- * open client, then asserts the paused state: one more failure reports
- * "retrying paused" without emitting further prompts. `authURLsBefore` is the
- * prompt count already accumulated before the episodes run.
+ * Runs MAX_BROWSER_AUTH_ATTEMPTS failed live-call auth episodes against an
+ * open client, then asserts the paused state: the next failure reports
+ * "retrying paused" with no further prompts (`authURLsBefore` is the prior count).
  */
 async function runCappedEpisodes(
   connected: ConnectedClient,
@@ -315,7 +313,7 @@ async function runCappedEpisodes(
   expect(mock.authURLCount).toBe(authURLsBefore + MAX_BROWSER_AUTH_ATTEMPTS);
 }
 
-/** Connect-path twin of runCappedEpisodes for the episodes themselves. */
+/** Connect-path twin of runCappedEpisodes. */
 async function runCappedConnectEpisodes(
   assertExplodedError: boolean,
 ): Promise<void> {
@@ -735,8 +733,8 @@ describe("HTTP MCP re-auth loop prevention", () => {
     for (let episode = 0; episode < 2; episode += 1) {
       const result = await connectWithAuthPrompt();
       expect(result.ok).toBe(false);
-      // The cap is an unfinished authorization, not a dead server: the TUI
-      // keeps the prompt-box auth marker rather than painting a failure row.
+      // The cap is an unfinished authorization, not a dead server: keep the
+      // auth marker rather than paint a failure row.
       expect(result.authPending).toBe(true);
       expect(result.error).toContain(
         `MCP authorization for linear failed after ${MAX_BROWSER_AUTH_ATTEMPTS} ${MAX_BROWSER_AUTH_ATTEMPTS === 1 ? "attempt" : "attempts"}`,

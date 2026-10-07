@@ -25,9 +25,8 @@ export const MCP_RECONNECTING_TOOL_ERROR =
   "MCP server is reconnecting; retry the call once it reports connected.";
 
 /**
- * Stable marker prefixing JSON-serialized `structuredContent` when it is the
- * only payload (or supplements an empty flatten). Lets the model — and log
- * grep — distinguish server-structured data from free text.
+ * Stable marker prefixing JSON-serialized `structuredContent` (alone or
+ * supplementing an empty flatten); distinguishes server data from free text.
  */
 export const MCP_STRUCTURED_CONTENT_MARKER = "mcp structured result:";
 
@@ -50,10 +49,9 @@ function applyPolicyToBlocks(blocks: MCPContentBlock[]): MCPContentBlock[] {
   );
 }
 
-// MCP results never reach the posix runner, so the secret-scrub and truncation
-// middleware in src/plugins never see them. Apply the same scrub-then-truncate
-// order here directly (see buildCorePosixToolPlugins) so a compromised MCP
-// server cannot leak credential-shaped strings or flood the transcript.
+// MCP results bypass the posix runner's scrub/truncation middleware, so apply
+// the same scrub-then-truncate order here (see buildCorePosixToolPlugins) to
+// stop a compromised server leaking secrets or flooding the transcript.
 function sanitizeMcpResultContent(
   content: string,
   spill?: { callId: string; writeBlob: SpillBlobWriter; contextDir?: string },
@@ -245,9 +243,8 @@ export function mcpClientTools(
     }));
 }
 
-// Convert a connected client's tools into AgentTools for the dynamic runner used
-// by the TUI. These tools live in a separate runner from the posix tool plugin
-// chain, so each handler is wrapped with the permission gate directly.
+// Convert a connected client's tools into AgentTools for the TUI's dynamic
+// runner. They live outside the posix plugin chain, so handlers are gated here.
 export function mcpClientToAgentTools(
   client: MCPClient,
   gate: PermissionGate,
