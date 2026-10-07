@@ -23,10 +23,9 @@ export class WorktreeError extends Error {}
 
 export interface SubAgentWorktree {
   path: string;
-  // The repo's `git stash list` output at the moment this worktree was
-  // created (see stashList). Stash refs live on the shared repo, not the
-  // worktree, so cleanup diffs against this baseline to notice stash entries
-  // the sub-agent created while it ran — see cleanupSubAgentWorktree.
+  // The repo's `git stash list` output at create time (see stashList). Stash
+  // refs live on the shared repo, not the worktree, so cleanup diffs against
+  // this baseline to notice stash entries the sub-agent created while it ran.
   // `null` means the baseline could not be read: cleanup must preserve rather
   // than risk removing a worktree that may have stashed.
   stashBaseline: string[] | null;
@@ -53,8 +52,8 @@ async function stashList(
 
 // Creates a fresh git worktree at `path`, detached at the current HEAD of
 // `repoCwd`. Fails closed: `repoCwd` must be inside a git working tree and
-// `git worktree add` must succeed, or this throws WorktreeError with a
-// message safe to surface directly to the operator.
+// `git worktree add` must succeed, or this throws WorktreeError with a message
+// safe to surface directly to the operator.
 export async function createSubAgentWorktree(
   repoCwd: string,
   path: string,

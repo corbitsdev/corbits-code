@@ -4,7 +4,6 @@
  * decides whether to drive and what to send. Sibling of fleet-dry-drive —
  * per-item, not last-lane + open-tasks.
  */
-
 import { isLiveWaitStatus } from "./lifecycle.js";
 import {
   collectUncollectedTerminals,
@@ -42,10 +41,10 @@ export function mailboxMailErrorUriHint(): string {
 
 /**
  * Whether inbound text is occupancy's mailbox mail. Internal runtime→agent
- * traffic — the fleet board already owns worker status and the payload is
- * a model-facing digest, so the transcript never paints it. The live event
- * map recognises it by content; history hydration keys on the persisted
- * origin marker instead (see isPersistedOccupancyWakeText).
+ * traffic — the fleet board already owns worker status and the payload is a
+ * model-facing digest, so the transcript never paints it. The live event map
+ * recognises it by content; history hydration keys on the persisted origin
+ * marker instead.
  */
 export function isMailboxMailText(text: string): boolean {
   return text.startsWith(mailboxMailWakeLine());
@@ -53,10 +52,9 @@ export function isMailboxMailText(text: string): boolean {
 
 /**
  * Reactor envelope wrapping persisted inbound text: createInboundTurn stores
- * user-role turns as `[From: <sender>]\n\n<content>` (plus an optional
- * `[Subject: ...]` line), so a resumed wake never starts with its prompt
- * line. The resume path must see through it; the live event map matches raw
- * message content and keeps the bare matchers above.
+ * user-role turns as `[From: <sender>]\n\n<content>`, so a resumed wake never
+ * starts with its prompt line. The resume path must see through it; the live
+ * event map matches raw message content and keeps the bare matchers above.
  */
 const INBOUND_ENVELOPE_PREFIX = /^(\[[^\]\n]*\]\n)+\n/;
 

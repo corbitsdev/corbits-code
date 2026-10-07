@@ -1,20 +1,17 @@
 /**
  * Regression guard: lifecycle-tools.test.ts proves interrupt_agent /
- * resume_agent behave correctly against *fake registered closures* at the
+ * resume_agent behave correctly against fake registered closures at the
  * tool/store layer — it never exercises run.ts's real wiring, where
  * `followup` calls `agent.send()` on the same live agent object created by
  * `createAgentWithLiveToolDispatch`. A future refactor could make
- * `resume_agent` rebuild the agent instead of reusing it (exactly the
- * regression this feature exists to prevent — a rebuilt agent means the
- * worker re-reads the codebase from scratch) without failing any existing
- * test.
+ * `resume_agent` rebuild the agent instead of reusing it (a rebuilt agent
+ * means the worker re-reads the codebase from scratch) without failing any
+ * existing test.
  *
  * This test drives the real `runSubAgent` (run.ts) end to end with the one
  * real dependency that would require live inference credentials —
  * `createAgentWithLiveToolDispatch` — replaced by a stub `Agent`. Everything
- * else (tool assembly, environment gathering, the dispatch brief, the
- * onAgentReady wiring, the interrupt/followup closures themselves) is the
- * genuine run.ts code path.
+ * else is the genuine run.ts code path.
  */
 import { describe, expect, test } from "bun:test";
 

@@ -1,7 +1,7 @@
 /**
  * Pure stop / salvage policy for fleet workers: deadlines and parent-facing
- * salvage reports. There is no turn budget — a worker runs until it produces a
- * report envelope, is cancelled, hits an opt-in wall-clock deadline, or stalls.
+ * salvage reports. No turn budget — a worker runs until it produces a report
+ * envelope, is cancelled, hits an opt-in wall-clock deadline, or stalls.
  */
 
 import type { ReactorEmittedEvent } from "@intx/inference";
@@ -15,24 +15,17 @@ import {
 } from "./report.js";
 import type { ThrashState } from "./thrash.js";
 
-// Minimum gap kept between an opt-in internal deadline and the outer
-// tool-execution watchdog, so there is time left for the salvage report to
-// unwind and return before the outer watchdog would discard the run wholesale.
+// Gap between an opt-in internal deadline and the outer tool-execution
+// watchdog, so the salvage report can unwind before the outer watchdog
+// discards the run wholesale.
 export const SUBAGENT_DEADLINE_MARGIN_MS = 30_000;
 
 /**
- * Clamp an explicit opt-in wall-clock deadline to stay a margin below the
- * effective outer tool-execution watchdog. There is no default worker deadline —
- * operator cancel is the primary bound; callers pass deadlineMs only when they
- * want an extra wall-clock stop.
- *
- * When the outer watchdog is omitted (undefined), the requested deadline is
- * kept — an absent settings timeout must not clamp a 5-hour (or any) explicit
- * deadline down to a hidden default.
- *
- * Returns undefined (do not arm) when the outer watchdog is at or below the
- * salvage margin — an internal deadline would otherwise race or exceed outer
- * and leave no room to return a salvage report.
+ * Clamp an explicit wall-clock deadline to stay a margin below the outer
+ * tool-execution watchdog. Returns the requested deadline unchanged when no
+ * outer watchdog is set (an absent timeout must not clamp an explicit
+ * deadline), and undefined when the outer watchdog is at or below the margin
+ * (no room to return a salvage report).
  */
 export function resolveSubAgentDeadlineMs(
   requestedMs: number,
@@ -49,8 +42,8 @@ export function resolveSubAgentDeadlineMs(
 /**
  * After agent.send resolves: keep a non-empty reply even if abort fired in the
  * completion window. Empty replies still honor abort so the catch path can
- * salvage from lastPartialText / tools rather than inventing a "no textual result"
- * success over a cancelled run.
+ * salvage from partial text / tools instead of inventing success over a
+ * cancelled run.
  */
 export function preferCompletedSubAgentReply(
   reply: string,
@@ -65,11 +58,10 @@ export type SubAgentCatchOutcome =
 
 /**
  * Decide what a cancelled/aborted sub-agent run should return to the parent.
- * An opt-in deadline firing must always produce a salvage report — even with
- * zero tool calls and zero partial text — so the parent gets a graceful report
- * instead of a bare AbortError racing the outer tool-execution watchdog. A
- * genuine pre-progress operator cancel still rethrows so the spawn_agent tool's
- * cancel path stays a bare abort; mid-run cancel with progress salvages.
+ * A fired deadline always salvages, even with zero output, so the parent gets
+ * a graceful report instead of a bare AbortError. A genuine pre-progress
+ * operator cancel rethrows (spawn_agent's cancel path stays a bare abort);
+ * mid-run cancel with progress salvages.
  */
 export function resolveSubAgentCatchOutcome(input: {
   deadlineHit: boolean;
@@ -85,19 +77,12 @@ export type SubAgentStopReason =
   | "incomplete-report"
   | "incomplete-report-stop";
 
-/**
- * Consecutive tool-less narration turns (no four-heading envelope) before
- * salvage. Cycle 1 nudges; cycle 2 (and beyond) stops as incomplete-report.
- */
+/** Consecutive tool-less narration turns (no envelope) before salvage. */
 export const MAX_TOOLLESS_NARRATION_CYCLES = 2;
 
 export type ToolLessNarrationSpiral = "nudge" | "stop";
 
-/**
- * Decide whether another tool-less narration without an envelope should nudge
- * once more or salvage. `cycles` is the 1-based count of consecutive tool-less
- * narration turns so far (including the current one).
- */
+/** Nudge once, then salvage. `cycles` is 1-based, including the current turn. */
 export function evaluateToolLessNarrationSpiral(
   cycles: number,
 ): ToolLessNarrationSpiral {
@@ -107,47 +92,25 @@ export function evaluateToolLessNarrationSpiral(
 /**
  * Pure stop decision for leaf workers. Null means keep running tools.
  *
- * "incomplete-report" is a one-shot signal telling the caller to inject a
- * wrap-up / redirect nudge and keep running. A tool-less turn (including one
- * that never called a tool at all) completes only when the assistant text has
- * a four-heading envelope (Summary, Findings, Blockers, Paths). Missing
- * envelope nudges once (`incomplete-report`) then salvages
- * (`incomplete-report-stop`) via evaluateToolLessNarrationSpiral.
- * When `requireEvidence` is set (CritiqueDirector), an empty `readCounts`
- * is not complete even with all four headings — same incomplete-report
- * nudge then salvage, so a wrap-up envelope cannot fake a real review.
- * When `requirePlanSubstance` is set (planner / intent=plan), four headings
- * with stub Findings are the same spiral — not a finished plan. After real
- * tool work, wrap-up Findings that are not placeholder/outline-only complete.
+ * A tool-less turn completes only with a four-heading envelope (Summary,
+ * Findings, Blockers, Paths); a missing envelope nudges once
+ * (`incomplete-report`) then salvages (`incomplete-report-stop`). With
+ * `requireEvidence` (CritiqueDirector), an empty `readCounts` is not complete
+ * even with all four headings — a wrap-up envelope cannot fake a real review.
+ * With `requirePlanSubstance` (planner / intent=plan), stub Findings are the
+ * same spiral — not a finished plan.
  */
 export function evaluateSubAgentStop(input: {
   hasToolCalls: boolean;
-  /**
-   * When true (CritiqueDirector leaf), a tool-using run that never
-   * read or searched a file is not a successful complete — even a four-heading
-   * envelope is incomplete-report so the parent does not treat a wrap-up
-   * narration as a finished review.
-   */
+  /** CritiqueDirector leaf: a tool-using run that never read a file is incomplete. */
   requireEvidence?: boolean;
-  /**
-   * When true (planner / intent=plan), a four-heading envelope whose Findings
-   * lack files/paths, acceptance criteria, non-goals, risks, and ordered steps
-   * is incomplete-report — not a finished plan. After real tool work, wrap-up
-   * Findings that are not placeholder or outline-only still complete.
-   */
+  /** Planner / intent=plan: an envelope with stub Findings is not a finished plan. */
   requirePlanSubstance?: boolean;
   /** Read/search bookkeeping for the evidence gate above. */
   thrashState?: ThrashState;
-  /**
-   * Final assistant text of this turn. A missing four-heading envelope
-   * (Summary/Findings/Blockers/Paths) nudges once then salvages.
-   */
+  /** Final assistant text; missing envelope nudges once then salvages. */
   lastAssistantText: string;
-  /**
-   * 1-based count of consecutive tool-less narration turns so far (including
-   * the current one). When omitted, falls back to `incompleteReportNudgeFired`
-   * for older call sites (false → cycle 1, true → cycle 2).
-   */
+  /** 1-based tool-less turn count; falls back to `incompleteReportNudgeFired` when omitted. */
   toolLessNarrationCycles?: number;
   /**
    * @deprecated Prefer `toolLessNarrationCycles`. True after the one-shot
@@ -190,12 +153,11 @@ export function evaluateSubAgentStop(input: {
   return null;
 }
 
-// A worker is not a chat partner: it runs until it stops calling
-// tools, at which point its final assistant text is the result handed back to
-// the dispatcher. It has no ask_operator (it uses ask_director); consequential
-// tools still go through the parent's permission gate (grants, auto mode, or
-// prompts). Unbounded runs terminate only on a model-produced report envelope
-// or an operator/deadline/stall interrupt — there is no turn cap.
+// A worker is not a chat partner: it runs until it stops calling tools, at
+// which point its final text is the result handed to the dispatcher. It has no
+// ask_operator (it uses ask_director); consequential tools still go through the
+// parent's permission gate. Runs terminate only on a report envelope or an
+// operator/deadline/stall interrupt — no turn cap.
 
 export function lastText(content: readonly { type: string }[]): string {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -212,7 +174,6 @@ export function partialTextFromEvent(
   event: ReactorEmittedEvent,
 ): string | null {
   if (!onTurnBoundary(event)) return null;
-  // Stream events nest the turn under data (same shape as hooks/renderer).
   // Guard data.turn so a malformed event cannot throw in the stream sink.
   const turn = event.data?.turn;
   if (turn === undefined || !Array.isArray(turn.content)) return null;
@@ -235,10 +196,8 @@ export interface ForcedStopReportOptions {
   paths?: string | readonly string[];
 }
 
-// Exact Summary text rendered for each forced-stop reason. Human-facing only —
-// forcedStopReport is the sole reader; the parent classifies outcomes from the
-// structured ForcedStopReason value itself (see run.ts/agent-fleet.ts), never by
-// parsing this text back out of the report.
+// Human-facing only — the parent classifies outcomes from the structured
+// ForcedStopReason value, never by parsing this text back out of the report.
 const FORCED_STOP_SUMMARIES: Record<ForcedStopReason, string> = {
   cancelled: "Stopped: cancelled by operator before finishing.",
   deadline: "Stopped: wall-clock deadline reached before finishing.",
@@ -282,11 +241,10 @@ function normalizeSalvagePaths(
 }
 
 /**
- * Build the parent-facing report when a leaf is force-stopped. There is no
- * further inference, so this must already be a full envelope — not an
- * instruction asking the finished worker to summarize. Options carry the
- * cancel `detail` (Stopped line) and salvage `paths` (Paths section). Findings
- * keep demoted partial prose, or a files-touched stub when only paths remain.
+ * Build the parent-facing report when a leaf is force-stopped. No further
+ * inference happens, so this must already be a full envelope — not an
+ * instruction to summarize. Options carry the cancel `detail` (Stopped line)
+ * and salvage `paths` (Paths section).
  */
 export function forcedStopReport(
   reason: ForcedStopReason,
@@ -331,18 +289,14 @@ const INTERRUPT_RESUME_PARENT_HINT = `[Sub-agent was interrupted before finishin
 
 /** Options for parent-hint stacking (session re-dispatch ledger state). */
 export interface SubAgentParentHintOptions {
-  /**
-   * 1-based count of how many times this brief fingerprint has been admitted
-   * this session (including the run that produced `report`).
-   */
+  /** 1-based count of how many times this brief fingerprint has been admitted this session. */
   dispatchCount?: number;
 }
 
 /**
  * Prepend the parent-facing salvage hint for `reason`, chosen from the
- * structured ForcedStopReason the run reported directly — never by parsing
- * `report`'s prose. Stalled salvage and a normal complete pass `report`
- * through unchanged.
+ * structured ForcedStopReason the run reported — never by parsing `report`'s
+ * prose. Stalled salvage and a normal complete pass `report` unchanged.
  */
 export function appendSubAgentParentHints(
   report: string,

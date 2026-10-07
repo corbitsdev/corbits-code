@@ -148,7 +148,9 @@ export async function runWithFailingInference(
   }
 }
 
-/** Poll `condition` until it holds or `attempts` ticks pass. */
+/**
+ * Poll `condition` until it holds or `attempts` ticks pass.
+ */
 export async function pollUntil(
   condition: () => boolean | Promise<boolean>,
   opts: { attempts?: number; intervalMs?: number; message?: string } = {},

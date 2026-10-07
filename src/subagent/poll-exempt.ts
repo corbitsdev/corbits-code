@@ -27,11 +27,11 @@ function isWaitAgentsPending(payload: unknown): boolean {
 }
 
 /**
- * Doom-loop liveness policy for poll tools. A batch is exempt only when every
- * call is a known poll (`wait_agents`) and every result
- * still shows pending — a timed-out or live-status wait.
- * Anything else (terminal polls, non-poll calls, mixed batches, unparseable
- * output) returns false so the guard counts the batch normally.
+ * Liveness policy for poll tools: a batch is exempt only when every call is a
+ * known poll (`wait_agents`) and every result still shows pending — a
+ * timed-out or live-status wait. Anything else (terminal polls, non-poll
+ * calls, mixed batches, unparseable output) counts the batch normally so the
+ * guard can fire.
  */
 export function isPollOnlyPendingBatch(
   calls: readonly ToolCall[],

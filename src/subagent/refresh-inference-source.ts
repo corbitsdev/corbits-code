@@ -70,10 +70,10 @@ async function ensureFreshOAuthSource(
 }
 
 /**
- * Ensures the inference source's OAuth credential is valid before a
+ * Ensure the inference source's OAuth credential is valid before a
  * continuation infer runs. Fresh staged tokens return the source untouched —
- * no token-session call, no lock, no latency. Expiring, missing, or
- * unreadable staged tokens fall through to the unconditional refresh path.
+ * no token-session call, no lock, no latency. Expiring, missing, or unreadable
+ * staged tokens fall through to the unconditional refresh path.
  */
 export async function ensureFreshInferenceSource(
   source: InferenceSource,
@@ -95,7 +95,7 @@ export async function ensureFreshInferenceSource(
 }
 
 /**
- * Refreshes every inference source in the bundle whose OAuth credential is
+ * Refresh every inference source in the bundle whose OAuth credential is
  * expiring. Sources with fresh staged tokens (or no OAuth provenance) pass
  * through untouched.
  */
@@ -121,8 +121,7 @@ function returnsInferAction(
  * Host-layer wrapper: after the inner director returns an infer action, the
  * OAuth credential backing the continuation is ensured fresh and pushed to
  * the live agent before the reactor executes the infer. Non-infer decisions
- * pass through untouched, directors stay pure, and the inner policy stamping
- * runs exactly once.
+ * pass through untouched; the inner policy stamping runs exactly once.
  *
  * Implemented as a Proxy so the factory keeps returning the director it
  * built: instanceof checks, observe* hooks, and every other member forward

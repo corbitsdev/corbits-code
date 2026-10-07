@@ -1,20 +1,18 @@
 /**
  * On-disk trace reader backing the `read_agent_trace` fleet verb.
  *
- * Every sub-agent worker writes its full turn history to `turns.jsonl`
- * (segmented — see incremental-jsonl.ts) under its own workdir, but nothing
- * in the runtime reads it back. That means a cancelled or interrupted
- * worker's completed work — everything it did before it stopped — is
- * invisible to the orchestrator even though it is sitting on disk. This
- * module reads it directly, independent of the in-memory
- * SubAgentSessionStore (which a process restart or a killed worker can
- * leave with nothing).
+ * Every worker writes its full turn history to `turns.jsonl` (segmented — see
+ * incremental-jsonl.ts) under its own workdir, but nothing in the runtime
+ * reads it back. That means a cancelled or interrupted worker's completed
+ * work — everything it did before it stopped — is invisible to the
+ * orchestrator even though it is on disk. This module reads it directly,
+ * independent of the in-memory SubAgentSessionStore (which a process restart
+ * or a killed worker can leave with nothing).
  *
- * Every read here is bounded on four independent axes — turn window, entry
- * count, per-entry characters, and total output characters (the first three
- * multiply, so they are each capped again by a total-output ceiling) — each
- * with a hard maximum regardless of what the caller asks for. No argument
- * combination can pull an unbounded blob into the parent's context.
+ * Every read is bounded on four axes — turn window, entry count, per-entry
+ * characters, and total output characters — each with a hard maximum
+ * regardless of what the caller asks for. No argument combination can pull an
+ * unbounded blob into the parent's context.
  */
 
 import fs from "node:fs";
@@ -32,12 +30,12 @@ export const MAX_TRACE_ENTRY_LIMIT = 500;
 export const MAX_TRACE_ENTRY_CHARS = 4_000;
 // Per-entry/entry-count/turn-window caps each bound one axis, but multiply
 // together (500 entries * 4,000 chars = 2,000,000 chars in one call). This
-// caps the total regardless of how the other axes are combined.
+// caps the total regardless of how the axes combine.
 export const MAX_TRACE_TOTAL_CHARS = 20_000;
 
-// A pathological or runaway fleet tree should fail the search cheaply rather
-// than walk forever; a worker this deep or a fleet this large is itself a
-// signal something upstream is wrong.
+// Fail the search cheaply on a pathological or runaway fleet tree instead of
+// walking forever; a worker this deep or a fleet this large is itself a signal
+// something upstream is wrong.
 const MAX_SEARCH_DIRS = 4_000;
 const MAX_SEARCH_DEPTH = 16;
 
@@ -102,12 +100,10 @@ interface DirEntry {
 /**
  * Subdirectories of `dir`, symlinks resolved and de-duplicated by real path.
  * A `latest`-style symlink pointing at a sibling entry would otherwise be
- * visited as a second, distinct directory by a naive `readdir` — every
- * enumeration in this module goes through here instead so that case can
- * never double-count. `name` is derived from the resolved real path's own
- * basename (not the raw dirent name), so a symlink alias and its target
- * always report the same canonical name no matter which one `readdir`
- * happens to return first.
+ * visited twice by a naive `readdir` — every enumeration in this module goes
+ * through here so that can never double-count. `name` is derived from the
+ * resolved real path's own basename, so a symlink alias and its target always
+ * report the same canonical name.
  */
 export async function listUniqueSubdirs(dir: string): Promise<DirEntry[]> {
   let entries: fs.Dirent[];
@@ -137,8 +133,7 @@ export async function listUniqueSubdirs(dir: string): Promise<DirEntry[]> {
 /**
  * Locate the trace directory for `targetId` under `rootWorkdirBase`'s
  * `subagents/` tree, at any depth. A shallower match wins over a deeper one
- * with the same name (there should never be two, since ids are generated
- * uuids, but shallowest-first keeps the search deterministic either way).
+ * with the same name; shallowest-first keeps the search deterministic.
  */
 export async function findAgentTraceDir(
   rootWorkdirBase: string,
@@ -181,8 +176,8 @@ function isRawTurn(value: unknown): value is RawTurn {
 
 /**
  * Tolerant line-oriented parse: a torn or malformed line (the file is being
- * appended to live while we read it) is skipped, not thrown. Null bytes from
- * a stale truncate-past-EOF are stripped first for the same reason
+ * appended to live while we read it) is skipped, not thrown. Null bytes from a
+ * stale truncate-past-EOF are stripped first for the same reason
  * optimized-context-store.ts strips them on resume.
  */
 function parseTurnsTolerant(text: string): {
@@ -212,14 +207,9 @@ function parseTurnsTolerant(text: string): {
 /**
  * Reads and parses every segment before the caller's window/limit bounds
  * apply, so a not-yet-rotated active segment is loaded whole regardless of
- * how small a slice the caller actually wants. In practice each segment is
- * itself bounded to ~256KB by the writer (createSegmentedJSONLWriter's
- * DEFAULT_MAX_SEGMENT_BYTES), so this cannot grow unboundedly with a
- * worker's total history the way reading turns.jsonl as one file could —
- * but avoiding this read entirely (only touching the segments the requested
- * turn range actually falls in) needs either a cheap line-count index or a
- * streaming reader, which is a larger change than this fix; tracked as a
- * follow-up rather than expanding this one.
+ * how small a slice the caller wants. Each segment is bounded to ~256KB by
+ * the writer, so this cannot grow unboundedly with a worker's total history
+ * the way reading turns.jsonl as one file could.
  */
 async function readAllTurns(
   dir: string,
@@ -348,8 +338,8 @@ function blockToEntry(
  * Read a bounded slice of one worker's on-disk trace. Defaults to the most
  * recent `DEFAULT_TRACE_TURN_WINDOW` turns; every window and entry cap has a
  * hard maximum the caller cannot exceed. `omitted` is populated whenever any
- * turns or entries were left out, with enough information (turn counts plus
- * a concrete hint) to fetch the rest across follow-up calls.
+ * turns or entries were left out, with enough information to fetch the rest
+ * across follow-up calls.
  */
 export async function readAgentTrace(
   rootWorkdirBase: string,

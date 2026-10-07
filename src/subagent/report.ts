@@ -1,9 +1,8 @@
 // Sub-agent report envelope + dispatch brief formatting.
 //
-// The base layer of the sub-agent module graph: pure string shaping with no
+// Base layer of the sub-agent module graph: pure string shaping with no
 // dependencies on other sub-agent modules. Parsed/formatted here so the stop
-// policy (forcedStopReport / classifiers) and the run loop (activity summary)
-// share one definition of the report shape.
+// policy and the run loop share one definition of the report shape.
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 
@@ -26,8 +25,8 @@ export function subAgentToolName(event: ReactorEmittedEvent): string | null {
 }
 
 // Append a short activity footer so the parent model (and the operator reading
-// the tool result) can see what the sub-agent actually did. Without this the
-// only signal is the free-form reply, which models often omit tool details from.
+// the tool result) can see what the sub-agent actually did; models often omit
+// tool details from the free-form reply.
 export function appendActivitySummary(
   reply: string,
   toolNames: readonly string[],
@@ -45,9 +44,9 @@ export function appendActivitySummary(
 
 // Build the user message handed to a sub-agent. Separates durable context from
 // the actionable goal so workers follow the brief instead of treating one
-// free-form blob as optional color. Optional goals seed a checklist hint
-// (manage_tasks on the child owns the real list). Typed spawn fields
-// (intent / success_criteria / do_not / report_focus) are rendered only when set.
+// free-form blob as optional color. Optional goals seed a checklist hint;
+// typed spawn fields (intent / success_criteria / do_not / report_focus) are
+// rendered only when set.
 export interface DispatchBrief {
   description: string;
   prompt: string;
@@ -128,7 +127,7 @@ const REPORT_ENVELOPE_HEADINGS = [
   "Paths",
 ] as const;
 
-/** True iff `text` has all four report headings (`^##\s+Name\s*$` per line, case-insensitive). */
+/** True iff `text` has all four report headings (case-insensitive, one per line). */
 export function hasReportEnvelope(text: string): boolean {
   return REPORT_ENVELOPE_HEADINGS.every((name) =>
     new RegExp(`^##\\s+${name}\\s*$`, "im").test(text),

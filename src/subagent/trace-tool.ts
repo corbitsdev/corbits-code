@@ -1,7 +1,7 @@
 /**
- * `read_agent_trace` tool: lets an orchestrator or nested
- * orchestrator inspect what a worker has actually done on disk — its turns,
- * tool calls, and errors — even if the worker is still running or was
+ * `read_agent_trace` tool: lets an orchestrator or nested orchestrator
+ * inspect what a worker has actually done on disk — its turns, tool calls,
+ * and errors — even if the worker is still running or was
  * cancelled/interrupted and its in-memory session record is gone.
  *
  * Only orchestrator tiers may hold this tool; see authority.ts /
@@ -29,11 +29,11 @@ import {
 /**
  * Descendant-scoping context for a Tier 2 nested orchestrator's copy of this
  * tool. `actorId` is this worker's own SubAgentSessionStore id (the same id
- * used as its on-disk directory name — see run.ts) and `getNodes` returns
- * the live fleet so `assertCanTargetAgent` can walk the existing
- * parentSessionId chain rather than trusting a per-caller check that could
- * be forgotten at a future mount site. Omit entirely for Tier 1 (the
- * primary orchestrator), which may target anyone.
+ * used as its on-disk directory name — see run.ts) and `getNodes` returns the
+ * live fleet so `assertCanTargetAgent` can walk the existing parentSessionId
+ * chain rather than trusting a per-caller check that could be forgotten at a
+ * future mount site. Omit entirely for Tier 1 (the primary orchestrator),
+ * which may target anyone.
  */
 export interface ReadAgentTraceAuthority {
   actorId: string | undefined;
@@ -142,9 +142,8 @@ export function createReadAgentTraceTool(
         return `Error: read_agent_trace requires target (string); ${parsed.summary}`;
       }
       if (authority !== undefined) {
-        // Fails closed: an actor whose own store id could not be resolved
-        // (no session record for this dispatch) is denied fleet-wide read
-        // access, mirroring the unresolved-tier rule elsewhere.
+        // Fails closed: an actor whose own store id could not be resolved (no
+        // session record for this dispatch) is denied fleet-wide read access.
         if (authority.actorId === undefined) {
           return (
             "Error: read_agent_trace is unavailable for this worker (no resolvable session " +

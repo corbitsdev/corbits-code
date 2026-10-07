@@ -115,8 +115,8 @@ function classifySegment(segment: string, evidence: ShellFileEvidence): void {
 
 /**
  * Reads a run_shell command performs on files, for the stop policy's
- * requireEvidence check. Best effort by design: a missed read costs a
- * worker nothing (the typed tools remain the primary evidence).
+ * requireEvidence check. Best effort by design: a missed read costs a worker
+ * nothing (the typed tools remain the primary evidence).
  */
 export function classifyShellFileEvidence(command: string): ShellFileEvidence {
   const evidence: ShellFileEvidence = { reads: [] };

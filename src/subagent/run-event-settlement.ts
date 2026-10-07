@@ -12,9 +12,9 @@ export interface RunEventSettlement {
 }
 
 /**
- * Coordinates Agent.send() with its streamed connector.reply. Agent.send resolves
- * when the connector reply is produced, which can precede consumption of earlier
- * inference.error events from the same run.
+ * Coordinates Agent.send() with its streamed connector.reply. Agent.send
+ * resolves when the connector reply is produced, which can precede
+ * consumption of earlier inference.error events from the same run.
  */
 export function createRunEventSettlement(): RunEventSettlement {
   const pending: { resolve: () => void }[] = [];

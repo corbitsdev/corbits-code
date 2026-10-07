@@ -26,8 +26,8 @@ async function tmpCwd(): Promise<string> {
 
 // Each mount-gate probe awaits a full runSubAgent cycle whose inference send
 // fails after the mount decisions have run. The send used to target an
-// unreachable host, whose connection-refused failure classifies as retryable
-// — the client burned its full backoff schedule (three attempts with 500ms +
+// unreachable host, whose connection-refused failure classifies as retryable —
+// the client burned its full backoff schedule (three attempts with 500ms +
 // 1000ms of fixed sleep) per test, enough to cross bun:test's 5s timeout
 // whenever the randomized suite loaded the machine. A local server answering
 // 401 fails the send as credential_failure, which is never retried, so the

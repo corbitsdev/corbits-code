@@ -104,10 +104,9 @@ export function isLiveWaitStatus(status: WaitJSONStatus): boolean {
  * Wait JSON projection of stored lifecycle. Operator cancel (`cancelled`) is
  * wait-running while a run/followup is still in flight so the first collect
  * can still attach salvage. A followup that has been queued (`inFlight`) must
- * not collect the prior `completed` / `interrupted` stamp — resume_agent
- * flips the session to running on the next mutate, but `runInFlight` is set
- * first. `interrupted` and `shutdown` are immediately terminal once the run
- * has settled. Never leaks `cancelled` into wait JSON.
+ * not collect the prior `completed` / `interrupted` stamp — `runInFlight` is
+ * set first. `interrupted` and `shutdown` are immediately terminal once the
+ * run has settled. Never leaks `cancelled` into wait JSON.
  */
 export function projectWaitStatus(
   lifecycle: WorkerLifecycle,
