@@ -23,11 +23,9 @@ export interface ToolCallDescriptor {
 
 /**
  * One label table for both tool-name readers: the present-tense display name
- * and the settled head of a tool lane in past tense (keyed by the raw
- * identifier, the lane grouping key). Entries that only existed in one map
- * carry the other reader's old fallback value, so both fallbacks below stay
- * byte-identical: display-only keys repeat the display string as past tense,
- * and past-only keys use the title-cased fallback as display.
+ * and the settled head of a tool lane in past tense, keyed by the raw
+ * identifier. Entries that existed in only one map carry the other reader's
+ * old fallback value so both fallbacks below stay byte-identical.
  */
 const TOOL_LABELS: Record<string, { display: string; past: string }> = {
   read_file: { display: "Read", past: "Read" },
@@ -46,9 +44,9 @@ const TOOL_LABELS: Record<string, { display: string; past: string }> = {
   use_skill: { display: "Use Skill", past: "Loaded skill" },
 };
 
-// Brand of the active web plugin (e.g. "Exa"), set at startup when a web plugin
-// overrides the built-in provider. Renders web_search/web_fetch as branded
-// actions so it is clear which backend served the call.
+// Brand of the active web plugin, set at startup when one overrides the
+// built-in provider; renders web_search/web_fetch as branded actions so it is
+// clear which backend served the call.
 let activeWebProviderBrand: string | undefined;
 
 export function setActiveWebProviderBrand(brand: string | undefined): void {
@@ -115,10 +113,9 @@ export function describeToolCall(
   toolName: string,
   rawArgs: string,
 ): ToolCallDescriptor {
-  // `present` carries a large view spec as its arguments; never dump that JSON.
-  // On success the rendered view block stands in for this line; on failure
-  // turns-to-blocks.ts leaves the tool_call in place, so this line is all the
-  // user sees alongside the separate error tool_result — keep it labeled.
+  // `present` carries a large view spec; never dump that JSON. On failure the
+  // tool_call stays in the transcript, so this line is all the user sees
+  // alongside the separate error — keep it labeled.
   if (toolName === "present") {
     return {
       display: "Render view",
@@ -183,11 +180,10 @@ export interface ToolResultSummary {
 
 const ARG_VALUE_MAX = 48;
 
-// Rendering JSON as a document runs it through the markdown parser, whose cost is
-// roughly quadratic in content length (a 320KB API dump takes ~half a second and
-// blocks every frame while it runs). Past this size the document is shown as plain
-// text instead, which wraps in about a millisecond. Markdown styling on a raw JSON
-// blob adds nothing anyway — it only misreads JSON punctuation as emphasis.
+// The markdown renderer is roughly quadratic in content length (a 320KB API
+// dump blocks every frame for ~half a second). Past this size the document is
+// shown as plain text, which wraps in about a millisecond and adds nothing —
+// it only misreads JSON punctuation as emphasis.
 const MAX_JSON_DOCUMENT_CHARS = 32 * 1024;
 
 function shortenPath(p: string): string {
@@ -256,8 +252,8 @@ export function summarizeToolArgs(
 ): ToolArgSummary {
   const obj = tryParseObject(rawArgs);
 
-  // Known file tools read cleanly as just their path, mirroring the result row
-  // (call "Write donut_anim.py" alongside result "Wrote donut_anim.py").
+  // Known file tools read cleanly as just their path, mirroring the result
+  // row ("Write donut_anim.py" next to "Wrote donut_anim.py").
   switch (toolName) {
     case "write_file":
     case "edit_file":
@@ -271,9 +267,8 @@ export function summarizeToolArgs(
     }
     case "spawn_agent":
     case "task": {
-      // Spawns carry a large structured brief (prompt, intent, criteria). The
-      // transcript only needs a short subject — prefer description, then prompt —
-      // so the row never dumps the whole JSON payload.
+      // Spawns carry a large structured brief; the transcript only needs a
+      // short subject — prefer description, then prompt.
       const parsed = TaskArgSchema(obj);
       if (!(parsed instanceof type.errors)) {
         const desc = (parsed.description ?? "").trim();
@@ -616,10 +611,9 @@ function webFetchSummary(raw: string): ToolResultSummary | null {
 }
 
 /**
- * Collapse a tool result to a single human-readable preview line. The raw
- * content is preserved in `full` for the Alt+E reveal. `isJSONDocument` is
- * true ONLY when the content is genuinely a JSON document the user would want
- * to read as JSON — never for tool envelopes or status strings.
+ * Collapse a tool result to a single human-readable preview line; the raw
+ * content stays in `full` for the Alt+E reveal. `isJSONDocument` is true only
+ * when the content is genuinely a JSON document worth reading as JSON.
  */
 export function summarizeToolResult(
   toolName: string,
@@ -628,9 +622,9 @@ export function summarizeToolResult(
   const content = rawResult;
   const full = content;
 
-  // MCP results are arbitrary, often enormous JSON. Render a compact, bounded
-  // summary instead of the raw document — dumping it verbatim freezes the TUI
-  // and is unreadable. Never flagged as a JSON document for that reason.
+  // MCP results are arbitrary, often enormous JSON — dumping them verbatim
+  // freezes the TUI, so render a compact summary and never flag it as a JSON
+  // document.
   if (isMcpToolName(toolName)) {
     const summary = formatMcpResult(content);
     return {
@@ -649,8 +643,8 @@ export function summarizeToolResult(
     if (fetchSummary !== null) return fetchSummary;
   }
 
-  // read_file line-numbers its output ("     1\t<line>"), so strip those prefixes
-  // before testing for a JSON document — otherwise a real .json file never matches.
+  // read_file line-numbers its output ("     1\t<line>"); strip those prefixes
+  // before JSON detection or a real .json file never matches.
   const contentForDetection =
     toolName === "read_file" ? stripLineNumbers(content) : content;
   const isJSONDocument = isUserFacingJSON(contentForDetection);
@@ -658,7 +652,6 @@ export function summarizeToolResult(
   let preview: string;
   switch (toolName) {
     case "read_file": {
-      // read_file returns line-numbered content ("     1\t<line>").
       preview = `Read ${lineCountLabel(countLines(content))}`;
       break;
     }
@@ -738,20 +731,13 @@ export function summarizeToolResult(
 }
 
 /**
- * Decide whether raw content is a JSON document worth showing AS JSON.
- *
- * Why a heuristic: tool results are plain strings. Many tools never return
- * JSON (line-numbered file content, "wrote N bytes", shell output). A few
- * legitimately do — e.g. reading a .json file. We must not treat internal
- * status strings or accidental brace-shaped text as documents, and we must
- * not hide genuine JSON.
- *
- * Rule: the content must parse as JSON AND be a non-trivial object or array
- * (the shapes a real document takes). Bare scalars ("null", "42", quoted
- * strings) and empty containers are not documents — they are almost always
- * status values, not something the user authored or wants pretty-printed.
- * Documents above MAX_JSON_DOCUMENT_CHARS are excluded so the markdown
- * renderer never chokes on a huge blob (see the constant for why).
+ * Whether raw content is a JSON document worth showing as JSON. Tool results
+ * are plain strings, and most never return JSON (line-numbered file content,
+ * "wrote N bytes", shell output); a few do (reading a .json file). So the
+ * rule is: it must parse as JSON and be a non-trivial object or array. Bare
+ * scalars and empty containers are status values, not documents; oversized
+ * documents are excluded so the markdown renderer never chokes on a huge blob
+ * (see MAX_JSON_DOCUMENT_CHARS).
  */
 export function isUserFacingJSON(raw: string): boolean {
   const trimmed = raw.trim();

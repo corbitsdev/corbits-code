@@ -1,16 +1,10 @@
 /**
- * One transcript row per tool use.
- *
- * A call and the answer it gets are one event, so they are one row: the call
- * paints while it is in flight, and its result resolves the same row in place —
- * marker, subject and expandable body — instead of appending a second, visually
- * orphaned line beneath it.
- *
- * A run of consecutive calls to the same raw tool collapses onto one row
- * too. The row keeps saying what the call was rather than totalling the
- * answers: totals across separate calls (overlapping queries, partial failures)
- * are claims the payloads do not support, and a summary nobody can trust is
- * worse than a plainer one. The answers themselves sit behind the arrow.
+ * One transcript row per tool use: a call and its answer are one event, so
+ * the result resolves the call's row in place. Consecutive calls to the same
+ * tool collapse onto one row that keeps saying what the call was — totals
+ * across separate calls are claims the payloads do not support, and a summary
+ * nobody can trust is worse than a plainer one. The answers themselves sit
+ * behind the arrow.
  */
 
 import { toolCallRow, type ToolCallRowInput } from "./diff.js";
@@ -44,8 +38,7 @@ function appendRunLine(
 
 /**
  * One member's line in a lane's expanded body: which call, then what it got.
- * The label is dim so the outcome — the part that changes per member — reads
- * first.
+ * The label is dim so the outcome reads first.
  */
 function memberRunLine(label: string, outcome: string): StyledBodyLine {
   if (label.length === 0) return runLine(outcome);
@@ -57,9 +50,9 @@ function memberRunLine(label: string, outcome: string): StyledBodyLine {
 
 /**
  * Argument keys that name which object a call acted on, most-identifying
- * first. Only consulted when the call's painted summary is empty — an MCP
- * call's verb is already the whole sentence, so its subject lives in the
- * arguments (the issue id on a save_comment, not the comment body).
+ * first. Consulted only when the call's painted summary is empty — an MCP
+ * call's verb is the whole sentence, so its subject lives in the arguments
+ * (the issue id, not the comment body).
  */
 const LANE_MEMBER_KEYS = [
   "issueId",
@@ -95,9 +88,8 @@ function memberArgs(raw: string): Record<string, unknown> | null {
 
 /** Which object a lane member acted on, read off its painted summary or args. */
 function laneMemberLabel(row: StreamRow): string {
-  // A settled row's label was recorded at merge time, while its arguments
-  // were still on the row — re-deriving now would read keys off the answer
-  // payload that replaced them.
+  // A settled row's label was recorded at merge time while its arguments were
+  // still on the row; re-deriving now would read the answer payload.
   if (row.callId !== undefined) {
     const index = (row.memberIds ?? []).indexOf(row.callId);
     const recorded = index >= 0 ? (row.memberLabels?.[index] ?? "") : "";
@@ -155,12 +147,10 @@ function failedAddendum(payload: string): string | undefined {
 }
 
 /**
- * What an answer adds to the line its call already wrote. A success
- * contributes a count or short status — never prose or the payload itself. A
- * failure contributes the error, abbreviated, because that is the one thing
- * the operator must read without pressing expand. A fetched page, file body
- * or search dump says nothing on one line and would push the subject off the
- * row, so anything unbounded stays behind the expand key.
+ * What an answer adds to the line its call already wrote: a count or short
+ * status on success, the abbreviated error on failure — never prose. Anything
+ * unbounded (a page, file body, search dump) would push the subject off the
+ * row, so it stays behind the expand key.
  */
 export function resultAddendum(result: StreamRow): string | undefined {
   const payload = result.text.trim();
@@ -180,9 +170,8 @@ function countNoun(count: number, noun: string): string {
 }
 
 /**
- * Collapsed shell preview painted between the head and the expand hint: the
- * output's last three lines plus a dim elision marker that carries the count.
- * The full output stays behind the arrow.
+ * Collapsed shell preview between the head and the expand hint: the output's
+ * last three lines plus a dim elision marker carrying the count.
  */
 const SHELL_PREVIEW_LINES = 3;
 
@@ -200,19 +189,17 @@ export function shellPreviewLines(content: string): string[] | undefined {
 const SHELL_EXIT_ENVELOPE = /^exit code (\d+)\n/;
 
 /**
- * Fold a tool result into the lane/call row it answers. The row keeps saying
- * what the call was (the stable identifier — the payload can never be trusted
- * to reproduce it); the answer contributes the marker, a short factual
- * addendum where it has one (the error, when it failed), and the body behind
- * the arrow.
+ * Fold a tool result into the call row it answers. The row keeps saying what
+ * the call was (the stable identifier — the payload can never be trusted to
+ * reproduce it); the answer contributes the marker, a short addendum (the
+ * error, when it failed), and the body behind the arrow.
  */
 export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   const failed = result.failed === true;
   const isShell = call.toolName === "run_shell";
-  // A shell answer carries its exit in the content envelope the guard wraps
-  // non-zero exits in. The envelope's code becomes the row's only stat —
-  // today's "N lines" stat is dropped for shell rows because the preview's
-  // elision marker already carries the count.
+  // A shell answer's exit lives in the envelope the guard wraps non-zero
+  // exits in. Its code is the row's only stat — the preview's elision marker
+  // already counts lines.
   const exitMatch = isShell ? SHELL_EXIT_ENVELOPE.exec(result.text) : null;
   const exitCode = exitMatch !== null ? Number(exitMatch[1]) : undefined;
   const shellStat =
@@ -233,11 +220,9 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   const addendum = resultAddendum(result);
   const effAddendum =
     isShell && (shellStat !== undefined || !failed) ? undefined : addendum;
-  // A live sub-agent's elapsed-time trailer is scaffolding for the wait, not a
-  // fact about the call the way a diff's own +/- count is — the answer's stat
-  // must win over it rather than being shadowed by whatever it last read.
-  // A failure's error likewise beats a leftover +/- count: the operator needs
-  // the reason, not a diff that did not land.
+  // The answer's stat beats a leftover one: a live agent's elapsed-time
+  // trailer is scaffolding for the wait, and a failure's error matters more
+  // than a diff that did not land.
   const callStat =
     failed || call.agentWorking !== undefined ? undefined : call.stat;
   const settledStat = shellStat ?? callStat;
@@ -254,14 +239,14 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   };
 
   if (call.coalesced === true) {
-    // One call's count on a row standing for eight of them would read as a
-    // total across the run, which nothing here can substantiate.
+    // One call's count on a row standing for a run of them would read as a
+    // total nothing here can substantiate.
     const { stat: _stat, ...run } = base;
     const remaining = Math.max(0, (call.outstanding ?? 1) - 1);
     return {
       ...run,
-      // The run's subject stays the call it repeats, so the row keeps the
-      // call's own text rather than taking on this one answer's payload.
+      // The run's subject stays the call it repeats, so the row keeps its
+      // text, not this one answer's payload.
       text: call.text,
       // The most recent answer is the lane's copy source (Alt+C) and, for a
       // shell lane, the settle preview's source.
@@ -309,13 +294,11 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   };
 }
 
-/** Whether `next` folds onto the lane the tail row already represents.
- *
- * The lane groups by raw tool identity, not by the sentence a call paints:
- * two reads of different files are still two reads, and a lane of them is
- * easier to read than a stack of near-identical rows. `spawn_agent` is
- * excluded — each dispatch is its own live progress anchor for its whole
- * lifetime, so it must never merge.
+/**
+ * Whether `next` folds onto the lane the tail row represents. The lane groups
+ * by raw tool identity, not painted sentence — two reads of different files
+ * are still two reads. `spawn_agent` never merges: each dispatch is its own
+ * live progress anchor for its whole lifetime.
  */
 export function canCoalesceCall(
   tail: StreamRow | undefined,
@@ -335,10 +318,9 @@ function laneMembers(
 ): { ids: string[]; labels: string[] } {
   const tailIds =
     tail.memberIds ?? (tail.callId !== undefined ? [tail.callId] : []);
-  // A lane hydrated from pre-PR history carries memberIds without
-  // memberLabels. Backfill placeholders so the two arrays stay aligned —
-  // only the tail's own label is still recoverable; earlier members read as
-  // bare outcomes until their answers arrive.
+  // Lanes hydrated from pre-PR history carry memberIds without labels.
+  // Backfill placeholders so the arrays stay aligned; only the tail's own
+  // label is recoverable, so earlier members read as bare outcomes.
   const tailLabels =
     tail.memberLabels ??
     tailIds.map((id) => (id === tail.callId ? laneMemberLabel(tail) : ""));
@@ -347,8 +329,8 @@ function laneMembers(
     ...tailLabels,
     ...(next.callId !== undefined ? [laneMemberLabel(next)] : []),
   ];
-  // Bound the lane's memory alongside the detail cap, oldest-first like the
-  // answers. Both arrays are sliced together so they never come unaligned.
+  // Bound the lane's memory alongside the detail cap, oldest-first. Both
+  // arrays slice together so they stay aligned.
   return {
     ids: ids.slice(0, MAX_RUN_LINES),
     labels: labels.slice(0, MAX_RUN_LINES),
@@ -356,10 +338,9 @@ function laneMembers(
 }
 
 /**
- * Fold a repeated call onto the lane its predecessor already occupies. The
- * lane narrates the newest call; the predecessor's own answer (when the lane
- * had already settled) becomes the first line of the body it keeps behind
- * the arrow.
+ * Fold a repeated call onto the lane its predecessor occupies. The lane
+ * narrates the newest call; the predecessor's answer (when already settled)
+ * becomes the first line of the body behind the arrow.
  */
 export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
   const answered =
@@ -376,8 +357,8 @@ export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
                 : (tail.stat ?? "answered"),
             ),
           );
-  // A run's body is the answers it collected; the argument view, table and diff
-  // belong to a single call, which this row no longer stands alone for.
+  // A run's body is its collected answers; the argument view, table and diff
+  // belong to a single call this row no longer stands for.
   const {
     detail: _detail,
     structured: _structured,
@@ -401,20 +382,15 @@ export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
 /**
  * Index of the call row a result belongs to.
  *
- * A carried call id is exact and wins outright — it is the only thing that
- * tells two in-flight calls to the same tool apart, which parallel sub-agent
- * dispatch produces on every turn that fires more than one `spawn_agent`
- * call (three dispatches all show `meta === "spawn_agent"`). An id that
- * matches nothing on the log still returns -1 rather than falling through to
- * the name scan below: every current caller (the live bridge's own call map,
- * `SubAgentTranscriptEntry`, `BridgeInboundEvent`) always carries an id, so a
- * miss here is a real mismatch, not a legacy record, and papering over it
- * with the newest same-name row is the exact misattribution this function
- * exists to prevent.
+ * A carried call id wins outright: parallel sub-agent dispatch fires several
+ * same-name calls per turn, and only the id tells them apart. An id that
+ * matches nothing returns -1 — every live caller carries one, so a miss is a
+ * real mismatch, not a legacy record; falling through to the newest same-name
+ * row would misattribute the result.
  *
- * The name scan only runs when `callId` is `undefined` — saved history from
+ * The name scan runs only when `callId` is `undefined` — saved history from
  * before ids were threaded through `HistoryBlock` (`history-hydrate.ts`) is
- * the one caller that still omits it.
+ * the only caller that omits it.
  */
 export function pendingCallIndex(
   rows: readonly StreamRow[],
