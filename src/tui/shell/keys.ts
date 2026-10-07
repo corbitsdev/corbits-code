@@ -101,11 +101,9 @@ function logStopWorkersFailure(error: unknown): void {
   });
 }
 
-// Human keystrokes land tens of milliseconds apart at the fastest; a paste
-// replayed onto stdin without bracketed-paste framing lands all at once.
-// 15ms is an empirical guess at a gap under normal typing and over a replayed
-// paste — too high reads a fast typist's real Enter as paste; too low misses
-// a slow paste replay. Only matters before this terminal's first real paste
+// Human keys land tens of ms apart; a paste replay lands all at once. 15ms
+// is an empirical gap — too high reads a fast typist's real Enter as paste,
+// too low misses a slow replay. Only matters before the first real paste
 // event; see `sawBracketedPaste` below.
 const PASTE_BURST_MS = 15;
 
@@ -122,15 +120,11 @@ function isPrintableInsertKey(key: KeyEvent): boolean {
 }
 
 /**
- * Which open surface a chord toggles shut, or null when the chord is not a
- * toggling opener.
- *
- * Only pickers appear here: an opener that performs an action (Ctrl+P,
- * Ctrl+C, the expand key) has nothing to toggle, and a decision surface is
- * deliberately absent — re-pressing the chord underneath it must not count as
- * an answer (those leave via a choice or Esc). `@` and `/` are openers too,
- * but they are also characters being typed, so re-pressing them inserts
- * rather than closes.
+ * Which open surface a chord toggles shut, or null when it is not a toggling
+ * opener. Only pickers appear here: action openers (Ctrl+P, Ctrl+C, expand)
+ * have nothing to toggle, and decision surfaces are absent — re-pressing the
+ * chord under one must not count as an answer. `@` and `/` are openers too,
+ * but they are also typed characters, so re-pressing them inserts instead.
  */
 function toggledSurfaceFor(key: KeyEvent): PrimaryOverlayKind | null {
   if (
@@ -225,8 +219,8 @@ export function handleCtrlC(
         return;
       }
       // Real quit (2nd press with no live workers, or 3rd press after stop).
-      // Host teardown usually disposes; unlink here too so a stub/delayed
-      // onExit cannot leave Corbits-created clipboard files behind.
+      // Host teardown usually disposes; unlink too so a delayed onExit
+      // cannot leave clipboard files behind.
       clearPendingAttachments(shell);
       onExit();
       return;
@@ -330,9 +324,8 @@ export function createShellKeyHandlers(
   shell: AppShell,
   opts: { isDisposed: () => boolean },
 ): ShellKeyHandlers {
-  // A real bracketed-paste event proves DEC 2004: every paste from here on
-  // arrives as one `paste` event, so the CRLF-submit fallback below turns
-  // itself off for the rest of the session. Only these handlers read the
+  // A real bracketed paste proves DEC 2004, so the CRLF-submit fallback
+  // below turns itself off for the session. Only these handlers read the
   // flag, so it lives in this closure rather than on the shared AppShell.
   let sawBracketedPaste = false;
   let lastKeyAt = 0;
@@ -370,10 +363,9 @@ export function createShellKeyHandlers(
       if (shell.overlayList) {
         key.preventDefault();
         abortOverlayHostReservations(shell);
-        // closeSlashPopup closes the inset overlay itself; a second
-        // closeInsetOverlay would idle-notify twice and kill a gate the first
-        // notify drains. Non-slash overlays carry no entry, so it no-ops and
-        // the shared close handles those.
+        // closeSlashPopup closes the inset overlay itself; a second close
+        // would idle-notify twice and kill a gate the first notify drains.
+        // Non-slash overlays carry no entry, so the shared close handles those.
         const list = shell.overlayList;
         closeSlashPopup(shell);
         if (list !== null && shell.overlayList === list)
@@ -446,8 +438,8 @@ export function createShellKeyHandlers(
         key.preventDefault();
         return;
       }
-      // Same reason as the `/` popup: the `@` popup narrows as you type, so it
-      // claims printable keys ahead of the overlay's j/k navigation.
+      // The `@` popup narrows as you type too, claiming printable keys ahead
+      // of the overlay's j/k navigation.
       if (handleMentionPopupKey(shell, key)) {
         key.preventDefault();
         return;
@@ -464,8 +456,8 @@ export function createShellKeyHandlers(
         key.preventDefault();
         return;
       }
-      // Same opt-in for list overlays (model picker): type-to-filter claims
-      // printables so a long flat catalog narrows without a nested pane.
+      // List overlays (model picker) opt in the same way so a long flat
+      // catalog narrows without a nested pane.
       if (handleListFilterKey(shell, key)) {
         key.preventDefault();
         return;
@@ -539,9 +531,8 @@ export function createShellKeyHandlers(
       }
       // Unclaimed printables fall through to the prompt, which does not hold
       // focus while the overlay is open. Decision surfaces are the modal
-      // exception: a gate keeps every key until answered or dismissed, and
-      // the overlay stays open (no idle-notify) so a queued gate cannot
-      // drain mid-list.
+      // exception: a gate keeps every key until answered, and the overlay
+      // stays open (no idle-notify) so a queued gate cannot drain mid-list.
       if (
         shell.overlayKind !== "permissions" &&
         shell.overlayKind !== "operator" &&
@@ -560,13 +551,11 @@ export function createShellKeyHandlers(
     // — the kill ring, implemented below.
     const keyName = typeof key.name === "string" ? key.name.toLowerCase() : "";
 
-    // Everything below this line is the un-bracketed-paste fallback: a
-    // terminal that has ever fired a real `paste` event has proven it never
-    // needs this again.
+    // Everything below is the un-bracketed-paste fallback: a terminal that
+    // has fired a real `paste` event never needs it again.
     if (!sawBracketedPaste) {
-      // The LF half of a CRLF pair the block below just turned into a
-      // newline: without this, "line one\r\nline two" would insert two
-      // newlines, one for the converted CR and one for the LF right behind it.
+      // The LF of a CRLF pair the block below just converted: without this,
+      // "line one\r\nline two" would insert two newlines.
       const suppressLinefeed = suppressNextLinefeed;
       suppressNextLinefeed = false;
       if (
@@ -581,11 +570,10 @@ export function createShellKeyHandlers(
       }
 
       // A bare CR is the same "return" that submits; pasting three lines
-      // would otherwise send three messages instead of composing one. Two
-      // signals detect it — a printable character landing, then Enter, both
-      // inside a keystroke burst — which is unique to a paste replay.
-      // Gating on both keeps a deliberate Ctrl+J-then-Enter safe, since
-      // Ctrl+J is not a printable character.
+      // would otherwise send three messages. Two signals detect it — a
+      // printable character then Enter, both inside a keystroke burst — which
+      // is unique to a paste replay. Gating on both keeps Ctrl+J-then-Enter
+      // safe, since Ctrl+J is not printable.
       const now = Date.now();
       const sincePreviousKey = now - lastKeyAt;
       const previousKeyWasPrintable = lastKeyWasPrintable;
@@ -749,8 +737,8 @@ export function createShellKeyHandlers(
     }
 
     // Ctrl+V is a real keypress (0x16), not the system paste: CMD+V arrives
-    // as a bracketed `paste` event the InputRenderable inserts as text, so
-    // binding Ctrl+V here cannot swallow an ordinary text paste.
+    // as a bracketed `paste` event the input inserts as text, so binding
+    // Ctrl+V cannot swallow an ordinary text paste.
     if (
       key.ctrl &&
       !key.meta &&
@@ -812,9 +800,8 @@ export function createShellKeyHandlers(
         key.preventDefault();
         return;
       }
-      // Multi-row prompt: Up/Down are caret motion first. Recall only fires at
-      // the buffer's edges, which is where a shell history is conventionally
-      // reachable and where the caret has nowhere left to go.
+      // Multi-row prompt: Up/Down are caret motion first. Recall only fires
+      // at the buffer's edges, where the caret has nowhere left to go.
       const stepped =
         key.name === "up"
           ? promptCaretAtFirstRow(shell.prompt)
@@ -921,9 +908,8 @@ export function createShellKeyHandlers(
     }
 
     if (key.ctrl && key.name === "g") {
-      // Readline/Emacs "abort" chord — unclaimed by both the textarea's
-      // default bindings and this shell's other chords, and already means
-      // "cancel the pending thing" to muscle memory, unlike Ctrl+X (cut).
+      // Readline/Emacs "abort" chord: unclaimed elsewhere in the shell and
+      // already means "cancel the pending thing" to muscle memory.
       key.preventDefault();
       applyShellCancelLast(shell);
       return;
