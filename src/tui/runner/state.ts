@@ -3,8 +3,8 @@
  * `SetupState` pattern: `runTUI` in index.ts threads one state bag plus one
  * const services object through the submit/settings/exit/commands/mcp/session
  * factories so the extracted modules see the same live bindings the old
- * closure did. Lives in its own leaf module because the sibling modules must
- * not import each other (only index composes them), yet need the same
+ * closure did. Lives in its own leaf module because the siblings must not
+ * import each other (only index composes them), yet need the same
  * contracts.
  */
 
@@ -57,15 +57,14 @@ export type RunnerHost = Awaited<ReturnType<typeof mountRunnerHost>>;
 
 /**
  * Why a run.json snapshot is being written. Only "run-end" ends the run
- * itself and so clears the active-run handle that the crash handler in
- * index.ts reads.
+ * itself and clears the active-run handle that the crash handler in index.ts
+ * reads.
  *
- * RunState.status cannot stand in for this. A /clear or /new rotation
+ * RunState.status cannot stand in for this: a /clear or /new rotation
  * persists a terminal "done" for the outgoing session while the process
  * keeps running under a fresh session id, so inferring "the run is over"
  * from a non-"running" status disarms crash finalization for everything
- * after the first rotation -- the session that dies then never gets its
- * terminal record and reads as "running" forever.
+ * after the first rotation.
  */
 export type SnapshotKind = "progress" | "session-rotation" | "run-end";
 
@@ -206,7 +205,7 @@ export interface RunnerServices {
  * (systemNotice, persistRunSnapshot, ...) are optional slots invoked with
  * `?.` — the same idiom the pre-split code used for stampProvider and
  * paintPluginAttention — because they can only fire after index.ts wires
- * them, exactly like the TDZ-safe late reads of the old closure.
+ * them.
  */
 export interface RunnerState {
   config: Config;
@@ -253,9 +252,9 @@ export interface RunnerState {
   // Every configured server's latest settings entry, for the /mcp surface.
   configuredMcpEntries: MCPServerSettingsEntry[];
   liveHookConfig: Record<string, { enabled: boolean }>;
-  // Tracks the user's intent (persisted opt-in, updated live by the settings
-  // toggle) rather than the held instance's state, so the settings tab shows
-  // On during the first-run hold.
+  // Tracks the user's intent (persisted opt-in, updated live by the toggle)
+  // rather than the held instance's state, so the settings tab shows On
+  // during the first-run hold.
   liveTelemetryIntent: boolean;
   liveShowPromptCost: boolean;
   // The theme pin the settings surface cycles (auto/dark/light). Cycling it
@@ -300,8 +299,8 @@ export interface RunnerState {
   // Optional because tests build partial states without that mount.
   isPaused?: () => boolean;
   // Abort-aware compaction lifecycle, created by the TUI session assembly
-  // (session.ts) and read by the interrupt/rotation paths (exit.ts).
-  // Optional because tests build partial states without session assembly.
+  // (session.ts), read by the interrupt/rotation paths (exit.ts). Optional
+  // because tests build partial states without session assembly.
   compactionLifecycle?: CompactionLifecycle;
   reloadIfIdle?: () => void;
   systemNotice?: (text: string) => void;
@@ -392,8 +391,7 @@ export function hostOf(state: RunnerState): RunnerHost {
  * available before the session lifecycle assembles; later sections assign
  * the remaining fields in place, mirroring the old closure's `let` order.
  * The initial source bundle is resolved eagerly because it is a pure
- * function of the still-unmutated config and session id — identical inputs
- * to the old closure's first call.
+ * function of the still-unmutated config and session id.
  */
 export function createRunnerState(start: TUIStart): RunnerState {
   const config = start.config;
@@ -441,7 +439,8 @@ export function createRunnerState(start: TUIStart): RunnerState {
     reconnectRecoveryAttempts: new WeakMap(),
   };
   // Saved through onboarding's "save anyway" bypass without a passing
-  // connection test — warn now instead of a bare adapter error on first send.
+  // connection test — warn now instead of a bare adapter error on first
+  // send.
   if (config.verified === false) {
     state.startupPluginNotices.push(
       `We couldn't confirm your "${config.providerName}" key works. If your first message fails with an auth error, double-check the key.`,

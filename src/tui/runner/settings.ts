@@ -1,9 +1,8 @@
 /**
- * Settings and config surface for the TUI runner: hook settings, the
- * first-run telemetry/changelog onboarding block, global settings writes,
- * the model-selection handlers, the Alt+A provider connect flow, and the
- * permissions/plugins/hooks/settings host surfaces. (The /mcp surface lives
- * in mcp.ts and is composed into the mount by index.ts.)
+ * Settings and config surface for the TUI runner: hook settings, first-run
+ * onboarding, global settings writes, model handlers, the Alt+A connect
+ * flow, and the permissions/plugins/hooks/settings surfaces. (The /mcp
+ * surface lives in mcp.ts and is composed into the mount by index.ts.)
  */
 
 import { readFile } from "node:fs/promises";
@@ -75,7 +74,7 @@ const GRANT_SCOPE_LABEL: Record<GrantScope, string> = {
   "provider-model": "Provider / model",
 };
 
-/** First-run telemetry disclosure to show before consent-by-proceeding applies. */
+/** First-run telemetry disclosure, shown before consent-by-proceeding applies. */
 export function telemetryStartupNotice(
   globalSettings: Settings | null | undefined,
   env: NodeJS.ProcessEnv = process.env,
@@ -87,8 +86,8 @@ export function telemetryStartupNotice(
 
 /**
  * Post-delete summary: what was forgotten, which refs were dropped, where
- * the default went, and whether anything still needs attention. Names and
- * counts only — the credential bit never carries key material.
+ * the default went, and what still needs attention. Names and counts only
+ * — never key material.
  */
 function removeNotice(
   provider: string,
@@ -131,7 +130,7 @@ export interface SettingsWiring {
   onRemoveProvider: (id: string) => void;
   /**
    * Blast-radius line for the Alt+R arm step, or null when the row is not
-   * removable. Read by the picker before arming; never prints key material.
+   * removable. Never prints key material.
    */
   describeRemoveProvider: (id: string) => string | null;
   surfaces: {
@@ -143,17 +142,17 @@ export interface SettingsWiring {
 }
 
 /**
- * Wire everything settings-shaped in original runTUI order: the hook
- * classification + enable persistence, the first-run onboarding block, and
- * the host surfaces / model handlers that read it.
+ * Wire everything settings-shaped in original runTUI order: hook
+ * classification + persistence, first-run onboarding, and the host
+ * surfaces / model handlers that read it.
  */
 export async function wireSettings(
   state: RunnerState,
   services: RunnerServices,
 ): Promise<SettingsWiring> {
-  // Cheap static check, not a real parser: a shell hook always receives the
-  // lifecycle name as $1, so it can react to either; a TypeScript hook's
-  // exports tell us which of postTurn/postRun it actually implements.
+  // Cheap static check, not a parser: a shell hook always receives the
+  // lifecycle name as $1; a TypeScript hook's exports tell which of
+  // postTurn/postRun it implements.
   const hookRunsOn = new Map<string, string>();
   for (const status of services.hookManager.getStatuses()) {
     if (status.type === "shell") {
@@ -209,21 +208,19 @@ export async function wireSettings(
   };
 
   // The `onboarded` flag is global user state: read and written against the TRUE
-  // global settings file, never config.globalSettingsPath (which is the --config
-  // file when one was given). This keeps first-run detection consistent and stops
-  // a --config launch from stamping project-config contents into the global file.
+  // global settings file, never config.globalSettingsPath (the --config file
+  // when one was given), so a --config launch never stamps project-config
+  // contents into the global file.
   const trueGlobalSettingsPath = state.trueGlobalSettingsPath;
   const globalSettingsForOnboarding = await loadSettings(
     trueGlobalSettingsPath,
   );
 
   // Consent by proceeding (see telemetry/first-run.ts): on a first run the
-  // singleton is a held no-op and the passive banner below is the
-  // disclosure. The first interactively submitted prompt activates telemetry
-  // and fires the held cli_start; a user who never acts keeps the hold for
-  // this whole launch, and the render stamp means events start normally on
-  // the next one. Keyed off the same TRUE global settings file as
-  // `onboarded` above.
+  // singleton is a held no-op and the banner below is the disclosure. The
+  // first submitted prompt activates telemetry and fires the held cli_start;
+  // a user who never acts keeps the hold for this launch. Keyed off the
+  // same TRUE global settings file as `onboarded` above.
   const onChangeTelemetryEnabled = createTelemetryToggleHandler(
     trueGlobalSettingsPath,
     undefined,
@@ -233,10 +230,9 @@ export async function wireSettings(
     globalSettingsForOnboarding,
   );
   const telemetryNotice = telemetryStartupNotice(globalSettingsForOnboarding);
-  // Tracks the user's intent (persisted opt-in, updated live by the settings
-  // toggle) rather than the held instance's state, so the settings tab shows
-  // On during the hold and an opt-out before the first action suppresses
-  // activation entirely.
+  // Tracks the user's intent (persisted opt-in, updated live by the toggle)
+  // rather than the held instance's state: the tab shows On during the hold,
+  // and an opt-out before the first action suppresses activation entirely.
   state.liveTelemetryIntent = state.telemetryFirstRun || getTelemetry().enabled;
   if (state.telemetryFirstRun) {
     void services.globalSettingsWriter
@@ -250,9 +246,9 @@ export async function wireSettings(
 
   // Post-upgrade release notes watermark policy:
   // - first_install: stamp quietly so later launches do not dump history.
-  // - upgrade: stamp only when notes were actually shown. The former Ink
-  //   whats-new banner is gone on the OpenTUI path, so notesShown is false
-  //   until a surface is restored — never silently consume upgrade notes.
+  // - upgrade: stamp only when notes were actually shown. The OpenTUI path
+  //   never shows them at startup, so notesShown stays false — never
+  //   silently consume upgrade notes.
   // - resume / current: leave the watermark alone.
   const changelogDecision = loadStartupChangelogMarkdown({
     lastChangelogVersion: globalSettingsForOnboarding?.lastChangelogVersion,
@@ -304,15 +300,15 @@ export async function wireSettings(
       let result: Awaited<ReturnType<typeof connectProviderInline>>;
       // The setup surface shares the live session's renderer — a second
       // CliRenderer cannot exist on the same stdin. Shell input stays
-      // suspended for the surface's lifetime so its keystrokes (including
-      // Ctrl+C to cancel the sign-in) never also reach the shell.
+      // suspended so its keystrokes (including Ctrl+C to cancel) never also
+      // reach the shell.
       setShellInputSuspended(hostOf(state).shell, true);
       try {
         result = await connectProviderInline({
           providerId: providerName,
           // A pre-scoped reconnect (`/connect <kind> <profile>` or the idle
-          // one-action offer) prefills the account-name step with the slug
-          // being re-keyed; the confirm-to-re-key still runs unchanged.
+          // one-action offer) prefills the account-name step; the
+          // confirm-to-re-key still runs unchanged.
           ...(req?.profile !== undefined
             ? { initialOAuthProfile: req.profile }
             : {}),
@@ -374,9 +370,9 @@ export async function wireSettings(
         listFavoriteModels(state.config.settings ?? { providers: {} }),
         providers,
       );
-      // Reopen positioned at the account just connected — the picker's
-      // default open (top of list) would otherwise leave the operator to
-      // hunt for the row they just authorized.
+      // Reopen at the account just connected — the picker's default open
+      // (top of list) would otherwise leave the operator hunting for the row
+      // they just authorized.
       const connectedName = result.providerName ?? providerName;
       hostOf(state).openModels?.(
         result.model !== undefined
@@ -630,9 +626,9 @@ export async function wireSettings(
       const entry = state.config.settings?.providers[provider];
       if (entry === undefined) {
         // Orphan retry: the catalog row is gone but an OAuth profile may
-        // linger on disk (state after a failed removeProfile). Clear it so
-        // the "retry removal" promise stays truthful; "already gone" is only
-        // for when nothing remains anywhere.
+        // linger (after a failed removeProfile). Clear it so the "retry
+        // removal" promise stays truthful; "already gone" only when nothing
+        // remains anywhere.
         const orphanTarget = oauthStoreTarget(provider);
         if (orphanTarget !== null) {
           try {
@@ -658,7 +654,7 @@ export async function wireSettings(
         state.systemNotice?.(`${provider} is already gone.`);
         return;
       }
-      // Live-session guard (FR5): never orphan the running session mid-run.
+      // Live-session guard: never orphan the running session mid-run.
       if (provider === state.config.providerName) {
         state.systemNotice?.(
           `${provider} is running this session — switch with /model first.`,
@@ -693,8 +689,8 @@ export async function wireSettings(
         state.systemNotice?.(`${provider} is already gone.`);
         return;
       }
-      // OAuth credential, after the settings row is gone: retry-safe, since
-      // an unknown settings name is a notice + no-op on the next attempt.
+      // OAuth credential, after the settings row is gone: retry-safe — an
+      // unknown settings name is a notice + no-op on the next attempt.
       const target = oauthStoreTarget(provider);
       let orphanedProfile: string | null = null;
       if (target !== null) {
@@ -943,9 +939,8 @@ function createHooksSurface(
  * Live-apply a theme pin: resolve it exactly as startup does (explicit pins
  * win, `auto` re-detects) and swap the shared `UI` binding, then repaint.
  * The swap is synchronous — an instant rebinding, never an animated
- * transition. Returns the resolved palette name so callers can report the
- * outcome the pin settled on. Exported for tests; the settings surface is
- * the only caller.
+ * transition. Returns the resolved palette name. Exported for tests; the
+ * settings surface is the only caller.
  */
 export function applyThemePinLive(
   value: ThemeSetting,
@@ -958,11 +953,11 @@ export function applyThemePinLive(
 
 /**
  * Unconditional post-pin repaint for the settings surface. The cost/context
- * meter path (`refreshCostContext` → `setPromptCostContext`) skips painting
- * when the meter did not move — the common pin-cycle case — so cycling pins
- * with no cost movement repainted nothing behind the overlay. Force the
- * chrome, repaint the border, and rebuild the transcript rows so markdown
- * bodies pick up the fresh SyntaxStyle registry. Synchronous, like the swap.
+ * meter path skips painting when the meter did not move — the common
+ * pin-cycle case — so cycling pins repainted nothing behind the overlay.
+ * Force the chrome, repaint the border, and rebuild the transcript rows so
+ * markdown bodies pick up the fresh SyntaxStyle registry. Synchronous, like
+ * the swap.
  */
 export function repaintShellForTheme(shell: AppShell): void {
   paintChrome(shell, { force: true });
@@ -994,8 +989,8 @@ function createSettingsSurface(
       }));
     },
     setTelemetryEnabled: (enabled: boolean) => {
-      // Only flip the live intent when the toggle is accepted. Env kill
-      // switches refuse re-enable; leaving the UI on while capture stays
+      // Only flip the live intent when the toggle is accepted: env kill
+      // switches refuse re-enable, and leaving the UI on while capture stays
       // off is a silent lie.
       if (!onChangeTelemetryEnabled(enabled)) {
         state.systemNotice?.(
@@ -1015,11 +1010,11 @@ function createSettingsSurface(
     },
     setTheme: (value: ThemeSetting) => {
       state.liveTheme = value;
-      // The pin used to record-and-persist only, leaving the old palette on
-      // screen until relaunch. Resolve it the same way startup does and paint
-      // now: the swap is an instant rebinding of the shared UI object, never
-      // an animated transition. The repaint is unconditional — the meter path
-      // would skip it whenever the cost context did not move.
+      // The pin used to record-and-persist only, leaving the old palette
+      // until relaunch. Resolve it as startup does and paint now — an
+      // instant rebinding of the shared UI object, never an animated
+      // transition. The repaint is unconditional; the meter path would skip
+      // it whenever the cost context did not move.
       applyThemePinLive(value, () => repaintShellForTheme(hostOf(state).shell));
       void persistGlobalSettings("theme", (base) => ({
         ...base,

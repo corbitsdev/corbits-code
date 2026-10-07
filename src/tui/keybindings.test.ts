@@ -1,14 +1,13 @@
 /**
  * The help catalog, checked against real behavior.
  *
- * Every row in `SHELL_SHORTCUTS` is looked up here by its own `keys` string and
- * driven as the bytes that string denotes: rename a chord and the lookup fails,
- * change a chord and the probe presses the new one against the old assertion.
- * A catalog row with no probe fails the coverage test outright, so a new row
- * cannot be added without someone proving it works.
+ * Every row in `SHELL_SHORTCUTS` is looked up here by its own `keys` string
+ * and driven as the bytes that string denotes: rename a chord and the lookup
+ * fails, change a chord and the probe presses the new one against the old
+ * assertion. A catalog row with no probe fails the coverage test outright.
  *
- * What this does not check: which description sits on which row. Swapping two
- * descriptions between rows would pass. Everything else — the chord, its
+ * What this does not check: which description sits on which row. Swapping
+ * two descriptions between rows would pass. Everything else — the chord, its
  * modifiers, the stated condition, and whether the host shadows the prompt's
  * own binding — is asserted against a live shell.
  */
@@ -284,9 +283,9 @@ const PROBES: Readonly<
       }
       // The parenthetical in the row's description, held to the same
       // standard. Plain terminals can't report Shift on Enter (bare \r
-      // either way — confirmed live, not just assumed), but a terminal that
-      // negotiates the kitty keyboard protocol — which this app requests —
-      // can, and the widget is built to honor it when it does.
+      // either way), but a terminal that negotiates the kitty keyboard
+      // protocol — which this app requests — can, and the widget honors it
+      // when it does.
       expect(PROMPT_KEY_BINDINGS).toContainEqual({
         name: "return",
         shift: true,
@@ -689,8 +688,8 @@ function press(h: Harness, bytes: string | null | undefined): void {
 }
 
 /**
- * A lone ESC byte is ambiguous until the terminal proves nothing follows it, so
- * the parser holds it briefly before emitting the key.
+ * A lone ESC byte is ambiguous until the terminal proves nothing follows it,
+ * so the parser holds it briefly before emitting the key.
  */
 function escapeSettles(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 80));
@@ -789,9 +788,10 @@ describe("every catalog row is driven against real behavior", () => {
 });
 
 /**
- * The Ctrl+D failure in general form: a row describing a prompt default is only
- * true while the runner host leaves that byte alone. Driven on a real mount,
- * not a bare shell, so a host listener that shadows the prompt fails here.
+ * The Ctrl+D failure in general form: a row describing a prompt default is
+ * only true while the runner host leaves that byte alone. Driven on a real
+ * mount, not a bare shell, so a host listener that shadows the prompt fails
+ * here.
  */
 describe("the runner host does not shadow the prompt bindings the catalog claims", () => {
   const PROMPT_DEFAULT_ROWS = [

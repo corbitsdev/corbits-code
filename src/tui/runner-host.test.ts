@@ -52,8 +52,8 @@ function fakeCostSummary(): CostSummary {
 }
 
 /**
- * Mount a runner host on a headless renderer with no-op deps; `deps` carries
- * only what the test exercises. Host and harness are always torn down.
+ * Mount a runner host on a headless renderer with no-op deps; `deps`
+ * carries only what the test exercises. Host and harness are torn down.
  */
 async function withRunnerHost(
   fn: (host: RunnerHost, harness: Harness) => Promise<void> | void,
@@ -299,8 +299,8 @@ describe("mountRunnerHost command surfaces", () => {
         expect(host.openSurface("settings")).toBe(true);
         expect(host.shell.overlayKind).toBe("settings");
         closeInsetOverlay(host.shell);
-        // onModelSelect being wired is enough to open the picker, even with an
-        // empty catalog (nothing to pick yet, but the surface itself opens).
+        // onModelSelect being wired is enough to open the picker, even with
+        // an empty catalog (nothing to pick yet, but the surface opens).
         expect(host.openSurface("models")).toBe(true);
       },
       {
@@ -340,8 +340,8 @@ describe("mountRunnerHost model picker", () => {
   });
 
   test("refreshModels swaps in a freshly connected provider's models without a remount", async () => {
-    // Mount-time deps are a snapshot; a live provider connect must be able to
-    // replace them without remounting the host, or the newly connected
+    // Mount-time deps are a snapshot; a live provider connect must be able
+    // to replace them without remounting the host, or the newly connected
     // provider's models never appear.
     await withRunnerHost(
       async (host) => {

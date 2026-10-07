@@ -60,17 +60,16 @@ const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 /**
  * Pivot text delivered as the next turn when `/handoff` is invoked without
  * trailing instructions. The fold already wrote the structured summary, so
- * this only needs to point the fresh inference at it.
+ * this only points the fresh inference at it.
  */
 export const HANDOFF_DEFAULT_PIVOT = "Continue from the handoff summary above.";
 
 /**
  * Populate the slash-command registry for a session: built-ins first, then
  * enabled plugin commands and workflows, then the hidden-command filter.
- *
  * Exported so the production wiring is testable — built-in registration
- * previously rode on an import side effect and silently disappeared when its
- * only importer was deleted.
+ * previously rode on an import side effect and disappeared when its only
+ * importer was deleted.
  */
 export function setUpCommandRegistry(
   settings: Settings | undefined,
@@ -163,11 +162,11 @@ export function createCommandLayer(
       const pricingCache = getActivePricingCache();
       const billed = services.sessionCost.snapshot();
       const totalCost = billed.meteredCost;
-      // A provider that omits or zeroes usage would otherwise pin the meter at
-      // 0% forever; fall back to the director's local estimate (turns plus
-      // system-prompt/tool-schema overhead). The governor already decided
-      // whether it's estimating when it computed this turn's arming — trust
-      // that decision rather than re-deriving it from a second usage read.
+      // A provider that omits or zeroes usage would otherwise pin the meter
+      // at 0% forever; fall back to the director's local estimate (turns
+      // plus system-prompt/tool-schema overhead). The governor already
+      // decided whether it is estimating — trust that rather than re-deriving
+      // it from a second usage read.
       const contextEstimate =
         services.directorHolder.instance?.getContextEstimate();
       const isEstimate =
@@ -253,8 +252,9 @@ export function createCommandLayer(
         return undefined;
       };
       if (director.getCompactTurnCount() > 0) return arm();
-      // Resume (or a just-built agent) has not decided yet, so the governor's
-      // turn count is still 0. Load committed history before no-op'ing.
+      // Resume (or a just-built agent) has not decided yet, so the
+      // governor's turn count is still 0. Load committed history before
+      // no-op'ing.
       compactHydrateInFlight = true;
       void agent
         .history()
@@ -290,8 +290,8 @@ export function createCommandLayer(
       // behind the in-flight tool batch: whichever boundary fires first runs
       // the single operator fold, because firing clears the arming. Unlike
       // `/compact`, the pivot is always delivered, so handoff always starts
-      // the next assistant turn — even a "noop" fold still pivots to the
-      // operator's new goal without needing `/clear`.
+      // the next assistant turn — even a "noop" fold still pivots without
+      // needing `/clear`.
       const pivot = trimmed.length > 0 ? trimmed : HANDOFF_DEFAULT_PIVOT;
       const disarmOnMiss = arming === "armed";
       void send(userInboundMessage(pivot, [])).then(
@@ -318,8 +318,8 @@ export function createCommandLayer(
         return;
       case "send":
         // A command the operator typed and submitted at the prompt — same
-        // provenance as a plain-text send, just composed by the command
-        // handler instead of typed verbatim.
+        // provenance as a plain-text send, just composed by the handler
+        // instead of typed verbatim.
         void state.sendWithAttemptIdentity?.(
           userInboundMessage(result.text, []),
         );
@@ -342,8 +342,8 @@ export function createCommandLayer(
         }
         return;
       case "modal":
-        // /model is the only modal reachable from a command; provider login is
-        // reached from the picker itself.
+        // /model is the only modal reachable from a command; provider login
+        // is reached from the picker itself.
         if (result.modal === "agent" && hostOf(state).openSurface("models"))
           return;
         state.systemNotice?.(
@@ -367,9 +367,10 @@ export function createCommandLayer(
       state.systemNotice?.(`Unknown command: ${name}`);
       return;
     }
-    // Plugins register into the same command registry as the built-ins, so an
-    // unrecognised name is plugin-authored and is bucketed rather than sent.
-    // Shared emitter so TUI and any headless path report the same event.
+    // Plugins register into the same command registry as the built-ins, so
+    // an unrecognised name is plugin-authored and is bucketed rather than
+    // sent. Shared emitter so TUI and any headless path report the same
+    // event.
     captureSlashCommand(getTelemetry(), command.name);
     applyCommandResult(command.handler(args, commandContext));
   };

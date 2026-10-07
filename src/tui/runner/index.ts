@@ -1,9 +1,9 @@
 /**
  * TUI runner orchestration: runTUI assembles the state bag and services,
- * wires the split modules in the original runTUI order (session assembly →
- * run lifecycle → settings → commands → submit → mcp → host mount →
- * post-startup wiring → exit), and owns the crash-guard try/catch. Behavior
- * lives in the sibling modules; this file owns ordering.
+ * wires the split modules in original runTUI order (session assembly → run
+ * lifecycle → settings → commands → submit → mcp → host mount → post-startup
+ * wiring → exit), and owns the crash-guard try/catch. Ordering only —
+ * behavior lives in the sibling modules.
  */
 
 import type { Config } from "../../config/index.js";
@@ -51,9 +51,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const state = createRunnerState(start);
 
   const { pluginModules } = start.trust;
-  // /plugins UI backend state: discovered modules plus live, persisted config
-  // (enabled flag, credentials, web override, extra paths). Trust grants swap
-  // metadata-only stubs for full loads without restarting the process.
+  // /plugins UI backend state: discovered modules plus live, persisted
+  // config (enabled flag, credentials, web override, extra paths). Trust
+  // grants swap metadata-only stubs for full loads without restarting.
   const pluginState = createPluginsAdminState({
     cwd: state.config.cwd,
     settings: state.config.settings,
@@ -64,9 +64,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   emitPluginWarningLog(start.pluginLoadDiag);
   // Fire-and-forget startup diagnostics (this + tool-plugin / profile
   // resolution in the session assembly) have no result channel back to an
-  // operator action. Log-only is fine for the structured logger; the standing
-  // `plugin !` mark and `/plugins` surface carry the same warnings to the
-  // operator instead of a startup system notice.
+  // operator action. Log-only is fine for the structured logger; the
+  // standing `plugin !` mark and `/plugins` surface carry the same warnings
+  // instead of a startup system notice.
   const executablePlugins = () =>
     pluginState.modules.filter((m) => m.metadataOnly !== true);
   setUpCommandRegistry(
@@ -95,14 +95,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const submit = createSubmitPath(state, services, live);
     const mcp = wireMcp(state, services);
 
-    // Mount OpenTUI before the initial task is sent so gate and stream listeners
-    // are registered first. Ctrl+C stays with the shell (interrupt the run);
-    // OpenTUI owns the alternate screen and mouse reporting itself.
+    // Mount OpenTUI before the initial task is sent so gate and stream
+    // listeners are registered first. Ctrl+C stays with the shell (interrupt
+    // the run); OpenTUI owns the alternate screen and mouse reporting.
     // Alt+A add-provider selector rows: every first-class provider kind,
     // including Custom (full manual form). No already-connected filtering —
-    // OAuth and multi-instance accounts are per-name, so dropping a kind once
-    // it has one account would hide the path to a second. Read fresh on each
-    // open against the live catalog.
+    // OAuth and multi-instance accounts are per-name, so dropping a kind
+    // once it has one account would hide the path to a second. Read fresh
+    // on each open against the live catalog.
     const computeAddProviderChoices = () =>
       addProviderSelectorChoices(providerChoices(), state.config.providers);
 
@@ -268,10 +268,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (!opened) state.credentialRecovery.cancel(pending.generation);
     };
     // Settled reconnect-class failures surface the idle one-action reconnect
-    // offer: Enter re-keys the exact kind/profile scope that failed via a
-    // pre-scoped /connect (the phase-1 executor forwarding), Esc dismisses
-    // with no cascade to the credential picker, and a successful re-key
-    // replays the preserved turn once only when nothing committed.
+    // offer: Enter re-keys the exact scope that failed via a pre-scoped
+    // /connect, Esc dismisses with no cascade to the credential picker, and
+    // a successful re-key replays the preserved turn once only when nothing
+    // committed.
     state.presentReconnectRecovery = createReconnectRecoveryPresenter({
       recovery: state.reconnectRecovery,
       openDialog: (dialog) => host.openReconnectRecovery(dialog),
@@ -286,10 +286,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     return await finalizeTUIRun(state, services);
   } catch (err) {
     // Terminal first: state persistence below can await disk I/O, and every
-    // millisecond before this runs is a millisecond the operator is staring at
+    // millisecond before this runs is a millisecond the operator stares at
     // a frozen alternate screen. Kept outside finalizeOnCrash because that
-    // short-circuits once the clean path has marked the run finalized, and a
-    // throw after that point still has to give the terminal back.
+    // short-circuits once the clean path has marked the run finalized, and
+    // a throw after that point still has to give the terminal back.
     try {
       await start.crashGuard.invokeDisposeHost();
     } catch (disposeErr: unknown) {

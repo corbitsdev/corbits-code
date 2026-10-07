@@ -66,10 +66,10 @@ export type SubmissionRoute =
   | { kind: "prompt"; text: string };
 
 /**
- * Command names a leading-`/` token may dispatch to. Call sites own the set —
- * registry `listCommands()` names, the same source the `/` popup catalog
- * (`stripUneditedSlashHint`) searches. A supplier stays fresh across registry
- * reloads; a plain set or array is a snapshot.
+ * Command names a leading-`/` token may dispatch to. Call sites own the set
+ * — registry `listCommands()` names, the same source the `/` popup catalog
+ * searches. A supplier stays fresh across registry reloads; a plain set or
+ * array is a snapshot.
  */
 export type KnownCommandNames =
   | readonly string[]
@@ -86,17 +86,15 @@ function hasKnownCommand(known: KnownCommandNames, name: string): boolean {
 }
 
 /**
- * Decide what a submitted composer line is. A leading `/` is a slash command
- * only when its first token (to whitespace, lowercased) exactly matches a
+ * What a submitted composer line is. A leading `/` is a slash command only
+ * when its first token (to whitespace, lowercased) exactly matches a
  * registered command id; anything else — paths like `/Users/you/notes`,
  * typos like `/cler` — is a model prompt and reaches it verbatim. Bare `/`
- * stays empty. Callers that omit `knownCommands` (tests, non-registry
- * surfaces) keep the legacy any-leading-slash-is-a-command rule; every
- * product call site passes the registry set.
- *
- * The returned command name is the canonical lowercase registry id, so the
- * downstream exact `Map.get` lookup (`getCommand`) hits for mixed-case input
- * like `/CLEAR`. Matching stays case-insensitive via `hasKnownCommand`.
+ * stays empty. Callers that omit `knownCommands` keep the legacy
+ * any-leading-slash-is-a-command rule; every product call site passes the
+ * registry set. The returned name is the canonical lowercase registry id so
+ * the exact `getCommand` lookup hits for mixed-case input like `/CLEAR`;
+ * matching stays case-insensitive via `hasKnownCommand`.
  */
 export function routeSubmission(
   raw: string,
@@ -141,20 +139,20 @@ export interface SubmitHandlerDeps {
 
 /**
  * Composer submit handler. Leading-`/` input dispatches against the command
- * registry only on a registered-id hit; anything else is sent to the model
- * as a prompt. When feedback capture is armed (bare `/feedback`), the next
+ * registry only on a registered-id hit; anything else goes to the model as
+ * a prompt. When feedback capture is armed (bare `/feedback`), the next
  * non-command line is captured as survey text.
  *
- * Returns an outcome so the session bridge can keep local-only submits off the
- * agent busy path and out of the mid-run queue.
+ * Returns an outcome so the session bridge can keep local-only submits off
+ * the agent busy path and out of the mid-run queue.
  */
 export type SubmitOutcome = "agent" | "local" | "empty";
 
 /**
  * Classify a composer line without side effects. Local = registered slash
  * command or armed multi-turn feedback text; empty = no-op (or
- * cancel-feedback); agent = real model turn (including paths and unknown
- * slash names when the registry set is provided).
+ * cancel-feedback); agent = real model turn (paths and unknown slash names
+ * included when the registry set is provided).
  */
 export function classifySubmission(
   text: string,
@@ -238,7 +236,7 @@ export const IMAGE_ONLY_PROMPT = "Please inspect the attached image.";
  * Build the inbound message for a genuine operator submit — the real
  * prompt-submit path in the TUI (sendUserPrompt / the "send" command
  * result), with or without attachments. Carries OPERATOR_ORIGINATED_FLAG so
- * director.ts's loop-protection backstop can tell this apart from
+ * director.ts's loop-protection backstop can tell it apart from
  * system-originated sends (compaction continuations, retries, nudges).
  */
 export function userInboundMessage(
@@ -270,8 +268,8 @@ export function userInboundMessage(
  * offer re-auths the exact scope that failed, so it wins whenever it arms
  * and its presenter is wired; otherwise fall through to the credential
  * picker's provider switch. An armed reconnect with no presenter must not
- * swallow the credential fallback. Dismissing the reconnect offer never
- * cascades to the credential picker — one offer per failure.
+ * swallow the credential fallback; dismissing it never cascades — one offer
+ * per failure.
  */
 export function presentSendRecoveryOffer(args: {
   credential: PendingCredentialRecovery | null;
@@ -306,11 +304,11 @@ export function createSubmitPath(
     attachments?: readonly PendingImageAttachment[],
   ) => SubmitOutcome;
 } {
-  // Routed through the shell's notice path rather than straight into the
-  // transcript: anything the runner says before the first turn arrives while
-  // the landing hero still owns the screen, and a transcript row there wipes
-  // the whole composition. Once a session row has ended the landing this is an
-  // ordinary system row, so there is no second behaviour to reason about.
+  // Routed through the shell's notice path, not into the transcript:
+  // anything the runner says before the first turn arrives while the landing
+  // hero still owns the screen, and a transcript row there wipes the whole
+  // composition. Once a session row has ended the landing this is an
+  // ordinary system row.
   const systemNotice = (text: string): void => {
     surfaceSystemNotice(hostOf(state).shell, text);
   };
