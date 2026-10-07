@@ -4,8 +4,7 @@ import { withMockedModule } from "./mock-module.js";
  * Shared mocked `@modelcontextprotocol/sdk` client scaffolding for the
  * client-auth test suites. Each installer wraps `withMockedModule` for one
  * SDK/product module and forwards behavior to hooks the calling file
- * supplies, so the per-file mocks only describe what their assertions
- * actually observe.
+ * supplies, so per-file mocks describe only what their assertions observe.
  */
 
 export interface MockAuthProvider {

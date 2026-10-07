@@ -7,9 +7,8 @@ export interface CapturedStderr {
 
 /**
  * Redirects `process.stderr.write` into a buffer. Callers must invoke
- * `restore()` themselves — typically stashed in a module-level variable and
- * run from `afterEach` so an assertion failure cannot leak the hook into the
- * next test.
+ * `restore()` themselves — typically from `afterEach` — so an assertion
+ * failure cannot leak the hook into the next test.
  */
 export function captureStderr(): CapturedStderr {
   const original = process.stderr.write.bind(process.stderr);

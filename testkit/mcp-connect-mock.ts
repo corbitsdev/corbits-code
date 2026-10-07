@@ -67,14 +67,13 @@ export interface McpConnectMockOptions {
   /** Initial `toolCallResult` restored by `reset`. */
   toolCallResult?: string;
   /**
-   * Deferred connects resolve on the connect signal's abort and report an
-   * `aborted` error afterwards. Off when the fixture treats deferred
-   * connects as un-abortable.
+   * Deferred connects resolve on signal abort and report an `aborted`
+   * error afterwards. Off when the fixture treats them as un-abortable.
    */
   abortableDeferred?: boolean;
   /**
    * Successful connects tear the client down when the connect signal aborts
-   * after the fact, the way a live Streamable HTTP transport does.
+   * after the fact, like a live Streamable HTTP transport.
    */
   teardownOnAbort?: boolean;
 }
@@ -97,9 +96,8 @@ export function mcpTestPermissionGate() {
 /**
  * Installs the shared mocked `connectMCPServer` state machine for the rest
  * of the calling test file (via `withMockedModule`) and returns the mutable
- * mock state. Pass `import.meta.resolve` of the client module from the
- * caller so the mock lands on the same resolved path the code under test
- * imports.
+ * mock state. Pass `import.meta.resolve` of the client module so the mock
+ * lands on the same resolved path the code under test imports.
  */
 export async function installMcpConnectMock(
   clientModulePath: string,

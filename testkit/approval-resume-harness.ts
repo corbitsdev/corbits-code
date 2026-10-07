@@ -83,7 +83,7 @@ export interface ApprovalResumeHarness {
 /**
  * Fake agent/gate scaffolding: history reads the live `turns` array (tests
  * mutate it from `onGate` to simulate state landing between lookup and
- * resolve), delivery is recorded in `delivered`.
+ * resolve); delivery lands in `delivered`.
  */
 export function createApprovalResumeHarness(
   args: {

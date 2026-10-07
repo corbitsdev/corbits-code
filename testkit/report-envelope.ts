@@ -1,6 +1,6 @@
 // Canonical report-envelope fixtures shared by the subagent test suites.
 // Values are load-bearing: tests assert on the exact headings and text, so
-// keep these byte-identical when moving fixtures here.
+// keep them byte-identical.
 
 export const REPORT_ENVELOPE = [
   "## Summary",
