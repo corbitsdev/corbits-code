@@ -536,11 +536,10 @@ interface SettingsNavRow {
 }
 
 /**
- * Nav rows other than permissions, which is the only one with an async source
- * (`permissions.list()`). Plugins and hooks read synchronously, so keeping
- * them out of a promise chain means a settings open with no permissions dep
- * paints in the same tick it was requested — callers that open and immediately
- * assert on `shell.overlayKind` depend on that.
+ * Nav rows other than permissions, the only one with an async source.
+ * Plugins and hooks read synchronously, so without a permissions dep the
+ * open resolves in the same tick it was requested — callers that open and
+ * immediately assert on `shell.overlayKind` depend on that.
  */
 function settingsSyncNavRows(deps: CommandSurfaceDeps): SettingsNavRow[] {
   const rows: SettingsNavRow[] = [];
@@ -595,8 +594,8 @@ function renderSettingsMenu(
 ): void {
   // Cycling re-enters openSettingsSurface to refresh every row's closures
   // against the just-written value; closing first forces a real reopen (a
-  // second open of the same primary kind while one is showing is a no-op)
-  // while the captured index keeps the cursor where the operator left it.
+  // second open of the same kind while one is showing is a no-op) and the
+  // captured index keeps the cursor.
   const activeIndex =
     shell.overlayKind === "settings"
       ? (shell.overlayList?.activeIndex ?? 0)
@@ -664,10 +663,8 @@ function renderSettingsMenu(
 
 /**
  * Settings menu, re-opened after every change so values stay current.
- *
- * Permissions is the only nav row with an async source; without that dep the
- * whole open resolves synchronously, so a caller that opens and immediately
- * inspects the shell (no permissions admin wired) sees it painted.
+ * Without the permissions dep the open resolves synchronously — see
+ * `settingsSyncNavRows`.
  */
 export function openSettingsSurface(
   shell: AppShell,
@@ -1153,10 +1150,9 @@ export function openPluginsSurface(
       },
       onAction: (id, key) => {
         // Alt+<key>, never bare — c/v/t/a/w/x read as ordinary letters the
-        // filter-as-you-type list would otherwise swallow. Alt+C never
-        // collides with the global copy-mode chord: this surface's overlay
-        // branch returns before that handler is reached (see shell.ts's
-        // top-level onKey), so exactly one of the two can ever fire.
+        // filter-as-you-type list would otherwise swallow. Alt+C cannot
+        // collide with the global copy-mode chord: this overlay branch returns
+        // before shell.ts's top-level onKey is reached.
         if (key.ctrl || !(key.meta || key.option)) return false;
         const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
         // Surface-level chords — advertised in the how-to even when focus is on

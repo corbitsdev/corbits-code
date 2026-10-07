@@ -41,8 +41,8 @@ export function maskSecret(value: string): string {
 /**
  * Bullet-render a secret for the live input echo.
  *
- * Uncapped, unlike `maskSecret`: the echo is what `secretFromMaskedEdit` reads
- * back, so a capped echo would silently discard everything past the cap.
+ * Uncapped, unlike `maskSecret`: the echo is what `secretFromMaskedEdit`
+ * reads back, so a capped echo would silently discard past the cap.
  */
 export function maskEcho(value: string): string {
   return MASK_CHAR.repeat([...value].length);
@@ -70,7 +70,7 @@ export function stepReady(step: SetupStep, value: string): boolean {
  * The input never holds the key: every keystroke is mirrored back as bullets,
  * so an edit arrives as bullets plus whatever was just typed. Appends and
  * end-of-line deletes round-trip exactly; mid-string edits fall back to
- * truncation, which is why the field is re-typed rather than patched.
+ * truncation, so the field is re-typed rather than patched.
  */
 export function secretFromMaskedEdit(
   secret: string,

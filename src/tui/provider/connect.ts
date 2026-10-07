@@ -72,8 +72,7 @@ export async function connectProviderInline(
       : {}),
     onSubmit: async (values, setPhase, opts) => {
       // Persistence and validation (empty-key rejection, connection test,
-      // unverified marking) live in the one funnel every provider-setup exit
-      // path shares — see buildProviderSubmitHandler.
+      // unverified marking) live in the one shared exit funnel.
       await submitProvider(values, setPhase, opts);
       result =
         opts.oauth !== undefined

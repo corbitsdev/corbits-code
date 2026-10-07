@@ -1,8 +1,8 @@
-// Decision for the quota auto-retry loop: after a provider rate-limit error the
-// TUI polls and resubmits the last prompt once the retry-after window expires.
-// An interrupt clears the last-sent prompt, so a blank message here means there
-// is nothing legitimate to replay — resubmitting it would silently re-drive a
-// turn the operator already stopped, duplicating its tool executions.
+// Decision for the quota auto-retry loop: after a rate-limit error the TUI
+// polls and resubmits the last prompt once the retry-after window expires.
+// An interrupt clears the last-sent prompt, so a blank message here means
+// there is nothing legitimate to replay — resubmitting would re-drive a turn
+// the operator stopped, duplicating its tool executions.
 
 export interface QuotaRetryDecisionInput {
   readonly quotaError: { readonly retryAt: number } | null;

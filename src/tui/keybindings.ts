@@ -1,17 +1,15 @@
 /**
  * OpenTUI shell keybinding catalog (pure data).
  *
- * This is the source of truth for the help overlay — every row here must
- * match a real, currently-working chord: either a handler in
- * src/tui/shell.ts's `onKey`/`onEnter` listeners, or a default
- * binding of the prompt's InputRenderable (see `defaultTextareaKeyBindings`
- * in @opentui/core — Ctrl+B/F/D, Alt+B/F, and arrow motion come from there,
- * not from shell.ts). Do not hand-transcribe from docs.
+ * Source of truth for the help overlay — every row here must match a real,
+ * currently-working chord: a handler in `src/tui/shell.ts`'s onKey/onEnter,
+ * or a default binding of the prompt's InputRenderable (Ctrl+B/F/D, Alt+B/F,
+ * arrow motion — see `defaultTextareaKeyBindings` in @opentui/core). Do not
+ * hand-transcribe from docs.
  *
- * The comment alone did not hold: two rows drifted into describing behavior the
- * shell never had. `keybindings.test.ts` now drives every row's own chord
- * through a live shell and asserts the effect it claims, so a row that stops
- * being true fails rather than being read by an operator.
+ * The comment alone did not hold: two rows drifted into describing behavior
+ * the shell never had. `keybindings.test.ts` now drives every row's own chord
+ * through a live shell and asserts the effect it claims.
  */
 
 export interface ShellShortcut {
@@ -137,8 +135,7 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
 ] as const;
 
 /** Help rows derived from the shell's own keybinding catalog, so they cannot
- * drift from what the shell actually implements — there is no host dependency
- * to omit, so this never takes user-supplied items. */
+ * drift from what the shell actually implements. */
 export function helpItems(): readonly string[] {
   return [
     ...SHELL_SHORTCUTS.map((s) => `${s.keys} — ${s.description}`),

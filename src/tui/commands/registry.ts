@@ -31,8 +31,8 @@ export interface CommandContext {
   setSkipPermissions?: (value: boolean) => void;
   /**
    * Fold conversation context now, bypassing the occupancy governor.
-   * Optional extra instructions go to the summarizer and stick for later folds.
-   * Returns an operator-facing error, or undefined when the compact is armed.
+   * Optional extra instructions go to the summarizer and stick for later
+   * folds. Returns an operator-facing error, or undefined when armed.
    */
   requestCompact?: (instructions: string) => string | undefined;
   /**
@@ -82,16 +82,16 @@ export interface CommandDefinition {
    */
   pluginOrigin?: PluginOrigin;
   /**
-   * Claude Code–compatible free-form arg guidance (frontmatter `argument-hint`).
-   * Shown greyed next to the command in the `/` popup; on Tab it is spliced
-   * into the prompt after `/cmd ` as selected text so typing replaces it.
+   * Claude Code–compatible free-form arg guidance (frontmatter
+   * `argument-hint`). Shown greyed next to the command in the `/` popup; on
+   * Tab it is spliced into the prompt after `/cmd ` as selected text so
+   * typing replaces it.
    */
   argumentHint?: string;
   subcommands?: readonly SubcommandDefinition[];
   handler: (args: string, ctx: CommandContext) => CommandResult;
-  // Optional visibility gate. When present and returns false the command is
-  // omitted from listCommands (the slash menu) but still callable via
-  // getCommand.
+  // Optional visibility gate: when present and false the command is omitted
+  // from the slash menu but still callable via getCommand.
   available?: () => boolean;
 }
 

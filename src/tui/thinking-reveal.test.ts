@@ -1,8 +1,8 @@
 /**
  * Live reasoning reveals text at a bounded rate into a short wrapped preview,
  * so a fast model still reads at human pace without sideways-scrolling one
- * line. Pure-function coverage lives here; `advanceOpenReveal`'s wiring
- * through the bridge is covered by the bridge/tick tests below.
+ * line. Pure-function coverage lives here; `advanceOpenReveal`'s bridge wiring
+ * is covered by the bridge/tick tests below.
  */
 
 import { describe, expect, test } from "bun:test";

@@ -4,14 +4,11 @@
  *
  * Queued input used to echo into the transcript twice — once tagged
  * "[will steer next]" at enqueue, again tagged "[steering]" at delivery —
- * which made a held-back message louder than a sent one. The column keeps the
- * same fact on screen (what is waiting, in what order) without spending
- * transcript rows on it: items sit here while pending and land in the
- * transcript as ordinary user rows only when they actually deliver.
+ * which made a held-back message louder than a sent one. The column keeps
+ * the same fact on screen without spending transcript rows on it: items sit
+ * here while pending and land in the transcript only when they deliver.
  *
- * Pure: delivery-queue items in, row models out. Paint lives in
- * shell/chrome.ts (`syncPendingRows`); the row budget lives in geometry
- * (zone `pending`).
+ * Pure: delivery-queue items in, row models out.
  */
 
 import { PENDING_MAX_VISIBLE } from "./geometry/zones.js";
@@ -52,10 +49,9 @@ function pendingText(item: QueueItem): string {
 
 /**
  * Index of the oldest item the column shows at a given item-row budget. A deep
- * queue keeps the *newest* items visible — the newest is the row ↑ selects
- * first and the one the operator most likely typed a beat ago — folding the
- * older ones into a "+N more" header. Nav clamps against this floor so the
- * selection can never point at a folded item.
+ * queue keeps the *newest* items visible — the row ↑ selects first — folding
+ * the older ones into a "+N more" header. Nav clamps against this floor so
+ * the selection can never point at a folded item.
  */
 export function pendingWindowStart(
   itemCount: number,
@@ -68,10 +64,9 @@ export function pendingWindowStart(
 
 /**
  * Rows the column paints: one per shown item in enqueue order, a deep queue
- * folding its oldest items into a leading "+N more" (see
- * `pendingWindowStart`). `maxRows` is the row budget geometry granted; the
- * default is the zone's own ceiling, so a partial grant (collapse under
- * pressure) still reserves a row for the fold instead of dropping items
+ * folding its oldest items into a leading "+N more" (see `pendingWindowStart`).
+ * `maxRows` is the geometry grant; the default is the zone's own ceiling so a
+ * partial grant still reserves a row for the fold instead of dropping items
  * silently.
  */
 export function pendingColumnRows(

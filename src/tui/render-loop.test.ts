@@ -1,9 +1,9 @@
 /**
  * Render-loop guard rails.
  *
- * The monitor is the only clock the TUI animates off, so two properties have to
- * hold: it must stop when nothing is moving, and a plain appended transcript row
- * must not cost a rebuild of the rows already on screen.
+ * The monitor is the only clock the TUI animates off, so: it must stop when
+ * nothing is moving, and a plain appended transcript row must not cost a
+ * rebuild of the rows already on screen.
  */
 
 import { describe, expect, test } from "bun:test";

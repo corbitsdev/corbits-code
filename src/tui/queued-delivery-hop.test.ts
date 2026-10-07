@@ -434,8 +434,7 @@ describe("closed-target recovery", () => {
 
         expect(shell.prompt.value).toBe("");
         // The pending column carried the item until delivery, so the
-        // transcript row is a plain operator message — no [steering]
-        // label on purpose.
+        // transcript row is a plain operator message — no [steering] label.
         const row = drainedUserRow(shell);
         expect(row.meta).toBeUndefined();
         expect(shell.streamLog.map((r) => r.text).join("\n")).toContain(

@@ -26,10 +26,9 @@ function rowsContaining(frame: string, needle: string): readonly string[] {
  * Poll for the async markdown highlight pass instead of a fixed wait: the
  * tree-sitter pass repaints markdown row bodies asynchronously, so a frame
  * can lack row ink for a few tens of milliseconds after `appendStreamRow`.
- * Returns as soon as the last row's text is painted (a collapsed skill row
- * never shows its raw text, so those wait for the collapsed summary line),
- * bounded by a deadline so a highlight stall fails the inspect assertions
- * instead of hanging the suite.
+ * Returns when the last row's text is painted (a collapsed skill row waits
+ * for its summary line), bounded by a deadline so a highlight stall fails
+ * the inspect assertions instead of hanging the suite.
  */
 async function waitForRowInk(
   h: Harness,
@@ -154,8 +153,7 @@ describe("transcript turn layout", () => {
           (row) => row.trim() === "● auth-core",
         );
         // The message block and the tool block are two distinct blocks (a
-        // role change opens a new one), so the label repeats once per block —
-        // never once per row.
+        // role change opens a new one), so the label repeats per block.
         expect(labels.length).toBe(2);
         for (const label of labels) expect(label.indexOf("●")).toBe(gutter);
         expect(

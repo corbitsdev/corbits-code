@@ -4,7 +4,7 @@
  * Wraps `@opentui/core/testing` `createTestRenderer` with cleanup and
  * named key chords. Functional helpers only — no new classes.
  *
- * ## Key shapes (mockInput → renderer.keyInput `keypress`)
+ * Key shapes (mockInput → renderer.keyInput `keypress`):
  *
  * | Chord      | `name`   | `ctrl` | `meta` | notes |
  * |------------|----------|--------|--------|-------|
@@ -12,7 +12,7 @@
  * | Alt+Enter  | `return` | false  | true   | Match `meta \|\| option` (Kitty may set option) |
  * | Ctrl+C     | `c`      | true   | false  | Default renderer `exitOnCtrlC` is true; harness defaults false |
  *
- * Alt surfaces as `meta: true` on the mock/mac path. Real Kitty terminals may
+ * Alt surfaces as `meta: true` on the mock/mac path; real Kitty terminals may
  * also set `option`.
  */
 

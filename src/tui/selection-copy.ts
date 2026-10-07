@@ -23,12 +23,11 @@ export interface FinishedSelection {
 }
 
 /**
- * Copy a finished (non-dragging) selection. Returns true when a write was
+ * Copy a finished (non-dragging) selection; returns true when a write was
  * attempted. Empty selections and still-dragging states are no-ops.
  *
  * Clears the highlight immediately so a slow or hung clipboard helper cannot
- * leave the selection stuck. Status flash waits for write settlement:
- * `Copied …` on success, `Copy failed` on throw/reject.
+ * leave the selection stuck; the status flash waits for write settlement.
  */
 export function copyFinishedSelection(
   host: SelectionCopyHost,

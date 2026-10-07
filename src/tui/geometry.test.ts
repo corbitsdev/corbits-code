@@ -156,10 +156,8 @@ describe("resolveGeometry — agents panel", () => {
   });
 
   test("under pressure the panel shrinks one row at a time rather than vanishing in one step", () => {
-    // A short terminal plus a couple of banners leaves a deficit banner
-    // rows alone cannot cover, forcing the resolver into the agents zone.
-    // A cliff bug would jump straight from the full request to 0; the fix
-    // must land partway, still nonzero and still under its full request.
+    // Banners leave a deficit the agents zone must cover: the fix lands
+    // partway (still nonzero), not in a cliff from full request to 0.
     const layout = resolveGeometry({
       terminal: { columns: 80, rows: 20 },
       visibility: {
@@ -209,8 +207,6 @@ describe("resolveGeometry — task panel", () => {
 
   test("orchestration chrome stacks below the transcript and above the prompt", () => {
     // Visual order top → bottom: transcript, agents, task, prompt.
-    // Agents sit above the task list; both sit in the bottom chrome, not
-    // above the conversation residual.
     const layout = idle80x24({
       visibility: { task: 3, agents: 1 },
     });
@@ -241,16 +237,10 @@ describe("resolveGeometry — task panel", () => {
   });
 
   test("on a short terminal the task panel is fully collapsed before the prompt is ever shrunk below its idle rows", () => {
-    // Shrink the terminal until something has to give. Two mechanisms can
-    // land the prompt below its idle rows here: PROMPT_CAP_FRACTION caps the
-    // *requested* prompt before collapse ever runs (the one that actually
-    // fires across most of this range, since a short terminal caps prompt
-    // rows well before a 6-row task panel could account for the deficit on
-    // its own), and collapseOnce would additionally shrink prompt only after
+    // Shrink the terminal until something has to give. PROMPT_CAP_FRACTION
+    // caps the requested prompt, and collapseOnce shrinks it only after
     // draining every zone ahead of it in COLLAPSE_ORDER — task included.
-    // Either way the invariant holds: whenever prompt is below its idle
-    // rows, task is already at zero, so the task panel never survives at
-    // the prompt's expense.
+    // Either way: when prompt is below its idle rows, task is already zero.
     for (let rows = 24; rows >= 10; rows--) {
       const layout = resolveGeometry({
         terminal: { columns: 80, rows },
@@ -411,9 +401,8 @@ describe("resolveGeometry — overlay modes", () => {
   });
 
   test("a large list overlay on a short terminal never exceeds terminal rows", () => {
-    // A ~30-command palette asks for far more body rows than a short terminal
-    // has; the resolver must still sum to exactly terminal.rows rather than
-    // let the overlay's own border/title chrome overflow past the screen.
+    // A ~30-command palette wants more body rows than a short terminal has;
+    // the resolver must still sum to exactly terminal.rows.
     for (let rows = 4; rows <= 12; rows++) {
       const layout = resolveGeometry({
         terminal: { columns: 80, rows },

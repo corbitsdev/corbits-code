@@ -19,9 +19,9 @@ import {
 } from "./stream-event-map.js";
 
 /**
- * Map one canonical bridge inbound event to a paint row.
- * Non-row events (run state, tool.boundary, assistant.delta) return null —
- * callers coalesce deltas / apply run state themselves when needed.
+ * Map one canonical bridge inbound event to a paint row. Non-row events (run
+ * state, tool.boundary, assistant.delta) return null — callers coalesce
+ * deltas / apply run state themselves when needed.
  */
 export function rowFromBridgeEvent(
   event: BridgeInboundEvent,
@@ -54,11 +54,10 @@ export function rowFromBridgeEvent(
 }
 
 /**
- * Map zero or more bridge events to paint rows (filters nulls).
- * Does not coalesce assistant.delta — those stay non-rows.
- *
- * Tool events are folded rather than mapped one-to-one: a call and its result
- * are one row, and a repeat of a call collapses onto the row it repeats.
+ * Map zero or more bridge events to paint rows (filters nulls). Does not
+ * coalesce assistant.delta. Tool events fold rather than map one-to-one: a
+ * call and its result are one row, and a repeat collapses onto the row it
+ * repeats.
  */
 export function rowsFromBridgeEvents(
   events: readonly BridgeInboundEvent[],
@@ -72,8 +71,8 @@ export function rowsFromBridgeEvents(
 }
 
 /**
- * Row index where the inference attempt in progress began. A failed attempt is
- * re-streamed from scratch, so its rows are retracted rather than appended to.
+ * Row index where the inference attempt in progress began. A failed attempt
+ * is re-streamed from scratch, so its rows are retracted, not appended to.
  */
 interface AttemptBoundary {
   at: number | null;

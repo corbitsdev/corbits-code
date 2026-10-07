@@ -12,11 +12,10 @@ const CATALOG: readonly PaletteCommand[] = [
   { id: "mcp", label: "/mcp" },
 ];
 
-// Regression: the overlay host floats absolutely over the landing (top set to
-// a large row offset) but is an in-flow band once a transcript exists.
-// Un-floating used to leave the absolute insets behind, and under relative
-// positioning a stale top offsets the band downward — the slash popup rendered
-// below the prompt, clipped off the bottom of the screen.
+// Regression: the overlay host floats absolutely over the landing but is an
+// in-flow band once a transcript exists. Un-floating used to leave stale
+// absolute insets behind, offsetting the band downward — the slash popup
+// rendered below the prompt, clipped off the bottom of the screen.
 test("slash popup stays above the prompt after a landing-floated overlay", async () => {
   await withTestRenderer(
     async (h) => {

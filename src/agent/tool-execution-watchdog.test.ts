@@ -649,20 +649,17 @@ describe("tool execution watchdog", () => {
   });
 
   test("stale resume after a forced ceiling resume does not unfreeze a newer pause", async () => {
-    // Ceiling fires at 120ms and force-resumes prompt A's pause. Prompt B then
-    // opens its own pause on the now-running clock. When prompt A's orphaned
-    // resume() finally arrives, it must not decrement prompt B's pause depth
-    // or cancel B's own ceiling timer — B should get its own full ceiling
-    // window before the budget clock resumes on its account.
+    // Ceiling force-resumes prompt A; B opens its own pause on the now-
+    // running clock. A's orphaned resume must not decrement B's pause depth
+    // or cancel B's own ceiling timer.
     const parent = new AbortController();
     const budget = withPauseableTimeout(parent.signal, 180, 90);
     const tokenA = budget.pause(); // prompt A, ceiling armed to fire at ~90ms
     await new Promise((r) => setTimeout(r, 150)); // past A's ceiling
     const tokenB = budget.pause(); // prompt B opens at ~150ms, ceiling armed to ~240ms
     budget.resume(tokenA); // stale resume from prompt A must be a no-op
-    // If the stale resume wrongly unfroze the clock (bug: it also cancels B's
-    // ceiling timer), the budget aborts around 270ms. With the fix, B's own
-    // ceiling doesn't fire until ~240ms, so the budget is still frozen here.
+    // Bug: the stale resume would unfreeze the clock and abort around 270ms.
+    // With the fix, B's own ceiling (~240ms) has not fired, so still frozen.
     await new Promise((r) => setTimeout(r, 150));
     expect(budget.signal.aborted).toBe(false);
     // B's ceiling eventually force-resumes it on its own account.
@@ -673,10 +670,9 @@ describe("tool execution watchdog", () => {
   });
 
   test("nested watchdog pause freezes the enclosing budget too", async () => {
-    // wait_agents: outer watchdog wraps the parent collect call; each child tool
-    // call opens its own nested watchdog. A permission prompt during the child
-    // captures the innermost budget — pausing it must also freeze the parent
-    // budget, or the parent keeps ticking under the modal.
+    // wait_agents: outer watchdog wraps the parent collect; each child call
+    // opens a nested watchdog. A permission prompt in the child captures the
+    // innermost budget — pausing it must freeze the parent too.
     const result = await runWithToolExecutionWatchdog(
       { id: "outer", name: "wait_agents", arguments: {} },
       new AbortController().signal,

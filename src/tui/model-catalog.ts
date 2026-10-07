@@ -1,12 +1,9 @@
 /**
  * Provider/model catalog → model picker options for OpenTUI product host.
  *
- * Pure: maps config.providers (record or array) into `{ id, label }[]` for
- * openModelPickerOverlay / ProductHostConfig.models. Recent/favorites refs and
- * the Go-on-Zen billing predicate are also plain data — callers own settings
- * and config loading.
- *
- * Identity is opaque and collision-free across provider/model pairs.
+ * Pure: maps config.providers (record or array) into `{ id, label }[]`.
+ * Recent/favorites refs and the Go-on-Zen billing predicate are also plain
+ * data — callers own settings and config loading.
  */
 
 import { type } from "arktype";
@@ -70,7 +67,7 @@ export type ModelCatalogProvidersInput =
  * - Record: keys are provider names; values supply `models` (+ optional label).
  *
  * Empty / missing model lists are skipped. Stable order: provider order then
- * model order within each provider. Dedupes by id.
+ * model order within each provider.
  */
 export function buildModelCatalog(
   providers: ModelCatalogProvidersInput,

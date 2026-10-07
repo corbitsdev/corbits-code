@@ -41,8 +41,8 @@ export type OAuthProfileValidation =
 /**
  * Validate and lowercase-normalize an operator-entered account slug. This is
  * the constraint owner for the slug shape — the auth store and the catalog
- * projection (`oauthProviderName`) trust whatever they are handed, since a
- * "/" here would silently join into the compound catalog name they build.
+ * projection trust whatever they are handed, since a "/" here would silently
+ * join into the compound catalog name they build.
  */
 export function validateOAuthProfileSlug(raw: string): OAuthProfileValidation {
   const slug = raw.trim().toLowerCase();

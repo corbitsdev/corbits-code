@@ -30,8 +30,8 @@ export type UrlOpener = (url: string) => void;
  * Argv for opening a URL with the platform handler, without a shell. Windows
  * must never route through `cmd /c start`: cmd.exe re-parses the assembled
  * command line, so `&`, `|` and `&&` in an attacker-influenceable transcript
- * URL would execute as command separators. `rundll32 url.dll,FileProtocolHandler`
- * takes the URL as a plain argv element instead.
+ * URL would execute as command separators. `rundll32` takes the URL as a
+ * plain argv element instead.
  */
 export function platformUrlCommand(platform: string, url: string): string[] {
   if (platform === "darwin") return ["open", url];

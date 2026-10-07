@@ -94,8 +94,7 @@ describe("top padding", () => {
           await settle(h);
           const rows = h.captureCharFrame().split("\n");
           // Row 0 is still the top pad's own blank row: a single short row
-          // sits at the bottom of the transcript zone, against the prompt
-          // box, not immediately after the pad.
+          // sits at the bottom of the transcript zone, against the prompt box.
           expect(rows[0]?.trim()).toBe("");
           const contentIndex = rows.findIndex((r) =>
             r.includes("first prompt"),

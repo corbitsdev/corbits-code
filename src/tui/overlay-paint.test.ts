@@ -81,8 +81,8 @@ async function paintOverlay(
 }
 
 /**
- * Every interior row must be either blank or exactly one expected overlay row.
- * Two renderables sharing cells produces a hybrid string that matches nothing.
+ * Every interior row must be either blank or exactly one expected overlay row;
+ * two renderables sharing cells produces a hybrid string that matches nothing.
  */
 function expectCleanInterior(
   interior: readonly string[],

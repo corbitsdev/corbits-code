@@ -46,11 +46,10 @@ export type BridgeInboundEvent =
   | { readonly type: "system"; readonly text: string }
   | { readonly type: "run"; readonly state: RunState }
   /**
-   * Live fleet-lane count. Emitted by the runner on every transition of
-   * the sub-agent store's live-lane count (interrupted leftovers are not
-   * live); drives idle-with-fleet — the run stays busy after the parent
-   * turn settles until this lands back at zero (true session-idle), and
-   * Enter mid-hold upgrades to a new turn rather than a queued steer.
+   * Live fleet-lane count from the runner (interrupted leftovers are not
+   * live). Drives idle-with-fleet: the run stays busy after the parent turn
+   * settles until this lands back at zero (true session-idle), and Enter
+   * mid-hold upgrades to a new turn rather than a queued steer.
    */
   | { readonly type: "fleet"; readonly running: number }
   /**
@@ -61,10 +60,10 @@ export type BridgeInboundEvent =
   | { readonly type: "tool.boundary" }
   | { readonly type: "error"; readonly message: string }
   /**
-   * Attempt-boundary bookkeeping for retries. `mark` records where the current
-   * inference attempt's rows begin, `clear` disarms that boundary once the
-   * attempt has settled, and `rollback` retracts everything painted since it.
-   * The mapper decides *when*; the consumer owns the row index.
+   * Attempt-boundary bookkeeping for retries: `mark` records where the
+   * current attempt's rows begin, `clear` disarms it once the attempt has
+   * settled, `rollback` retracts everything painted since it. The mapper
+   * decides *when*; the consumer owns the row index.
    */
   | {
       readonly type: "attempt";
@@ -112,22 +111,23 @@ export interface StreamMapContext {
   readonly pendingDelta: { assistant: string; thinking: string };
   /**
    * True between an `inference.start` and the event that settles its cycle.
-   * `inference.retry` has two producers with opposite meanings, told apart by
-   * ordering: the harness emits it for a pre-commit retry, before the cycle's
-   * `inference.start`, when the failed attempt streamed nothing and there is
-   * nothing to retract. The reactor emits it after a committed attempt failed
-   * and is about to re-stream what it already painted. Only a retry arriving
-   * while this is armed retracts.
+   * `inference.retry` has two producers told apart by ordering: the harness
+   * emits it pre-commit, before the cycle's `inference.start`, when the
+   * failed attempt streamed nothing and there is nothing to retract; the
+   * reactor emits it after a committed attempt failed and is about to
+   * re-stream what it already painted. Only a retry arriving while this is
+   * armed retracts.
    */
   attemptArmed: boolean;
   /** Tool calls already known when the current attempt started. */
   attemptCallIds: Set<string>;
   /**
    * A committed attempt can also end in `inference.error` with no
-   * `inference.done`. A same-provider retry follows that error with another
-   * `inference.start`. The boundary must not stay armed across a terminal
-   * error, so the error hands it off here: the very next event consumes it and
-   * retracts the failed attempt, or expires it and keeps the error row.
+   * `inference.done`, and a same-provider retry follows that error with
+   * another `inference.start`. The boundary must not stay armed across a
+   * terminal error, so the error hands it off here: the very next event
+   * consumes it and retracts the failed attempt, or expires it and keeps
+   * the error row.
    */
   errorRollbackArmed: boolean;
   /**
@@ -208,8 +208,8 @@ const DELTA_EVENT_TYPE: Record<DeltaChannel, BridgeInboundEvent["type"]> = {
 };
 
 /**
- * Model output is attacker-influenceable: a prompt injection can make the model
- * reproduce an escape sequence in its own reply, which never passes the
+ * Model output is attacker-influenceable: a prompt injection can make the
+ * model reproduce an escape sequence in its own reply, which never passes the
  * tool-dispatch sanitizer. Deltas arrive in fragments, so a sequence can
  * straddle a boundary — the trailing partial is held in the map context and
  * joined to the next fragment rather than sanitized in isolation.
@@ -228,7 +228,7 @@ function sanitizeDelta(
 }
 
 /**
- * Held fragments must still reach the screen once the burst ends. What is
+ * Held fragments must still reach the screen once the burst ends; what is
  * still incomplete at that point never became a real sequence, so it is
  * discarded rather than painted with its introducer bytes shaved off.
  */
@@ -316,12 +316,11 @@ function toolCallEvent(
 }
 
 /**
- * Map one production-shaped reactor/stream event into zero or more bridge events.
- *
- * A `ctx` carries the cross-event bookkeeping: callId→name resolution for a
- * tool.done without result.name, retry boundaries, and the suppressions that
- * keep one paint per thing (connector.reply after deltas, no double tool_call).
- * Stateless calls remain safe for fixtures and simple unit tests.
+ * Map one production-shaped reactor/stream event into zero or more bridge
+ * events. A `ctx` carries the cross-event bookkeeping: callId→name resolution
+ * for a tool.done without result.name, retry boundaries, and the suppressions
+ * that keep one paint per thing (connector.reply after deltas, no double
+ * tool_call). Stateless calls remain safe for fixtures and simple unit tests.
  */
 export function mapProductionEvent(
   event: ReactorLikeEvent,
@@ -334,9 +333,9 @@ export function mapProductionEvent(
   if (event.type !== "inference.thinking.delta") {
     flushed.push(...flushDelta(ctx, "thinking"));
   }
-  // The error handoff only survives to the very next event; consume it here so
-  // anything other than the retry start it was meant for expires the boundary
-  // and keeps the error row.
+  // The error handoff only survives to the very next event: anything other
+  // than the retry start it was meant for expires the boundary and keeps the
+  // error row.
   const handoff = ctx?.errorRollbackArmed === true;
   if (ctx) ctx.errorRollbackArmed = false;
   const expired =

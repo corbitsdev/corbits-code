@@ -2,17 +2,11 @@
  * Runtime side-channel notices: lifecycle hooks, MCP connection state,
  * recorded permission grants, and successful context compaction.
  *
- * These channels are chatter by default and only sometimes news. The split
- * this module encodes:
- *
- * - a **row** is for something the operator has to act on, and that they must
- *   still be able to read after scrolling away (a hook that failed, an MCP
- *   server asking for authorization or refusing to connect);
- * - a **flash** is for confirmation of something they just caused, true only
- *   for a moment (a hook that ran, a server that came up, a grant recorded,
- *   a compaction that folded turns away);
- * - **null** is for inventory and intermediate states (`hooks.loaded`, a
- *   server that is merely `connecting`) — the /hooks and /mcp panels own that.
+ * The split this module encodes: a **row** is something the operator must
+ * act on and still read after scrolling away (a failed hook, an MCP server
+ * refusing to connect); a **flash** confirms something they just caused
+ * (a hook that ran, a grant recorded); **null** is inventory and
+ * intermediate states, which the /hooks and /mcp panels own.
  *
  * Pure: strings only, no shell or renderer access.
  */

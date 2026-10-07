@@ -223,9 +223,8 @@ describe("image attachment helpers", () => {
   test.skipIf(process.platform !== "darwin")(
     "downscales and recompresses an oversized pasted image",
     async () => {
-      // ~1700x1700 random-RGB PNG lands around 8MB uncompressed -- comparable
-      // to the multi-MB pasted screenshots that were being resent on every
-      // turn (see gtm-workbench forensics sessions 019f4fd9*/019f4fdb*/019f4fdc*).
+      // ~1700x1700 random-RGB PNG lands around 8MB uncompressed — the
+      // multi-MB paste size that used to be resent on every turn.
       const large = buildTestPng(1700, 1700);
       expect(large.byteLength).toBeGreaterThan(1_000_000);
 

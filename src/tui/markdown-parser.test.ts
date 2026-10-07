@@ -153,8 +153,8 @@ describe("block elements", () => {
   test("closing fence streamed one character at a time never shrinks the block", () => {
     // The newline after the body starts a fresh, still-empty line that could
     // become the closing fence. Streaming ` then `` then ``` across it must
-    // never remove a line that was already visible (a visible shrink reads as
-    // flicker), only ever hold steady or grow as the fence completes.
+    // never remove a line that was already visible (visible shrink reads as
+    // flicker) — only hold steady or grow as the fence completes.
     const base = "```js\nconst x = 1;\n";
     const steps = [base, `${base}\``, `${base}\`\``, `${base}\`\`\``];
     const lineCounts = steps.map((content) => parseMarkdown(content).length);

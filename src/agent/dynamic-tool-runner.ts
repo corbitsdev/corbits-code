@@ -15,15 +15,11 @@ import { stripTerminalControlSequences } from "../util/control-char-strip.js";
 import { prepareDispatchedToolCall } from "./tool-aliases.js";
 import { UNADVERTISED_MOUNTED_BUILTINS } from "./tool-search.js";
 
-// A tool runner whose set of tools can grow after construction. The static
-// createToolRunner freezes its name map at build time, which cannot accommodate
-// MCP servers that connect after the TUI has already started. This runner keeps
-// a mutable map and exposes `addTools` so late-connected servers' tools become
-// dispatchable in the running session. `definitions` is a live getter, and the
-// director advertises the current set on each inference (see updateToolDefinitions).
-//
-// `watchdogConfig` is read on every run so Settings toggles (timeouts,
-// waitForApproval) take effect on the next tool call without rebuilding tools.
+// A tool runner whose tool set can grow after construction: the static
+// createToolRunner freezes its name map at build time, which cannot
+// accommodate MCP servers that connect after the TUI has started.
+// `watchdogConfig` is read on every run so Settings toggles take effect on
+// the next tool call without rebuilding tools.
 export type DynamicToolRunner = AgentToolRunner & {
   addTools(tools: AgentTool[]): void;
   removeTools(names: string[]): void;
@@ -32,25 +28,21 @@ export type DynamicToolRunner = AgentToolRunner & {
    * When a gate is set, a registered tool whose name is not on the current
    * wire (built-in prefix + pinned + activated) is interceptable: if
    * `setOnUndeclaredCall` was wired, that handler declares the one name
-   * (promote-on-execute) and run() re-checks the gate, then dispatches.
-   * If the name is still not callable, run() errors toward tool_search.
-   * Without a gate every registered tool stays dispatchable — sub-agent
-   * runners never set one.
+   * (promote-on-execute) and run() re-checks the gate, then dispatches;
+   * otherwise it errors toward tool_search. Without a gate every registered
+   * tool stays dispatchable — sub-agent runners never set one.
    *
-   * `options.isActivated` is the promotion side of the gate: a name the
-   * session already declared that is absent from the registry — its server
-   * disconnected or the snapshot rebuilt under it — reports "not currently
-   * available, server may be reconnecting, retry shortly" instead of the
-   * bare unknown-tool string. Names never activated keep the exact
-   * unknown-tool string.
+   * `options.isActivated` is the promotion side: an activated-but-unregistered
+   * name reports "not currently available, server may be reconnecting" rather
+   * than the bare unknown-tool string; names never activated keep that string.
    */
   setCallGate(
     isCallable: (name: string) => boolean,
     options?: { isActivated?: (name: string) => boolean },
   ): void;
   /**
-   * Session promoter used when a known-but-unadvertised call arrives.
-   * Declare that one name (activate + flush), then dispatch. Search loads
+   * Session promoter used when a known-but-unadvertised call arrives:
+   * declare that one name (activate + flush), then dispatch. Search loads
    * only the top ranked hits onto the tail; this path covers a called name
    * that was not in that prefix, plus director-side triggers.
    */

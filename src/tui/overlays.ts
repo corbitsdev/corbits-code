@@ -36,8 +36,8 @@ export interface OpenPermissionsOpts {
   /**
    * Suppress the generic accept/answer echo for this open. Decision gates
    * pass `false` so a settled permission does not replay into the
-   * transcript; callers with no such policy (e.g. the standalone demo)
-   * get the default echo so their choice still leaves a trace.
+   * transcript; callers with no such policy get the default echo so their
+   * choice still leaves a trace.
    */
   readonly echoChoice?: boolean;
 }
@@ -82,16 +82,16 @@ export interface OpenOperatorOpts {
   /**
    * Suppress the generic accept/answer echo for this open. Decision gates
    * pass `false` so a settled operator question does not replay into the
-   * transcript; callers with no such policy (e.g. the standalone demo)
-   * get the default echo so their choice still leaves a trace.
+   * transcript; callers with no such policy get the default echo so their
+   * choice still leaves a trace.
    */
   readonly echoChoice?: boolean;
 }
 
 /**
- * Line appended to the question when the operator can neither pick nor type.
- * The overlay must always say what its one available action is rather than
- * offering "Enter choose" against an empty list.
+ * Line appended to the question when the operator can neither pick nor type:
+ * the overlay must say what its one available action is, not offer "Enter
+ * choose" against an empty list.
  */
 const NO_WAY_TO_ANSWER =
   "No options were offered and this question takes no typed answer. Press Esc to cancel it.";

@@ -7,11 +7,10 @@ import type { MessageAttachment } from "@intx/types/runtime";
 export const MAX_IMAGE_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 // A pasted screenshot can be several MB of uncompressed PNG. Attachments land
-// verbatim inside a ConversationTurn and are replayed on every subsequent
-// inference call until compaction ages them out (src/session/compactor.ts),
-// so an oversized image inflates every prompt for as long as the turn
-// survives. Downscale/recompress at ingestion time so the worst case is
-// bounded regardless of how long that takes.
+// verbatim inside a ConversationTurn and are replayed on every inference call
+// until compaction ages them out (src/session/compactor.ts), so an oversized
+// image inflates every prompt for as long as the turn survives. Downscale at
+// ingestion time so the worst case is bounded regardless of how long that takes.
 export const MAX_IMAGE_DIMENSION = 1568;
 const DOWNSCALE_THRESHOLD_BYTES = 300 * 1024;
 const JPEG_QUALITY = 70;

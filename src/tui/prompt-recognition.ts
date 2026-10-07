@@ -1,7 +1,7 @@
 /**
  * Prompt token recognition: leading slash commands and @mentions.
  *
- * Bare skill/agent names are never highlighted. Orange is reserved for a
+ * Bare skill/agent names are never highlighted; orange is reserved for a
  * leading `/command` (the `/name` only) and `@mention` tokens anywhere.
  */
 

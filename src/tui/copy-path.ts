@@ -1,7 +1,7 @@
 /**
  * Keyboard copy path — message / tool / diff without mouse drag-select.
- * Binding: Alt+C (interaction contract).
- * Pure format + port; shell wires the chord and overlay picker.
+ * Binding: Alt+C (interaction contract). Pure format + port; the shell wires
+ * the chord and overlay picker.
  */
 
 import { diffPlainText } from "./diff.js";

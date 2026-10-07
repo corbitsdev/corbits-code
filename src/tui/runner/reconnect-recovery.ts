@@ -1,17 +1,13 @@
 /**
  * Idle-only one-action reconnect offer for reconnect-class terminal failures
- * (credential_failure on a known-OAuth provider id): re-authenticate the exact
- * `kind/profile` scope that failed, then replay the turn once when nothing
- * was committed. Mirrors credential-recovery's begin/observe/settle/accept
- * shape on purpose — the two offers share one submit/exit seat and one
- * continuation slot, so they must speak the same state language.
+ * (credential_failure on a known-OAuth provider id): re-authenticate the
+ * failed `kind/profile` scope, then replay the turn once when nothing was
+ * committed. Mirrors credential-recovery's begin/observe/settle/accept shape
+ * — the two offers share one submit/exit seat and one continuation slot, so
+ * they must speak the same state language.
  *
- * Idle-only, no bare keys: like the credential-recovery picker, the surface is
- * an overlay the runner opens when the run goes idle, so it never hijacks
- * typing mid-turn (TUI.md §typography-and-key-handling, §slash-commands).
- * Single action, no type-to-filter: Reconnect <kind>/<profile> — re-authenticate
- * "<profile>". Enter re-keys via a pre-scoped /connect; Esc returns to the
- * composer with /model + manual /connect still available.
+ * Idle-only, no bare keys, single action: Enter re-keys via a pre-scoped
+ * /connect; Esc returns to the composer.
  */
 
 import type { InboundMessage } from "@intx/types/runtime";

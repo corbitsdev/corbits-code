@@ -196,8 +196,7 @@ describe("mcp.status channel", () => {
   test("a failed connect keeps the landing mountain and rides the notice strip (CL-5600)", async () => {
     // Full product-host path: mcp.status → mcpNotice → surfaceSystemNotice.
     // The unit landing suite covers surfaceSystemNotice alone; this locks the
-    // wire so a future re-route through appendStreamRow cannot wipe the hero
-    // again without failing here.
+    // wire so a future re-route cannot wipe the hero again without failing here.
     const { host, emitter, frame, cleanup } = await mountHeadless();
     try {
       expect(isLanding(host.shell)).toBe(true);

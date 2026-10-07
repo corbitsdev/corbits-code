@@ -2,8 +2,8 @@
  * The density ramp is the activity primitive. Every assertion here reads the
  * rendered frame and is pinned to the prompt box's bottom border — the one row
  * the status slot rides. Shell fields are not evidence: the bug this indicator
- * exists to fix was a slot whose internal state was perfectly correct and whose
- * painted row never changed.
+ * exists to fix was a slot whose state was correct and whose painted row never
+ * changed.
  */
 
 import { describe, expect, test } from "bun:test";

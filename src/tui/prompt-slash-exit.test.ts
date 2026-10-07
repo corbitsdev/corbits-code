@@ -191,9 +191,8 @@ describe("slash command popup", () => {
       press("z");
       await render();
       // The popup was already open (from "/") when the filter zeroed out —
-      // closing here would release the host, which is exactly the gap a
-      // queued gate can drain into mid-filter. It stays owned and shows the
-      // same "(no matches)" row the general palette uses.
+      // closing here would release the host, the gap a queued gate can drain
+      // into mid-filter. It stays owned and shows "(no matches)".
       expect(isSlashPopupOpen(shell)).toBe(true);
       expect(shell.overlayList).not.toBeNull();
       expect(shell.prompt.value).toBe("/z");
@@ -224,9 +223,9 @@ describe("slash command popup", () => {
       expect(shell.prompt.value).toBe("/release <id>");
       expect(isSlashPopupOpen(shell)).toBe(false);
       expect(shell.prompt.hasSelection()).toBe(true);
-      // One arrow key drops the untouched selection without editing — collapse
-      // it the same way — and the shape is still the placeholder. Submitting
-      // it must dispatch the bare command, not the literal placeholder.
+      // One arrow key drops the untouched selection without editing, so the
+      // shape is still the placeholder; submitting must dispatch the bare
+      // command, not the literal placeholder.
       shell.prompt.setSelection(
         shell.prompt.value.length,
         shell.prompt.value.length,
@@ -278,9 +277,8 @@ describe("slash command popup", () => {
       await Bun.sleep(60);
       expect(isSlashPopupOpen(shell)).toBe(false);
       expect(shell.overlayList).toBeNull();
-      // The typed text survives; submitting it still sends cleanly. `release`
-      // is a catalog fixture, not a registry command, so the send — not a
-      // registry dispatch — is the signal.
+      // `release` is a catalog fixture, not a registry command, so the send —
+      // not a registry dispatch — is the signal.
       press("Enter");
       expect(shell.prompt.value).toBe("");
       expect(shell.sentHistory.sent).toEqual(["/release"]);

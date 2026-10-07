@@ -126,11 +126,10 @@ export function createSurface(
   });
 
   // Every direct child of `root` needs flexShrink: 0, full stop — a plain
-  // TextRenderable defaults to shrinkable, and a short terminal makes the
-  // flex algorithm compress unprotected single-line rows into each other
-  // (garbled overlapping text) instead of clipping the column from the
-  // bottom. header/intro/step/instruction here, and statusLine/guidance/
-  // footer further down, all needed this; it is not specific to one step.
+  // TextRenderable defaults to shrinkable, and a short terminal makes the flex
+  // algorithm compress unprotected single-line rows into each other instead of
+  // clipping the column from the bottom. header/intro/step/instruction here,
+  // and statusLine/guidance/footer further down, all need this.
   const header = new TextRenderable(renderer, {
     id: "provider-setup-header",
     content: `${PRODUCT_NAME.toLowerCase()} · setup`,
