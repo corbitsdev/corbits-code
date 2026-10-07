@@ -56,10 +56,10 @@ describe("truncateToolResultContent", () => {
 
     expect(truncated).toContain("[output truncated");
     expect(truncated).toContain("NOT retrievable");
-    // The pre-cap discard must never be described as recoverable elsewhere.
+    // The pre-cap discard must never be described as recoverable, and never
+    // promised a lifetime this plugin does not control.
     expect(truncated).not.toContain("see the rest");
     expect(truncated).not.toContain("Full output available");
-    // And it must never promise a lifetime it doesn't control either way.
     expect(truncated).not.toContain("removed");
     expect(truncated).not.toContain("session ends");
   });
@@ -656,10 +656,9 @@ describe("archive then truncate", () => {
 describe("scrub-before-spill", () => {
   test("secret scrub runs on the full content before truncation spills", async () => {
     const store = fakeBlobStore();
-    // Compose the same order as buildCorePosixToolPlugins: truncation outer,
-    // scrub inner — so scrub sees the full payload and the spill is redacted.
-    // Put the credential near the start so the kept (≤10k) slice also proves scrub
-    // ran; a secret past the cut would only show up in the spill.
+    // Same order as buildCorePosixToolPlugins: truncation outer, scrub inner —
+    // scrub sees the full payload and the spill is redacted. Put the credential
+    // near the start so the kept (≤10k) slice proves scrub ran.
     const secret = `prefix sk-live-${"a".repeat(24)} ${"x".repeat(MAX_RESULT_CHARS)} suffix`;
     const scrub: ToolPlugin = toolResultSecretScrubPlugin();
     const trunc: ToolPlugin = resultTruncationPlugin({

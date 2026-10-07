@@ -131,11 +131,9 @@ test("the output byte cap holds when ripgrep is unavailable", async () => {
   });
 });
 
-// A grep run that both breaches the byte cap (rg-output.ts) and matches more
-// lines than max_results (ripgrep-plugin.ts's own count cap) used to stack the
-// byte cap's wording on top of the count cap's. The byte cap is silent now, so
-// what is left describes the omission the reader cannot otherwise detect: how
-// many matches were dropped.
+// A run breaching both the byte cap and the count cap must not stack two
+// notices. The byte cap is silent now, so the count notice alone tells the
+// operator how many matches were dropped.
 test("a grep result that hits both the byte cap and the match-count cap announces the dropped matches once", async () => {
   // 400 matched lines emitted directly, bypassing a real `rg` process so
   // nothing upstream of ripgrep-plugin.ts pre-limits the line count.
@@ -160,11 +158,10 @@ test("a grep result that hits both the byte cap and the match-count cap announce
   );
 });
 
-// Composed through buildCorePosixToolPlugins, not a hand-assembled pair:
-// ripgrepPlugin sits at an earlier array index than resultTruncationPlugin and
-// answers grep without calling next, so resultTruncationPlugin never sees a
-// grep result. Assembling the two by hand in the other order hides that and
-// lets an oversized result reach the model uncapped and unannounced.
+// Composed through buildCorePosixToolPlugins: ripgrepPlugin sits before
+// resultTruncationPlugin and answers grep without calling next, so truncation
+// never sees a grep result — hand-assembling the pair in the other order
+// would hide that and let an oversized result through uncapped.
 async function grepThroughRealChain(dir: string): Promise<string> {
   const gate = createPermissionGate({
     approvals: [],

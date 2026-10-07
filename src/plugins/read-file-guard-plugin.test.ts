@@ -251,9 +251,8 @@ describe("readFileBounded", () => {
     expect(isError).toBeUndefined();
     expect(content.length).toBeGreaterThan(0);
     expect(content).toContain("     1\t");
-    // The scan-capped remainder is windowed like a smaller overlong line, so
-    // the footer offers a deliverable offset page instead of a truncated line
-    // under a scan notice whose tail is unreachable.
+    // The scan-capped remainder windows like a smaller overlong line, so the
+    // footer offers a deliverable offset page instead of an unreachable tail.
     expect(content).not.toContain("line truncated");
     expect(content).not.toContain("scan limit");
     expect(content).toContain("output limit");
@@ -330,11 +329,9 @@ describe("readFileBounded", () => {
 });
 
 describe("CL-8979 large-file pagination", () => {
-  // The paging contract is ceiling-relative, so the chain tests inject a
-  // small ceiling (same as the single-line windowing test) and keep the
-  // fixture above it instead of 45k rows over the 8MB default. Paging is
-  // line-offset based: every hop re-reads the file from the start, so
-  // fixture size drives quadratic I/O (225 hops x up to 11MB before).
+  // Paging is ceiling-relative and line-offset based: inject a small ceiling,
+  // keep the fixture just above it, and every hop re-reads from the start —
+  // fixture size drives quadratic I/O (225 hops x up to 11MB).
   const BIG_SCAN_CEILING = 256 * 1024;
   const BIG_LINES = 4_000;
   const bigRow = (i: number): string => `L${i}-` + "p".repeat(243);
@@ -495,10 +492,8 @@ describe("CL-8979 large-file pagination", () => {
   });
 
   test("windows a single file line past the scan ceiling with exact reassembly", async () => {
-    // The windowing contract is ceiling-relative, so the test injects a small
-    // ceiling and keeps the fixture at ceiling+4096 instead of 8MB+4096.
-    // Paging is line-offset based: each hop re-reads the file from the start,
-    // so an 8MB fixture costs quadratic I/O (168 hops x up to 8MB).
+    // Same ceiling-relative windowing as the pagination tests: small ceiling,
+    // fixture at ceiling+4096, hops re-read from the start (168 x up to 8MB).
     const maxScanBytes = 256 * 1024;
     const filler = "0123456789ABCDEF".repeat(
       Math.ceil((maxScanBytes + 4096) / 16),
