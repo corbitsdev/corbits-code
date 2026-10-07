@@ -59,38 +59,36 @@ export interface WorkflowHostArgs {
   cwd: string;
   getSessionId: () => string;
   getToolDefinitions: () => ToolDefinition[];
-  // The live chat director; the workflow coordinator is attached to it when a
-  // workflow starts. Returns undefined before the director is built. The seam
-  // is optional so the host degrades gracefully against directors without
-  // workflow support — every attach point presence-checks before calling.
+  // The live chat director; the workflow coordinator attaches to it when a
+  // workflow starts. Optional so directors without workflow support stay
+  // valid — every attach point presence-checks before calling.
   getDirector: () => { setWorkflowCoordinator?: SetCoordinator } | undefined;
-  // Overrides the state-tree home (defaults to the real user home). Tests
-  // pass a sandboxed dir here so persist()/resume() never touch ~/.corbits.
+  // Overrides the state-tree home; tests pass a sandboxed dir so
+  // persist()/resume() never touch ~/.corbits.
   home?: string;
   onChange?: () => void;
 }
 
-// Owns workflow lifecycle: starting, capability overrides, resume, and
-// persisting state. UI layers subscribe via onChange and render status().
+// Owns the workflow lifecycle; UI subscribes via onChange and renders status().
 export class WorkflowHost {
   private runtime: WorkflowRuntime | undefined;
   private coordinator: WorkflowCoordinator | undefined;
   private overrides = new Set<CapabilityName>();
   private pendingReplace: string | undefined;
   private completedWorkflows: WorkflowStatus[] = [];
-  // Last status snapshot seen while the workflow was active. Used to populate
-  // history on workflow-complete, where isActive() is already false.
+  // Last active status snapshot, used to fill history once workflow-complete
+  // fires after isActive() is already false.
   private lastActiveStatus: WorkflowStatus | undefined;
 
   constructor(private readonly args: WorkflowHostArgs) {}
 
-  // Re-attach the active coordinator to a freshly rebuilt director. Safe to
-  // call with no active workflow — it just clears any stale coordinator.
+  // Re-attach the active coordinator to a rebuilt director; with no active
+  // workflow this only clears stale state.
   reattach(): void {
     this.args.getDirector()?.setWorkflowCoordinator?.(this.coordinator);
   }
 
-  // Drop the active workflow and history (e.g. on /clear).
+  // Drop the active workflow and history (on /clear).
   reset(): void {
     this.runtime = undefined;
     this.coordinator = undefined;
@@ -160,8 +158,8 @@ export class WorkflowHost {
         this.notify();
       },
       workflow.stepThrough === true,
-      // The directive's collect copy follows the live surface: wait_agents on
-      // exec primary, mailbox mail where it is unmounted (TUI, nested).
+      // Directive collect copy follows the live surface: wait_agents on exec
+      // primary, mailbox mail where unmounted (TUI, nested).
       this.args
         .getToolDefinitions()
         .some((definition) => definition.name === "wait_agents"),
@@ -178,14 +176,12 @@ export class WorkflowHost {
     return runtime;
   }
 
-  // Shared by start and resume so a restored run records history the same way
-  // a fresh run does.
+  // Shared by start and resume so both record history identically.
   private listen(runtime: WorkflowRuntime): void {
     runtime.on((event: WorkflowEvent) => {
       if (event.type === "workflow-complete") {
-        // status() returns an empty shell here because runtime.done is already
-        // true when the event fires. Use the last snapshot captured while the
-        // workflow was still active.
+        // runtime.done is already true when this fires, so status() is empty;
+        // use the last active snapshot.
         const snapshot = this.lastActiveStatus;
         if (snapshot !== undefined) {
           this.completedWorkflows.push({
@@ -200,8 +196,8 @@ export class WorkflowHost {
     });
   }
 
-  // Start a workflow by name. If one is already active, the first call asks for
-  // confirmation and a second call with the same name replaces it.
+  // Start a workflow by name. An active workflow asks for confirmation; the
+  // same name again replaces it.
   start(name: string): string {
     const workflow = findWorkflow(name);
     if (workflow === undefined) {
@@ -236,8 +232,8 @@ export class WorkflowHost {
     this.notify();
   }
 
-  // Toggle a capability off/on for this run. Affects not-yet-reached steps of an
-  // active workflow and the displayed status.
+  // Toggle a capability for this run. Affects not-yet-reached steps and the
+  // displayed status.
   toggleCapability(name: CapabilityName): string {
     if (this.overrides.has(name)) this.overrides.delete(name);
     else this.overrides.add(name);
