@@ -70,11 +70,8 @@ async function withWorker(
       }),
   };
   try {
-    // Every probe reuses worker id "worker" in a fresh tmpdir, but denied-call
-    // grant envelopes live in a process-shared store keyed by that session id.
-    // A prior probe's pending envelope (same tool + empty args, other cwd)
-    // would veto this probe's call via the retry-from-another-directory
-    // blocker, so each probe starts from a clean store.
+    // Denied-call envelopes live in a process-shared store keyed by the worker
+    // id; clear it so a prior probe cannot veto this one.
     getProcessWorkerGrantStore().clear();
     await withMockedModuleDuring(
       import.meta.resolve("../src/session/assemble-runtime.js"),

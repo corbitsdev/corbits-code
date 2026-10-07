@@ -27,9 +27,8 @@ async function openFleetSession(
       provider: WORKER_PROVIDER,
       sessions,
       outerRetryDelayMs: 0,
-      // The inner inference backoff waits on the injected scheduler, which
-      // is inert under the harness — abort it outright and let the outer
-      // whole-send retry policy own retry behavior instead.
+      // Abort the inner backoff (injected scheduler is inert); the outer
+      // whole-send retry owns retry behavior instead.
       retryPolicy: () => ({ kind: "abort" }),
     },
     mountWaitAgents: true,
@@ -54,8 +53,7 @@ describe("e2e — fleet orchestration", () => {
           text: "Dispatching a worker.",
           toolCalls: [
             {
-              // The worker's session id is the spawn tool-call id — pin it
-              // so send_input below has a stable target.
+              // The worker's session id is the spawn call id — pin it for send_input.
               callId: "lane-1",
               name: "spawn_agent",
               args: {
@@ -92,8 +90,7 @@ describe("e2e — fleet orchestration", () => {
         });
         session.harness.scenario.replyOnce("openai", {
           predicate: worker,
-          // A leaf report must carry the full four-heading envelope —
-          // partial replies trigger the salvage/nudge path instead of done.
+          // A full four-heading report; partial replies trigger the salvage path.
           text: "## Summary\nEdited src/foo.ts as directed.\n## Findings\nnone\n## Blockers\nnone\n## Paths\nsrc/foo.ts",
         });
         session.harness.scenario.replyOnce("anthropic", {
@@ -123,8 +120,7 @@ describe("e2e — fleet orchestration", () => {
         expect(lane?.question_id).toBeString();
         expect(settled?.results[0]?.status).toBe("done");
         expect(settled?.results[0]?.report).toContain("src/foo.ts");
-        // The answer must actually reach the worker's next inference, not
-        // just unblock the parked call.
+        // The answer must reach the worker's next inference, not just unblock the call.
         const workerRequests = session.harness.scenario
           .matchedRequests()
           .filter((r) => RequestURL.assert(r).url.includes(WORKER_HOST));
@@ -162,8 +158,7 @@ describe("e2e — fleet orchestration", () => {
             },
           ],
         });
-        // No tool call in the reply — nothing has executed, so the outer
-        // whole-send retry is not vetoed and fires once with delayMs 0.
+        // No tool ran, so the outer whole-send retry is not vetoed and fires once.
         session.harness.scenario.replyOnce("openai", {
           predicate: worker,
           text: "bad gateway",

@@ -89,8 +89,7 @@ async function withSession(
   }
 }
 
-// The loud-failure shape under test: a tool.done whose content names the
-// missing tool, flagged isError.
+// Loud failure: a tool.done whose content names the missing tool, flagged isError.
 function loudToolError(
   events: ReactorEmittedEvent[],
   marker: string,
@@ -110,9 +109,8 @@ function toolDoneContents(events: ReactorEmittedEvent[]): string[] {
   );
 }
 
-// Wires production load-on-search: top ranked hits join the advertised tail
-// for the next infer; a call to a remaining unadvertised name still
-// promote-on-execute.
+// Production load-on-search: ranked hits join the advertised tail; a call to
+// an unadvertised name still promotes on execute.
 function promoteDynamicTools(session: IntegrationSession): void {
   const advertised = createAdvertisedToolset({
     sessionMode: "orchestrator",
@@ -190,8 +188,7 @@ function promotionScript(
 }
 
 describe("integration — late MCP dispatch", () => {
-  // Characterization: drop createAgentWithLiveToolDispatch when this starts
-  // failing because published @intx/agent learned to consult live definitions.
+  // Characterization: drop when published @intx/agent consults live definitions.
   test.serial(
     "published createAgent freezes dispatch names at construction",
     async () => {
@@ -276,9 +273,7 @@ describe("integration — late MCP dispatch", () => {
     },
   );
 
-  // One matrix over the promotion wire contract: schema source (default
-  // optional-arg schema vs a required-arg schema), the args the model calls
-  // with, and the published shape those imply.
+  // Promotion wire contract matrix: schema source, model args, and the published shape.
   const promotionCases: {
     name: string;
     schema: MCPClient["tools"][number]["inputSchema"] | undefined;

@@ -42,8 +42,7 @@ function mapArchive(dir: string) {
   });
 }
 
-// A turn sequence carrying one tool_call/tool_result pair — the shape the
-// completeness gate checks for evidence coverage.
+// One tool_call/tool_result pair — the shape the completeness gate checks for coverage.
 function toolExchangeHistory(): ConversationTurn[] {
   return [
     turn("fact-a"),
@@ -182,9 +181,8 @@ describe("compaction atomicity", () => {
     const adopted1 = await first.apply(history1, ctx);
     expect(adopted1.record.reason).toBe("compact");
 
-    // The new spine never passes through inbound admission, so adoption must
-    // leave it in the archive — otherwise the next fold rejects it as
-    // uncovered (a repaired spine is never echoed verbatim).
+    // The new spine never passes inbound admission, so adoption must leave
+    // it in the archive.
     const handoffs = (await archive.listOccurrences()).filter(
       (occurrence) => occurrence.provenance === "compaction-handoff",
     );

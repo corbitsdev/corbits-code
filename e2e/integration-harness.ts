@@ -1,10 +1,8 @@
 /**
- * Agent-loop integration harness for Corbits Code: wires
- * `createAgentWithLiveToolDispatch` (production default) to
- * `@intx/inference-testing` so full reactor cycles run without network I/O.
- *
- * Production-shaped stack: `createChatDirector`, `createAgentToolset` (posix +
- * permission middleware), and git-backed `createOptimizedContextStore`.
+ * Integration harness for the agent loop: wires the production agent
+ * (createAgentWithLiveToolDispatch) to @intx/inference-testing so full
+ * reactor cycles run without network I/O. Production-shaped stack:
+ * createChatDirector, createAgentToolset, git-backed context store.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -85,8 +83,8 @@ export const INTEGRATION_SOURCE: InferenceSource = {
   model: "claude-integration",
 };
 
-// The mock inference stack still resolves the secret through the credential
-// cell, so the shared fixture registers its dummy key on session setup.
+// The mock stack resolves the secret through the credential cell, so the
+// shared fixture registers its dummy key on session setup.
 const INTEGRATION_SECRET = "integration-test-key";
 
 export interface IntegrationSession {
@@ -117,17 +115,14 @@ export interface OpenIntegrationSessionOpts {
   /** Override to pin the published createAgent snapshot (characterization). */
   createAgentFn?: typeof createAgent;
   /**
-   * CL-9007 tail-budget override for the production compactor. Absent means
-   * the shared default; compaction tests pin a tiny budget so their
-   * calibrated growth volumes still fold instead of fitting the live tail.
+   * Tail-budget override for the production compactor; compaction tests pin
+   * a tiny budget so calibrated growth volumes still fold.
    */
   compactionShape?: Partial<CompactionShape>;
   /**
-   * Mounts the real fleet tools (spawn_agent plus lifecycle verbs) on the
-   * session toolset, mirroring the exec runner's `subAgent` block. The
-   * worker's inference still resolves through `assembleInferenceBase` —
-   * callers route it onto this session's harness the same way
-   * e2e/subagent-permission.test.ts does.
+   * Mounts the real fleet tools on the session toolset, mirroring the exec
+   * runner's subAgent block; worker inference resolves through
+   * assembleInferenceBase.
    */
   subAgent?: {
     provider: SubAgentProvider;
@@ -140,11 +135,7 @@ export interface OpenIntegrationSessionOpts {
   mountWaitAgents?: boolean;
   /** Fixed advertised availability for the session's life, as in production. */
   toolAvailability?: ToolAvailability;
-  /**
-   * Forwarded to setupHarness — e.g. `enableInferenceTimers: true` so
-   * retry-delay timers fire in virtual time; without it a scripted
-   * retryable error response parks the send forever.
-   */
+  /** Forwarded to setupHarness, e.g. enableInferenceTimers for retry-delay timers. */
   harnessOpts?: SetupHarnessOpts;
   /**
    * Replace the default single-source stack (e.g. a scenario that fails over
@@ -152,20 +143,11 @@ export interface OpenIntegrationSessionOpts {
    */
   sources?: InferenceSource[];
   defaultSourceId?: string;
-  /**
-   * Extra credential records registered beside the shared fixture key —
-   * distinct credentialIds per scenario keep the process-global cell from
-   * being clobbered by neighboring opens under --randomize.
-   */
+  /** Extra credential records beside the shared fixture key; distinct ids survive --randomize. */
   credentialRecords?: Record<string, SourceCredentialRecord>;
   /** Explicit director retry policy — skips the default Corbits policy. */
   retryPolicy?: RetryPolicy;
-  /**
-   * Fields merged over `harness.deps` for the agent's inference stack —
-   * e.g. a real `createDefaultScheduler()` when a scenario must let
-   * production retry delays actually elapse (the harness scheduler is
-   * inert by default).
-   */
+  /** Fields merged over harness.deps, e.g. a real scheduler when retry delays must elapse. */
   depsOverrides?: Partial<Dependencies>;
 }
 
@@ -423,16 +405,13 @@ export async function runUntilDone(
   const events: ReactorEmittedEvent[] = [];
   const stream = session.agent.stream();
   let turnComplete = false;
-  // Consume-once gate for the compaction continuation emit: a replayed
-  // duplicate of an already-answered emission must not re-deliver.
+  // Consume-once gate so an already-answered continuation emit is not re-delivered.
   const continuationGate = createContinuationGate();
   const collect = (async () => {
     for await (const event of stream) {
       events.push(event);
       if (event.type === COMPACTION_CONTINUATION_EVENT) {
-        // Compaction continuation as a ReactorAction: re-enter the loop with
-        // the same message the old requestContinuation closure delivered.
-        // Each emission is answered once.
+        // Re-enter the loop with the same continuation message; each emission is answered once.
         if (continuationGate.shouldDeliver(event.seq)) {
           session.agent.deliver(buildCompactionContinuationMessage());
         }
@@ -490,11 +469,7 @@ export interface SuspendedTurn {
   waitSettled: () => Promise<void>;
 }
 
-/**
- * One user turn driven under a single harness pump. The turn is expected to
- * park on the reactor's approval gate; the caller resolves the approval and
- * then awaits `reply()` for the resumed cycle's answer.
- */
+/** One user turn that parks on the approval gate; resolve the approval, then await reply(). */
 export async function runUntilSuspended(
   session: IntegrationSession,
   message: string,

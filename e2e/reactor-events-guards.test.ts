@@ -9,19 +9,12 @@ import {
   runUntilDone,
 } from "./integration-harness.js";
 
-// The unit tests in `src/agent/reactor-events.test.ts` cover type-level
-// narrowing across both event unions and `onReactorShutdown`'s behavior.
-// This test asserts the property `onTurnBoundary` exists for — it matches
-// exactly once per turn — against a real reactor's real emitted events,
-// not a synthetic filtered array of hand-built literals.
-//
-// `onReactorShutdown` is not exercised here: `@intx/agent`'s `close()`
-// clears `stream()` consumers synchronously, before the queued abort that
-// produces `reactor.done` is processed, so application code attached via
-// `agent.stream()` cannot observe it after `close()` — the same reason
-// `src/session/run-sink.ts` snapshots status *before* close instead of
-// relying on `reactor.done` to arrive. That gap is covered by the unit
-// test's real `ReactorEmittedEvent` / `ReactorInboundEvent` narrowing.
+// Pins onTurnBoundary against a real reactor's emitted events; the unit
+// tests in src/agent/reactor-events.test.ts cover type-level narrowing.
+// onReactorShutdown is not exercised here: close() clears stream() consumers
+// before the queued abort, so stream consumers cannot observe reactor.done
+// after close() (run-sink.ts snapshots status before close for the same
+// reason).
 describe("integration — reactor-events guards", () => {
   test.serial(
     "onTurnBoundary matches exactly the turn boundary, once per real turn",
@@ -50,8 +43,7 @@ describe("integration — reactor-events guards", () => {
 
         const turnBoundaries = events.filter(onTurnBoundary);
 
-        // One tool-call turn followed by one final-text turn: exactly two
-        // inference.done events, despite tool.done and other events on the stream.
+        // One tool-call turn plus one final-text turn: exactly two inference.done events.
         expect(turnBoundaries.length).toBe(2);
         expect(
           turnBoundaries.every(
