@@ -1,29 +1,15 @@
 /**
- * Live chrome zone formatter for setChromeZones.
+ * Live chrome zone formatter for setChromeZones. Pure: structured session
+ * state → task / agents zone rows; row heights stay with geometry, never
+ * invented here.
  *
- * Pure: structured session state → task / agents zone rows. Heights stay
- * with geometry; this module never invents row budgets.
- *
- * ## Agents strip (live) / task checklist (parked)
- *
- * `formatChromeZones` paints the agents zone from `formatAgentsPanel` and
- * keeps the task checklist parked (`task: null`). Live fleet status is a
- * flat strip above the prompt (label / status / current tool) — same shape
- * as transcript `spawn_agent` anchors, without a FLEET header board.
- * Transcript spawn_agent rows remain as spawn/final/fail anchors; live
- * progress clocks belong to chrome only (product-host gates
- * `syncAgentProgress` while this strip needs a tick).
- *
- * ## Product host push contract
- *
- * The shell does not poll. The product host owns live state (task list,
- * subagent store) and pushes a full snapshot whenever any of those change:
- * `setChromeZones(shell, formatChromeZones(snapshot))`. Always pass the
- * full snapshot so absent zones clear (`null` hides the zone). Partial
- * object fields mean "no data" → that zone line is null, not left stale.
- * Observe mode can override the agents line via `state.observe`. Sticky
- * poll continues while any agent is live or still inside the post-finish
- * linger window (`finishedAt` + `AGENTS_PANEL_LINGER_MS`).
+ * The shell does not poll; the product host owns live state and pushes a
+ * full snapshot on every change — always full, so absent zones clear
+ * (`null` hides a zone). The agents strip is live; the task checklist
+ * stays parked (`task: null`) until a later rebuild. Live progress clocks
+ * belong to chrome only (product-host gates `syncAgentProgress` while this
+ * strip needs a tick). Sticky poll runs while any agent is live or inside
+ * the linger window.
  */
 
 import {
@@ -44,9 +30,9 @@ import type { Telemetry } from "../telemetry/index.js";
 import type { RampPhase } from "./ramp.js";
 
 /**
- * How long a finished agent row (done / failed / cancelled / interrupted) stays
- * on the strip after `finishedAt` before dropping. Mid of the 3–5s hold window
- * so success, failure, and interrupt share the same glanceable linger.
+ * Linger window for a finished agent row (done / failed / cancelled /
+ * interrupted) after `finishedAt`. Mid of the 3–5s hold so every terminal
+ * state shares one glanceable drop.
  */
 export const AGENTS_PANEL_LINGER_MS = 4_000;
 
@@ -70,10 +56,9 @@ export interface ChromeAgentSession {
   /** Clock the oldest outstanding tool call began; separates a long tool from silence. */
   readonly currentToolStartedAt: number | null;
   /**
-   * When the live turn ended. Drives the post-finish linger window on the strip
-   * (`AGENTS_PANEL_LINGER_MS`); absent → no linger paint. Set on interrupt while
-   * TUI `status` may still be `"running"` — the live turn is over even if leftover
-   * tools keep running.
+   * When the live turn ended; drives the linger window (`AGENTS_PANEL_LINGER_MS`);
+   * absent → no linger. Set on interrupt even though TUI `status` may still read
+   * `"running"` — the turn is over while leftover tools keep running.
    */
   readonly finishedAt?: number;
   /** False while admission-queued. Missing means unknown. */
@@ -87,9 +72,8 @@ export interface ChromeTaskRow {
 }
 
 /**
- * One rendered task-panel row. `status` is null for a non-task row (the
- * "+N more" trailer, or a bare-string task input with no structured status)
- * so the renderer knows not to paint a status marker for it.
+ * One rendered task-panel row. `status` is null for non-task rows (the "+N
+ * more" trailer, or a bare-string input) so the renderer skips the marker.
  */
 export interface TaskPanelRow {
   readonly label: string;
@@ -119,11 +103,10 @@ export interface ChromeLiveState {
 }
 
 /**
- * One rendered agents-panel row. `stalled` is a fact the formatter already
- * knows from `agentProgress` — carried explicitly so the renderer never has
- * to recover it by sniffing `label` for a marker string. `label` (the ●/!
- * marker, agentId + description) is the part the renderer may ellipsize under
- * width pressure; `tail` (clock/tool) must never be trimmed away.
+ * One rendered agents-panel row. `stalled` is precomputed from
+ * `agentProgress` so the renderer never sniffs `label` for it. `label`
+ * (marker, agentId, description) may be ellipsized under width pressure;
+ * `tail` (clock/tool) must never be trimmed.
  */
 export interface AgentPanelRow {
   readonly label: string;
@@ -135,17 +118,17 @@ export interface AgentPanelRow {
    */
   readonly kind?: "header" | "lane" | "more";
   /**
-   * Lane lifecycle for paint tone. Live running uses primary `UI.text`;
-   * terminal linger uses done/error/dim. Interrupted linger is dim, not cream
-   * live. Absent ⇒ treat as live running.
+   * Lane lifecycle for paint tone: live running uses primary `UI.text`;
+   * terminal linger uses done/error/dim; interrupted linger is dim, not
+   * live. Absent ⇒ treat as running.
    */
   readonly status?: "running" | "done" | "failed" | "cancelled" | "interrupted";
 }
 
 /**
- * Board paint order for main's `LaneState` vocabulary — trouble first so an
- * operator answers "is everything fine" without reading a word. This is a
- * display order only; stall/`in_tool` semantics live in `agent-progress`.
+ * Board paint order — trouble first so the operator sees problems without
+ * reading. Display order only; stall/`in_tool` semantics live in
+ * `agent-progress`.
  */
 const BOARD_LANE_ORDER: readonly LaneState[] = [
   "stalled",
@@ -176,10 +159,9 @@ export interface ChromeZoneContent {
 
 /**
  * Format structured live state into chrome zone rows for setChromeZones.
- *
- * Agents strip is live (`formatAgentsPanel`); the task checklist stays parked
- * (`task: null`) until a later rebuild. Manual `setChromeZones` / Alt+T can
- * still feed preformatted task rows into the shell.
+ * Agents strip is live (`formatAgentsPanel`); the task checklist stays
+ * parked until a later rebuild. Manual `setChromeZones` / Alt+T can still
+ * feed preformatted task rows.
  */
 export function formatChromeZones(
   state: ChromeLiveState,
@@ -200,10 +182,10 @@ export function formatChromeZones(
 }
 
 /**
- * True while the agents strip still needs wall-clock ticks: any live worker,
- * or any finished row still inside the post-finish linger window. Product-host
- * sticky poll uses this both to keep clocks/linger fresh and to freeze
- * transcript `syncAgentProgress` rewrites while chrome owns live status.
+ * True while the strip still needs wall-clock ticks: any live worker, or a
+ * finished row inside the linger window. Product-host sticky poll uses it to
+ * keep clocks fresh and freeze transcript `syncAgentProgress` rewrites while
+ * chrome owns live status.
  */
 export function agentsChromeNeedsSticky(
   agents: readonly ChromeAgentSession[] | null | undefined,
@@ -231,12 +213,9 @@ export function agentIsLingering(
 
 /**
  * Format the live task-list panel: one row per task, bounded to `maxVisible`
- * with a trailing "+N more" row, mirroring `formatAgentsPanel`'s shape but
- * keyed on status (not liveness) since a task has no clock of its own.
- *
- * Terminal-only lists (every task done/cancelled) collapse to null — a wall of
- * `[x]` rows is not live work, and once the fleet board or parent prose has
- * moved on, painting them is noise.
+ * with a trailing "+N more" row, mirroring `formatAgentsPanel` but keyed on
+ * status (a task has no clock). Terminal-only lists collapse to null — a
+ * wall of `[x]` rows is not live work.
  */
 export function formatTasksPanel(
   task: readonly ChromeTaskRow[] | null | undefined,
@@ -252,8 +231,8 @@ export function formatTasksPanel(
   const live = rows.filter((r) => r.status === "todo" || r.status === "doing");
   if (live.length === 0) return null;
 
-  // Prefer open work; keep recently-done visible only while open work remains
-  // so the operator sees items flip to done without a permanent [x] wall.
+  // Open work first; keep recently-done visible only while open work remains,
+  // so items flip to done without a permanent [x] wall.
   const openFirst = [
     ...live,
     ...rows.filter((r) => r.status === "done" || r.status === "cancelled"),
@@ -265,14 +244,13 @@ export function formatTasksPanel(
 }
 
 /**
- * Format the live agents strip: a flat growing list (label / status / tool),
- * bounded to `maxVisible` with a trailing "+N more" row.
+ * Format the live agents strip: a flat list (label / status / tool), bounded
+ * to `maxVisible` with a trailing "+N more" row.
  *
- * No FLEET header — a roll-up board fought the Amp/Codex-style lane list the
- * strip is meant to be. Live lanes sort trouble-first via `laneState`;
- * finished sessions linger for `AGENTS_PANEL_LINGER_MS` after `finishedAt`
- * (success / fail / cancel / interrupt share the same window) then drop. Observe
- * mode still replaces the whole strip with a single observe row.
+ * No FLEET header — a roll-up board fought the lane list the strip is meant
+ * to be. Live lanes sort trouble-first via `laneState`; finished sessions
+ * linger `AGENTS_PANEL_LINGER_MS` after `finishedAt`, then drop. Observe mode
+ * replaces the whole strip with a single observe row.
  */
 export function formatAgentsPanel(
   agents: readonly ChromeAgentSession[] | null | undefined,
@@ -293,9 +271,9 @@ export function formatAgentsPanel(
   const lingering = agents.filter((s) => agentIsLingering(s, nowMs, lingerMs));
   if (running.length === 0 && lingering.length === 0) return null;
 
-  // One sort for live lanes. Trouble first; startedAt never churns so the board
-  // does not reshuffle on every tool event. Lingering terminals trail, newest
-  // finish first, so a just-completed lane stays glanceable at the bottom edge.
+  // One sort for live lanes. Trouble first; startedAt never churns, so the
+  // board does not reshuffle on every tool event. Lingering terminals trail,
+  // newest finish first, so a just-completed lane stays at the bottom edge.
   const rankedRunning = [...running]
     .map((session) => ({
       session,
@@ -345,8 +323,8 @@ export function formatAgentsPanel(
 
 /**
  * Map a chrome session into the shape `laneState` / `agentProgress` require.
- * Missing clocks mean we cannot ask those helpers — callers fall back to a
- * safe display default rather than inventing timestamps.
+ * Missing clocks mean the helpers cannot run — callers fall back to a safe
+ * display default.
  */
 function toProgressSession(
   session: ChromeAgentSession,
@@ -369,8 +347,8 @@ function toProgressSession(
 }
 
 /**
- * Board-facing lane word: main's `laneState` when clocks exist, else `working`
- * (no second stall path — without clocks we simply cannot claim stalled).
+ * Board lane word: `laneState` when clocks exist, else `working` — without
+ * clocks we cannot claim stalled.
  */
 function boardLaneState(
   session: ChromeAgentSession,
@@ -383,12 +361,10 @@ function boardLaneState(
 }
 
 /**
- * Fit the strip into the rows geometry actually granted it.
- *
- * The formatter sizes to content, but collapse can grant fewer rows under
- * pressure. Painting the full set anyway overflows the zone's box. The granted
- * height is the last word; lanes it costs are disclosed rather than dropped
- * silently. Prior `+N more` counts are carried into the re-clamp total.
+ * Fit the strip into the rows geometry actually granted. The formatter sizes
+ * to content, but collapse can grant fewer rows under pressure; painting the
+ * full set would overflow the zone's box. The granted height wins; lost lanes
+ * are disclosed via `+N more`, and prior counts carry into the re-clamp total.
  */
 export function clampBoardRows(
   rows: readonly AgentPanelRow[],
@@ -539,17 +515,14 @@ function formatTerminalRow(session: ChromeAgentSession): AgentPanelRow {
 }
 
 /**
- * Overlay live per-agent tool names onto the agents zone.
+ * Overlay live per-agent tool names onto the agents zone. Now an identity:
+ * the subagent store is the sole source of truth for what a worker is doing
+ * (`currentToolName` + `currentToolStartedAt` clock). The `subagent.progress`
+ * ping carries only a name with no clock, so painting it could announce a
+ * dead tool (the false "quiet · read_file" stall) or a stale one — pings
+ * also fire on completion.
  *
- * An identity now: the subagent store is the sole source of truth for what a
- * worker is doing, via `currentToolName` paired with its `currentToolStartedAt`
- * clock. The `subagent.progress` ping carries only a tool name with no clock,
- * so painting it onto a lane with no outstanding call would announce a dead
- * tool — the false "quiet · read_file" stall this surface exists to expose —
- * and pings also fire on tool completion, so their names may already be stale.
- *
- * Signature kept so call sites and tests can migrate in their own diffs;
- * passing a map here no longer changes any row.
+ * Signature kept so call sites and tests migrate in their own diffs.
  */
 export function annotateAgentTools(
   state: ChromeLiveState,
@@ -598,10 +571,8 @@ export interface ChromeSessionInput {
 
 /**
  * Map real session shapes (tasks / subagent store) into ChromeLiveState for
- * `formatChromeZones` / `setChrome`.
- *
- * Pure and store-agnostic — pass whatever the host already has; loose fields
- * are ignored when absent.
+ * `formatChromeZones` / `setChrome`. Pure and store-agnostic — pass whatever
+ * the host already has; absent fields stay omitted.
  */
 export function chromeFromSession(input: ChromeSessionInput): ChromeLiveState {
   const task = mapSessionTasks(input.tasks);
@@ -661,11 +632,10 @@ function mapSessionAgents(
 }
 
 // ---------------------------------------------------------------------------
-// Turn progress label + agent-send failure classification (pure)
+// Turn progress label + agent-send failure classification (pure; no renderer
+// or session deps, so the shell paints the phase without duplicating the
+// state machine that produces it)
 // ---------------------------------------------------------------------------
-// Single-phase turn progress label plus agent-send failure classification.
-// Pure: no renderer or session deps, so the shell can paint the phase without
-// duplicating the state machine that produces it.
 
 /** Agent lifecycle status the progress label reads (mirrors the stream state). */
 export type TurnStatus =
@@ -692,11 +662,10 @@ export interface TurnLabelInput {
 }
 
 /**
- * Closed set the status ticker is allowed to render. Every path through
- * `resolveTurnLabel` returns one of these — never a tool identifier, MCP
- * server name, or plugin name. This is what the leak-prevention test checks
- * membership against, so it must stay the single source of truth for "what
- * can appear in the ticker."
+ * Closed set the status ticker may render — never a tool identifier, MCP
+ * server name, or plugin name. The leak-prevention test checks membership
+ * against this, so it stays the single source of truth for the ticker's
+ * vocabulary.
  */
 export const ACTIVITY_STATES = [
   "working",
@@ -734,10 +703,9 @@ export const LIVE_ACTIVITY_WORDS = [
 ] as const;
 
 /**
- * Execution → activity-state mapping, kept in this one place with an
- * explicit fallback so a newly added tool (built-in, MCP, or plugin) renders
- * a generic "working" state instead of leaking its identifier — no ticker
- * change is required to add a tool correctly.
+ * Execution → activity-state mapping with an explicit fallback: an unknown
+ * tool (built-in, MCP, or plugin) renders generic "working" instead of
+ * leaking its identifier — no ticker change needed to add a tool.
  */
 const TOOL_ACTIVITY_STATES: Readonly<Record<string, ActivityState>> = {
   read_file: "researching",
@@ -781,16 +749,15 @@ function sessionIsLive(
 }
 
 /**
- * Single session-phase label accompanying the density ramp. Lowercase and
- * unpunctuated — the ramp's color and motion carry the state, so the word only
- * has to name it. Returns undefined when idle so the phase segment disappears.
+ * Single session-phase label for the density ramp. Lowercase and
+ * unpunctuated — the ramp's color and motion carry the state, so the word
+ * only names it. Returns undefined when idle so the phase segment disappears.
  *
  * `isStalled` is the caller's own `isStalledForDisplay` result (see
- * stall-watchdog.ts) — this function does not re-derive staleness, it only
- * ranks "stalled" against the other phases so the ticker and the ramp never
- * disagree about which runs look stuck. Required, not defaulted: a caller
- * that forgets to pass it is exactly the bug this state exists to prevent —
- * a wedged run silently painted as ordinary work.
+ * stall-watchdog.ts): this function only ranks "stalled" against the other
+ * phases so the ticker and ramp never disagree about which runs look stuck.
+ * Required, not defaulted — a caller that forgets it paints a wedged run as
+ * ordinary work.
  */
 export function resolveTurnLabel(
   input: TurnLabelInput,
@@ -818,9 +785,9 @@ export function resolveTurnLabel(
 
 /**
  * Which ramp the turn paints: frozen-orange (blocked), solid-green (done),
- * blinking-orange (stalled), or animating bronze (working). `isStalled` is
- * the caller's own `shouldNoticeStall` result — this function does not
- * re-derive staleness, it only orders it against the other phases.
+ * blinking-orange (stalled), animating bronze (working). `isStalled` is the
+ * caller's own `shouldNoticeStall` result — this function only orders it
+ * against the other phases.
  */
 export function resolveRampPhase(
   input: TurnLabelInput,
@@ -924,9 +891,9 @@ const AUTH_FAILURE_TEXT: Record<AuthProviderId, string> = {
  * the only detail the operator has.
  */
 export function sendFailureText(message: string): string {
-  // Classified inference.error lines are already operator-facing. Rematching
-  // them against raw-provider auth patterns rewrites intentional copy
-  // (e.g. "Authentication failed — log in again." → generic other).
+  // Classified inference.error lines are already operator-facing; rematching
+  // them rewrites intentional copy ("Authentication failed — log in again."
+  // → generic other).
   if (message === CREDENTIAL_FAILURE_USER_MESSAGE) return message;
   const failure = classifySendFailureMessage(message);
   if (failure.kind === "auth" && failure.authProvider !== null) {
