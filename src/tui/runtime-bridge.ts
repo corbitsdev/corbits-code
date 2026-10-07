@@ -112,12 +112,8 @@ import { mailboxMailDriveClaimed } from "../subagent/mailbox-mail-drive.js";
 /** Tool name a sub-agent dispatch call carries — its row gets live progress. */
 const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
 
-/**
- * Tool name the task checklist is written through. Its calls paint no
- * transcript row: the task panel owns that state live, and a row per call
- * would render the same work twice — once updating in place, once dead in
- * scrollback.
- */
+/** Tool name the task checklist is written through. Calls paint no row: the
+ * task panel owns that state live, and a row would show the work twice. */
 const MANAGE_TASKS_TOOL_NAME = "manage_tasks";
 
 /** A sub-agent session as `syncAgentProgress` needs it: identified, and live-readable. */
@@ -140,11 +136,9 @@ export { mapReactorLike };
 
 /** Outbound actions the UI asks the session runtime to perform. */
 export interface SessionPort {
-  /**
-   * Classify a composer submit without side effects. Local-only lines (slash
-   * commands, armed multi-turn /feedback text) must never enter the mid-run
-   * queue or mark the session busy. Default when omitted: treat as agent.
-   */
+  /** Classify a submit without side effects. Local-only lines (slash
+   * commands, armed /feedback) never enter the mid-run queue or mark the
+   * session busy. Default when omitted: treat as agent. */
   classifySubmit?: (
     text: string,
     attachments?: readonly PendingImageAttachment[],
@@ -172,11 +166,8 @@ export type SessionPortHandlers = Partial<SessionPort>;
  */
 export interface TurnMonitorOptions {
   readonly now?: () => number;
-  /**
-   * Poll period for the retry countdown and the stall check. Default 250 ms.
-   * While something is animating the monitor ticks faster than this; see
-   * `ANIMATION_TICK_MS`.
-   */
+  /** Poll period for the retry countdown and stall check; default 250 ms.
+   * Ticks faster while something animates; see `ANIMATION_TICK_MS`. */
   readonly tickMs?: number;
   readonly stallTimeoutMs?: number;
   /** Silence after which the run says it looks stuck. Default 90 s. */
@@ -193,12 +184,9 @@ export type SuspendedApprovalResume = (
 const DEFAULT_TICK_MS = 250;
 
 /**
- * Poll period while something on this clock is animating.
- *
- * At the 250 ms idle cadence the status pulse (1200 ms cycle) and landing
- * mark (4.6 s timeline) get only 5 and 19 samples — the pulse skips steps
- * and the mark strobes. ~12 fps is the coarsest cadence at which both read
- * as motion, and it costs nothing when idle because the monitor stops.
+ * Poll period while something on this clock is animating: at the 250 ms
+ * idle cadence the status pulse and landing mark sample too sparsely and
+ * skip steps; ~12 fps is the coarsest cadence at which both read as motion.
  */
 const ANIMATION_TICK_MS = 80;
 
@@ -223,24 +211,17 @@ export interface SessionBridge {
     attachments?: readonly PendingImageAttachment[],
   ) => void;
   interrupt: () => void;
-  /**
-   * Drop mid-run queue items, pending echoes, and fleet hold so a session
-   * rotation cannot drain old input into the new reactor. Leaves the run idle
-   * so the next Enter is a send, not a steer.
-   */
+  /** Drop mid-run queue items, pending echoes, and fleet hold so a session
+   * rotation cannot drain old input into the new reactor. Idles the run so
+   * the next Enter is a send, not a steer. */
   clearQueuedDelivery: () => void;
-  /**
-   * True only while draining steers at a live parent tool.boundary (or
-   * inference.done with tools still outstanding). Last-hop routing reads
-   * this when deliver runs: leftover / fleet-hold / post-interrupt drains
-   * are false and must send().
-   */
+  /** True only while draining steers at a live parent tool.boundary. Last-hop
+   * routing reads this when deliver runs: leftover/fleet-hold/interrupt
+   * drains are false and must send(). */
   readonly parentCycleLive: boolean;
-  /**
-   * A permission or operator gate was raised — queued or already displayed.
-   * Blocks the turn (and exempts it from the stall watchdog) until a matching
-   * `gateClosed` call. Multiple outstanding gates nest correctly.
-   */
+  /** A permission or operator gate was raised — queued or on screen. Blocks
+   * the turn (and exempts it from the stall watchdog) until `gateClosed`;
+   * outstanding gates nest. */
   gateOpened: () => void;
   /** A previously raised gate resolved. */
   gateClosed: () => void;
@@ -258,57 +239,38 @@ export interface SessionBridge {
   /** Current derived turn phase (progress label, stall clock, quota window). */
   readonly turn: TurnState;
   readonly shell: AppShell;
-  /**
-   * Refresh outstanding `spawn_agent` rows with each worker's live progress
-   * for the worker lifetime, not only while the tool call is in flight: the
-   * immediate `{status:running}` result must not drop tracking. The caller
-   * supplies sessions on whatever cadence it already polls at.
-   */
+  /** Refresh `spawn_agent` rows with live progress for the worker lifetime,
+   * not only while the call is in flight. Caller supplies sessions at its
+   * own polling cadence. */
   syncAgentProgress: (sessions: readonly TaskProgressSession[]) => void;
-  /**
-   * Paint the live output tail of each in-flight `run_shell` from that call's
-   * bounded feed, frame-coalesced. Undefined lookup (or no wired feed at the
-   * host) leaves pending rows untouched.
-   */
+  /** Paint the live output tail of each in-flight `run_shell` from that
+   * call's bounded feed, frame-coalesced. No wired feed leaves rows alone. */
   syncShellOutputs: (
     feedFor: ((callId: string) => ShellOutputFeed | undefined) | undefined,
   ) => void;
-  /**
-   * Stamp the live catalog provider id onto the stream map context so
-   * `inference.error` transcript lines can identify known-xAI short 429s
-   * when the harness event omits `providerId`.
-   */
+  /** Stamp the provider id onto the stream map context so `inference.error`
+   * lines can identify known-xAI short 429s when the event omits it. */
   setInferenceProviderId: (
     id: string | undefined,
     displayLabel?: string,
   ) => void;
-  /**
-   * Mark the run busy for a system-originated continuation (fleet-dry open-task
-   * drive). Does not echo locally — inbound `message.received` without the
-   * operator flag paints as a system row. Does not send — the caller uses
-   * sendWithAttemptIdentity with a system mailbox message.
-   */
+  /** Mark the run busy for a system-originated continuation (fleet-dry open
+   * task drive). No local echo — inbound `message.received` without the
+   * operator flag paints as a system row — and no send: the caller uses
+   * sendWithAttemptIdentity with a system mailbox message. */
   beginSystemContinuation: (text: string) => void;
-  /**
-   * Occupancy send failed after beginSystemContinuation. Drop the continuation
-   * hold and idle so follow-ups can drain. Pass rearmDry:false for mailbox
-   * mail so a later subscribe can retry; fleet-dry defaults to re-arming the
-   * latch for the next settle shot.
-   */
+  /** Continuation send failed: drop the hold and idle so follow-ups drain.
+   * rearmDry:false for mailbox mail so a later subscribe can retry; fleet-dry
+   * re-arms for the next settle shot. */
   abortSystemContinuation: (opts?: { rearmDry?: boolean }) => void;
-  /**
-   * Occupancy owner for dry+open continuation. Called once per dry episode
-   * from settleRunToIdle when the fleet is dry. Return true if a continuation
-   * was sent (run stays busy). A pending send Promise is not a continuation —
-   * settle waits for it and idles on failed/uncertain delivery.
-   */
+  /** Occupancy owner for dry+open continuation, called once per dry episode.
+   * True means a continuation was sent (run stays busy); a pending Promise
+   * is not a continuation — settle idles on failed/uncertain delivery. */
   setDryOpenTaskDriver: (
     driver: (() => boolean | Promise<boolean>) | undefined,
   ) => void;
-  /**
-   * Occupancy owner for per-item mailbox mail. Called from idle-with-fleet
-   * settle (like flushPendingAskWake) and from the store-subscribe driver.
-   */
+  /** Occupancy owner for per-item mailbox mail, called from idle-with-fleet
+   * settle and the store-subscribe driver. */
   setMailboxMailDriver: (driver: (() => boolean) | undefined) => void;
   /**
    * Called after flushPendingAskWake actually sendInternalText. Wiring stamps
@@ -337,11 +299,8 @@ export interface SessionBridge {
    * `abortExpiredWakeTurn` below. Returns true when it aborted.
    */
   abortExpiredWakeTurn: (expiredThisTick: boolean) => boolean;
-  /**
-   * Phase-transition stamps (`TurnMarker`), newest last. Diagnostic-only:
-   * exists so the stall-bound regression test can observe the abort path;
-   * production code never reads it.
-   */
+  /** Phase-transition stamps, newest last. Diagnostic-only: lets the
+   * stall-bound regression test observe the abort path. */
   turnMarkers: () => readonly TurnMarker[];
 }
 
@@ -439,26 +398,17 @@ interface OpenStreamRow {
   /** Clock the row opened at, so settled reasoning can report how long it took. */
   readonly startedAt: number;
   text: string;
-  /**
-   * Bounded-rate reveal position for a "thinking" row's wrapped preview.
-   * Unused for "assistant" rows, which paint their full markdown body as it
-   * grows.
-   */
+  /** Bounded-rate reveal position for a "thinking" row's wrapped preview.
+   * Unused for "assistant" rows, which paint their full body as it grows. */
   revealChars: number;
   /** Clock `revealChars` was last advanced from. */
   revealAt: number;
-  /**
-   * Reasoning time this row already carried before the model came back to
-   * think again, so a folded row reports the turn's thinking, not the last
-   * fragment's.
-   */
+  /** Reasoning time carried before the model returned to think, so a folded
+   * row reports the turn's thinking, not the last fragment's. */
   readonly elapsedBefore: number;
-  /**
-   * Reopened row: the turn already thought once here, and this row sits above
-   * the tool rows that followed. It grows in its settled form rather than
-   * scrolling — a line crawling in the middle of the transcript reads as
-   * something moving that the operator did not touch.
-   */
+  /** Reopened row: the turn thought here before, and this row sits above the
+   * tool rows that followed. It grows in place — a line crawling mid-
+   * transcript reads as something moving the operator did not touch. */
   readonly folded: boolean;
 }
 
@@ -472,12 +422,9 @@ interface TurnThinking {
 /** Blank line between the fragments a turn thought at different moments. */
 const THINKING_FRAGMENT_SEPARATOR = "\n\n";
 
-/**
- * A turn-phase transition stamp: `infer-start`, `first-token`, `settle`,
- * `stall-abort:<layer>`, or `expire-abort`. The stalled layer cannot be
- * read off the turn record after the fact, so the abort stamps
- * `turnStallLayer` at the moment it fires.
- */
+/** A turn-phase transition stamp: `infer-start`, `first-token`, `settle`,
+ * `stall-abort:<layer>`, or `expire-abort`. The abort stamps the stalled
+ * layer at the moment it fires, since the turn record no longer has it. */
 export interface TurnMarker {
   readonly path: string;
 }
@@ -499,11 +446,8 @@ export interface BridgeBag {
    * `message.received`; without this the transcript shows the message twice.
    */
   pendingEchoes: string[];
-  /**
-   * Exact queue items popped for delivery but not yet settled. Ownership moves
-   * here from `SessionQueueState.items` so a second boundary cannot redispatch
-   * them, and recovery can restore the original payload on rejection.
-   */
+  /** Items popped for delivery but not yet settled. Ownership moves here so a
+   * second boundary cannot redispatch them and rejection can restore them. */
   pendingDeliveries: Map<string, QueueItem>;
   /**
    * Failed deliveries waiting for an empty composer. Never merges into a draft
@@ -515,61 +459,41 @@ export interface BridgeBag {
   disposed: boolean;
   suspendedApprovalRecovery: SuspendedApprovalResume | undefined;
   turn: TurnState;
-  /**
-   * Live fleet-lane count from the last `fleet` event (idle-with-fleet).
-   * While this is above zero a settled parent turn holds the run busy —
-   * Enter upgrades to a new primary turn, follow-ups keep waiting for true
-   * session-idle — and the hold releases when the count lands back at zero.
-   */
+  /** Live fleet-lane count from the last `fleet` event. Above zero, a settled
+   * parent turn holds the run busy: Enter starts a new primary turn and
+   * follow-ups keep waiting until the count lands back at zero. */
   liveFleet: number;
-  /**
-   * Worker asks parked in ask_director, keyed by session, waiting for a
-   * moment the parent can act on them (idle settle or last gate closing).
-   * Keying by session is what stops a repeat emitter notification from
-   * stashing the same question twice.
-   */
+  /** Worker asks parked in ask_director, keyed by session, waiting for a
+   * moment the parent can act (idle settle or last gate closing). Session
+   * keying stops a repeat notification stashing the same question twice. */
   pendingAskWake: Map<string, PendingAskWake>;
   deliveredAskWake: Map<string, string>;
-  /**
-   * Stall bound for the ask-wake turn. Armed when an ask-wake send starts a
-   * primary turn; disarmed when any turn settles, an interrupt or abort ends
-   * it, or the queue is cleared — so only a still-silent wake turn can match
-   * the abort predicate.
-   */
+  /** Stall bound for the ask-wake turn. Armed when an ask-wake send starts a
+   * primary turn; disarmed on settle, interrupt/abort, or queue clear — so
+   * only a still-silent wake turn can match the abort predicate. */
   askWakeTurnArmed: boolean;
-  /**
-   * Per-session abort count for the re-surface escalation: each stall abort
-   * bumps the delivered questions and the next flush restates them with
-   * `Re-surface N`, so a repeat wake reads as proof the earlier turn never
-   * landed. Pruned alongside `deliveredAskWake` when the question changes
-   * or settles.
-   */
+  /** Per-session abort count for the re-surface escalation: each stall abort
+   * bumps the questions so the next flush restates them with `Re-surface N` —
+   * a repeat wake reads as proof the earlier turn never landed. Pruned with
+   * `deliveredAskWake` when the question changes or settles. */
   askWakeResurface: Map<string, number>;
   /** Phase-transition stamps, newest last, capped. See `TurnMarker`. */
   turnMarkers: TurnMarker[];
-  /**
-   * Set inside `attachSessionBridge`; the module-scope
-   * settle path (`settleRunToIdle`) and `gateClosed` re-enter through it.
-   */
+  /** Set inside `attachSessionBridge` so `settleRunToIdle` and `gateClosed`
+   * can re-enter through it. */
   flushPendingAskWake: (() => void) | null;
   /**
    * Occupancy flush for per-item mailbox mail. Set inside
    * `attachSessionBridge` so settle and fleet events share one gate.
    */
   flushMailboxMail: (() => void) | null;
-  /**
-   * Mail first, then ask-wake only if occupancy did not claim the slot.
-   * Abort, gate close, idle-with-fleet settle, and true session-idle release
-   * share this guard — so a wake cannot send while a mailbox drive is in flight.
-   */
+  /** Mail first, then ask-wake only if occupancy did not claim the slot.
+   * Abort, gate close, and idle settles share this guard, so a wake cannot
+   * send while a mailbox drive is in flight. */
   flushOccupancyThenWake: (() => void) | null;
-  /**
-   * One occupancy shot per dry episode; reset when a live lane starts.
-   * Consumed only when the driver actually sends a continuation — a no-op
-   * (no open tasks) must not eat the shot, or a later missed 1→0 with
-   * leftover tasks never drives. A later settle after a true drive cannot
-   * loop.
-   */
+  /** One occupancy shot per dry episode; reset when a live lane starts.
+   * Consumed only when the driver actually sends — a no-op must not eat the
+   * shot, or a later missed 1→0 with leftover tasks never drives. */
   droveOpenTasksThisDry: boolean;
   /**
    * beginSystemContinuation re-armed the turn during the previous cycle's
@@ -579,11 +503,8 @@ export interface BridgeBag {
   awaitingContinuationInference: boolean;
   /** Occupancy driver: collect+send when settle takes a dry-episode shot. */
   dryOpenTaskDriver: (() => boolean | Promise<boolean>) | undefined;
-  /**
-   * Occupancy driver for per-item mailbox mail (worker terminal/fail) while
-   * the parent is idle, including idle-with-fleet. Not the fleet-0+open-tasks
-   * edge — that stays on dryOpenTaskDriver.
-   */
+  /** Occupancy driver for per-item mailbox mail (worker terminal/fail) while
+   * the parent is idle. The fleet-0+open-tasks edge stays on dryOpenTaskDriver. */
   mailboxMailDriver: (() => boolean) | undefined;
   /** After a pending ask wake is actually sent. Independent of deliveredAskWake. */
   onAskWakeSent: ((asks: readonly PendingAskWake[]) => void) | undefined;
@@ -597,20 +518,14 @@ export interface BridgeBag {
   now: () => number;
   /** Transcript row each in-flight call occupies, so its result can resolve it. */
   toolRows: Map<string, number>;
-  /**
-   * When each in-flight ordinary tool call started, so its row can carry a
-   * live elapsed clock instead of sitting on a static pending mark for the
-   * length of a slow call — the one case a healthy turn reads as dead.
-   */
+  /** When each in-flight ordinary tool call started, so its row carries a
+   * live elapsed clock — a static mark on a slow call reads as dead. */
   toolCallStartedAt: Map<string, number>;
-  /**
-   * In-flight ordinary calls waiting on a decision gate. `gateClosed` re-syncs
-   * their elapsed clocks to the settle so post-grant stats read
-   * time-since-grant, not time-since-announcement. Auto-allowed siblings
-   * already carrying a live clock are executing, not waiting, and stay out.
-   * `spawn_agent` ids are never rebased — the session clock owns those rows.
-   * Results and rollbacks drop their ids so the set cannot leak.
-   */
+  /** In-flight ordinary calls waiting on a decision gate. `gateClosed`
+   * re-syncs their clocks to the settle so post-grant stats read
+   * time-since-grant; auto-allowed siblings already carrying a live clock
+   * are executing and stay out. `spawn_agent` ids are never rebased.
+   * Results and rollbacks drop ids so the set cannot leak. */
   gatedToolCalls: Set<string>;
   /** Calls the reactor reported with `tool.start`, until their `tool.done`. */
   executingToolCalls: Set<string>;
@@ -626,49 +541,32 @@ export interface BridgeBag {
   shellSnapshots: Map<string, string>;
   /** Row of the newest in-flight call, for results that carry no call id. */
   lastToolRow: number;
-  /**
-   * callIds of `spawn_agent` rows tracked for the worker lifetime. Not a subset
-   * of in-flight `toolRows`: spawn_agent returns immediately with
-   * `{status:running}`, and live progress must continue after that result
-   * lands. Keyed by the same id as the sub-agent session (`call.id`).
-   */
+  /** callIds of `spawn_agent` rows tracked for the worker lifetime. Not a
+   * subset of `toolRows`: spawn_agent returns `{status:running}` immediately,
+   * and live progress continues after that result lands. Keyed by `call.id`. */
   taskCallIds: Set<string>;
   /** Row index for each tracked spawn_agent call, kept after the tool_result. */
   spawnProgressRows: Map<string, number>;
-  /**
-   * Last sub-agent session list the host synced. Retained rather than consumed
-   * and dropped because the status ticker recomputes fleet state at paint time
-   * on the animation tick, not only when a worker happens to emit an event.
-   */
+  /** Last sub-agent session list the host synced. Retained because the status
+   * ticker recomputes fleet state at paint time on the animation tick. */
   agentSessions: readonly TaskProgressSession[];
-  /**
-   * callIds whose call painted no row because the work belongs to a panel
-   * (`manage_tasks`). Tracked so the matching result is dropped rather than
-   * landing unpaired.
-   */
+  /** callIds whose call painted no row (`manage_tasks` panel work). Tracked
+   * so the matching result is dropped rather than landing unpaired. */
   panelOnlyCallIds: Set<string>;
-  /**
-   * Row index where the inference attempt in progress began, or null when no
-   * boundary is armed. The mapper decides when to mark, clear and roll back;
-   * the row index is the bridge's to keep.
-   */
+  /** Row index where the in-progress inference attempt began, or null. The
+   * mapper decides when to mark/clear/roll back; the index is the bridge's. */
   attemptRow: number | null;
-  /**
-   * Reasoning row of the turn in progress, or null before it thinks. Mid-turn
-   * thinking folds back into it instead of opening a row between tool calls:
-   * a turn is one run of work, and reasoning that interleaves breaks the run
-   * into fragments that each read as half a sentence.
-   */
+  /** Reasoning row of the turn in progress, or null before it thinks.
+   * Mid-turn thinking folds back into it — a turn is one run of work, and
+   * interleaved reasoning would fragment the run into half sentences. */
   turnThinking: TurnThinking | null;
   /**
    * Set only around drainSteersAtBoundary at a live parent tool.boundary.
    * Last-hop routing (routeQueuedDelivery) reads this when deliver runs.
    */
   liveSteerInject: boolean;
-  /**
-   * The open row has accumulated deltas since its last paint; the retext
-   * happens once per renderer frame or at the next close/settle seam.
-   */
+  /** Open row has deltas since its last paint; retext happens once per
+   * renderer frame or at the next close/settle seam. */
   dirtyOpenRow: boolean;
   /** Tool-row repaints waiting for the frame flush (row-update-queue.ts). */
   pendingRowUpdates: rowUpdates.PendingRowUpdates;
@@ -771,13 +669,10 @@ function settleDrainedDelivery(
   paintChrome(shell);
 }
 
-/**
- * One queued item's delivery hop. The pending column carried the item until
- * now; delivery earns the transcript row, painted as an ordinary operator
- * message. The queueItemId lets the settle path mark this exact row
- * not-delivered/uncertain and lets rollback keep a delivered row; the echo
- * ledger stops the inbound `message.received` from painting a second row.
- */
+/** One queued item's delivery hop. Delivery earns the transcript row as an
+ * ordinary operator message; queueItemId lets the settle path mark this exact
+ * row not-delivered/uncertain, and the echo ledger stops `message.received`
+ * from painting a second row. */
 function deliverQueuedItem(
   shell: AppShell,
   bag: BridgeBag,
@@ -937,12 +832,9 @@ function growOpenRow(
   );
 }
 
-/**
- * Advance a "thinking" row's reveal position at the bounded rate and repaint
- * if it moved. Called from the coalesced frame flush and the animation tick,
- * so the line both grows with new tokens and keeps crawling through buffered
- * text during a pause in arrival — capped either way by what has arrived.
- */
+/** Advance a "thinking" row's reveal position at the bounded rate and
+ * repaint if it moved. Called from the frame flush and animation tick, so
+ * the line keeps crawling through buffered text during a pause in arrival. */
 function advanceOpenReveal(
   shell: AppShell,
   bag: BridgeBag,
@@ -1043,13 +935,11 @@ function applyToolCall(
   }
   if (event.callId !== undefined) {
     bag.toolRows.set(event.callId, index);
-    // A diff call's row already carries a "+n/-n" stat — that is the fact
-    // worth keeping, not an elapsed clock, so only ordinary calls (no stat of
-    // their own) pick up the live timer.
+    // A diff row already carries its "+n/-n" stat — the fact worth keeping,
+    // not an elapsed clock — so only ordinary calls pick up the live timer.
     if (row.stat === undefined) {
       bag.toolCallStartedAt.set(event.callId, bag.now());
-      // Announced while a gate stands open: the wait belongs to the gate, so
-      // the settle re-syncs this clock (see gateClosed).
+      // The wait belongs to the gate; the settle re-syncs this clock.
       if (bag.turn.blockedGateCount > 0) bag.gatedToolCalls.add(event.callId);
     }
   }
@@ -1103,10 +993,9 @@ function applyToolResult(
     }
   }
   if (bag.toolRows.size === 0) shell.inFlightTool = null;
-  // An id that matches nothing on the log answers nothing: it is appended as
-  // its own row rather than folding onto whichever row happens to be last
-  // (the spec's never-misattribute rule). Only id-less results — saved
-  // history from before ids existed — keep the newest-row fallback.
+  // An id that matches nothing gets its own row rather than folding onto
+  // whatever is last (the never-misattribute rule); only id-less results —
+  // saved history from before ids existed — keep the newest-row fallback.
   if (tracked === undefined && event.callId !== undefined) {
     appendStreamRow(shell, result);
     return;
@@ -1124,11 +1013,9 @@ function applyToolResult(
   replaceStreamRowAt(shell, index, mergeToolRows(call, result));
 }
 
-/**
- * Refresh every tracked `spawn_agent` row with its worker's live progress —
- * elapsed time, current tool, and whether it has gone quiet — for the worker
- * lifetime, not just the spawn_agent tool_result. Repaints are frame-coalesced.
- */
+/** Refresh every tracked `spawn_agent` row with its worker's live progress —
+ * elapsed time, current tool, quiet or not — for the worker lifetime, not
+ * just the spawn_agent tool_result. Repaints are frame-coalesced. */
 function syncAgentProgress(
   shell: AppShell,
   bag: BridgeBag,
@@ -1212,13 +1099,10 @@ function syncShellOutputs(
   }
 }
 
-/**
- * Refresh every plain in-flight tool call's row with its elapsed time,
- * frame-coalesced. `spawn_agent` dispatches already get this (and more) from
- * `syncAgentProgress`, so they are skipped here. A decision gate queued
- * behind another overlay freezes the clock — the tool waits on an operator
- * who cannot see it — and the clock resumes once the gate is on screen.
- */
+/** Refresh every plain in-flight tool call's row with its elapsed time,
+ * frame-coalesced. `spawn_agent` rows get this (and more) from
+ * `syncAgentProgress`, so they are skipped. A gate queued behind another
+ * overlay freezes the clock until it reaches the screen. */
 function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
   if (bag.toolCallStartedAt.size === 0) return;
   const gateOnScreen =
@@ -1246,17 +1130,14 @@ function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
 }
 
 /**
- * Re-sync every gate-waited call's elapsed clock to the settle: execution
- * starts at the grant, not at the announcement before the approval wait;
- * later ticks read time-since-grant like any ungated row. Fires on every
- * settled gate (allow and deny alike — the only settle signal the gate
- * wiring reports, see gate-wire `onceClosed`), so deny needs no special
- * case: the result merge already drops the clock-owned stat. Nested gates
- * rebase uniformly at each settle rather than per gate/call pair, since the
- * bridge sees gate lifecycles but not which grant covers which call.
- * `shell` keeps its announcement-stamped `inFlightTool.startedAt`: the only
- * reader (`resolveWaitingOn`) uses it as a steer-wait threshold, not an
- * execution clock, and a steer queued mid-gate has still been waiting.
+ * Re-sync every gate-waited call's clock to the settle: execution starts at
+ * the grant, not the announcement, so later ticks read time-since-grant like
+ * any ungated row. Fires on every settled gate (the only settle signal the
+ * gate wiring reports); the result merge already drops the clock-owned stat
+ * on deny. Nested gates rebase uniformly at each settle — the bridge sees
+ * gate lifecycles, not which grant covers which call. `shell` keeps its
+ * announcement-stamped `inFlightTool.startedAt`: `resolveWaitingOn` reads it
+ * as a steer-wait threshold, and a steer queued mid-gate has still waited.
  */
 function rebaseGatedElapsed(
   shell: AppShell,
@@ -1294,15 +1175,11 @@ function hasPaintedElapsedClock(
   return typeof stat === "string" && /^\d+:\d{2}$/.test(stat);
 }
 
-/**
- * User rows the shell paints ahead of the runtime's own inbound copy: a
- * reinject, which lands before the restarted run reports it, and a row the
- * bridge delivered at a tool boundary (it carries its queueItemId). A
- * delivered row stays — retracting it would show a transcript the runtime
- * never saw returned. Queued/steered items stay off the log while pending
- * (the column above the prompt carries them), so nothing of theirs needs
- * preserving here.
- */
+/** User rows the shell paints ahead of the runtime's own inbound copy: a
+ * reinject (lands before the restarted run reports it) and a boundary-
+ * delivered row (carries its queueItemId). A delivered row stays — retracting
+ * it would show a transcript the runtime never saw returned. Queued/steered
+ * items stay off the log while pending, so none of theirs need preserving. */
 function isLocallyQueuedUserRow(row: StreamRow): boolean {
   return (
     row.role === "user" &&
@@ -1377,11 +1254,9 @@ function drainSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
   paintChrome(shell);
 }
 
-/**
- * Live parent-cycle inject: routeQueuedDelivery reads parentCycleLive while
+/** Live parent-cycle inject: routeQueuedDelivery reads parentCycleLive while
  * this drain's port.deliver runs. Idle leftover, fleet-hold, and interrupt
- * use drainSteersAtBoundary / drainAtBoundary without this flag so they send.
- */
+ * drain without this flag so they send. */
 function drainLiveSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
   bag.liveSteerInject = true;
   try {
@@ -1402,14 +1277,10 @@ function releaseRunToIdle(shell: AppShell, bag: BridgeBag): void {
   bag.flushOccupancyThenWake?.();
 }
 
-/**
- * Release the run to idle and drain everything queued — but only at true
- * session-idle. A live fleet holds the run busy after the parent turn settles
- * (idle-with-fleet): Enter upgrades to a new primary turn during the hold
- * and follow-ups keep waiting; the fleet event landing at zero re-enters
- * here to release the hold. A dry fleet takes one occupancy shot here per
- * dry episode instead of idling, even if the live 1→0 edge was never seen.
- */
+/** Release the run to idle and drain everything queued, but only at true
+ * session-idle. A live fleet holds the run busy after the parent settles;
+ * the fleet event landing at zero re-enters here to release the hold. A dry
+ * fleet takes one occupancy shot per dry episode instead of idling. */
 /** Row text for a parked call answered without running. Names no cause. */
 export const PARKED_CALL_NOT_RUN = "not run: no approval was granted";
 
@@ -1443,11 +1314,10 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
   bag.turnThinking = null;
   shell.inFlightTool = null;
   if (bag.liveFleet > 0) {
-    // Hold: the fleet is still live, so the run stays busy. Steers left
-    // pending send now — the parent they were steering has stopped, so
-    // each one starts its own turn — while follow-ups keep waiting.
-    // Occupancy/mailbox first so a re-surface wake cannot steal that turn;
-    // the trailing wake flush restates only if mail did not start one.
+    // Hold: the fleet is still live, so the run stays busy. Pending steers
+    // send now — the parent they were steering has stopped, so each starts
+    // its own turn — while follow-ups keep waiting. Occupancy/mailbox first
+    // so a re-surface wake cannot steal that turn.
     drainSteersAtBoundary(shell, bag);
     bag.flushOccupancyThenWake?.();
     return;
@@ -1495,14 +1365,13 @@ function applyInbound(
 ): void {
   if (bag.disposed) return;
 
-  // Fleet liveness owns no transcript row state, so it is handled before the
-  // open-row machinery — a lane terminalizing mid-parent-stream must not
-  // close the assistant row the parent's own deltas are growing.
+  // Fleet liveness owns no transcript row state, so handle it before the
+  // open-row machinery: a lane ending mid-parent-stream must not close the
+  // assistant row the parent's deltas are still growing.
   if (event.type === "fleet" || event.type === "agent-ask") {
     // Idle-with-fleet bookkeeping. A transition to zero while the parent is
-    // already idle releases the hold: that moment is true session-idle, so
-    // queued follow-ups drain now. While the parent is still working the
-    // count just updates — the ordinary turn settle does the draining.
+    // idle is true session-idle, so queued follow-ups drain now; while the
+    // parent works, the count just updates.
     if (event.type === "fleet") {
       bag.liveFleet = event.running;
       if (event.running > 0) {
@@ -1523,12 +1392,10 @@ function applyInbound(
         bag.askWakeResurface.delete(sessionId);
       }
     }
-    // Occupancy first on the idle-parent subscribe path. An open gate defers
-    // both flushes to gateClosed so a wake cannot send before mail.
-    // A fresh snapshot with nothing pending means no wake is owed, but a
-    // still-armed silent turn must stay armed until the poll's expire-abort
-    // or stall abort can interrupt it. Disarming here would leave
-    // isProcessing hung; send_input emptying pending must not expire-abort.
+    // Occupancy first on the idle-parent subscribe path; an open gate defers
+    // both flushes to gateClosed. A still-armed silent turn must stay armed
+    // until the poll's expire/stall abort can interrupt it — disarming here
+    // would leave isProcessing hung.
     if (bag.turn.blockedGateCount === 0) bag.flushOccupancyThenWake?.();
     return;
   }
@@ -1661,11 +1528,9 @@ export function attachSessionBridge(
   const frozenTickMs = monitor?.tickMs ?? DEFAULT_TICK_MS;
   const animationTickMs = Math.min(frozenTickMs, ANIMATION_TICK_MS);
 
-  /**
-   * Current cadence, or null while the monitor is stopped. Every paint resolves
-   * this, so the loop speeds up on the frame a turn starts animating and stops
-   * on the frame it settles — one timer, never two.
-   */
+  /** Current cadence, or null while the monitor is stopped. Every paint
+   * resolves it, so the loop speeds up when a turn starts animating and
+   * stops when it settles — one timer, never two. */
   let cadenceMs: number | null = null;
   let stopTick: (() => void) | undefined;
   const schedule = monitor?.schedule ?? defaultSchedule;
@@ -1703,27 +1568,20 @@ export function attachSessionBridge(
     repeating: bag.turn.repeating,
   });
 
-  /**
-   * How long the turn has been stalled, measured from the moment silence
-   * crossed the notice threshold, or null when it is not stalled.
-   *
-   * Derived from `lastActivityAt`, not stamped when the stall is first seen:
-   * a resumed session with already-stale activity reports a stall older than
-   * the blink burst and paints the settled glyph immediately instead of
-   * alarming about an event the operator was not present for, and a stall
-   * that breaks and re-arms is measured from the new silence so a second
-   * stall bursts again.
-   */
+  /** Stall duration from the moment silence crossed the notice threshold, or
+   * null when not stalled. Derived from `lastActivityAt`, not stamped at
+   * first sight: a resumed session with stale activity paints the settled
+   * glyph immediately instead of alarming about an event the operator
+   * missed, and a re-armed stall measures from the new silence. */
   const stalledForMs = (nowMs: number, isStalled: boolean): number | null =>
     isStalled ? nowMs - bag.turn.lastActivityAt - stallNoticeMs : null;
 
   const paintPhaseAt = (nowMs: number, isStalled: boolean): void => {
     const turn = bag.turn;
-    // The stall notice is a live diagnosis, not a sticky banner: it has to
-    // set *and* clear on every paint — including handle() — because the
-    // cadence timer is cancelled the moment the turn settles. If we only
-    // touched it from tick(), a tool.done → inference.done burst that lands
-    // before the next tick would leave the banner up forever.
+    // The stall notice is a live diagnosis, not a sticky banner: it must set
+    // and clear on every paint, because the cadence timer cancels the moment
+    // the turn settles. Touching it only from tick() would leave the banner
+    // up when a burst settles before the next tick.
     const level = stallLevel(stallArgsFor(nowMs));
     if (level === "notice") {
       setStatusFlash(shell, STALL_NOTICE_MESSAGE);
@@ -1761,9 +1619,8 @@ export function attachSessionBridge(
         rampPhase: null,
         stalledForMs: null,
       });
-      // Nothing animates and nothing is being waited on, so the loop stops
-      // rather than repainting an unchanging frame forever. The next event
-      // re-enters here and re-arms it.
+      // Nothing animates and nothing is waited on, so stop the loop rather
+      // than repainting an unchanging frame; the next event re-arms it.
       applyCadence(bag.turn.quota !== null ? frozenTickMs : null);
       return;
     }
@@ -1783,11 +1640,8 @@ export function attachSessionBridge(
     );
   };
 
-  /**
-   * The clock is read once here and threaded through everything the frame
-   * draws. Reading it per-consumer let the pulse and the cadence land on
-   * opposite sides of a blink boundary and disagree about the same frame.
-   */
+  /** Read the clock once here and thread it through the whole frame, so the
+   * pulse and cadence cannot land on opposite sides of a blink boundary. */
   const paintPhase = (): void => {
     const nowMs = now();
     paintPhaseAt(nowMs, isStalledForDisplay(stallArgsFor(nowMs)));
@@ -1805,13 +1659,10 @@ export function attachSessionBridge(
     return before.isProcessing && !bag.turn.isProcessing;
   };
 
-  /**
-   * A settled turn hands the session back to the operator — unless a live
-   * fleet holds it busy (idle-with-fleet, see `settleRunToIdle`). A chat
-   * session's terminator is `connector.reply`, which maps to no `run` event,
-   * so without this the shell would stay busy — offering the stop key and
-   * holding queued prompts — for the rest of the session.
-   */
+  /** A settled turn hands the session back to the operator unless a live
+   * fleet holds it busy. A chat session's terminator (`connector.reply`)
+   * maps to no `run` event, so without this the shell would stay busy —
+   * offering the stop key and holding queued prompts — for the session. */
   const settleRun = (): void => {
     settleRunToIdle(shell, bag);
   };
@@ -1896,9 +1747,8 @@ export function attachSessionBridge(
       recordTurnMarker(bag, "first-token");
     }
     if (settled) {
-      // The turn ended by settling: whatever it was (wake or operator), no
-      // bound is owed anymore. A settle-time flush that sends starts a new
-      // turn and re-arms through the flush path below.
+      // Settled turn: no bound is owed anymore. A settle-time flush that
+      // sends starts a new turn and re-arms through the flush path below.
       bag.askWakeTurnArmed = false;
       recordTurnMarker(bag, "settle");
     }
@@ -1917,9 +1767,8 @@ export function attachSessionBridge(
       )) {
         applyInbound(shell, bag, mapped);
       }
-      // inference.done with tool calls still outstanding doesn't settle the
-      // turn (see turn-state.ts) — the cycle continues, but a soft-steer
-      // boundary still passed. Follow-ups wait for idle.
+      // inference.done with outstanding tool calls doesn't settle the turn,
+      // but a soft-steer boundary still passed; follow-ups wait for idle.
       if (onTurnBoundary(event) && bag.turn.activeToolCalls.length > 0) {
         drainLiveSteersAtBoundary(shell, bag);
       }
@@ -1981,9 +1830,8 @@ export function attachSessionBridge(
     }
 
     if (kind === "reinject") {
-      // No product chord wires reinject anymore (Alt+Enter is follow-up /
-      // kind "queue"). Kept for tests and any direct API callers: stop the
-      // run right now, then fall into the immediate-send branch.
+      // No product chord wires reinject anymore; kept for tests and direct
+      // API callers: stop the run now, then fall into the immediate-send path.
       if (shell.session.run !== "busy") return;
       closeOpenRow(shell, bag);
       bag.pendingEchoes.length = 0;
@@ -2007,10 +1855,9 @@ export function attachSessionBridge(
       bag.turn = turnStateOnInterrupt(bag.turn, now());
     }
 
-    // Idle-with-fleet: the parent turn has settled while spawned workers are
-    // still live, so the run is only nominally busy. Plain Enter is a new
-    // primary turn right now — not a queued steer waiting on a parent tool
-    // that no longer exists.
+    // Idle-with-fleet: the parent settled while workers are still live, so
+    // the run is only nominally busy. Plain Enter starts a new primary turn
+    // now — not a steer waiting on a parent tool that no longer exists.
     const parentIdleWithFleet =
       kind === "steer" && bag.liveFleet > 0 && !bag.turn.isProcessing;
     if (
@@ -2046,9 +1893,8 @@ export function attachSessionBridge(
         : enqueue(shell.session, t, "queue", undefined, attachments);
     bag.port.enqueue(t, kind);
     if (kind === "steer") bag.waitYieldWake?.();
-    // No transcript echo while pending: the item lists in the column stacked
-    // on the prompt box and lands in the transcript as an ordinary user row
-    // when it actually delivers.
+    // No transcript echo while pending: the item lists in the column above
+    // the prompt and lands as an ordinary user row when it delivers.
     paintChrome(shell);
     restoreNextPromptRecovery(shell, bag);
   };
@@ -2143,14 +1989,14 @@ export function attachSessionBridge(
   const abortInFlightAndHandoff = (): void => {
     closeOpenRow(shell, bag);
     bag.pendingEchoes.length = 0;
-    // The stopped attempt is no longer in flight. Expire the error-recovery
+    // The stopped attempt is no longer in flight: expire the error-recovery
     // handoff so a later new-turn inference.start cannot roll back the
     // classified error, the stop row, or the operator's next prompt.
     bag.mapCtx.errorRollbackArmed = false;
     bag.attemptRow = null;
     applyShellInterrupt(shell);
     bag.port.interrupt();
-    // The stop settles the turn without necessarily producing an idle event to
+// The stop settles the turn without necessarily producing an idle event to
     // drain against. On an operator PAUSE the drain gate (drainAtBoundary's
     // isPaused check) keeps the held queue PENDING instead of handing it to a
     // rebuilt agent — a later explicit new send clears the pause and the next
@@ -2174,14 +2020,11 @@ export function attachSessionBridge(
     if (!isPaused(shell.session)) flushOccupancyThenWake();
   };
 
-  /**
-   * Stall bound for a silent ask-wake primary turn. Only an armed
-   * (wake-sent, never settled) turn can match. Silence uses
-   * `shouldAbortForStall` — the same bound that already covers
-   * awaiting-first-token — then interrupts the hung inference before any
-   * new deliver. Mail first so occupancy can take the next turn; the
-   * trailing wake flush restates only if mail did not start one.
-   */
+  /** Stall bound for a silent ask-wake primary turn: only an armed
+   * (wake-sent, never settled) turn can match, using the same
+   * `shouldAbortForStall` bound that covers awaiting-first-token. Mail first
+   * so occupancy can take the next turn; the wake flush restates only if
+   * mail did not start one. */
   const abortStalledWakeTurn = (): boolean => {
     if (bag.disposed || !bag.askWakeTurnArmed) return false;
     if (!shouldAbortForStall(stallArgsFor(now()))) return false;
@@ -2191,15 +2034,11 @@ export function attachSessionBridge(
     return true;
   };
 
-  /**
-   * Ask-deadline bound for a silent ask-wake primary turn. See the field
-   * contract above; the implementation detail is that only an expire this
-   * tick plus an armed, never-settled wake turn with nothing left pending can
-   * match — expireStaleAsks settled the questions and the reconciling
-   * `reportFleet` emptied `pendingAskWake`, so the wake turn is owed to
-   * nobody. Shares `abortInFlightAndHandoff` with the stall abort, so
-   * occupancy (mailbox mail) still wins the next turn.
-   */
+  /** Ask-deadline bound for a silent ask-wake primary turn: only an expire
+   * this tick plus an armed, never-settled wake turn with nothing left
+   * pending can match — expireStaleAsks settled the questions and the
+   * reconciling `reportFleet` emptied `pendingAskWake`, so the wake turn is
+   * owed to nobody. Shares `abortInFlightAndHandoff` with the stall abort. */
   const abortExpiredWakeTurn = (expiredThisTick: boolean): boolean => {
     if (!expiredThisTick) return false;
     if (bag.disposed || !bag.askWakeTurnArmed) return false;
@@ -2224,9 +2063,9 @@ export function attachSessionBridge(
     bag.liveFleet = 0;
     bag.pendingAskWake.clear();
     bag.deliveredAskWake.clear();
-    // Stop teardown: with the queue gone no wake turn is owed, so disarm
-    // the bound and drop the escalation counts — a later session reusing an
-    // id re-surfaces cleanly instead of inheriting a stale count.
+    // Stop teardown: with the queue gone no wake turn is owed, so disarm the
+    // bound and drop escalation counts — a later session reusing an id
+    // re-surfaces cleanly.
     bag.askWakeTurnArmed = false;
     bag.askWakeResurface.clear();
     bag.droveOpenTasksThisDry = false;
@@ -2244,9 +2083,9 @@ export function attachSessionBridge(
   const gateOpened = (): void => {
     if (bag.disposed) return;
     bag.turn = turnStateGateOpened(bag.turn);
-    // Snapshot calls waiting on this gate. An auto-allowed sibling that
-    // already carries a live elapsed clock is executing, not waiting — leave
-    // its startedAt at announcement so post-grant stats stay honest.
+    // Snapshot calls waiting on this gate. An auto-allowed sibling already
+    // carrying a live clock is executing, not waiting — keep its startedAt
+    // at announcement so post-grant stats stay honest.
     for (const callId of bag.toolCallStartedAt.keys()) {
       if (hasPaintedElapsedClock(shell, bag, callId)) continue;
       bag.gatedToolCalls.add(callId);
@@ -2298,14 +2137,11 @@ export function attachSessionBridge(
     }
 
     // Content-based, not time-based: a repeating line means the model is
-    // stuck regardless of how fast it is producing it, so this is checked
-    // before the silence clock rather than folded into it.
-    //
-    // Gated on `status === "running"` because every turn-ending transition
-    // routes through `initialTurnState`, which clears `repeating`. If a
-    // future settle path changes `isProcessing` without resetting `status`
-    // and `repeating` the same way, this guard could fire on an
-    // already-settled turn — recheck alongside any such change.
+    // stuck regardless of speed, so check before the silence clock.
+    // Gated on `status === "running"` because turn-ending transitions route
+    // through `initialTurnState`, which clears `repeating`; if a future
+    // settle path clears `isProcessing` without resetting `status`/`repeating`
+    // the same way, this guard could fire on an already-settled turn.
     if (bag.turn.status === "running" && bag.turn.repeating) {
       const repeatedTokens =
         bag.turn.streamTokenCount - (bag.turn.repeatingSinceTokenCount ?? 0);
@@ -2372,13 +2208,12 @@ export function attachSessionBridge(
       return;
     }
 
-    // Not stalled: any earlier resume attempt belongs to a stall that ended,
+// Not stalled: any earlier resume attempt belongs to a stall that ended,
     // so a later stall starts clean instead of waiting out its budget.
     stallResumeStartedAt = undefined;
 
-    // Same "is this stalled at all" question `paintPhase` asks above — call
-    // the one definition (`isStalledForDisplay`) rather than re-deriving it
-    // from `stallLevel`'s result, so the two call sites can never disagree.
+    // Same "is this stalled" question `paintPhase` asks — call the one
+    // definition (`isStalledForDisplay`) so the two sites never disagree.
     paintPhaseAt(nowMs, isStalledForDisplay(stallArgs));
   };
 
@@ -2391,9 +2226,8 @@ export function attachSessionBridge(
     },
     // Enter on a selected column row: the item leaves the queue and lands on
     // the same port.deliver hop a boundary/idle drain would use. A steer
-    // pushed while a turn is still in flight keeps its steer semantics —
-    // liveSteerInject routes it to deliverSteer so it injects into the
-    // running cycle instead of becoming the next user message.
+    // pushed mid-turn keeps steer semantics — liveSteerInject routes it into
+    // the running cycle instead of making it the next user message.
     onForceDeliver: (itemId) => {
       const { state, item } = cancelItem(shell.session, itemId);
       if (item === null) return;
