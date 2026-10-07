@@ -134,8 +134,8 @@ describe("WorkerGrantStore lifecycle", () => {
       cwd: CWD,
       now: 1_000_001,
     });
-    // Same fingerprint, owning session, wrong directory: the covering session
-    // grant is not cwd-scoped, so the backstop must refuse the ride.
+    // Same fingerprint, owning session, wrong cwd: the session grant is not
+    // cwd-scoped, so the backstop refuses the ride.
     const cwdTamper = store.precheck({
       sessionId: "worker-1",
       canonicalTool: "run_shell",
@@ -146,9 +146,8 @@ describe("WorkerGrantStore lifecycle", () => {
     expect(cwdTamper.ok).toBe(false);
     if (cwdTamper.ok) throw new Error("expected blocker");
     expect(cwdTamper.blocker).toContain(CWD);
-    // Same fingerprint, another session: never vetoed by this envelope — the
-    // sibling falls through to its own gate round and mints its own envelope
-    // there instead of riding this session's grant.
+    // Another session is never vetoed by this envelope: it falls through to
+    // its own gate round and mints its own envelope.
     const sessionFallthrough = store.precheck({
       sessionId: "worker-2",
       canonicalTool: "run_shell",
@@ -157,8 +156,8 @@ describe("WorkerGrantStore lifecycle", () => {
       now: 1_000_002,
     });
     expect(sessionFallthrough).toEqual({ ok: true });
-    // Different fingerprint (tampered args or tool): not this envelope — the
-    // gate denies downstream with a fresh deny since no grant covers it.
+    // Different fingerprint (tampered args or tool): not this envelope; the
+    // gate denies fresh downstream since no grant covers it.
     for (const identity of [
       {
         sessionId: "worker-1",
@@ -197,9 +196,8 @@ describe("WorkerGrantStore lifecycle", () => {
     const store = new WorkerGrantStore();
     const envelope = store.register(createDeniedCallEnvelope(descriptor()));
     const after = envelope.expiresAt + 1;
-    // The lapsed window passes through instead of denying: the retry falls to
-    // the gate, which denies fresh and mints a fresh envelope the worker can
-    // ask out of.
+    // The lapsed window passes through: the retry falls to the gate, which
+    // denies fresh and mints an envelope the worker can ask out of.
     expect(
       store.precheck({
         sessionId: "worker-1",
@@ -289,8 +287,8 @@ describe("WorkerGrantStore lifecycle", () => {
   test("attachToAsk stamps the questionId and keeps pending", () => {
     const store = new WorkerGrantStore();
     const envelope = store.register(createDeniedCallEnvelope(descriptor()));
-    // Reads pin the envelope's clock: the fixture now (1_000_000) predates
-    // wall time, so an unpinned read would sweep it as expired.
+    // Reads pin the envelope's clock: fixture now (1_000_000) predates wall
+    // time, so an unpinned read would sweep it as expired.
     expect(store.attachToAsk("worker-1", "ask-7", undefined, 1_000_001)).toBe(
       envelope,
     );
@@ -433,8 +431,8 @@ describe("WorkerGrantStore.runExclusive", () => {
       events.push("second-end");
       return "second";
     });
-    // Let both register; the second holder must not start while the first
-    // holds the turn across the awaited gate.
+    // The second holder must not start while the first holds the turn across
+    // the awaited gate.
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(events).toEqual(["first-start"]);
     releaseFirst();

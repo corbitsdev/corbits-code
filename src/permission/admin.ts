@@ -38,9 +38,8 @@ function tag(
   return approvals.map((a) => ({ scope, ...a }));
 }
 
-// Reads from the persistent stores and the gate's in-memory session grants, and
-// writes revocations back through both — keeping the live gate in sync with the
-// stores so a change through /permissions takes effect without a restart.
+// Read/write both the persistent stores and the live gate so /permissions
+// changes take effect without a restart.
 export function createPermissionsAdmin(
   gate: PermissionGate,
   cwd: string,
