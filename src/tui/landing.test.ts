@@ -1,7 +1,7 @@
 /**
  * Landing anatomy: the animated mark, a vertically centred prompt box, the
- * telemetry disclosure and selectable starters — and nothing left over once
- * the transcript has content.
+ * telemetry disclosure, and selectable starters — gone once the transcript
+ * has content.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { CapturedSpan } from "@opentui/core";
@@ -59,8 +59,8 @@ interface IdleTimerHandle {
 }
 
 /**
- * Intercepts the product idle interval so a cadence change cannot hide a
- * still-armed timer from the reduced-motion assertion.
+ * Intercepts the product idle interval so the reduced-motion assertion can
+ * see a still-armed timer regardless of cadence.
  */
 function wrapLandingIdleTimer(): {
   armed: IdleTimerHandle[];
@@ -173,7 +173,7 @@ describe("landing layout math", () => {
   });
 
   test("the mark degrades through its tiers and then disappears", () => {
-    // Roomy: the hero grid, which is the only size that reads unambiguously.
+    // Roomy: the hero grid, the only size that reads unambiguously.
     expect(resolveMarkGrid(20, 120)).toBe(MARK_LARGE);
     // A row short of the hero, a tier down rather than a clipped hero.
     expect(resolveMarkGrid(12, 120)).toBe(MARK_MID);
@@ -270,9 +270,9 @@ describe("landing screen", () => {
         await settle(h);
         const still = markRows(h).join("\n");
 
-        // Idle re-entry holds the mountain's filled frame however far the
-        // clock moves — but the snow drifting over it is not still, since the
-        // idle landing screen is exactly where it needs to animate.
+        // Idle re-entry holds the mountain's filled frame at any clock, but
+        // the snow drifting over it still animates — the idle landing screen
+        // is exactly where it needs to.
         paintLanding(shell, 1_700, false);
         await settle(h);
         expect(stripSnow(markRows(h).join("\n"))).toBe(stripSnow(still));
@@ -294,28 +294,24 @@ describe("landing screen", () => {
   });
 
   test("an idle mount keeps the snow drifting on its own, with nothing pumping frames by hand", async () => {
-    // Regression: every other test in this file drives the mark by calling
-    // `paintLanding` directly with a hand-picked clock. That is exactly why
-    // the landing snow shipped completely unreachable — none of those tests
-    // go through the real driver a running session actually uses. This one
-    // mounts the shell for real and lets it repaint itself: no
-    // `paintLanding`/`renderMark` calls, and critically no `renderOnce` loop
-    // either while waiting — a test that pumps frames by hand can stay green
-    // even when production's self-driving mechanism is dead, which is
-    // exactly the blind spot that let the throttled build ship frozen snow.
+    // Regression: the other tests drive the mark via `paintLanding` with a
+    // hand-picked clock, which is how frozen snow shipped — none of them go
+    // through the real driver a running session uses. This one mounts the
+    // shell for real and lets it repaint itself: no `paintLanding`/
+    // `renderMark` calls and, critically, no `renderOnce` loop while
+    // waiting — a test that pumps frames by hand can stay green when the
+    // production self-driver is dead.
     await withAppShell(
       async (_shell, h) => {
         await settle(h);
         const before = markRows(h).join("\n");
 
-        // Poll until the product's own idle-repaint timer moves the snow, or
-        // until a deadline. A single fixed sleep-then-check races the timer
-        // under CI load: when the interval is delayed past the sleep, `flush`
-        // finds nothing scheduled and the capture is still the mount frame.
-        // Polling keeps the property intact — nothing here calls
-        // `paintLanding`/`renderMark`/`renderOnce`, so a frozen timer still
-        // fails — while early exit drops the average suite cost below the old
-        // fixed 3s wait.
+        // Poll until the product's idle-repaint timer moves the snow or a
+        // deadline passes. A single fixed sleep-then-check races the timer
+        // under CI load: when the interval is delayed past the sleep, the
+        // capture is still the mount frame. Polling keeps the property intact
+        // (nothing here pumps frames, so a frozen timer still fails) while
+        // early exit drops the suite cost below the old fixed 3s wait.
         const deadline = performance.now() + 5_000;
         let after = before;
         while (performance.now() < deadline) {
@@ -514,8 +510,7 @@ describe("landing screen", () => {
 
         // Heavy inset permission overlay: many choices plus a multi-line body
         // so the float must take real headroom from the landing split. A
-        // three-item empty body leaves message delta 0 and would pass even if
-        // the split never slid.
+        // three-item body would pass even if the split never slid.
         const heavyBody = [
           "run_shell",
           "Run shell command",
@@ -533,12 +528,10 @@ describe("landing screen", () => {
         expect(shell.layout.overlayMode).toBe("inset");
         await settle(h);
         const after = rows(h);
-        // Every landing anchor is still on screen and in the same relative
-        // order: the overlay is not letting the composition it covers spill
-        // off the viewport, overlap itself, or reshuffle. It may still
-        // slide the composition (up or down a little, as the mark re-grids
-        // for its new tier) when its own content needs more room than the
-        // even top/bottom split would otherwise leave it.
+        // Every landing anchor stays on screen in the same relative order:
+        // the overlay lets neither spill, overlap, nor reshuffle. It may
+        // still slide the composition (the mark re-grids for its new tier)
+        // when its content needs more room than the even split leaves it.
         const nowAt = anchors.map((text) =>
           after.findIndex((row) => row.includes(text)),
         );
@@ -561,12 +554,10 @@ describe("landing screen", () => {
     );
   });
 
-  // An inset permission list with more choices than the even top/bottom split
-  // would leave room for used to get its list starved down to whatever that
-  // split happened to allow — as little as one or two choices — because the
-  // float only asked the split for one choice row of headroom. It now asks for
-  // the overlay's real, already fraction-capped content height, so a terminal
-  // tall enough for that content shows every choice without scrolling.
+  // An inset permission list with more choices than the even split leaves
+  // room for used to get starved to one or two rows — the float only asked
+  // the split for one choice row of headroom. It now asks for the overlay's
+  // real content height, so a tall-enough terminal shows every choice.
   test("a landing overlay with many choices shows them all when there is room", async () => {
     await withAppShell(
       async (shell, h) => {
@@ -674,7 +665,7 @@ describe("landing screen", () => {
   });
 
   test("startup MCP/load errors keep the mountain and ride the notice strip", async () => {
-    // System notices on load used to appendStreamRow → clearLandingMark,
+    // Load-time system notices used to appendStreamRow → clearLandingMark,
     // wiping the brand hero. They must surface as secondary chrome while
     // geometry still seats MARK_SMALL or larger.
     await withAppShell(
@@ -721,9 +712,9 @@ describe("landing screen", () => {
   });
 
   test("startup plugin diagnostics keep the mountain and ride plugin !", async () => {
-    // Plugin load warnings no longer go through surfaceSystemNotice — they
-    // drive the standing `plugin !` attention mark instead. The mountain must
-    // still stay up while that mark is painted.
+    // Plugin load warnings drive the standing `plugin !` attention mark
+    // instead of surfaceSystemNotice; the mountain must stay up while that
+    // mark is painted.
     await withAppShell(
       async (shell, h) => {
         await settle(h);
@@ -753,8 +744,8 @@ describe("landing screen", () => {
   });
 
   test("a flushed startup notice never carries a plumbing gutter label", async () => {
-    // The transcript must never label a row "command": a system row's text
-    // already says what it is, and the meta column is the operator's, not the
+    // The transcript must never label a row "command": the row text already
+    // says what it is, and the meta column is the operator's, not the
     // wiring's. (MCP notices still use the notice strip; plugin skill-miss
     // summaries do not.)
     await withAppShell(
@@ -768,10 +759,9 @@ describe("landing screen", () => {
         await settle(h);
 
         expect(isLanding(shell)).toBe(false);
-        // Assert on the flushed notice row(s) — not the full char frame. The
-        // footer/chrome can echo the process cwd, and a worktree path that
-        // happens to contain "overlay" (or "command") must not false-positive
-        // the plumbing-label invariant.
+        // Assert on the flushed notice row(s), not the full char frame: the
+        // footer can echo the process cwd, and a worktree path containing
+        // "overlay" or "command" would false-positive the label invariant.
         const noticeNeedle = "mcp github did not connect";
         const noticeRows = shell.streamLog.filter((row) =>
           row.text.includes(noticeNeedle),
@@ -797,8 +787,8 @@ describe("landing screen", () => {
   });
 
   test("the version is chrome, not the hero: it hides before actionable chrome does on a narrow terminal", async () => {
-    // Comfortably above the badge's own thresholds but below nothing else —
-    // proves the badge is what degrades, and degrades first.
+    // Above the badge's thresholds but below nothing else — proves the badge
+    // is what degrades, and degrades first.
     const roomy = {
       width: VERSION_BADGE_MIN_COLUMNS + 20,
       height: VERSION_BADGE_MIN_ROWS + 8,
@@ -863,20 +853,18 @@ describe("landing screen", () => {
   });
 
   test("the task panel and the version badge both paint while landing is still mounted, without clipping the prompt", async () => {
-    // A resumed session can land with tasks already visible while the
-    // landing screen has not been torn down yet (no transcript content sent)
-    // — restored chrome and the version badge's reserved row both compete
-    // for the same short terminal at once. This is the regression case for
-    // that interaction.
+    // A resumed session can land with tasks already visible before the
+    // landing screen is torn down (no transcript content sent) — restored
+    // chrome and the version badge's reserved row compete for the same short
+    // terminal at once. This is the regression case for that interaction.
     const size = { width: 100, height: 17 };
     await withAppShell(
       async (shell, h) => {
         setChromeZones(shell, {
           task: [{ label: "wire the version badge", status: "doing" }],
         });
-        // Hidden by default — opt in so the regression case (task row +
-        // version badge competing for the same short terminal) still
-        // exercises both painting at once.
+        // Hidden by default — opt in so the regression case still exercises
+        // task row and version badge painting at once.
         toggleTasksPanel(shell);
         await settle(h);
 
@@ -895,8 +883,8 @@ describe("landing screen", () => {
         const frame = painted.join("\n");
         expect(frame).toContain("wire the version badge");
         expect(frame).toContain(LANDING_VERSION);
-        // The prompt field itself is on screen, intact, not pushed off by
-        // the combination of the task row and the version row.
+        // The prompt field itself stays on screen, not pushed off by the
+        // task row and version row combined.
         const promptRow = painted.findIndex((row) => row.includes("message"));
         expect(promptRow).toBeGreaterThan(0);
         const box = defined(shell.layout.regions.prompt);
