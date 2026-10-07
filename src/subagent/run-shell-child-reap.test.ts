@@ -99,8 +99,7 @@ function createShellChildAgent(opts?: {
       return await new Promise<never>((_resolve, reject) => {
         const abort = (reason: unknown): void => {
           // leakOnAbort rejects without killing: the descendant stays live
-          // through teardown (production only reaps shell-guard-tracked
-          // children, and this stub-spawned sleep is not one).
+          // through teardown (production reaps only tracked children).
           if (opts?.leakOnAbort !== true) killAll();
           reject(reason instanceof Error ? reason : new Error("aborted"));
         };
@@ -124,9 +123,8 @@ function createShellChildAgent(opts?: {
       })(),
     deliver: () => undefined,
     close: async () => {
-      // close() initiates the kill, but a wedged descendant holds the stream
-      // open and the close itself never completes. leakOnAbort instead
-      // releases the stream without killing, and stays non-wedged.
+      // A wedged descendant holds the stream, so close() never completes;
+      // leakOnAbort releases it without killing and stays non-wedged.
       if (opts?.leakOnAbort !== true) killAll();
       releaseStream();
       if (opts?.wedgeClose === true) {
@@ -285,11 +283,10 @@ describe("CL-7990 shell-child reap: sessions holding a live shell child settle",
       const outcome = await runWithStubAgent(agent, async () => {
         const { runPromise, handles } = await runWithShellChildAgent(agent, {
           persist: false,
-          // Test injection: the run's own bounded teardown fires after this
-          // short deadline instead of the production 30s bound, so the
-          // wedged close is proven to settle the run in ~0.4s, not 30s.
-          // Kept above the close bound below so the close error surfaces
-          // before the run settles.
+          // Test injection: bounded teardown fires after this short deadline
+          // instead of the production 30s bound, proving the wedged close
+          // settles the run in ~0.4s. Kept above the close bound below so
+          // the close error surfaces before the run settles.
           teardownDeadlineMs: 400,
         });
         const closeError = await handles.close(200).then(
@@ -321,11 +318,10 @@ describe("CL-7990 shell-child reap: sessions holding a live shell child settle",
     "interrupt with a leaky stub settles while the descendant is still live",
     async () => {
       // The stub never kills: send-abort rejects and close() releases the
-      // stream, both without killAll (and close stays non-wedged). The run
-      // must still settle — teardown never waits on a descendant it cannot
-      // see. The stub-spawned sleep is outside the shell guard's tracked
-      // set, so production cannot reap it: the test reaps its own orphan in
-      // the finally, and waitForChildExit proves the collection.
+      // stream without killAll, staying non-wedged. The run must still
+      // settle — teardown never waits on a descendant it cannot see. The
+      // stub-spawned sleep is untracked, so the test reaps its own orphan
+      // in the finally; waitForChildExit proves the collection.
       const agent = createShellChildAgent({ leakOnAbort: true });
       try {
         const outcome = await runWithStubAgent(agent, async () => {
@@ -337,9 +333,8 @@ describe("CL-7990 shell-child reap: sessions holding a live shell child settle",
           return result;
         });
         expect(outcome.interrupted).toBe(true);
-        // The wedged-descendant shape, for real this time: the child is
-        // still live at settle time — no stub kill and no production reap
-        // collected it behind the scenes.
+        // The wedged-descendant shape, for real: the child is still live at
+        // settle time — no stub kill and no production reap collected it.
         expect(agent.children.length).toBeGreaterThan(0);
         for (const child of agent.children) {
           expect(child.exitCode).toBeNull();
