@@ -26,10 +26,7 @@ const longState = {
   })),
 } as unknown as ReactorState;
 
-// These tests are not about stall timing. With the default real clock, a
-// parallel-run load gap over the 30 ms stall window between awaited
-// decides would trip a spurious stall nudge on the empty continuation
-// pings, so freeze time instead.
+// Freeze time: with the real clock, a load gap over the 30ms stall window would trip a spurious nudge on empty pings.
 const frozenNow = () => 0;
 
 function makeDirector(): {
@@ -482,8 +479,7 @@ describe("SubAgentDirector tool failure recovery", () => {
 
   test("recovery nudge appends to ephemeral turns already on the infer", async () => {
     const { director, caps } = makeDirector();
-    // Seed an ephemeral turn only when the caller did not supply any, so the
-    // infer action applyPendingNudge rewrites already carries ephemeral turns.
+    // Seed an ephemeral turn only when the caller supplied none.
     const seeding: ReactorCapabilities = {
       ...caps,
       infer: (options) => {
@@ -1439,8 +1435,7 @@ describe("SubAgentDirector idle stall ping", () => {
     expect(early.some((action) => action.type === "infer")).toBe(false);
     expect(early.some((action) => action.type === "checkpoint")).toBe(false);
 
-    // The in-window wait must not restart the silence clock. One stall
-    // timeout from the original activity still nudges, once.
+    // In-window waits do not restart the silence clock; one stall timeout from the original activity still nudges.
     setNow(8_000_000 + 1_000);
     const nudge = actions(
       await director.decide(messageReceived(""), state, caps),
@@ -1545,9 +1540,7 @@ describe("SubAgentDirector idle stall ping", () => {
   });
 
   test("cache expiry does not fold on an in-window empty ping", async () => {
-    // test-model used to take the 10-minute default TTL. Cache expiry is now
-    // a prompt transform, not a fold: the in-window ping waits, and the stall
-    // nudge still fires off the original activity clock.
+    // Cache expiry is a prompt transform, not a fold: the ping waits and the stall nudge still fires.
     const activityAt = 11_000_000;
     const cacheTtlMs = 10 * 60_000;
     const stallTimeoutMs = 15 * 60_000;
@@ -1575,8 +1568,7 @@ describe("SubAgentDirector idle stall ping", () => {
     expect(ping.some((action) => action.type === "infer")).toBe(false);
     expect(ping.some((action) => action.type === "compact")).toBe(false);
 
-    // The wait must not stamp lastActivityAt or clear stallNudgeAt. One
-    // stall timeout from the original activity still nudges, once.
+    // The wait must not stamp lastActivityAt or clear stallNudgeAt.
     now = activityAt + stallTimeoutMs;
     const nudge = actions(
       await director.decide(messageReceived(""), longState, caps),

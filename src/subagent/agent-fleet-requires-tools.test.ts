@@ -411,8 +411,7 @@ describe("spawn_agent requires_tools preflight", () => {
       requires_tools: ["mcp__linear__list_teams"],
     });
 
-    // On-demand: dispatch stamps exactly the requested live tool — the
-    // inherited sibling mounts only under its own stamp (run.ts drops it).
+    // On-demand: dispatch stamps only the requested tool; siblings mount under their own stamp.
     expect(result.isError).not.toBe(true);
     expect(runCalled).toBe(true);
     expect(seenRequires).toEqual(["mcp__linear__list_teams"]);

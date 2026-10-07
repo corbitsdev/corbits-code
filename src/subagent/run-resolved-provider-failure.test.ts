@@ -117,9 +117,7 @@ async function withResolvedProviderRun<T>(
   }
 }
 
-// The retry schedules are exercised, not timed: a 1ms outer backoff and a
-// fast per-attempt policy keep the suite off the production 500/1000ms
-// delays while the retry behavior under test stays identical.
+// Retry schedules are exercised, not timed: 1ms delays keep the suite off the production backoffs.
 const fastRetryPolicy: RetryPolicy = (situation) =>
   situation.error.category === "retryable" && situation.attempt < 3
     ? { kind: "retry", delayMs: 1 }

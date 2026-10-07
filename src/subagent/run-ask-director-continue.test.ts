@@ -1,8 +1,4 @@
-/**
- * run.ts must actually wire ask_director park into compact-continue deferral
- * and SubAgentDirector.observeAskPending. Pure latch / director tests cannot
- * see those two call sites — removing either would still pass them.
- */
+/** run.ts must wire ask_director park into compact-continue deferral and observeAskPending. */
 import { describe, expect, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";

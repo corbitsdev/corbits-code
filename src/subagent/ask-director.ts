@@ -1,7 +1,4 @@
-/**
- * ask_director evaluation: pure caps, unit-testable without an agent loop.
- * run.ts wires this into the leaf tool handler and owns per-turn AskDirectorState.
- */
+/** ask_director evaluation: pure caps, unit-testable without an agent loop. */
 
 export const ASK_DIRECTOR_MAX_BYTES = 4096;
 export const ASK_DIRECTOR_MAX_QUESTIONS = 3;
@@ -29,7 +26,7 @@ export interface AskDirectorPort {
   cancel: (reason: string) => void;
 }
 
-/** Non-terminal by design: over-cap / second-ask returns `ok: false` so the worker does not suspend. */
+/** Over-cap / second-ask returns `ok: false` so the worker does not suspend. */
 export function evaluateAskDirector(input: AskDirectorInput): {
   ok: boolean;
   message: string;
@@ -68,13 +65,12 @@ export function evaluateAskDirector(input: AskDirectorInput): {
       message: `Error: ask_director question cap (${ASK_DIRECTOR_MAX_QUESTIONS}) reached for this turn. No further questions accepted — finish with the markdown report envelope instead.`,
     };
   }
-  // Reserve the one-at-a-time lock so a parallel ask errors, but do not
-  // consume a cap slot until commitAskDirector (register reached the director).
+  // Hold the one-at-a-time lock; count the cap only at commitAskDirector.
   input.state.pending = true;
   return { ok: true, message: "ok", question };
 }
 
-/** Count this question against the per-turn cap once abort is ruled out and register will run. */
+/** Count the question against the per-turn cap once register will run. */
 export function commitAskDirector(state: AskDirectorState): void {
   state.questions += 1;
 }
@@ -83,17 +79,13 @@ export function releaseAskDirector(state: AskDirectorState): void {
   state.pending = false;
 }
 
-/** Fresh 3-question cap for a resume_agent / send_input(interrupt) turn. */
+/** Fresh 3-question cap for a resume_agent / send_input turn. */
 export function resetAskDirectorTurn(state: AskDirectorState): void {
   state.questions = 0;
   state.pending = false;
 }
 
-/**
- * Compact continuation shares the stall ping channel. Skipping while
- * ask_director is parked must not drop the only continue: remember the skip
- * and flush after the ask releases.
- */
+/** Defer the compact continue while ask_director is parked; flush after the ask releases. */
 export function createDeferredContinuation(): {
   request: (state: AskDirectorState, deliver: () => void) => void;
   flush: (state: AskDirectorState, deliver: () => void) => void;
@@ -132,8 +124,7 @@ export async function handleAskDirector(args: {
     const onAbort = (): void => {
       args.port.cancel("ask_director aborted");
     };
-    // Listener first: an abort between the old pre-check and addEventListener
-    // would otherwise miss {once:true} on an already-aborted signal.
+    // Listener first: an abort between the pre-check and addEventListener would miss {once:true}.
     args.signal.addEventListener("abort", onAbort, { once: true });
     if (args.signal.aborted) {
       onAbort();

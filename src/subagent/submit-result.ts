@@ -1,8 +1,4 @@
-/**
- * submit_result evaluation: pure logic, unit-testable without
- * spinning up a full agent loop. run.ts wires this into the tool handler and
- * owns the per-turn `SubmitResultState` (one instance per runSubAgent call).
- */
+/** submit_result evaluation: pure logic, unit-testable without an agent loop. */
 
 import { ArkErrors, type Type } from "arktype";
 
@@ -19,10 +15,7 @@ export function createSubmitResultState(): SubmitResultState {
   return { corrections: 0 };
 }
 
-/**
- * Steering starts a new turn: drop the finished turn's correction count so the
- * replacement token gets a full budget. The caller mints the new token.
- */
+/** Steering rotates the turn: drop the correction count so the new token gets a full budget. */
 export function resetSubmitResultTurn(state: SubmitResultState): void {
   state.corrections = 0;
 }
@@ -40,7 +33,7 @@ export interface SubmitResultInput {
   maxCorrections?: number;
 }
 
-/** Non-terminal by design: an invalid submission returns `ok: false` so the worker can retry, not a thrown error. */
+/** Invalid submissions return `ok: false` so the worker can retry, not a thrown error. */
 export function evaluateSubmitResult(input: SubmitResultInput): {
   ok: boolean;
   message: string;

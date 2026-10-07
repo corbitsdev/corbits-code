@@ -1,11 +1,4 @@
-/**
- * run.ts must thread grant_request_id from the ask_director tool call through
- * the leaf handler into handleAskDirector and out the askDirectorPort.
- * Dropping it at the schema or the handler silently forces every production
- * ask down the legacy first-pending path, so this test drives the real
- * handler path end to end — unit tests on handleAskDirector alone cannot
- * see the two call sites this covers.
- */
+/** run.ts must thread grant_request_id through the handler into the port; dropping it forces the legacy first-pending path. */
 import { describe, expect, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";

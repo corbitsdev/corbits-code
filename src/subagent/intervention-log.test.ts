@@ -60,8 +60,7 @@ describe("intervention log", () => {
       value: 120000,
       threshold: 120000,
     });
-    // The false-positive proxy the forensics script reads: a stop that fired on
-    // a run which had already edited files.
+    // False-positive proxy the forensics script reads: a stop on a run that had edited files.
     expect(record?.state?.editedPaths).toBe(2);
   });
 
