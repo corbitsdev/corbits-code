@@ -90,10 +90,9 @@ function stagedLogin(profile: string): LoginCompletion {
 type StagedLoginInput = Parameters<OAuthLoginStarter>[0];
 
 /**
- * OAuth login stub for mounted flows: parks on `completed` until the test
- * resolves it through `events.complete`, and records start inputs and
- * cancel/abort signals so assertions read from `events`. `deniedStarts`
- * makes the first N sign-ins reject with access denied instead of parking.
+ * OAuth login stub: parks on `completed` until the test resolves it, records
+ * start/cancel/abort events for assertions; `deniedStarts` rejects the first
+ * N sign-ins with access denied.
  */
 function stagedLoginStarter(
   opts: {
@@ -144,8 +143,7 @@ function stagedLoginStarter(
   };
 }
 
-// This file mounts a fresh renderer per test; track every one so a single
-// afterEach can free them regardless of which assertion in a test fails.
+// Track every mounted renderer so one afterEach frees them all.
 const activeHarnesses: Harness[] = [];
 
 async function createHarness(opts: {
@@ -242,8 +240,7 @@ describe("provider setup pure helpers", () => {
   });
 
   test("keys of any length round-trip through the input echo", () => {
-    // Mirrors onInput: each keystroke folds the echo back into the secret,
-    // then the input is re-mirrored as bullets.
+    // Mirrors onInput: each keystroke re-echoes the secret as bullets.
     const typeKey = (key: string): string => {
       let secret = "";
       let display = "";
@@ -344,9 +341,8 @@ describe("provider setup pure helpers", () => {
   });
 
   test("Alt+A selector rows include Custom and never filter by account count", () => {
-    // Regression: a prior filter dropped Custom from Alt+A even though
-    // onboarding still offered the full manual form. Connected kinds also
-    // stay listed so a second account remains reachable.
+    // Regression: Custom was dropped from Alt+A; connected kinds also stay
+    // listed so a second account remains reachable.
     const choices = providerChoices();
     const rows = addProviderSelectorChoices(choices, [
       { name: "openai" },
@@ -363,10 +359,8 @@ describe("provider setup pure helpers", () => {
   });
 
   test("Alt+A ChatGPT row hides the login CTA once connected (CL-5606)", () => {
-    // After a successful browser login the ChatGPT row must not present the
-    // "Login via Browser" connect option as if unconnected. The row stays
-    // listed (a second account remains reachable) — only the connected-state
-    // rendering changes.
+    // A signed-in ChatGPT row must not offer "Login via Browser"; only its
+    // connected-state rendering changes.
     const choices = providerChoices();
     const connected = addProviderSelectorChoices(choices, [
       { name: "codex/default" },
@@ -383,9 +377,8 @@ describe("provider setup pure helpers", () => {
   });
 
   test("a connected Codex account counts under its profile-qualified name (CL-5606)", () => {
-    // The ChatGPT-via-browser choice is keyed "codex", but a signed-in
-    // account lands in the catalog as "codex/<profile>" — one row per
-    // account. Exact-id matching alone would only ever find zero or one.
+    // The browser choice is keyed "codex" but signed-in accounts land as
+    // "codex/<profile>" — exact-id matching alone finds zero or one.
     const codexChoice = providerChoiceById("codex");
     if (codexChoice === undefined) throw new Error("expected a codex choice");
     expect(
@@ -401,9 +394,8 @@ describe("provider setup pure helpers", () => {
   });
 
   test("connected API-key instances count under kind and kind/slug", () => {
-    // CL-5898: first-class API-key kinds are multi-instance. A bare "openai"
-    // key is the legacy single-instance row; "openai/work" is a sibling.
-    // Unrelated names like "openai-eu" must not count.
+    // CL-5898: API-key kinds are multi-instance; "openai" is legacy,
+    // "openai/work" a sibling; unrelated names must not count.
     const openaiChoice = providerChoiceById("openai");
     if (openaiChoice === undefined)
       throw new Error("expected an openai choice");
@@ -585,12 +577,7 @@ async function flush(harness: Harness): Promise<void> {
   await harness.renderOnce();
 }
 
-/**
- * Mount with an injected login driver. No test may open a browser or bind a
- * port, so the real PKCE/loopback path is never reached from here. Also
- * injects a profile lister so no test touches the real auth-store files;
- * it defaults to reporting no existing profiles.
- */
+/** Runs the callback in a fresh temp dir removed afterwards. */
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "provider-setup-"));
   try {
@@ -600,6 +587,11 @@ async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
   }
 }
 
+/**
+ * Mounts with an injected login driver and profile lister: no browser, port,
+ * or auth-store files are touched; the lister reports no existing profiles
+ * unless overridden.
+ */
 async function mountLogin(opts: {
   start: OAuthLoginStarter;
   onSubmit?: ProviderSetupSubmit;
@@ -616,24 +608,13 @@ async function mountLogin(opts: {
   });
 }
 
-/**
- * Wait for a prefetched suggestion to land in the OAuth name field, then
- * clear it. The input has no select-all-on-focus behavior, so typing over a
- * prefilled suggestion would append rather than replace it; 80 backspaces is
- * comfortably more than the field's 64-character cap, and backspacing an
- * already-empty field is a no-op.
- */
+/** Clear the prefilled OAuth name suggestion (typing over it would append). */
 async function clearOAuthNameField(harness: Harness): Promise<void> {
   await flush(harness);
   for (let i = 0; i < 80; i++) harness.pressKey("Backspace");
 }
 
-/**
- * Accept the OAuth name step: type `name` when given (after clearing
- * whatever suggestion was prefilled), otherwise accept the suggestion as is.
- * The flush after Enter lets the submit-time collision re-check resolve
- * before the caller inspects the result.
- */
+/** Accept the OAuth name step: type `name` or keep the suggestion; flush after Enter. */
 async function nameOAuthAccount(
   harness: Harness,
   name?: string,
@@ -919,9 +900,7 @@ describe("runProviderSetup renderer ownership", () => {
     harness.pressKey("Ctrl+C");
     expect(await done).toBe(false);
 
-    // A caller-owned renderer must still be usable for whatever mounted it
-    // in the first place (a live session resuming its own UI after a
-    // mid-session reconnect), not torn down out from under it.
+    // A caller-owned renderer stays usable for its owner, not torn down.
     expect(harness.renderer.isDestroyed).toBe(false);
   });
 });
@@ -1048,8 +1027,7 @@ describe("runProviderSetup sign-in", () => {
     });
     await pickRow(harness, PROVIDER_IDS, "codex");
     await flush(harness);
-    // The suggestion is visible before it is accepted, not just inferred
-    // from what startLogin later receives.
+    // The suggestion shows before acceptance, not only in startLogin's input.
     expect(harness.captureCharFrame()).toContain("default-2");
     harness.pressKey("Enter");
     await flush(harness);
@@ -1072,8 +1050,7 @@ describe("runProviderSetup sign-in", () => {
     type(harness, "personal");
     harness.pressKey("Enter");
     await flush(harness);
-    // Still on the name step: the collision must be acknowledged, not just
-    // captioned, before the browser opens.
+    // The collision must be acknowledged before the browser opens.
     const confirming = harness.captureCharFrame();
     expect(confirming).toContain("step 2 of 4");
     expect(confirming).toContain("already connected");
@@ -1101,9 +1078,7 @@ describe("runProviderSetup sign-in", () => {
     await flush(harness);
     expect(harness.captureCharFrame()).toContain("already connected");
 
-    // Editing the name invalidates the pending confirm — the next Enter must
-    // recheck rather than silently proceeding as if "personal2" were the
-    // account already confirmed.
+    // Editing the name invalidates the pending confirm; the next Enter rechecks.
     type(harness, "2");
     harness.pressKey("Enter");
     await flush(harness);
@@ -1731,11 +1706,7 @@ describe("runProviderSetup", () => {
   });
 });
 
-/**
- * Onboarding tells the user to paste, so paste is driven here as real
- * bracketed-paste bytes (ESC[200~ … ESC[201~) through mock stdin. Asserting a
- * handler is registered would pass while paste was broken.
- */
+/** Paste is driven as real bracketed-paste bytes (ESC[200~ … ESC[201~) through mock stdin. */
 describe("runProviderSetup paste", () => {
   /** Pick OpenAI, accept the instance name, paste `key`, accept default model. */
   async function pasteKey(
@@ -1781,19 +1752,15 @@ describe("runProviderSetup paste", () => {
 });
 
 describe("runProviderSetup pick-list height cap", () => {
-  // Every terminal size gets a bounded frame — no chrome row overlaps
-  // another (the header/intro/step/instruction rows used to compress into
-  // each other when the flex column ran out of room), and the picker never
-  // paints past the terminal's own row count.
+  // Bounded frame at every height: no chrome rows overlap and the picker
+  // never paints past the terminal's row count.
   for (const height of [24, 16, 12, 8, 6]) {
     test(`stays within a ${height}-row terminal with no overlapping chrome`, async () => {
       const { harness } = await mountConfig({}, height);
       await harness.renderOnce();
       const lines = harness.captureCharFrame().split("\n");
       expect(lines.length).toBeLessThanOrEqual(height + 1);
-      // The garbled-overlap bug glued the step line and the intro line
-      // together on one row; each survives as its own line, or is clipped
-      // entirely, but never merges into the other.
+      // Regression: the step and intro lines merged; they must never share a row.
       const stepLine = lines.find((l) => l.includes("step 1 of 4"));
       if (stepLine !== undefined) {
         expect(stepLine).not.toContain("connect an inference provider");
@@ -1813,10 +1780,8 @@ describe("runProviderSetup pick-list height cap", () => {
     expect(frame).toContain(defined(last, "last").label.slice(0, 20));
   });
 
-  // statusLine and guidance are both blank on the first screen these tests
-  // exercised — the garbling only showed up once a failed connection test
-  // populates both of them at once, so walk the flow there instead of
-  // stopping at the provider pick-list.
+  // The garbling needs both statusLine and guidance populated, which only a
+  // failed connection test does; walk the flow there.
   test("a failed connection test at a short terminal shows status and guidance on their own lines", async () => {
     const { harness } = await mountConfig(
       {
@@ -1845,8 +1810,7 @@ describe("runProviderSetup pick-list height cap", () => {
     const guidanceRow = lines.find((l) => l.includes("esc to re-enter"));
     expect(statusRow).toBeDefined();
     expect(guidanceRow).toBeDefined();
-    // The garbling bug glued these two rows together; each must survive as
-    // its own line, never merged into the other.
+    // Regression: the two rows must never merge.
     expect(statusRow).not.toBe(guidanceRow);
     expect(statusRow).not.toContain("esc to re-enter");
     expect(guidanceRow).not.toContain("connection refused");

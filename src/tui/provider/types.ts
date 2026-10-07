@@ -1,9 +1,7 @@
 /**
- * Contract types shared across the provider setup split: the form/submit
- * surface other modules (and tests) program against, plus the mutable state
- * bag `runProviderSetup` threads through the paint, login, and discovery
- * flows. Lives in its own leaf module because submit/connect must not import
- * setup (that would be a cycle), yet need the same contracts setup defines.
+ * Shared contracts for the provider setup split: the form/submit surface and
+ * the mutable state bag `runProviderSetup` threads through its flows. A leaf
+ * module so submit/connect can import these without importing setup.
  */
 
 import type {
@@ -56,32 +54,23 @@ export interface ProviderFormValues {
   apiKey: string;
   model: string;
   /**
-   * Pre-login / pre-key account slug for multi-instance paths (e.g. "personal").
-   * Kept apart from `name`, which is only written once the account is settled
-   * and then carries the compound catalog name (`codex/personal`,
-   * `openai/work`) — reusing it for the slug would make the field mean two
-   * different things depending on where the operator is in the flow. Shared by
-   * OAuth and first-class API-key multi-instance connects; Custom still edits
-   * `name` free-form.
+   * Pre-login account slug for multi-instance paths (e.g. "personal"). Apart
+   * from `name`, which is written once the account is settled and then carries
+   * the compound catalog name (`codex/personal`); Custom still edits `name`.
    */
   oauthProfile: string;
   /** Explicit enabled levels; an empty custom set cannot be saved. */
   reasoningEfforts: string[];
   /** Operator-picked default effort level for new sessions ("" = none chosen). */
   defaultReasoningEffort: string;
-  /**
-   * Optional sampling/token knobs for the custom path. Kept as blank-by-default
-   * strings so an empty input means "leave unset" rather than a forced value;
-   * submit parses them to numbers and omits blanks.
-   */
+  /** Custom-path sampling/token knobs; blank means unset, submit parses to numbers. */
   contextWindow: string;
   maxTokens: string;
   temperature: string;
   topP: string;
 }
 
-// "testing" covers the connection-check call against the entered credentials;
-// "saving" covers the settings write that follows once the test succeeds.
+// "testing" = connection check; "saving" = the settings write that follows.
 export type SubmitPhase = "testing" | "saving";
 
 export interface OAuthResult {
@@ -100,15 +89,9 @@ export interface ProviderPreset {
 }
 
 export interface SubmitOpts {
-  // True when the operator chose to save despite a failed connection test —
-  // some providers speak chat completions but not /models, so validation
-  // cannot be a hard gate.
+  // Save even if the connection test failed — /models is not universal.
   readonly skipValidation: boolean;
-  /**
-   * Catalog metadata for the picked provider. Absent on the custom path. Lets
-   * the caller persist the full seeded model list and the protocol flags the
-   * four form values cannot express.
-   */
+  /** Catalog metadata for the picked provider; absent on the custom path. */
   readonly preset?: ProviderPreset;
   /** Present when the operator exchanged OAuth credentials during setup. */
   readonly oauth?: OAuthResult;
@@ -143,10 +126,7 @@ export type OAuthProfileLister = (
 
 export interface ProviderSetupConfig {
   readonly onSubmit: ProviderSetupSubmit;
-  /**
-   * One-time telemetry disclosure. Shown here so a brand-new install sees it
-   * on the same launch the first telemetry event fires, not on a later run.
-   */
+  /** One-time telemetry disclosure, shown on the launch the first event fires. */
   readonly showTelemetryNotice: boolean;
   /** Renderer factory override for headless mounting in tests. */
   readonly createRenderer?: () => Promise<CliRenderer>;
@@ -162,32 +142,15 @@ export interface ProviderSetupConfig {
   readonly prefetchGoModels?: typeof prefetchGoModelsRequest;
   /** Zen catalog prefetch override so setup tests stay off the network. */
   readonly prefetchZenModels?: typeof prefetchZenModelsRequest;
-  /**
-   * Skip the provider pick-list and start directly on that provider's first
-   * form step (account name for multi-instance kinds, or the custom name
-   * field) — the inline connect path from the model picker's add-provider
-   * selector already knows which provider it wants.
-   */
+  /** Start on the given provider's first form step, skipping the pick-list. */
   readonly initialProviderId?: string;
-  /**
-   * Prefill the OAuth account-name step with the existing profile slug being
-   * re-keyed (e.g. `/connect xai default-2`). The collision confirm still runs
-   * unchanged — prefill never skips the confirm-to-re-key.
-   */
+  /** Prefill the OAuth account-name step with the profile slug being re-keyed. */
   readonly initialOAuthProfile?: string;
-  /**
-   * Catalog keys already present in global settings. Used by the API-key
-   * multi-instance name step for suggested slugs and collision confirms.
-   * OAuth still reads live profiles from the auth store.
-   */
+  /** Existing catalog keys, for suggested slugs and collision confirms on the API-key path. */
   readonly existingProviderNames?: readonly string[];
 }
 
-/**
- * Mutable state shared by the setup surface and its extracted flows. The
- * fields are plain and reassigned in place so the paint, login, and discovery
- * phases can live in separate modules without changing update semantics.
- */
+/** Mutable state shared by the setup surface and its extracted flows. */
 export interface SetupState {
   readonly config: ProviderSetupConfig;
   readonly renderer: CliRenderer;
@@ -215,23 +178,17 @@ export interface SetupState {
   loginAbort: AbortController | null;
   loginHandle: OAuthLoginStart | null;
   loginTimer: ReturnType<typeof setTimeout> | null;
-  // Carried back to the provider step so an abandoned sign-in says so there
-  // rather than dropping the operator on a silent list.
+  // Lets the provider step report an abandoned sign-in instead of a silent list.
   loginCancelled: boolean;
-  // Bumped on every start and every abandon, so a late resolution from a
-  // cancelled or superseded attempt can never move the screen.
+  // Bumped per start/abandon so a late resolution never moves the screen.
   loginAttempt: number;
-  // The OAuth "name" step's own state: an inline error from the last
-  // validation, and a pending re-authorize confirmation for a name that
-  // collided with an existing profile. `confirmedSlug` is the exact slug the
-  // confirmation applies to, so an edit to the field (which invalidates it)
-  // is detected by comparison rather than a separate dirty flag.
+  // OAuth name-step state: last validation error, a pending re-authorize
+  // confirm for a colliding name, and the exact slug that confirm applies to
+  // so an edit invalidates it by comparison.
   oauthProfileError: string | null;
   oauthProfileConfirmPending: boolean;
   confirmedSlug: string | null;
-  // Bumped whenever the name step is (re-)entered, so a profile-list fetch
-  // left over from a step the operator has since navigated away from can
-  // never write into the wrong step's state.
+  // Bumped per name-step entry so a stale profile-list fetch cannot write into it.
   oauthNameAttempt: number;
   readonly discoverOllamaModels: typeof discoverOllamaModelsRequest;
   ollamaDiscovery: "idle" | "loading" | OllamaDiscoveryState;
