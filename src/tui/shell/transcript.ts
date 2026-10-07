@@ -464,16 +464,13 @@ function paintPlainRowNode(
 }
 
 /**
- * A markdown row's body. Most rows have no settled block yet (no heading at
- * all, or the only boundary is still the open tail), and paint through a
- * single renderer, same as before this fix existed. Once a block settles —
- * a heading with content behind it, a closed fence, a complete table — the
- * body becomes a settled `frozen` renderer — everything through that
- * boundary, never streaming, never handed new content while the tail keeps
- * growing, so it is never asked to re-highlight once written — stacked above
- * the still `live` one, which carries the row's own streaming flag. Both
- * halves use the library's default block mode, so paragraphs, lists and
- * tables inside either one lay out exactly as a single unsplit body would.
+ * Most rows have no settled block yet and paint through a single renderer.
+ * Once a block settles — a heading with content behind it, a closed fence, a
+ * complete table — the body becomes a settled `frozen` renderer (everything
+ * through that boundary, never streamed or re-highlighted) stacked above the
+ * still `live` one, which carries the row's own streaming flag. Both halves
+ * use the library's default block mode, so content inside either one lays
+ * out exactly as a single unsplit body would.
  */
 function createMarkdownBody(
   ctx: CliRenderer,

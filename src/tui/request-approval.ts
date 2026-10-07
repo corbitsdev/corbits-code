@@ -17,9 +17,8 @@ export interface CreateGateRequestApprovalArgs {
   emitGate: (event: PermissionGateEvent) => boolean;
   /**
    * Auto-deny timeout parameters for an unattended run, or undefined when
-   * nothing currently arms it. No caller supplies a non-undefined value today
-   * — the goal subsystem was the only arming condition and has been removed;
-   * a future generalized auto-continue mechanism owns re-arming this.
+   * nothing currently arms it. No caller arms it today; a future
+   * auto-continue mechanism owns re-arming.
    */
   approvalTimeout: () =>
     | { timeoutMs: number; timeoutMessage: string }
@@ -38,15 +37,13 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "tui", "permission"]);
  * Wires a gate's settle callback to the ALS tool-approval budget, so every
  * gate (permission, ask_operator, MCP TOFU) freezes the tool's wall-clock
  * budget the same way while a human decides. The budget is paused the moment
- * the gate is raised, not deferred until its overlay is actually shown: it
- * guards the tool's own execution timeout, which keeps running for any tool
- * call regardless of whether an approval overlay is on screen, so deferring
- * the pause would let a queued-and-invisible request burn its tool timeout
- * with no protection at all — a worse failure than the one being fixed.
- * `resolve` is called at most once no matter how many times the returned
- * `finish` is invoked. The budget handle is captured at gate time: `finish`
- * may run on the UI thread outside the tool ALS, so an ALS re-lookup there
- * would no-op on resume.
+ * the gate is raised, not deferred until its overlay shows: it guards the
+ * tool's execution timeout, which keeps running whether or not an approval
+ * overlay is on screen — deferring the pause would let a queued-and-invisible
+ * request burn its tool timeout. `resolve` is called at most once no matter
+ * how many times the returned `finish` is invoked. The budget handle is
+ * captured at gate time: `finish` may run on the UI thread outside the tool
+ * ALS, where a re-lookup would no-op.
  */
 export function attachApprovalBudget<T>(
   resolve: (value: T) => void,

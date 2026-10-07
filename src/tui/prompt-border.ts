@@ -201,10 +201,10 @@ function plainRule(open: string, close: string, inner: number): RulePart[] {
 
 /**
  * Compose one border rule. Runs are dropped whole, never truncated mid-glyph:
- * a half-written label corrupts the frame, a missing one just reads as a
- * plain rule. Drop order, most to least expendable: brand, then the meter's
- * cost suffix, then the meter's context reading, then the attention mark,
- * then the label — the operator's own workspace path survives everything else.
+ * a half-written label corrupts the frame. Drop order, most to least
+ * expendable: brand, the meter's cost suffix, the meter's context reading,
+ * the attention mark, then the label — the operator's own workspace path
+ * survives everything else.
  */
 export function composeRule(input: RuleInput): readonly RulePart[] {
   const width = Math.max(0, Math.floor(input.width));
@@ -301,8 +301,8 @@ export function composeCostContextMeter(
 
 /**
  * `percent%`, or `percent% · cost` with cost included. A plain reading, not a
- * ramp: the bottom-left slot is where this border moves, and a second animated
- * run competing with it made the rule read as two indicators rather than one.
+ * ramp: a second animated run competing with it made the rule read as two
+ * indicators rather than one.
  */
 export function costContextText(
   meter: CostContextMeter,

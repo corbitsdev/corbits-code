@@ -43,15 +43,14 @@ export const PROVIDER_LIST_ROWS_MAX = 10;
 export const PROVIDER_LIST_ROWS_MIN = 3;
 
 /**
- * List height budget. This budget is a guess, not a derivation: it runs
- * before layout, so there has been no layout pass yet and nothing in OpenTUI
- * to measure — Renderable.height and scrollHeight only reflect the last
- * completed layout, populated post-mount. -14 is a hand count of the chrome
- * rows above and below the list (header, intro, step, instruction, summary,
- * statusLine, guidance, footer, and padding) with slack for a wrapped label;
- * it goes stale if that chrome changes and nothing here will catch it. A
- * shared, derived chrome budget for this and shell.ts's picker is tracked
- * separately.
+ * List height budget. A guess, not a derivation: it runs before layout, so
+ * nothing in OpenTUI is measurable yet — Renderable.height and scrollHeight
+ * only reflect the last completed layout, populated post-mount. -14 is a
+ * hand count of the chrome rows above and below the list (header, intro,
+ * step, instruction, summary, statusLine, guidance, footer, and padding)
+ * with slack for a wrapped label; it goes stale if that chrome changes and
+ * nothing here will catch it. A shared, derived chrome budget for this and
+ * shell.ts's picker is tracked separately.
  */
 export function providerListHeight(renderer: CliRenderer): number {
   const rows = renderer.height || 24;

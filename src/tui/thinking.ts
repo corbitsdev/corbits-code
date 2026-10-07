@@ -2,8 +2,7 @@
  * Reasoning chrome: a short wrapped preview while thought streams, and a
  * one-line opener once it settles (full text behind expand).
  *
- * Reasoning is not the answer, so it never owns the screen. Live text used to
- * ride a single sideways-scrolling row; that was unreadable. Now the newest
+ * Reasoning is not the answer, so it never owns the screen. The newest
  * revealed prose wraps into a bounded inset paragraph (hard-capped — never an
  * unbounded dump). Once the turn moves on the row collapses to its opening
  * clause — same expand path as before.
@@ -27,18 +26,16 @@ export function flattenReasoningText(text: string): string {
 
 /**
  * Characters per second the reveal position advances at while reasoning
- * streams. Picked by printing sample frames at 15/20/28/40/60 chars/sec and
- * reading them back: below ~20 the line feels laggy against a fast model,
- * above ~40 it is back to unreadable. 28 landed as fast-but-legible and still
- * reads well against the taller live preview.
+ * streams. Picked by printing sample frames and reading them back: below ~20
+ * feels laggy against a fast model, above ~40 is unreadable. 28 landed as
+ * fast-but-legible.
  */
 export const REVEAL_CHARS_PER_SEC = 28;
 
 /**
  * How many wrapped lines a live reasoning preview may claim. Hard bound — the
  * preview never paints unbounded CoT into the transcript. Raised into the
- * 8–12 band so mid-turn chain-of-thought is glanceable without inventing a
- * separate stream lane.
+ * 8–12 band so mid-turn chain-of-thought is glanceable.
  */
 export const LIVE_THINKING_MAX_LINES = 10;
 

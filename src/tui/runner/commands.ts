@@ -68,9 +68,9 @@ export const HANDOFF_DEFAULT_PIVOT = "Continue from the handoff summary above.";
  * Populate the slash-command registry for a session: built-ins first, then
  * enabled plugin commands and workflows, then the hidden-command filter.
  *
- * Exported so the production wiring is testable — built-in registration used to
- * ride on an import side effect and silently disappeared when its only importer
- * was deleted.
+ * Exported so the production wiring is testable — built-in registration
+ * previously rode on an import side effect and silently disappeared when its
+ * only importer was deleted.
  */
 export function setUpCommandRegistry(
   settings: Settings | undefined,
@@ -288,11 +288,10 @@ export function createCommandLayer(
       }
       // The pivot rides the serial send path, so a busy session queues it
       // behind the in-flight tool batch: whichever boundary fires first runs
-      // the single operator fold (a tool pause compacts-then-continues, the
-      // pivot arrival folds-then-infers), because firing clears the arming.
-      // Unlike `/compact`, the pivot is always delivered, so handoff always
-      // starts the next assistant turn — even a "noop" fold still pivots to
-      // the operator's new goal without needing `/clear`.
+      // the single operator fold, because firing clears the arming. Unlike
+      // `/compact`, the pivot is always delivered, so handoff always starts
+      // the next assistant turn — even a "noop" fold still pivots to the
+      // operator's new goal without needing `/clear`.
       const pivot = trimmed.length > 0 ? trimmed : HANDOFF_DEFAULT_PIVOT;
       const disarmOnMiss = arming === "armed";
       void send(userInboundMessage(pivot, [])).then(

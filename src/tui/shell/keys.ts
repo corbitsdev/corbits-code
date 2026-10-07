@@ -102,14 +102,11 @@ function logStopWorkersFailure(error: unknown): void {
 }
 
 // Human keystrokes land tens of milliseconds apart at the fastest; a paste
-// replayed onto stdin without bracketed-paste framing lands effectively all
-// at once. 15ms is an empirical guess at a gap comfortably under normal
-// typing and comfortably over a replayed paste, not a measured figure --
-// too high false-positives on a very fast typist's real Enter (read as
-// paste, so it inserts a newline instead of sending); too low misses a
-// slow paste replay (read as typing, so a bare CR mid-paste still
-// submits). Only matters before this terminal's first real paste event;
-// see `sawBracketedPaste` below.
+// replayed onto stdin without bracketed-paste framing lands all at once.
+// 15ms is an empirical guess at a gap under normal typing and over a replayed
+// paste — too high reads a fast typist's real Enter as paste; too low misses
+// a slow paste replay. Only matters before this terminal's first real paste
+// event; see `sawBracketedPaste` below.
 const PASTE_BURST_MS = 15;
 
 /** A single unmodified character, as opposed to a control chord or named key. */
@@ -128,10 +125,10 @@ function isPrintableInsertKey(key: KeyEvent): boolean {
  * Which open surface a chord toggles shut, or null when the chord is not a
  * toggling opener.
  *
- * Only pickers appear here. An opener that performs an action (Ctrl+P attaches
- * an image, Ctrl+C interrupts, the expand key expands a row) has nothing to
- * toggle, and a decision surface — a permission or operator question — is
- * deliberately absent: re-pressing whatever chord happened to be underneath it
+ * Only pickers appear here. An opener that performs an action (Ctrl+P
+ * attaches an image, Ctrl+C interrupts, the expand key expands a row) has
+ * nothing to toggle, and a decision surface — a permission or operator
+ * question — is deliberately absent: re-pressing the chord underneath it
  * must not count as an answer. Those leave via a choice or Esc.
  *
  * `@` and `/` are openers too, but they are also characters being typed, so
@@ -306,14 +303,12 @@ export function readStopAffordance(shell: AppShell): {
  * Wheel/trackpad scroll landing on the prompt scrolls the chat instead.
  *
  * The prompt textarea is an editable buffer with its own `scrollY`, so
- * OpenTUI's default routing — whichever renderable the wheel event hits, or
- * the focused renderable when the hit misses — happily scrolls the prompt's
- * own (usually one-screen, nothing-to-scroll) content. The prompt also holds
- * keyboard focus for the whole session, so it is the fallback target for any
- * wheel event that lands off the transcript's hit-tested rows. Overriding the
- * scroll case here — rather than teaching the transcript's own scroll lease
- * about wheel events — keeps the fix to exactly where wheel input actually
- * arrives, without touching transcript viewport internals.
+ * OpenTUI's default routing happily scrolls the prompt's own (usually
+ * nothing-to-scroll) content. The prompt also holds keyboard focus for the
+ * whole session, so it is the fallback target for any wheel event that lands
+ * off the transcript. Overriding the scroll case here — rather than teaching
+ * the transcript's scroll lease about wheel events — keeps the fix to where
+ * wheel input actually arrives.
  */
 export function routePromptWheelToTranscript(
   prompt: BaseRenderable,
@@ -345,11 +340,10 @@ export function createShellKeyHandlers(
 ): ShellKeyHandlers {
   // A real bracketed-paste event proves this terminal negotiates DEC 2004:
   // every paste from here on arrives as one `paste` event, never as raw
-  // keystrokes, so the CRLF-submit fallback below has nothing left to guard
-  // against and turns itself off for the rest of the session. Terminals that
-  // never send one keep the guard, since they've never shown they can do
-  // better. Un-bracketed-paste bookkeeping only this key handler reads, so it
-  // lives in this closure rather than on the shared AppShell.
+  // keystrokes, so the CRLF-submit fallback below turns itself off for the
+  // rest of the session. Terminals that never send one keep the guard. This
+  // bookkeeping only this key handler reads, so it lives in this closure
+  // rather than on the shared AppShell.
   let sawBracketedPaste = false;
   let lastKeyAt = 0;
   let lastKeyWasPrintable = false;
@@ -582,11 +576,9 @@ export function createShellKeyHandlers(
     // Ctrl+Y/Alt+Y need somewhere to yank it back from.
     const keyName = typeof key.name === "string" ? key.name.toLowerCase() : "";
 
-    // Everything below this line is the un-bracketed-paste fallback, and a
+    // Everything below this line is the un-bracketed-paste fallback: a
     // terminal that has ever fired a real `paste` event has proven it never
-    // needs it: every future paste arrives as one `paste` event, not raw
-    // keystrokes, so re-running these checks on it would only risk a false
-    // positive for no benefit.
+    // needs this again.
     if (!sawBracketedPaste) {
       // The LF half of a CRLF pair the block below just turned into a
       // newline: without this, "line one\r\nline two" would insert two
@@ -606,14 +598,11 @@ export function createShellKeyHandlers(
 
       // A bare CR is the same "return" that submits. Left alone, pasting
       // three lines here sends three separate messages instead of composing
-      // one. Detecting it needs two signals, not one: a lone fast Enter can
-      // happen (key rollover, a scripted "send keys"), and a lone printable
-      // character right before Enter is just typing. What never happens from
-      // a human is a printable character landing, then Enter, both inside a
-      // keystroke burst -- that shape is unique to a paste being replayed
-      // byte-for-byte. Gating on both keeps a deliberate Ctrl+J-then-Enter
-      // (newline, then send) safe, since Ctrl+J is not "a printable
-      // character," while still catching "...line one<CR><LF>line two...".
+      // one. Detecting it needs two signals: a printable character landing,
+      // then Enter, both inside a keystroke burst — that shape is unique to a
+      // paste being replayed byte-for-byte. Gating on both keeps a deliberate
+      // Ctrl+J-then-Enter (newline, then send) safe, since Ctrl+J is not a
+      // printable character.
       const now = Date.now();
       const sincePreviousKey = now - lastKeyAt;
       const previousKeyWasPrintable = lastKeyWasPrintable;
@@ -940,9 +929,9 @@ export function createShellKeyHandlers(
       (key.name === "o" || key.name === "O") &&
       !key.ctrl
     ) {
-      // Alt+O: observe a live subagent, same rationale as Alt+T — this was
-      // the palette's "observe" action and needs a real chord now the
-      // palette is gone, not a silently orphaned feature.
+      // Alt+O: observe a live subagent, same rationale as Alt+T — the
+      // palette's "observe" action, given a real chord now the palette is
+      // gone.
       key.preventDefault();
       observeActiveSubagent(shell);
       return;
@@ -969,9 +958,9 @@ export function createShellKeyHandlers(
       !key.ctrl
     ) {
       // Alt+Enter: follow-up — enqueue kind "queue"; deliver only when the
-      // run goes idle. Does not interrupt or reinject. Idle / empty: no-op
-      // (nothing to wait for). Soft steer is plain Enter below; reinject is
-      // not wired to any product chord.
+      // run goes idle. Does not interrupt or reinject. Idle / empty: no-op.
+      // Soft steer is plain Enter below; reinject is not wired to any
+      // product chord.
       key.preventDefault();
       if (shell.session.run !== "busy") return;
       submitPrompt(shell, "queue");

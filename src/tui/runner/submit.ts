@@ -90,14 +90,13 @@ function hasKnownCommand(known: KnownCommandNames, name: string): boolean {
  * only when its first token (to whitespace, lowercased) exactly matches a
  * registered command id; anything else — paths like `/Users/you/notes`,
  * typos like `/cler` — is a model prompt and reaches it verbatim. Bare `/`
- * stays empty. Callers that omit `knownCommands` (tests and non-registry
+ * stays empty. Callers that omit `knownCommands` (tests, non-registry
  * surfaces) keep the legacy any-leading-slash-is-a-command rule; every
  * product call site passes the registry set.
  *
- * Case is lowered once here: the returned command name is the canonical
- * lowercase registry id, so the downstream exact-`Map.get` lookup
- * (`getCommand`) hits for mixed-case input like `/CLEAR`. Matching stays
- * case-insensitive via `hasKnownCommand`.
+ * The returned command name is the canonical lowercase registry id, so the
+ * downstream exact `Map.get` lookup (`getCommand`) hits for mixed-case input
+ * like `/CLEAR`. Matching stays case-insensitive via `hasKnownCommand`.
  */
 export function routeSubmission(
   raw: string,
@@ -270,10 +269,9 @@ export function userInboundMessage(
  * Present at most one recovery surface when a send settles. The reconnect
  * offer re-auths the exact scope that failed, so it wins whenever it arms
  * and its presenter is wired; otherwise fall through to the credential
- * picker's provider switch. An armed reconnect with no presenter (a wiring
- * gap, never the steady state) must not swallow the credential fallback.
- * Dismissing the reconnect offer never cascades to the credential picker —
- * one offer per failure; /model stays available for a manual switch.
+ * picker's provider switch. An armed reconnect with no presenter must not
+ * swallow the credential fallback. Dismissing the reconnect offer never
+ * cascades to the credential picker — one offer per failure.
  */
 export function presentSendRecoveryOffer(args: {
   credential: PendingCredentialRecovery | null;

@@ -37,14 +37,12 @@ export function terminalOf(
  * pad (`BOTTOM_MARGIN_ROWS`), which is blank breathing room, not a content
  * slot.
  *
- * This genuinely costs the rest of the shell a row, not just the space it
- * paints in: the geometry resolver is handed `terminal.rows - 1`, so every
- * height it derives from that — including `PROMPT_CAP_FRACTION *
- * terminal.rows`, which runs before collapse and outside `COLLAPSE_ORDER` —
- * is computed one row short of the real terminal. The badge does not sit in
- * the collapse order and does not give the row back under prompt-growth
- * pressure; it is not "free" chrome, it is chrome the operator pays a row
- * for on the landing screen, same as the task or agents panel would.
+ * This costs the rest of the shell a row: the geometry resolver is handed
+ * `terminal.rows - 1`, so every height it derives from that — including
+ * `PROMPT_CAP_FRACTION * terminal.rows`, which runs before collapse and
+ * outside `COLLAPSE_ORDER` — is computed one row short of the real
+ * terminal. The badge does not sit in the collapse order and does not give
+ * the row back under prompt-growth pressure.
  */
 export function terminalForGeometry(terminal: {
   readonly columns: number;
@@ -74,12 +72,11 @@ export function defaultVisibility(visibility?: ZoneVisibility): ZoneVisibility {
 /**
  * How the landing divides its rows around the prompt box.
  *
- * A floated overlay is clipped to the rows above the box so it never covers the
- * thing the operator types into. Losing the tail of a long body to that clip is
- * survivable; losing every choice is not, because then the surface cannot be
- * answered. So the box slides down just far enough to keep the overlay's full,
- * already fraction-capped height on screen, and the starters below it pay for
- * the move.
+ * A floated overlay is clipped to the rows above the box so it never covers
+ * the prompt. Losing the tail of a long body to that clip is survivable;
+ * losing every choice is not — the surface could not be answered. So the box
+ * slides down just far enough to keep the overlay's full, already
+ * fraction-capped height on screen; the starters below it pay for the move.
  */
 export function landingSplitFor(
   landingRows: number,

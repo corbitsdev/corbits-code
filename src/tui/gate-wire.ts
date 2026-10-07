@@ -256,9 +256,8 @@ export function wireGates(
   hooks: GateLifecycleHooks = NOOP_GATE_HOOKS,
 ): () => void {
   // The shell has one overlay host, and opening onto a busy one is a no-op.
-  // Gates cannot be dropped that way — a lost ask_operator blocks the run with
-  // nothing on screen to answer — so a gate that arrives while another overlay
-  // is up waits here and opens as soon as the host frees up.
+  // A gate that arrives while another overlay is up waits here and opens as
+  // soon as the host frees up.
   const pending: (() => void)[] = [];
   let disposed = false;
   // Owns queued-approval reconciliation (see src/permission/queue.ts): this
@@ -269,27 +268,18 @@ export function wireGates(
     emitter,
     permissionQueue,
   );
-  // Operator gates have no queue module of their own (unlike permission
-  // requests, which register with permissionQueue so dispose can drain
-  // them) — each one registers its own teardown callback here for the
-  // lifetime it is outstanding, so a gate still queued behind another
-  // overlay at session teardown still settles instead of hanging its
-  // awaited promise forever. Every settle path (onAccept, onTextAnswer,
-  // onCancel, settleOnce) is responsible for deregistering its own entry
-  // before resolving — a future settle path that forgets this leaks its
-  // gate into dispose's teardown sweep after it has already resolved
-  // (harmless, since `settled` guards the double-resolve, but wasted work).
+  // Operator gates have no queue module of their own — each one registers a
+  // teardown callback here so a gate still queued at session teardown
+  // settles instead of hanging its awaited promise forever. Every settle
+  // path deregisters its own entry before resolving.
   const operatorTeardowns = new Set<() => void>();
-  // Bumped every time any gate (permission or operator) opens on the shared
-  // host. A settle path that only knows "my overlay was opened" cannot tell
-  // whether the host has since moved on to a newer one — the shell closes an
-  // accepted/cancelled overlay and may open the next queued gate before that
-  // gate's own settle callback runs — and closing blind would tear down that
-  // newer overlay instead of its own. Comparing the generation captured at
-  // open-time against the current one answers that directly, so correctness
-  // never rests on remembering shell.ts's close-before-callback ordering at
-  // each call site. openHost is the only place an overlay opens, so it is
-  // the only place this counter needs to change.
+  // Bumped every time a gate opens on the shared host. A settle path that
+  // only knows "my overlay was opened" cannot tell whether the host has
+  // since opened a newer gate — closing blind would tear down that newer
+  // overlay instead of its own. Comparing the generation captured at
+  // open-time against the current one answers that directly. openHost is
+  // the only place an overlay opens, so it is the only place this counter
+  // changes.
   let overlayGeneration = 0;
 
   function openHost(open: () => void): void {
@@ -368,16 +358,10 @@ export function wireGates(
     // current generation instead of trusting this alone.
     let openedGeneration: number | undefined;
 
-    // The queue is the single settle guard: once an id is removed (accept,
-    // cancel, timeout, abort, or a reconciled grant), a later call is a
-    // no-op instead of double-resolving. Its resolve callback settles
-    // through the onceClosed-wrapped `resolve` (not ev.resolve directly) so
-    // hooks.onGateClosed still fires exactly once regardless of which path
-    // drained this entry. Closing the overlay from inside this callback
-    // re-invokes the overlay's own onCancel (see shell.ts's
-    // closeInsetOverlay, which fires onCancel after notifying close
-    // listeners) — settle's return value is how a call site tells that
-    // reentrant call apart from the original one.
+    // The queue is the single settle guard: once an id is removed, a later
+    // call is a no-op instead of double-resolving. Its resolve callback
+    // settles through the onceClosed-wrapped `resolve` so hooks.onGateClosed
+    // fires exactly once regardless of which path drained this entry.
     const settle = (outcome: ApprovalOutcome): boolean =>
       permissionQueue.settle(id, outcome);
     const id = permissionQueue.enqueue(ev.request, (outcome) => {
@@ -452,18 +436,15 @@ export function wireGates(
       });
     };
 
-    // Watchdog abort (tool budget expired / parent run cancelled) and the
-    // auto-deny timeout both race an operator who may never answer — each
-    // must resolve the gate itself rather than leave the overlay (or the
-    // queued open) parked forever. Whichever fires first settles the queue
-    // entry, which is itself the single-resolve guard, so the other side is
-    // simply a no-op once it runs.
+    // Watchdog abort and the auto-deny timeout both race an operator who may
+    // never answer — each must resolve the gate itself rather than leave the
+    // overlay (or the queued open) parked forever. Whichever fires first
+    // settles the queue entry; the other side is a no-op once it runs.
     //
     // The auto-deny timeout is display-dependent and arms inside `open`
-    // (below), not here: a request sitting behind others in `pending` must
-    // not burn its timeout while the operator has never seen it. Abort is not
-    // display-dependent — it reflects the tool having already finished or
-    // been cancelled, which is true whether or not this gate is on screen —
+    // (below): a request queued behind other overlays must not burn its
+    // timeout while the operator has never seen it. Abort is not
+    // display-dependent — the tool has already finished or been cancelled —
     // so its listener is registered immediately.
     let timer: ReturnType<typeof setTimeout> | undefined;
     const clearTimers = (): void => {
@@ -498,23 +479,18 @@ export function wireGates(
       return;
     }
     const choices = operatorChoicesFromOptions(ev.options, ev.id);
-    // Guarded the same way as the permission gate: correctness must not rest
-    // on callers of closeInsetOverlay remembering to null the cancel hook
-    // before dispatching accept — a future accept-via-close path that forgets
-    // would otherwise double-resolve this promise.
+    // Guarded the same way as the permission gate: a settle path that forgets
+    // to clear the cancel hook before dispatching accept would double-resolve
+    // this promise.
     let settled = false;
     // Set only while this gate's own overlay is the one on screen — mirrors
-    // openedGeneration on the permission path (see its comment above): a
-    // settle path that only knows "my overlay was opened" cannot tell
-    // whether the host has since moved on to a newer one.
+    // openedGeneration on the permission path (see its comment above).
     let openedGeneration: number | undefined;
 
     // Mirrors the permission gate: watchdog abort and the auto-deny timeout
-    // both race an operator who may never answer, and unlike the permission
-    // path this gate previously had no safety net at all — a queued question
-    // behind a stuck overlay hung the run forever. The timeout is
-    // display-dependent and arms inside `open` (below); abort is not, so its
-    // listener is registered immediately.
+    // race an operator who may never answer. The timeout is display-dependent
+    // and arms inside `open` (below); abort is not, so its listener is
+    // registered immediately.
     let timer: ReturnType<typeof setTimeout> | undefined;
     const clearTimers = (): void => {
       if (timer !== undefined) clearTimeout(timer);

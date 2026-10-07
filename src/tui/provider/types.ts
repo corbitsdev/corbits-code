@@ -60,9 +60,9 @@ export interface ProviderFormValues {
    * Kept apart from `name`, which is only written once the account is settled
    * and then carries the compound catalog name (`codex/personal`,
    * `openai/work`) — reusing it for the slug would make the field mean two
-   * different things depending on where the operator is in the flow. Shared
-   * by OAuth and first-class API-key multi-instance connects; Custom still
-   * edits `name` free-form.
+   * different things depending on where the operator is in the flow. Shared by
+   * OAuth and first-class API-key multi-instance connects; Custom still edits
+   * `name` free-form.
    */
   oauthProfile: string;
   /** Explicit enabled levels; an empty custom set cannot be saved. */
@@ -185,10 +185,8 @@ export interface ProviderSetupConfig {
 
 /**
  * Mutable state shared by the setup surface and its extracted flows. The
- * fields are plain and reassigned in place because the original single-function
- * implementation closed over them; the object form is what lets the paint,
- * login, and discovery phases live in separate modules without changing the
- * update semantics.
+ * fields are plain and reassigned in place so the paint, login, and discovery
+ * phases can live in separate modules without changing update semantics.
  */
 export interface SetupState {
   readonly config: ProviderSetupConfig;

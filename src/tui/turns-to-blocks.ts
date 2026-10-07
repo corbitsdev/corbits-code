@@ -216,8 +216,7 @@ function finalizeResumeToolBlocks(
 // Resume paints into the same retained log live turns use. The disk window is
 // in turns, not content-blocks: a tool call and its result fold to one row, so
 // a 1:1 block cap under-fills the 600-row tail. Two turns per row plus one
-// extra means a pair-heavy session can still fill the cap, and a full 600-row
-// text tail still overflows when older segments exist.
+// extra keeps a pair-heavy session able to fill the cap.
 export const RESUME_TRANSCRIPT_TURN_LIMIT = MAX_RETAINED_STREAM_ROWS * 2 + 1;
 
 function turnToContentBlocks(turn: ConversationTurn): ContentBlockData[] {

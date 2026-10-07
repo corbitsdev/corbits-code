@@ -40,9 +40,8 @@ export interface HistoryBlock {
   /**
    * Persisted origin for user blocks (turns-to-blocks): "system" marks an
    * occupancy wake, the only user-type block the resume path ever drops.
-   * Anything else paints at this layer — but the mark itself derives from
-   * content, so a verbatim wake-shaped operator turn arrives marked and
-   * drops here (deliberate-paste-only trigger; one scrollback row).
+   * The mark derives from content, so a verbatim wake-shaped operator turn
+   * arrives marked and drops here too (deliberate-paste-only trigger).
    */
   readonly origin?: string;
 }

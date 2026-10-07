@@ -82,22 +82,21 @@ export function createPromptInput(
  * Where the caret sits among the buffer's wrapped rows, document-absolute.
  *
  * `visualCursor.visualRow` is viewport-relative, so it reads 0 whenever the
- * caret is on the top visible row — including halfway down a scrolled buffer.
- * Adding the scroll offset back gives the row the operator is actually on,
- * which is what decides whether Up/Down moves the caret or recalls history.
+ * caret is on the top visible row. Adding the scroll offset back gives the
+ * row the operator is actually on, which decides whether Up/Down moves the
+ * caret or recalls history.
  */
 export function promptCaretRow(prompt: PromptInput): number {
   return prompt.visualCursor.visualRow + prompt.scrollY;
 }
 
 /**
- * Total wrapped rows the buffer occupies, however few of them are on screen.
+ * Total wrapped rows the buffer occupies, however few are on screen.
  *
- * Read from the editor view's line table rather than `virtualLineCount`, which
- * counts the rows currently in the viewport and so stops rising the moment the
- * box hits its cap — the box would then never know it had more to show. The
- * table is the same wrap the view paints and the same one the caret is measured
- * against, so sizing and caret placement cannot drift apart.
+ * Read from the editor view's line table rather than `virtualLineCount`,
+ * which counts only the rows in the viewport and stops rising once the box
+ * hits its cap. The table is the same wrap the view paints and the caret is
+ * measured against, so sizing and caret placement cannot drift apart.
  */
 export function promptRowCount(prompt: PromptInput): number {
   return Math.max(1, prompt.lineInfo.lineStartCols.length);

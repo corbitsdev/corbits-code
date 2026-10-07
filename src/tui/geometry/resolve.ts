@@ -270,11 +270,9 @@ function collapseOnce(
     if (id === "task") {
       // Shrink one row at a time rather than zeroing in one step, same
       // rationale as "agents" below: a 1-row panel still carries the first
-      // task plus a "+N more" trailer, so it stays meaningful all the way
-      // down instead of vanishing under exactly the pressure an operator
-      // most needs to see it. This is also what keeps the task panel
-      // degrading before the prompt box: it sits ahead of "agents" and
-      // every other optional zone in COLLAPSE_ORDER.
+      // task plus a "+N more" trailer. This is also what keeps the task
+      // panel degrading before the prompt box: it sits ahead of "agents"
+      // and every other optional zone in COLLAPSE_ORDER.
       if (h > 1) {
         heights.task = h - 1;
         if (!collapsed.includes("task")) collapsed.push("task");
@@ -288,9 +286,9 @@ function collapseOnce(
     if (id === "agents") {
       // Shrink one row at a time rather than zeroing in one step: a 1-row
       // panel still carries the stalest agent plus a "+N more" trailer
-      // (formatAgentsPanel's selection sort guarantees that ordering), so
-      // it stays meaningful all the way down instead of the zone vanishing
-      // under exactly the pressure an operator most needs to see it.
+      // (formatAgentsPanel's selection sort guarantees that ordering), so it
+      // stays meaningful under exactly the pressure an operator most needs
+      // to see it.
       if (h > 1) {
         heights.agents = h - 1;
         if (!collapsed.includes("agents")) collapsed.push("agents");
@@ -395,8 +393,7 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
       // Nothing left to collapse. Relax the transcript floor, then re-check
       // against the overlay's own render minimum. An unanswerable approval
       // deadlocks the session; a cramped prompt does not — so the overlay
-      // may take rows from below PROMPT_BASE_ROWS when even that still
-      // cannot seat minOverlay.
+      // may take rows from below PROMPT_BASE_ROWS.
       let overlay = desiredOverlayHeight(
         { ...input, terminal },
         mode,

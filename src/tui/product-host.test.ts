@@ -1222,7 +1222,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("sequence-only å with name a opens add-provider from the model picker", async () => {
     // Terminals can report Option+A as sequence å while name stays ASCII a
-    // and option/meta stay false (#482).
+    // and option/meta stay false.
     const { harness, host } = await mountPicker({
       onConnectProvider: () => undefined,
       addProviderChoices: ADD_PROVIDER_CHOICES,

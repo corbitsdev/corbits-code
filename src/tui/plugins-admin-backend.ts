@@ -304,8 +304,7 @@ export function createPluginsAdmin(args: {
       // Persist global path trust only once the path resolves to a real
       // plugin, so a bogus path never leaves a dangling entry. The granted
       // identity is the probe's normalized pluginPath (the containing dir for
-      // a file entry), not the raw typed path: loadPluginEntry stamps
-      // pluginPath=dirname for file entries and revokeTrust removes exactly
+      // a file entry), not the raw typed path: revokeTrust removes exactly
       // that stamped path, so granting the raw file path would leave a grant
       // no revoke can clear. Expand marketplaces so each member is trusted
       // (exact-path match on reload).

@@ -10,9 +10,9 @@ export const STALL_TIMEOUT_MS = 900_000;
 // has to be named long before it is acted on. Notice, not a shorter timeout —
 // a slow model or a long tool call is not a stall, and killing it early would
 // break working runs to fix a wording problem. Grok-4.6 on the Responses path
-// streams only sparse reasoning *summaries* while billing tens of thousands of
-// thinking tokens, so 60–180s of true client silence mid-think is routine;
-// the notice sits above that band and matches DEFAULT_STALL_MS on spawn_agent rows.
+// streams only sparse reasoning summaries while billing many thinking tokens,
+// so 60–180s of true client silence mid-think is routine; the notice sits
+// above that band and matches DEFAULT_STALL_MS on spawn_agent rows.
 export const STALL_NOTICE_MS = 300_000;
 
 export interface ShouldAbortForStallArgs {
@@ -52,7 +52,6 @@ function silentPastThreshold(
   // Execution-watchdog-exempt polls (collect, wait_agents, ask_director) emit
   // no parent stream events. That must not pin the stall clock forever: they
   // have no other wall-clock bound, so the stall budget is the backstop.
-  // TUI primary does not mount wait_agents; the name is kept so a stray mount cannot pin the clock.
   if (isStallBoundedInFlightTool(args) && args.isProcessing) return true;
   // Mid-stream hang: model stream stalled after first token. Ordinary in-flight
   // tool runs still do not emit parent stream events; leave those to the
@@ -65,13 +64,12 @@ function silentPastThreshold(
 }
 
 /**
- * Polls the per-tool execution watchdog leaves unarmed. Without a stall
- * bound they hold the turn with no other wall-clock limit. A sibling
- * tool.done clears `currentToolName` / `streamingType` while the poll is
- * still in `activeToolCalls`, so the bound keys any in-flight stall-bounded
- * name, not only the last announced tool. The name-keyed `callIdByName`
- * holds one id per tool, so concurrent same-name siblings overwrite each
- * other there; the per-id `callNameById` covers the leftover when the
+ * Polls the per-tool execution watchdog leaves unarmed; without a stall bound
+ * they hold the turn with no other wall-clock limit. A sibling tool.done
+ * clears `currentToolName` / `streamingType` while the poll is still in
+ * `activeToolCalls`, so the bound keys any in-flight stall-bounded name, not
+ * only the last announced tool. The name-keyed `callIdByName` holds one id
+ * per tool; the per-id `callNameById` covers the leftover when the
  * mapping-owning sibling resolves first and clears the shared slot.
  */
 function isStallBoundedToolName(name: string | null | undefined): boolean {

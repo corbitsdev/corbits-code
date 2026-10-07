@@ -141,13 +141,12 @@ export function slashArgItems(
  * Bare base text (`/id `) when a value about to be submitted is still exactly
  * a Tab-accepted free-form hint: the hint lands as selected text so typing
  * replaces it, but submitting it untouched would send the placeholder as the
- * argument. The guard is deliberately shape-only, not selection-gated — the
- * untouched selection is trivially lost without editing (one arrow key), and
- * after that a bare Enter would still submit the literal. An exact `/id
- * <hint>` match is always the placeholder no matter how the selection was
- * lost: real arguments never equal the hint byte-for-byte. Pure;
- * `submitPrompt` applies the result. Returns null when the value is real
- * content (subcommand accepts, typed text, unknown commands, bare bases).
+ * argument. The guard is shape-only, not selection-gated — the selection is
+ * trivially lost without editing (one arrow key), and a bare Enter would then
+ * submit the literal. An exact `/id <hint>` match is always the placeholder:
+ * real arguments never equal the hint byte-for-byte. Pure; `submitPrompt`
+ * applies the result. Returns null when the value is real content (subcommand
+ * accepts, typed text, unknown commands, bare bases).
  */
 export function stripUneditedSlashHint(
   catalog: readonly PaletteCommand[],

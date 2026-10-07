@@ -134,14 +134,14 @@ function linkLinesChunks(
  * the same URL opens it. When no line holds a URL the node is disarmed — any
  * handlers a previous arming installed are cleared — so a retext that drops
  * the last URL leaves no stale hit target behind; handler assignment
- * replaces, so re-arming after a retext never stacks.
+ * replaces, so re-arming never stacks.
  *
- * The press deliberately keeps bubbling — stopping it would break drag-select
- * starting on a URL — and the open fires on release only when the pointer
- * resolves to the same URL it pressed on, so a Ctrl+drag still selects.
- * Columns map over the unwrapped line; on a wrapped line the continuation
- * rows resolve against the same ranges, and the press/release equality check
- * keeps a stray resolution from opening.
+ * The press keeps bubbling — stopping it would break drag-select starting on
+ * a URL — and the open fires on release only when the pointer resolves to
+ * the same URL it pressed on, so a Ctrl+drag still selects. Columns map over
+ * the unwrapped line; on a wrapped line the continuation rows resolve
+ * against the same ranges, and the press/release equality check keeps a
+ * stray resolution from opening.
  */
 export function armLinkLine(
   node: TextRenderable,
@@ -381,13 +381,12 @@ function codeBlockLinkAt(
  * The markdown click target: the raw link target under terminal-absolute
  * (x, y), or null when the cell paints no link. Walks from the hit leaf up to
  * the nearest painted code block (assistant markdown paints through library
- * CodeRenderables, one per block), and that first block decides: its answer
- * stands, with no retry at an ancestor, so a miss inside one block never
- * falls through to a wider ancestor that pairs the same column with a link
- * the narrower block already rejected. Clicks landing outside any block miss.
- * TextRenderable rows never resolve here — their own armed node handlers own
- * those clicks. Never throws: anything unexpected resolves to null so a
- * missed click stays a missed click.
+ * CodeRenderables, one per block), and that first block decides: a miss
+ * inside one block never falls through to a wider ancestor that pairs the
+ * same column with a link the narrower block already rejected. Clicks
+ * landing outside any block miss. TextRenderable rows never resolve here —
+ * their own armed node handlers own those clicks. Never throws: anything
+ * unexpected resolves to null so a missed click stays a missed click.
  */
 export function markdownLinkAt(
   renderer: CliRenderer,
@@ -417,8 +416,7 @@ export function markdownLinkAt(
  * Arm a transcript ancestor as the markdown click target: mouse events bubble
  * up from the hit leaf, and markdown blocks paint through childless library
  * renderers with no node of ours to arm, so this ancestor handler is the only
- * hook that sees their clicks. Ctrl+press stores the link under the pointer
- * (markdownLinkAt reads the same terminal-absolute coordinates events carry);
+ * hook that sees their clicks. Ctrl+press stores the link under the pointer;
  * the open fires on release only over the same URL, so a press on a link that
  * drags away never opens. Armed rows stop propagation after opening
  * themselves, so a click there still opens exactly once; everything goes

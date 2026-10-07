@@ -177,10 +177,9 @@ export interface CollapsedPayload {
 export interface CollapsedSegment {
   // The segment with each qualifying payload (a heredoc body, or a quoted
   // string spanning multiple lines) replaced by a short "<label, N lines>"
-  // placeholder. A segment returned by groupChainSegmentsForDisplay is
-  // already boundary-resolved, so any newline still inside it comes from one
-  // of these two sources — never a chain boundary — which is what lets the
-  // collapsed segment always render as a single line.
+  // placeholder. Any newline still inside a boundary-resolved segment comes
+  // from one of these two sources — never a chain boundary — so the
+  // collapsed segment always renders as a single line.
   display: string;
   // The full text of each collapsed payload, in placeholder order, shown when
   // the operator expands via Alt+E.
@@ -210,12 +209,12 @@ function lineCountSuffix(count: number): string {
 // consuming it as inert data. A segment naming one of these must never
 // collapse — the operator has to be able to read the code they are approving.
 // `ssh` is unconditional too: whatever payload follows the host runs on the
-// remote end regardless of flags, so there is no safe "no -c present" case.
+// remote end regardless of flags.
 //
 // Interpreters are unconditional for the same reason: they can take code via
-// `-c`/`-e`, stdin (`-s` / `-`), a heredoc body, or a pipe from an earlier
-// stage — flag-gated detection left those paths free to collapse executable
-// bodies. Fail open: any segment that names an interpreter never collapses.
+// `-c`/`-e`, stdin, a heredoc body, or a pipe — flag-gated detection would
+// leave those paths free to collapse executable bodies. Fail open: any
+// segment that names an interpreter never collapses.
 const CODE_CONSUMING_COMMANDS = new Set([
   "eval",
   "source",
@@ -243,11 +242,10 @@ const CODE_CONSUMING_COMMANDS = new Set([
 
 // Command-position words only: the program name and its flags, never text
 // inside a quoted argument or heredoc body. A naive whitespace split would
-// let a trigger word incidentally appearing inside a quoted payload (a commit
-// message mentioning "source", a heredoc line mentioning "env") falsely mark
-// the segment as code-consuming and suppress collapsing it — this walk skips
-// quoted/heredoc spans entirely so only the actual command and its arguments
-// are considered. Display-only guesswork (see the file header) — never used
+// let a trigger word inside a quoted payload (a commit message mentioning
+// "source", a heredoc line mentioning "env") falsely mark the segment as
+// code-consuming and suppress collapsing it — this walk skips quoted/heredoc
+// spans entirely. Display-only guesswork (see the file header) — never used
 // for classification.
 function segmentWords(segment: string): string[] {
   const words: string[] = [];
@@ -354,12 +352,11 @@ function programBasename(word: string): string {
 // True when `segment` names a command that treats a quoted or heredoc payload
 // as code — directly (eval, source, xargs, env, ssh) or via an interpreter
 // (bash/sh/python/node/…), including one reached through a `$(...)`/backtick
-// command substitution, since those words show up as ordinary tokens in the
-// segment either way. Interpreter names are matched by basename so a
-// path-qualified spelling (`/bin/bash`, `./sh`) is not missed, and wrapper
-// prefixes (env, sudo, nohup, timeout, ...) are handled for free because this
-// scans every word rather than just the first.
-//
+// substitution, since those words show up as ordinary tokens in the segment
+// either way. Interpreter names are matched by basename so a path-qualified
+// spelling (`/bin/bash`, `./sh`) is not missed, and wrapper prefixes (env,
+// sudo, nohup, timeout, ...) are handled for free because this scans every
+// word rather than just the first.
 function isCodeConsumingSegment(segment: string): boolean {
   const words = segmentWords(segment);
   const bareWord = (word: string): string =>
@@ -372,11 +369,11 @@ function isCodeConsumingSegment(segment: string): boolean {
 }
 
 // Collapse a heredoc body or a multi-line quoted-string argument within one
-// display segment into a placeholder. Never influences classification or
-// grant matching — display only, mirroring the header comment for this file.
-// A segment that hands its payload to an interpreter as code is never
-// collapsed (see isCodeConsumingSegment) — only data-consuming payloads
-// (commit messages, file contents piped to tee/cat, echoed text) collapse.
+// display segment into a placeholder. Display only — never influences
+// classification or grant matching. A segment that hands its payload to an
+// interpreter as code is never collapsed (see isCodeConsumingSegment); only
+// data-consuming payloads (commit messages, file contents piped to tee/cat,
+// echoed text) collapse.
 export function collapseSegmentPayloads(segment: string): CollapsedSegment {
   if (isCodeConsumingSegment(segment))
     return { display: segment, payloads: [] };
@@ -469,8 +466,8 @@ function renderPayloadLine(line: string): string {
 // numbered line (so a second destructive command can never hide inside a wall
 // of text), with heredoc / multi-line quoted payloads collapsed to a
 // placeholder. When `expanded`, each placeholder keeps its line and the full
-// payload is printed underneath it — the placeholder never disappears, so the
-// collapsed and expanded views describe the same command.
+// payload is printed underneath it — the collapsed and expanded views
+// describe the same command.
 //
 // A single unchained segment is not numbered: the number exists to expose
 // chaining, and prefixing a lone command with "1)" only adds noise.

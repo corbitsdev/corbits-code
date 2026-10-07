@@ -149,11 +149,9 @@ export interface RunnerHostDeps {
   /** Live chrome snapshot source, read on mount and on every notify. */
   readonly chrome: () => ChromeSessionInput;
   /**
-   * Registers a chrome-change notifier; returns an unsubscribe. Required, not
-   * optional: an omitted subscription used to type-check cleanly while
-   * silently leaving the task/agents panels frozen at their mount-time
-   * snapshot — the exact "mechanism built, never wired" shape this signature
-   * now makes impossible to omit by accident.
+   * Registers a chrome-change notifier; returns an unsubscribe. Required: an
+   * omitted subscription type-checks cleanly while silently leaving the
+   * task/agents panels frozen at their mount-time snapshot.
    */
   readonly subscribeChrome: (notify: () => void) => () => void;
   /** Live subagent sessions for the palette observe action. */
@@ -191,9 +189,9 @@ export type RunnerHost = ProductHost & {
    * push it into the already-open host — the picker's Recent/Favorites
    * sections would otherwise never reflect a same-session selection.
    *
-   * `providers` defaults to the value last passed here (or the mount-time
-   * deps) — pass a fresh one after a live provider connect so a newly
-   * authorized provider's models appear without a restart.
+   * `providers` defaults to the value last passed here; pass a fresh one
+   * after a live provider connect so a newly authorized provider's models
+   * appear without a restart.
    */
   readonly refreshModels: (
     recentModels: readonly ModelCatalogRef[],
@@ -443,10 +441,10 @@ export async function mountRunnerHost(
       : {}),
   });
 
-  // Quitting is Ctrl+C twice, the binding this interface has always used. The
-  // host claims no key of its own: a second exit chord split the one thing
-  // every operator already knows across two keys, and Ctrl+D stays the
-  // prompt's delete-character-under-cursor.
+  // Quitting is Ctrl+C twice, the binding this interface has always used.
+  // The host claims no key of its own: a second exit chord would split the
+  // one thing every operator already knows across two keys, and Ctrl+D
+  // stays the prompt's delete-character-under-cursor.
 
   let disposed = false;
   const dispose = (): void => {
