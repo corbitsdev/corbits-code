@@ -186,10 +186,10 @@ export function dropOrphanedOAuthEntries(
   };
 }
 
-// A codex/<slug> or xai/<slug> settings row carrying its own credential is the
-// operator's explicit config, not an OAuth placeholder: OAuth profile
-// projections must never overwrite it, orphan-sweep it, or drop it from the
-// catalog. Credential-less namespaced rows stay placeholders.
+// A codex/<slug> or xai/<slug> settings row carrying its own credential is
+// the operator's explicit config, not an OAuth placeholder: projections must
+// never overwrite it, orphan-sweep it, or drop it from the catalog.
+// Credential-less namespaced rows stay placeholders.
 function isHandNamedProviderEntry(
   entry: Pick<ProviderSettings, "apiKey" | "keyless"> | undefined,
 ): boolean {
@@ -308,24 +308,24 @@ export function buildOpenAISource(fields: {
 // One configured provider the /agent modal can switch to. Carries credentials
 // because live switching builds an InferenceSource from it; the modal only
 // ever receives fields needed for provider management, never the key. Derived
-// from ProviderSettings (the persisted record) so the field *set* stays tied
-// to it: a newly required ProviderSettings field forces every catalog-entry
+// from ProviderSettings (the persisted record) so the field set stays tied to
+// it: a newly required ProviderSettings field forces every catalog-entry
 // literal to supply it. `name` becomes required (every catalog entry is a
-// concrete provider id) and `contextWindow` is dropped (a settings-only
-// override, never surfaced to the modal). The OAuth-profile markers have no
-// ProviderSettings counterpart because such entries are never written to
+// concrete provider id); `contextWindow` is dropped (a settings-only
+// override, never surfaced). The OAuth-profile markers have no
+// ProviderSettings counterpart — such entries are never written to
 // settings.json (their credentials live in the Codex/xAI auth stores).
-// Optional fields still need the round-trip test in config.test.ts — TS does
-// not flag a missing optional property against an explicitly-typed object
-// literal, so forwarding an optional field is only caught at runtime.
+// Optional fields still need the round-trip test in config.test.ts: TS does
+// not flag a missing optional property against an explicitly-typed literal,
+// so forwarding one is only caught at runtime.
 export type ProviderCatalogEntry = Omit<
   ProviderSettings,
   "name" | "contextWindow"
 > & {
   name: string;
   // Set when this entry is a Codex OAuth profile rather than an API-key
-  // provider. Holds the profile name; the send path uses it to refresh the
-  // access token before each turn.
+  // provider. Holds the profile name; the send path refreshes the access
+  // token with it before each turn.
   codexProfile?: string;
   // ChatGPT account id for a Codex profile, sent as the chatgpt-account-id
   // header by the Responses adapter. Present only on Codex entries.
@@ -333,10 +333,9 @@ export type ProviderCatalogEntry = Omit<
   // Set when this entry is an xAI/Grok OAuth profile. It still routes through
   // openai-compatible; the marker only controls token refresh and persistence.
   xaiProfile?: string;
-  // When true this provider is backed by a Bifrost virtual key. Inference
-  // sources for it are built with provider "bifrost" so the adapter can
-  // inject the x-bf-vk header (in addition to Authorization). The flag is
-  // also used to enable /models auto-discovery scoped to the key.
+  // Backed by a Bifrost virtual key. Sources for it use provider "bifrost"
+  // so the adapter injects the x-bf-vk header (in addition to Authorization);
+  // also enables /models auto-discovery scoped to the key.
   bifrostVirtualKey?: boolean;
   // Anthropic Messages API (x-api-key). Used by first-class Anthropic and by
   // OpenCode Go models that speak the messages protocol.
@@ -389,10 +388,10 @@ export function buildCodexSource(fields: {
 // Build the InferenceSource for an xAI/Grok OAuth profile. Routes to the
 // "grok-responses" adapter (the grok-cli proxy speaks the Responses API, not
 // Chat Completions). The access token is registered in the credential cell
-// under the source id; the caller's user id is decoded from it and lifted
-// into the x-grok-user-id header by the adapter. The session id becomes the
-// request's prompt_cache_key so every call in the thread routes to the same
-// cache shard (store:false has no other signal).
+// under the source id; the adapter decodes the caller's user id from it into
+// the x-grok-user-id header. The session id becomes the request's
+// prompt_cache_key so every call in the thread routes to the same cache shard
+// (store:false has no other signal).
 export function buildXaiSource(fields: {
   id: string;
   profile: string;
@@ -466,8 +465,9 @@ export function buildAnthropicSource(fields: {
   };
 }
 
-// OpenCode Go: per-model protocol routing (chat completions / responses / messages).
-// sessionId feeds the Responses-protocol prompt_cache_key (see buildXaiSource).
+// OpenCode Go: per-model protocol routing (chat completions / responses /
+// messages). sessionId feeds the Responses-protocol prompt_cache_key (see
+// buildXaiSource).
 export function buildGoSource(fields: {
   id: string;
   apiKey?: string;
@@ -614,8 +614,8 @@ export interface Config {
   // settings set anthropicCachePrompt.
   anthropicCachePrompt: boolean;
   // True when dangerouslySkipPermissions came from the active settings source
-  // rather than this invocation's CLI flag. Entry points use this to surface a
-  // startup notice since the persisted value is otherwise silent.
+  // rather than this invocation's CLI flag. Entry points use this to surface
+  // a startup notice, since the persisted value is otherwise silent.
   skipPermissionsFromSettings: boolean;
   auto: boolean;
   /**
@@ -624,8 +624,9 @@ export interface Config {
    */
   director?: DirectorId;
   /**
-   * Entry mode. `"tui"` is the interactive Ink shell; `"exec"` is the non-TUI
-   * product agent path (`corbits exec "prompt"`). Same directors/tools/permissions.
+   * Entry mode. `"tui"` is the interactive Ink shell; `"exec"` is the
+   * non-TUI product agent path (`corbits exec "prompt"`). Same
+   * directors/tools/permissions.
    */
   command: "tui" | "exec";
   /** Active settings source, including an explicit --config path. */
@@ -644,8 +645,8 @@ export interface Config {
   inactivityTimeoutMs?: number;
   // Per-call total wall-clock cap in ms (default 600_000 in the harness).
   totalTimeoutMs?: number;
-  // Per-call wall-clock cap for the compaction summary call in ms
-  // (default 90_000 in the summarizer).
+  // Per-call wall-clock cap for the compaction summary call in ms (default
+  // 90_000 in the summarizer).
   summarizerTimeoutMs?: number;
   reasoningEffort?: ReasoningEffort;
   mcpServers?: ResolvedMCPServerConfig[];
@@ -687,9 +688,9 @@ export interface Config {
   settingsDiagnostics?: SettingsLoadDiagnostic[];
 }
 
-// Returned by loadConfig when no provider is configured and allowUnconfigured is
-// true. Carries enough context for the TUI to launch the onboarding flow instead
-// of exiting. Headless callers must treat this as a fatal error.
+// Returned by loadConfig when no provider is configured and allowUnconfigured
+// is true. Carries enough context for the TUI to launch the onboarding flow
+// instead of exiting. Headless callers must treat this as a fatal error.
 export interface UnconfiguredConfig {
   configured: false;
   cwd: string;
@@ -893,8 +894,8 @@ export async function loadConfig(
   // writes/edits and unconstrained shell) run without prompting, while shell
   // file-mutation stays denied and installs / recursive rm / worktree /
   // sensitive-path / opaque-wrapper shell still ask. Pass --no-auto to revert
-  // to ask-on-every-write. There is currently no in-session key to toggle auto;
-  // Shift+Tab in the TUI cycles reasoning effort instead.
+  // to ask-on-every-write. No in-session key toggles auto; Shift+Tab in the
+  // TUI cycles reasoning effort instead.
   let auto = true;
   let director: DirectorId | undefined;
   let configPath: string | undefined;
@@ -1032,8 +1033,8 @@ export async function loadConfig(
   // overrides where provider *definitions* come from, so it must still merge
   // in OAuth profiles or every codex/xai OAuth run through --config reaches
   // the provider unauthenticated. Only the programmatic `globalSettingsPath`
-  // test override — never exposed as a CLI flag — opts out, for tests that
-  // want a fully controlled provider set with no home-directory reads at all.
+  // test override (never exposed as a CLI flag) opts out, for tests that want
+  // a fully controlled provider set with no home-directory reads at all.
   const useOAuthProfiles = options.globalSettingsPath === undefined;
   const [codexProfiles, xaiProfiles]: [CodexProfile[], XaiProfile[]] =
     useOAuthProfiles
@@ -1082,10 +1083,10 @@ export async function loadConfig(
     projectedOAuthProviders,
   );
 
-  // The per-repo selection file still applies on top of a --config source: that
-  // file supplies provider definitions, while .corbits/settings.json supplies
-  // the provider/model selection. CLI --provider/--model override both.
-  // Fail open on unknown/invalid local keys — never crash startup.
+  // The per-repo selection file still applies on top of a --config source:
+  // that file supplies provider definitions, while .corbits/settings.json
+  // supplies the provider/model selection. CLI --provider/--model override
+  // both. Fail open on unknown/invalid local keys — never crash startup.
   const localResult =
     localSettingsFile === null
       ? { settings: null, diagnostics: [] }
@@ -1166,8 +1167,8 @@ export async function loadConfig(
   );
   // Enforce model/effort compatibility at the boundary. The modal only offers
   // supported levels, but a hand-edited local settings file can pair an effort
-  // with a model that does not accept it; reject it here rather than shipping an
-  // effort the model will refuse. Pricing metadata was seeded above from cache.
+  // with a model that does not accept it; reject it here rather than shipping
+  // an effort the model will refuse. Pricing metadata was seeded from cache.
   if (local?.reasoningEffort !== undefined) {
     const verdict = validateEffort(
       resolved.model,
@@ -1302,15 +1303,13 @@ export async function loadConfig(
 // from the current settings file plus the live Codex/xAI stores, so a
 // provider without a credential is rebuilt without one and re-auth restores
 // it on the next rebuild. Settings-file rows are re-projected verbatim and
-// never deleted — with one exception: the legacy bare `codex`/`xai` row
-// dedupe drops the bare settings row once that family has a live
-// credential-backed profile. Nothing the operator wrote is lost, nothing
-// stale survives past the next rebuild; a dedicated disabled flag was
-// rejected (no removal event drives a refresh — there is no logout/disconnect
-// surface or auth-store watcher), so removal takes effect on the next
-// rebuild, not live.
+// never deleted — one exception: the legacy bare `codex`/`xai` row dedupe
+// (below). A dedicated disabled flag was rejected (no removal event drives a
+// refresh — there is no logout/disconnect surface or auth-store watcher), so
+// removal takes effect on the next rebuild, not live.
+//
 // Compare a settings-row baseURL against the OAuth endpoint so a proxy/mirror
-// row is never mistaken for the legacy bare-row duplicate. Normalization
+// row is never mistaken for the legacy bare-row duplicate; normalization
 // failures fall back to a trailing-slash-insensitive compare rather than
 // dropping a row whose URL cannot be parsed.
 function sameEndpoint(raw: string | undefined, oauthBaseURL: string): boolean {
@@ -1351,12 +1350,13 @@ export function mergeOAuthCatalog(
   ]);
   const settingsRows = buildProviderCatalog(settings, resolved);
   // A hand-named codex/<slug> or xai/<slug> API-key row is the operator's
-  // explicit config, not an OAuth placeholder: keep it and skip the colliding
-  // live profile projection instead of overwriting it. Read the raw
-  // settings rows only: buildProviderCatalog synthesizes a [resolved] row when
-  // settings is null/empty, and when resolved is itself codex/<slug> that row
-  // carries the live apiKey with no profile marker — treating it as hand-named
-  // would eject the real marked entry for a stale token snapshot.
+  // explicit config, not an OAuth placeholder (see isHandNamedProviderEntry):
+  // keep it and skip the colliding live profile projection instead of
+  // overwriting it. Read the raw settings rows only: buildProviderCatalog
+  // synthesizes a [resolved] row when settings is null/empty, and when
+  // resolved is itself codex/<slug> that row carries the live apiKey with no
+  // profile marker — treating it as hand-named would eject the real marked
+  // entry for a stale token snapshot.
   const handNamed = new Set(
     Object.entries(settings?.providers ?? {})
       .filter(
@@ -1483,8 +1483,8 @@ export function catalogEntryAsProviderSettings(
 }
 
 // Overlay the full live catalog (including OAuth profiles) onto settings for
-// runtime provider resolution. OAuth credentials live in home auth stores
-// and are stripped from settings.json; the catalog is the source of truth for
+// runtime provider resolution. OAuth credentials live in home auth stores and
+// are stripped from settings.json; the catalog is the source of truth for
 // which OAuth providers are available right now. Never pass the result to a
 // disk write path — use providerCatalogToSettings for persistence.
 export function runtimeSettingsWithCatalog(
@@ -1521,7 +1521,7 @@ export function runtimeSettingsWithCatalog(
 // The set of providers the /agent modal can switch between. When a settings
 // file is present its providers are the catalog. In env-only mode there is no
 // file, so the single resolved provider is the whole catalog (the modal still
-// renders, switching is just a no-op against one entry).
+// renders; switching is a no-op against one entry).
 export function buildProviderCatalog(
   settings: Settings | null,
   resolved: ResolvedProvider,
@@ -1601,7 +1601,7 @@ export function providerCatalogToSettings(
     ]),
   );
   // Spread the full existing settings so provider saves never drop plugins,
-  // pluginPaths, shell, tools, or other unknown keys. Only the catalog and
+  // pluginPaths, shell, tools, or other unknown keys; only the catalog and
   // defaultProvider are replaced. A hand-picked allowlist previously missed
   // fields and could wipe unrelated settings after a /model save.
   if (existing === undefined) {

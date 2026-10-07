@@ -610,14 +610,13 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
   }
 });
 
-// --config <path> passes a settings-file override for provider *definitions*,
-// but credentials for OAuth-profile providers (codex/<name>, xai/<name>) live
-// in separate home-level auth stores that --config never touches. Before this
-// fix, an explicit --config unconditionally suppressed the OAuth catalog
-// merge, so any codex/xai run through --config resolved to an unauthenticated
-// provider. This proves --config composes with auth: the OAuth profile still
-// resolves even though a --config file is also given, and the file's own
-// settings still apply.
+// --config <path> overrides provider *definitions* only; credentials for
+// OAuth-profile providers (codex/<name>, xai/<name>) live in separate
+// home-level auth stores that --config never touches. Before this fix, an
+// explicit --config unconditionally suppressed the OAuth catalog merge, so
+// any codex/xai run through --config resolved to an unauthenticated provider.
+// This proves --config composes with auth: the OAuth profile still resolves
+// alongside a --config file, and the file's own settings still apply.
 test("--config composes with OAuth profile auth instead of suppressing it", async () => {
   const fakeHome = await mkdtemp(
     join(tmpdir(), "ic-unit-config-oauth-compose-home-"),
