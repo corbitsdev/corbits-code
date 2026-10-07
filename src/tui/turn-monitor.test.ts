@@ -95,9 +95,8 @@ describe("turn progress label", () => {
       expect(t.shell.lockupPhase).toBeNull();
 
       t.bridge.handle({ type: "inference.start", data: {} });
-      // What the slot paints from this phase is asserted against the
-      // rendered border row in the ramp paint tests; here it is only that
-      // the phase itself tracks the run.
+      // What the slot paints from this phase is asserted in the ramp paint
+      // tests; here it is only that the phase itself tracks the run.
       expect(t.shell.lockupRampPhase).toBe("working");
       expect(t.shell.lockupPhase).toBe("working");
 
@@ -148,12 +147,7 @@ describe("turn progress label", () => {
     });
   });
 
-  /**
-   * The shape a real chat turn actually has. A chat session emits no
-   * `reactor.done` until it closes, so `connector.reply` is the only terminal
-   * event the shell ever sees — the regression this covers left the phase line
-   * counting for the rest of the session.
-   */
+  /** The shape a real chat turn actually has. A chat session emits no `reactor.done` until it closes, so `connector.reply` is the only terminal event the shell sees — the regression this covers left the phase counting for the rest of the session. */
   test("a full turn with a tool clears the phase on connector.reply", async () => {
     await withHarness(async (t) => {
       t.bridge.handle({
@@ -369,7 +363,7 @@ describe("stall watchdog", () => {
       // The model starts producing again — the notice must not linger past
       // the silence it was reporting. handle() itself has to take it down;
       // waiting for the next tick leaves a window where the turn can settle
-      // and cancel the cadence, which would strand the banner forever.
+      // and cancel the cadence, stranding the banner forever.
       t.bridge.handle({
         type: "inference.text.delta",
         data: { token: "ok" },
@@ -412,10 +406,10 @@ describe("stall watchdog", () => {
     });
   });
 
-  // Awaiting the model's next token — right after submit, after the last
+  // Awaiting the model's next token — after submit, after the last
   // outstanding tool call resolves, or after compact continuation re-entry —
-  // still notices at the notice threshold, then auto-aborts at the stall budget
-  // so a reply or continuation that never lands cannot freeze the turn.
+  // still notices at the notice threshold, then auto-aborts at the stall
+  // budget so a reply or continuation that never lands cannot freeze the turn.
   test("a wait right after submit auto-aborts once the stall budget elapses", async () => {
     await withHarness(async (t) => {
       reachStallNotice(t);
@@ -496,9 +490,9 @@ describe("stall watchdog", () => {
     await withHarness(async (t) => {
       t.bridge.submit("build it", "immediate");
       t.port.clear();
-      // The gate is raised but nothing else has changed `shell.overlayKind`
-      // — this is the "queued behind another overlay" shape from
-      // gate-wire.ts, where the gate is not nominally displayed yet.
+      // The gate is raised but `shell.overlayKind` is unchanged — the
+      // "queued behind another overlay" shape from gate-wire.ts, where the
+      // gate is not nominally displayed yet.
       t.bridge.gateOpened();
       expect(t.shell.overlayKind).toBeNull();
 
@@ -528,10 +522,10 @@ describe("stall watchdog", () => {
     });
   });
 
-  // The gate exemption (this fix) and the parallel-tool-call exemption are
-  // independent guards feeding the same stall check — a run with both
-  // outstanding must stay exempt, and closing the gate while the tool call
-  // is still out must not re-expose it to the clock.
+  // The gate exemption and the parallel-tool-call exemption are independent
+  // guards feeding the same stall check — a run with both outstanding must
+  // stay exempt, and closing the gate while the tool call is still out must
+  // not re-expose it to the clock.
   test("a gate open alongside a live sibling tool call stays exempt", async () => {
     await withHarness(async (t) => {
       t.bridge.submit("build it", "immediate");
@@ -834,8 +828,8 @@ describe("reasoning settles to a summary", () => {
         });
       }
 
-      // Both bursts belong to one turn, so they share one row — and its
-      // elapsed time is the turn's thinking, not the last burst's.
+      // Both bursts belong to one turn, so they share one row — its elapsed
+      // time is the turn's thinking, not the last burst's.
       const thoughts = t.shell.streamLog
         .filter((row) => row.meta === "thinking")
         .map((row) => row.thought);

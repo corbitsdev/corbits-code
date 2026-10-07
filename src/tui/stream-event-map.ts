@@ -1,9 +1,4 @@
-/**
- * Pure production stream/reactor → BridgeInboundEvent mapping.
- *
- * Covers the event types a normal turn paints (user, assistant deltas, tools,
- * attempt boundaries). No renderer / OpenTUI deps — unit-testable.
- */
+/** Production stream/reactor → BridgeInboundEvent mapping (user, assistant deltas, tools, attempt boundaries). Pure: no renderer / OpenTUI deps. */
 
 import {
   splitPendingControlTail,
@@ -46,25 +41,17 @@ export type BridgeInboundEvent =
   | { readonly type: "system"; readonly text: string }
   | { readonly type: "run"; readonly state: RunState }
   /**
-   * Live fleet-lane count from the runner (interrupted leftovers are not
-   * live). Drives idle-with-fleet: the run stays busy after the parent turn
-   * settles until this lands back at zero (true session-idle), and Enter
-   * mid-hold upgrades to a new turn rather than a queued steer.
+   * Live fleet-lane count (interrupted leftovers are not live). Drives
+   * idle-with-fleet: the run stays busy after the parent turn settles until
+   * this lands back at zero; Enter mid-hold upgrades to a new turn rather
+   * than a queued steer.
    */
   | { readonly type: "fleet"; readonly running: number }
-  /**
-   * Authoritative snapshot of currently pending top-level ask_director
-   * questions, including empty. The bridge reconciles and dedups delivery.
-   */
+  /** Authoritative snapshot of pending top-level ask_director questions, including empty. The bridge reconciles and dedups delivery. */
   | { readonly type: "agent-ask"; readonly asks: readonly PendingAskWake[] }
   | { readonly type: "tool.boundary" }
   | { readonly type: "error"; readonly message: string }
-  /**
-   * Attempt-boundary bookkeeping for retries: `mark` records where the
-   * current attempt's rows begin, `clear` disarms it once the attempt has
-   * settled, `rollback` retracts everything painted since it. The mapper
-   * decides *when*; the consumer owns the row index.
-   */
+  /** Attempt-boundary bookkeeping for retries: `mark` records where the attempt's rows begin, `clear` disarms it once settled, `rollback` retracts what was painted since. The mapper decides when; the consumer owns the row index. */
   | {
       readonly type: "attempt";
       readonly action: "mark" | "clear" | "rollback";
@@ -77,10 +64,7 @@ export interface ReactorLikeEvent {
   readonly seq?: number;
 }
 
-/**
- * Reactor / stream types that are not bridge-native and must go through the
- * production mapper (avoids collisions like tool.done vs bridge tool_result).
- */
+/** Reactor/stream types that are not bridge-native and must go through the production mapper (avoids collisions like tool.done vs tool_result). */
 export const PRODUCTION_REACTOR_TYPES: ReadonlySet<string> = new Set([
   "message.received",
   "inference.start",
@@ -109,32 +93,13 @@ export interface StreamMapContext {
   hadTextDelta: boolean;
   /** Trailing fragment of a possibly-incomplete escape sequence, per channel. */
   readonly pendingDelta: { assistant: string; thinking: string };
-  /**
-   * True between an `inference.start` and the event that settles its cycle.
-   * `inference.retry` has two producers told apart by ordering: the harness
-   * emits it pre-commit, before the cycle's `inference.start`, when the
-   * failed attempt streamed nothing and there is nothing to retract; the
-   * reactor emits it after a committed attempt failed and is about to
-   * re-stream what it already painted. Only a retry arriving while this is
-   * armed retracts.
-   */
+  /** True between an `inference.start` and the event that settles its cycle. The harness's pre-commit `inference.retry` (nothing streamed, nothing to retract) arrives before the start; the reactor's retry comes after a committed attempt failed and is about to re-stream. Only a retry arriving while this is armed retracts. */
   attemptArmed: boolean;
   /** Tool calls already known when the current attempt started. */
   attemptCallIds: Set<string>;
-  /**
-   * A committed attempt can also end in `inference.error` with no
-   * `inference.done`, and a same-provider retry follows that error with
-   * another `inference.start`. The boundary must not stay armed across a
-   * terminal error, so the error hands it off here: the very next event
-   * consumes it and retracts the failed attempt, or expires it and keeps
-   * the error row.
-   */
+  /** A committed attempt can end in `inference.error` with no `inference.done`, followed by a same-provider retry start. The boundary must not stay armed across a terminal error, so the error hands it off here: the next event retracts the failed attempt or expires the handoff and keeps the error row. */
   errorRollbackArmed: boolean;
-  /**
-   * Live catalog provider id (e.g. `xai/alice`). Harness
-   * `inference.error` events omit providerId; the session stamps this so
-   * transcript formatting can reuse known-provider remappers.
-   */
+  /** Live catalog provider id (e.g. `xai/alice`). Harness `inference.error` events omit it; the session stamps this so transcript formatting can reuse known-provider remappers. */
   providerId?: string;
   providerLabel?: string;
   /** Provider selection captured when the active inference cycle started. */
@@ -207,13 +172,7 @@ const DELTA_EVENT_TYPE: Record<DeltaChannel, BridgeInboundEvent["type"]> = {
   thinking: "thinking.delta",
 };
 
-/**
- * Model output is attacker-influenceable: a prompt injection can make the
- * model reproduce an escape sequence in its own reply, which never passes the
- * tool-dispatch sanitizer. Deltas arrive in fragments, so a sequence can
- * straddle a boundary — the trailing partial is held in the map context and
- * joined to the next fragment rather than sanitized in isolation.
- */
+/** Model output is attacker-influenceable and never passes the tool-dispatch sanitizer. Deltas arrive in fragments, so a sequence can straddle a boundary — the trailing partial is held in context and joined to the next fragment rather than sanitized in isolation. */
 function sanitizeDelta(
   ctx: StreamMapContext | undefined,
   channel: DeltaChannel,
@@ -227,11 +186,7 @@ function sanitizeDelta(
   return stripTerminalControlSequences(head);
 }
 
-/**
- * Held fragments must still reach the screen once the burst ends; what is
- * still incomplete at that point never became a real sequence, so it is
- * discarded rather than painted with its introducer bytes shaved off.
- */
+/** Flush held fragments when the burst ends; what is still incomplete never became a real sequence, so discard it rather than paint it with introducer bytes shaved off. */
 function flushDelta(
   ctx: StreamMapContext | undefined,
   channel: DeltaChannel,
@@ -315,13 +270,7 @@ function toolCallEvent(
   };
 }
 
-/**
- * Map one production-shaped reactor/stream event into zero or more bridge
- * events. A `ctx` carries the cross-event bookkeeping: callId→name resolution
- * for a tool.done without result.name, retry boundaries, and the suppressions
- * that keep one paint per thing (connector.reply after deltas, no double
- * tool_call). Stateless calls remain safe for fixtures and simple unit tests.
- */
+/** Map one production reactor/stream event into zero or more bridge events. `ctx` carries cross-event bookkeeping: callId→name resolution for tool.done without result.name, retry boundaries, and suppressions that keep one paint per thing (connector.reply after deltas, no double tool_call). Stateless calls stay safe for fixtures and unit tests. */
 export function mapProductionEvent(
   event: ReactorLikeEvent,
   ctx?: StreamMapContext,
@@ -333,9 +282,8 @@ export function mapProductionEvent(
   if (event.type !== "inference.thinking.delta") {
     flushed.push(...flushDelta(ctx, "thinking"));
   }
-  // The error handoff only survives to the very next event: anything other
-  // than the retry start it was meant for expires the boundary and keeps the
-  // error row.
+  // The error handoff survives only to the very next event: anything else
+  // expires the boundary and keeps the error row.
   const handoff = ctx?.errorRollbackArmed === true;
   if (ctx) ctx.errorRollbackArmed = false;
   const expired =
@@ -365,14 +313,14 @@ function mapEvent(
           ? `\n[Attached ${attachments.length} image${attachments.length === 1 ? "" : "s"}: ${attachments.map((a) => a.name ?? "image").join(", ")}]`
           : "";
       const full = `${content}${attachmentText}`;
-      // The boundary must never straddle an inbound transcript row: a later
-      // retry retracting across it would erase operator or system text.
+      // Never straddle an inbound transcript row: a later retry retracting
+      // across it would erase operator or system text.
       const disarmed = disarmAttempt(ctx);
       if (full.trim().length === 0) return disarmed;
       const operator = isOperatorOriginated(inboundMessageFlags(message));
       // Occupancy wakes (mailbox mail, fleet-dry continuation) are
-      // runtime→agent traffic: the fleet board already owns worker status,
-      // and the payload is model-facing report JSON — no transcript row.
+      // runtime→agent traffic: the fleet board owns worker status and the
+      // payload is model-facing report JSON — no transcript row.
       if (
         !operator &&
         (isMailboxMailText(content) || isFleetDryContinuationText(content))
@@ -410,8 +358,8 @@ function mapEvent(
     }
 
     case "inference.done":
-      // Cycle settled: disarm so a pre-commit retry belonging to the *next*
-      // cycle cannot retract this one's rows.
+      // Cycle settled: disarm so a pre-commit retry of the next cycle cannot
+      // retract this one's rows.
       if (ctx) {
         ctx.pendingProviderFailure = false;
         ctx.pendingProviderError = undefined;
@@ -423,8 +371,8 @@ function mapEvent(
     case "inference.retry": {
       const armed = ctx?.attemptArmed === true;
       if (ctx) ctx.attemptArmed = false;
-      // A retry that arrives with nothing armed is the harness's pre-commit
-      // kind: the failed attempt never streamed, so there is nothing to undo.
+      // A retry with nothing armed is the harness's pre-commit kind: the
+      // failed attempt never streamed, so there is nothing to undo.
       if (!armed && !errorRollbackHandoff) return [];
       if (ctx) forgetAttemptLocalState(ctx);
       return [ATTEMPT_ROLLBACK];
@@ -453,8 +401,8 @@ function mapEvent(
       const name = typeof data.name === "string" ? data.name : "tool";
       const callId = typeof data.callId === "string" ? data.callId : undefined;
       trackCall(ctx, callId, name);
-      // Prefer painting at end with final arguments; early start is tracking only
-      // when we have a callId. Without callId, emit immediately.
+      // Paint at end with final arguments; an early start only tracks when we
+      // have a callId. Without one, emit immediately.
       if (ctx && callId) return [];
       return [toolCallEvent(name, undefined, callId)];
     }
@@ -611,8 +559,8 @@ function mapEvent(
     case "inference.error": {
       // Hand the armed boundary to the next event rather than disarming: a
       // committed retry start must still retract the failed attempt. Hold the
-      // provider diagnostic for connector.reply, where terminal presentation is
-      // coordinated with any rejected-send fallback from the runner.
+      // provider diagnostic for connector.reply, where terminal presentation
+      // is coordinated with any rejected-send fallback from the runner.
       if (ctx?.attemptArmed === true) {
         ctx.attemptArmed = false;
         ctx.errorRollbackArmed = true;

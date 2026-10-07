@@ -1,5 +1,4 @@
-// Pure geometry resolver: terminal size + zone visibility + overlay mode → rects.
-// Caller passes { columns, rows }; this module never reads process.stdout.
+// Pure: terminal size + zone visibility + overlay mode → rects. No I/O.
 
 import { resolveContentWidth, resolveSideMargin } from "./zones.js";
 import {
@@ -28,18 +27,11 @@ export interface OverlayInput {
   readonly mode: OverlayMode;
   /** Requested overlay body rows (measured by host). Capped by fraction + floor. */
   readonly bodyRows?: number;
-  /**
-   * Rows the overlay's own chrome cannot render without (border + title +
-   * at least one content row). Falls back to `OVERLAY_MIN_ROWS` when the
-   * caller has not measured its actual chrome.
-   */
+  /** Minimum overlay chrome rows (border + title + one content row); falls back to `OVERLAY_MIN_ROWS` when unmeasured. */
   readonly minBodyRows?: number;
 }
 
-/**
- * Optional chrome visibility. The prompt box is the only always-on zone and
- * defaults to its idle budget. Optional zones default to off (0).
- */
+/** Optional zone visibility. Prompt is the only always-on zone and defaults to its idle budget; the rest default to off (0). */
 export interface ZoneVisibility {
   /** Transient notice row on (default off). */
   readonly notice?: boolean;
@@ -49,9 +41,9 @@ export interface ZoneVisibility {
   readonly progress?: boolean | 1 | 2;
   /** Progress divider (0–1). Default on when progress is shown. */
   readonly progressDivider?: boolean;
-  /** Task panel: false/omit = 0 rows; true = 1 row; or an exact row count (bounded by the zone max). */
+  /** Task panel: false/omit = 0; true = 1; or an exact row count (bounded by the zone max). */
   readonly task?: boolean | number;
-  /** Agents panel: false/omit = 0 rows; true = 1 row; or an exact row count (bounded by the zone max). */
+  /** Agents panel: false/omit = 0; true = 1; or an exact row count (bounded by the zone max). */
   readonly agents?: boolean | number;
   readonly pluginBanner?: boolean;
   /** Command banner: true → 1 row, or explicit 1|2. */
@@ -63,17 +55,10 @@ export interface ZoneVisibility {
 export interface GeometryInput {
   readonly terminal: TerminalSize;
   readonly visibility?: ZoneVisibility;
-  /**
-   * Requested prompt rows (content + borders). Capped at 40% of terminal rows
-   * and floor-safe max. Default PROMPT_IDLE_ROWS (5).
-   */
+  /** Requested prompt rows (content + borders). Capped at 40% of terminal rows; default PROMPT_IDLE_ROWS (5). */
   readonly promptContentRows?: number;
   readonly overlay?: OverlayInput;
-  /**
-   * Transcript rows to hold back for content, when the caller knows better than
-   * the registry default. The landing screen passes 0: there is no transcript
-   * yet, so reserving rows for one only starves whatever is on screen.
-   */
+  /** Transcript rows to hold back for content, overriding the registry default. Landing passes 0: no transcript yet, so reserving rows only starves the screen. */
   readonly transcriptFloor?: number;
 }
 
@@ -159,9 +144,9 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
     pending: clamp(boolOrRows(vis.pending, 1), 0, ZONE_REGISTRY.pending.max),
     prompt: promptRows,
     task: clamp(boolOrRows(vis.task, 1), 0, ZONE_REGISTRY.task.max),
-    // The board asks for exactly the rows it will paint; the fraction is what
-    // stops a large fan-out from taking the screen, and it has to be computed
-    // here because the registry max cannot know the terminal's height.
+    // The board asks for exactly the rows it paints; the fraction stops a large
+    // fan-out from taking the screen and must be computed here because the
+    // registry max cannot know the terminal's height.
     agents: clamp(
       boolOrRows(vis.agents, 1),
       0,
@@ -232,10 +217,7 @@ function desiredOverlayHeight(
   return clamp(requested, 0, Math.min(fracCap, floorSafe));
 }
 
-/**
- * One collapse step: reduce the next collapsible zone.
- * Returns the zone id that was reduced, or null if nothing left to cut.
- */
+/** Reduce the next collapsible zone; return its id, or null when nothing is left to cut. */
 function collapseOnce(
   heights: MutableHeights,
   collapsed: ZoneId[],
@@ -245,8 +227,8 @@ function collapseOnce(
     if (h <= 0) continue;
 
     if (id === "prompt") {
-      // Never below base, and one row at a time: a one-row shortfall should not
-      // cost the operator the whole composing area.
+      // Never below base, one row at a time: a one-row shortfall should not cost
+      // the operator the whole composing area.
       if (h > PROMPT_BASE_ROWS) {
         heights.prompt = h - 1;
         if (!collapsed.includes("prompt")) collapsed.push("prompt");
@@ -268,11 +250,10 @@ function collapseOnce(
     }
 
     if (id === "task") {
-      // Shrink one row at a time rather than zeroing in one step, same
-      // rationale as "agents" below: a 1-row panel still carries the first
-      // task plus a "+N more" trailer. This is also what keeps the task
-      // panel degrading before the prompt box: it sits ahead of "agents"
-      // and every other optional zone in COLLAPSE_ORDER.
+      // Shrink one row at a time (same rationale as "agents" below): a 1-row
+      // panel still carries the first task plus a "+N more" trailer. Sitting
+      // ahead of "agents" in COLLAPSE_ORDER also keeps task degrading before
+      // the prompt box.
       if (h > 1) {
         heights.task = h - 1;
         if (!collapsed.includes("task")) collapsed.push("task");
@@ -284,11 +265,9 @@ function collapseOnce(
     }
 
     if (id === "agents") {
-      // Shrink one row at a time rather than zeroing in one step: a 1-row
-      // panel still carries the stalest agent plus a "+N more" trailer
-      // (formatAgentsPanel's selection sort guarantees that ordering), so it
-      // stays meaningful under exactly the pressure an operator most needs
-      // to see it.
+      // Shrink one row at a time rather than zeroing: a 1-row panel still
+      // carries the stalest agent plus a "+N more" trailer (formatAgentsPanel's
+      // sort guarantees that ordering), so it stays meaningful under pressure.
       if (h > 1) {
         heights.agents = h - 1;
         if (!collapsed.includes("agents")) collapsed.push("agents");
@@ -329,11 +308,7 @@ function assignRects(
   return regions;
 }
 
-/**
- * Resolve shell region rects from terminal size, optional chrome, and overlay mode.
- * Pure: no I/O. Extra terminal rows accrue to the transcript residual.
- * Layout is always a full-width y-stack (`layoutMode: "stack"`).
- */
+/** Resolve shell region rects from terminal size, optional chrome, and overlay mode. Pure: no I/O; extra rows accrue to the transcript residual; layout is always a full-width y-stack. */
 export function resolveGeometry(input: GeometryInput): GeometryLayout {
   const terminal = {
     columns: Math.max(1, Math.floor(input.terminal.columns)),
@@ -357,9 +332,9 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
   );
   if (heights.prompt > promptCap) heights.prompt = promptCap;
 
-  // An open overlay with real content needs its own border/title rows or it
-  // renders past whatever height it was actually assigned. The transcript
-  // floor below cannot be satisfied at that overlay's expense.
+  // An open overlay with content needs its own border/title rows or it renders
+  // past its assigned height; the transcript floor must not be satisfied at
+  // that overlay's expense.
   const requestedOverlayRows = input.overlay?.bodyRows ?? 0;
   const minOverlay =
     mode !== "closed" && requestedOverlayRows > 0
@@ -369,9 +344,9 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
         )
       : 0;
 
-  // Iteratively collapse optional chrome until transcript meets floor with overlay.
-  // Enough steps to walk a grown prompt back to base one row at a time on top
-  // of dropping every optional zone.
+  // Collapse optional chrome until transcript meets floor with overlay. The 128
+  // iterations walk a grown prompt back to base one row at a time on top of
+  // dropping every optional zone.
   const maxIters = 128;
   for (let i = 0; i < maxIters; i++) {
     const chrome = sumChrome(heights);
@@ -390,10 +365,10 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
     // Need more space: collapse one zone, then retry.
     const cut = collapseOnce(heights, collapsed);
     if (cut === null) {
-      // Nothing left to collapse. Relax the transcript floor, then re-check
-      // against the overlay's own render minimum. An unanswerable approval
-      // deadlocks the session; a cramped prompt does not — so the overlay
-      // may take rows from below PROMPT_BASE_ROWS.
+      // Nothing left to collapse: relax the transcript floor and re-check
+      // against the overlay's render minimum. An unanswerable approval
+      // deadlocks the session; a cramped prompt does not — so the overlay may
+      // take rows from below PROMPT_BASE_ROWS.
       let overlay = desiredOverlayHeight(
         { ...input, terminal },
         mode,
