@@ -710,11 +710,9 @@ describe("gate decisions stay out of the transcript", () => {
     });
   });
 
-  // The queue's settle-once guard is independent of the transcript: racing a
-  // timeout against an abort on the same request exercises that guard.
-  // clearTimers must retire the loser before it can run autoDeny a second
-  // time, so ev.resolve fires exactly once no matter which trigger wins, and
-  // neither path writes a recap row.
+  // Race a timeout against an abort on the same request to exercise the
+  // queue's settle-once guard: clearTimers retires the loser before it can
+  // auto-deny a second time, so ev.resolve fires exactly once.
   test("a timeout and an abort racing the same request settle once", async () => {
     await withGates(async ({ shell, emitter }) => {
       const controller = new AbortController();
@@ -767,15 +765,14 @@ describe("gate decisions stay out of the transcript", () => {
   });
 
   // reconcile() (src/permission/queue.ts) settles a queued request directly
-  // when a grant covers it, with no accept/cancel/autoDeny callback of its
-  // own. Coverage here is that the queued request still resolves, without
-  // ever opening and without writing a recap row.
+  // when a grant covers it — no accept/cancel/autoDeny call site. Covers the
+  // queued request resolving without ever opening or writing a recap row.
   test("a grant draining a queued request without ever displaying it", async () => {
     await withGates(async ({ shell, emitter }) => {
       let resolveCount = 0;
       const settled = settleCapture();
-      // Occupies the overlay host so the second request queues instead of
-      // opening — the drain below must resolve it without ever opening it.
+      // Occupies the host so the second request queues; the drain must
+      // resolve it without opening it.
       emitPermission(emitter);
       const before = shell.streamLog.length;
       emitPermission(emitter, {
@@ -820,15 +817,14 @@ describe("gate decisions stay out of the transcript", () => {
     });
   });
 
-  // drain() (src/permission/queue.ts) denies whatever is still queued on
-  // teardown — the same no-call-site path as a grant drain, but the
-  // opposite outcome. Coverage is the deny itself; neither path writes a
-  // recap row.
+  // drain() (src/permission/queue.ts) denies whatever is still queued at
+  // teardown — the same no-call-site path as a grant drain, opposite
+  // outcome.
   test("disposing with a request still queued denies it without a recap", async () => {
     await withGates(async ({ shell, emitter, disposeGates }) => {
-      // The currently-open request has no accept/cancel/autoDeny call site
-      // triggered before teardown either, so dispose must settle it too —
-      // both entries go through drain() without writing a recap.
+      // The open request has no accept/cancel/autoDeny call site before
+      // teardown either, so dispose must settle it too — both entries go
+      // through drain().
       let openResolveCount = 0;
       let queuedResolveCount = 0;
       const queuedSettled = settleCapture();
@@ -837,8 +833,8 @@ describe("gate decisions stay out of the transcript", () => {
           openResolveCount += 1;
         },
       });
-      // Occupies the overlay host so this second request queues instead of
-      // opening — dispose must deny it without ever displaying it.
+      // Occupies the host so this request queues; dispose must deny it
+      // without displaying it.
       const before = shell.streamLog.length;
       emitPermission(emitter, {
         id: "req-2",
@@ -979,10 +975,9 @@ describe("operator.gate auto-cancel", () => {
     });
   });
 
-  // The queue-behind hazard: a stuck overlay in front of an ask_operator
-  // question must not hang the run forever with nothing on screen to answer.
-  // The abort listener is not display-dependent, so it must settle the queued
-  // gate even though it never opened.
+  // A stuck overlay in front of an ask_operator question must not hang the
+  // run forever. The abort listener is not display-dependent, so it settles
+  // the queued gate even though it never opened.
   test("aborting the run while the operator gate is still queued settles it without ever opening", async () => {
     await withGates(async ({ shell, emitter }) => {
       const controller = new AbortController();
@@ -1052,10 +1047,9 @@ describe("operator.gate auto-cancel", () => {
     });
   });
 
-  // Mirrors the permission queue's "disposing with a request still queued"
-  // coverage: unlike permissionQueue, the operator gate has no queue module
-  // of its own, so wireGates must track outstanding operator gates itself to
-  // settle them on teardown.
+  // Operator gates have no queue module, so wireGates tracks outstanding
+  // gates itself to settle them at teardown — the operator-side mirror of
+  // the permission drain coverage.
   test("disposing with a gate still queued settles it instead of hanging", async () => {
     await withGates(async ({ shell, emitter, disposeGates }) => {
       const openSettled = settleCapture();
@@ -1065,8 +1059,8 @@ describe("operator.gate auto-cancel", () => {
         options: ["Yes", "No"],
         resolve: openSettled.resolve,
       });
-      // Occupies the overlay host so this second gate queues instead of
-      // opening — dispose must cancel it without ever displaying it.
+      // Occupies the host so this gate queues; dispose must cancel it
+      // without displaying it.
       const before = shell.streamLog.length;
       emitOperator(emitter, {
         id: "ask-queued",
@@ -1190,8 +1184,8 @@ describe("permission overlay height", () => {
     const tall = await hostRowsFor(60, 1);
     expect(short).toBe(tall);
 
-    // Two extra choices cost exactly four extra rows: each choice occupies
-    // two rows (wrap padding), so the list is a simple multiple of item count.
+    // Two extra choices cost exactly four extra rows (wrap padding), so the
+    // list is a simple multiple of item count.
     expect(await hostRowsFor(60, 3)).toBe(tall + 4);
   });
 

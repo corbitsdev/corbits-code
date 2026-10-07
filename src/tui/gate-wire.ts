@@ -1,7 +1,7 @@
 /**
- * Pure gate wiring: permission/operator options → overlay list rows, and
- * selection → ApprovalOutcome / OperatorResult. Hosts open overlays with the
- * returned items/itemIds and resolve via these helpers.
+ * Pure gate wiring: permission/operator events → overlay rows, selection →
+ * settled outcomes. Hosts open overlays with the returned items and resolve
+ * via these helpers.
  */
 
 import type { EventEmitter } from "node:events";
@@ -39,11 +39,9 @@ export const PERMISSION_DENY_ID = "__deny__" as const;
 export const PERMISSION_ONCE_ID = "__once__" as const;
 
 /**
- * Expand/collapse chord for collapsed payloads. Scoped to the open permission
- * overlay rather than registered in SHELL_SHORTCUTS: the overlay is modal, so
- * a bare letter is free there — nothing else in the shell claims it while
- * this overlay is open. Shared with the transcript's collapsed rows so the
- * product has one expand idiom.
+ * Expand/collapse chord for collapsed payloads. Scoped to the modal overlay
+ * rather than SHELL_SHORTCUTS: nothing else in the shell claims a bare letter
+ * while it is open. Shared with transcript rows for one expand idiom.
  */
 export const PERMISSION_EXPAND_KEY = EXPAND_KEY;
 
@@ -61,11 +59,9 @@ export interface GateSelection {
 }
 
 /**
- * Build permission overlay rows from a live PermissionRequest.
- * Order: Reject → Accept once → request.scopes. Labels are bare so the choice
- * list stays short action names; each scope's hint paints in the body above
- * the list (see permissionBodyFromRequest) instead of being truncated inside
- * a choice row.
+ * Rows from a live PermissionRequest: Reject → Accept once → scopes. Labels
+ * stay bare action names; scope hints paint in the body above the list (see
+ * permissionBodyFromRequest) instead of truncating inside a choice row.
  */
 export function permissionChoicesFromRequest(
   request: PermissionRequest,
@@ -127,14 +123,11 @@ export interface PermissionBodyOpts {
 }
 
 /**
- * Compact multi-line body for stream / overlay context (no paint).
- * The subject is rendered through the approval formatter so a chained command
- * shows one numbered line per segment and bulk payloads collapse to a
- * placeholder the operator can expand before approving.
- *
- * Scope hints ride here, above the choice list: the choices stay bare action
- * names, and the expand key dumps this body whole, so the consequence text is
- * reachable even when the overlay's context budget clips it.
+ * Compact multi-line body for stream/overlay (no paint). Chained commands
+ * show one numbered line per segment; bulk payloads collapse to a placeholder
+ * the operator can expand before approving. Scope hints ride above the bare
+ * choice list, and the expand key dumps this body whole when the overlay
+ * clips it.
  */
 export function permissionBodyFromRequest(
   request: PermissionRequest,
@@ -210,10 +203,10 @@ export function operatorCustomResult(text: string): OperatorResult {
 }
 
 /**
- * Blocked-ness is domain state, not a paint detail: the turn watchdog and the
- * painter both need to know a gate is outstanding before it reaches the
- * screen. This module sees a gate's full lifecycle (raised, possibly queued,
- * resolved), so it reports it; callers fold the pair into their own turn state.
+ * Blocked-ness is domain state, not paint: the turn watchdog and the painter
+ * both need to know a gate is outstanding before it reaches the screen. This
+ * module sees the full lifecycle (raised, queued, resolved), so it reports
+ * it; callers fold the pair into their own turn state.
  */
 export interface GateLifecycleHooks {
   /** A gate was raised — queued or opened, whichever comes first. */
@@ -254,31 +247,24 @@ export function wireGates(
   shell: AppShell,
   hooks: GateLifecycleHooks = NOOP_GATE_HOOKS,
 ): () => void {
-  // The shell has one overlay host, and opening onto a busy one is a no-op.
-  // A gate that arrives while another overlay is up waits here and opens as
-  // soon as the host frees up.
+  // One overlay host: a gate arriving while another is up waits here until
+  // the host frees.
   const pending: (() => void)[] = [];
   let disposed = false;
-  // Owns queued-approval reconciliation (see src/permission/queue.ts): this
-  // host only enqueues requests and renders whatever settle calls the queue
-  // hands back — it never decides which grant covers which request.
+  // Owns queued-approval reconciliation (src/permission/queue.ts); this host
+  // only enqueues and renders — it never decides which grant covers a request.
   const permissionQueue = createPermissionRequestQueue();
   const disposeReconciliation = wirePermissionGrantReconciliation(
     emitter,
     permissionQueue,
   );
-  // Operator gates have no queue module of their own — each one registers a
-  // teardown callback here so a gate still queued at session teardown
-  // settles instead of hanging its awaited promise forever. Every settle
-  // path deregisters its own entry before resolving.
+  // Operator gates have no queue module; each registers a teardown here so a
+  // gate still queued at session teardown settles instead of hanging its
+  // promise.
   const operatorTeardowns = new Set<() => void>();
-  // Bumped every time a gate opens on the shared host. A settle path that
-  // only knows "my overlay was opened" cannot tell whether the host has
-  // since opened a newer gate — closing blind would tear down that newer
-  // overlay instead of its own. Comparing the generation captured at
-  // open-time against the current one answers that directly. openHost is
-  // the only place an overlay opens, so it is the only place this counter
-  // changes.
+  // Bumped on every open. A settle that knows only "my overlay opened" cannot
+  // tell whether the host has since opened a newer gate; comparing the
+  // open-time capture against the current value closes only its own overlay.
   let overlayGeneration = 0;
 
   function openHost(open: () => void): void {
@@ -292,10 +278,9 @@ export function wireGates(
       return;
     }
     if (shell.overlayList !== null) {
-      // A replaceable command surface yields to the decision gate and is
-      // restored after the gate settles. The suspend is a no-op for live
-      // gates and stacked popups (palette, mentions — they keep their
-      // stacking contracts), so those arrivals simply stay queued.
+      // A replaceable command surface yields to the gate and is restored
+      // after it settles; live gates and stacked popups keep their stacking
+      // contracts, so those arrivals stay queued.
       pending.push(open);
       suspendReplaceableOverlay(shell);
       // The suspend-close's idle-notify may already have opened an older
@@ -311,9 +296,9 @@ export function wireGates(
   }
 
   /**
-   * Open the next queued gate, else return a suspended command surface to
-   * the host. Every gate settle path runs this after resolving. Skipped past
-   * teardown so a late settle cannot paint onto a dead shell.
+   * Open the next queued gate, else restore a suspended command surface.
+   * Runs after every settle; skipped past teardown so a late settle cannot
+   * paint a dead shell.
    */
   function drainPendingOrResume(): void {
     if (disposed || shell.disposed) return;
@@ -356,10 +341,10 @@ export function wireGates(
     // against the current generation (see overlayGeneration above).
     let openedGeneration: number | undefined;
 
-    // The queue is the single settle guard: once an id is removed, a later
-    // call is a no-op instead of double-resolving. Its resolve callback
-    // settles through the onceClosed-wrapped `resolve` so hooks.onGateClosed
-    // fires exactly once regardless of which path drained this entry.
+    // The queue is the single settle guard: once an id leaves it, later
+    // calls no-op instead of double-resolving. Its callback resolves through
+    // the onceClosed wrapper so onGateClosed fires once regardless of which
+    // path drained.
     const settle = (outcome: ApprovalOutcome): boolean =>
       permissionQueue.settle(id, outcome);
     const id = permissionQueue.enqueue(ev.request, (outcome) => {
@@ -381,9 +366,9 @@ export function wireGates(
         permissionBodyFromRequest(ev.request, { expanded, hint: true }),
       );
       if (!expanded) return;
-      // The overlay body is height-capped by geometry, so the authoritative
-      // copy of an expanded payload goes to the scrollable transcript — whole,
-      // untruncated. Collapsing must never hide text the operator cannot
+      // The overlay body is height-capped; the expanded payload's
+      // authoritative copy goes to the scrollable transcript, whole and
+      // untruncated, so collapsing never hides text the operator cannot
       // otherwise reach before approving.
       appendStreamRow(shell, {
         role: "system",
@@ -393,10 +378,9 @@ export function wireGates(
 
     const open = (): void => {
       openedGeneration = overlayGeneration;
-      // The gate may have sat behind another overlay in `pending` — this is
-      // the moment it actually reaches the operator's screen, distinct from
-      // when it was raised (see PermissionRequest.markDisplayed and
-      // src/permission/approval-log.ts).
+      // The gate may have waited in `pending` — this is when it reaches the
+      // screen, distinct from when it was raised (see
+      // PermissionRequest.markDisplayed).
       ev.request.markDisplayed?.();
       if (ev.timeoutMs !== undefined) {
         timer = setTimeout(() => {
@@ -431,11 +415,10 @@ export function wireGates(
       });
     };
 
-    // Watchdog abort and the auto-deny timeout race an operator who may never
-    // answer; whichever fires first settles the queue entry, the other no-ops.
-    // The timeout is display-dependent and arms inside `open` (below) so a
-    // request queued behind other overlays does not burn it unseen; abort is
-    // not, so its listener registers immediately.
+    // Abort and timeout race an operator who may never answer; whichever
+    // fires first settles, the other no-ops. The timeout is
+    // display-dependent and arms inside `open` so a queued request does not
+    // burn it unseen; the abort listener registers immediately.
     let timer: ReturnType<typeof setTimeout> | undefined;
     const clearTimers = (): void => {
       if (timer !== undefined) clearTimeout(timer);
@@ -505,14 +488,14 @@ export function wireGates(
             }),
           );
         },
-        // The ask_operator contract offers a free-form answer, so the overlay
-        // must be able to send one back rather than only an option index.
+        // ask_operator allows a free-form answer, so the overlay must send one
+        // back, not just an option index.
         onTextAnswer: (text: string) => {
           settleOnce(operatorCustomResult(text));
         },
-        // Esc settles as a cancel; the shell already closed this overlay, so
-        // unlike autoCancel this must not re-invoke closeInsetOverlay (that
-        // would reenter this same onCancel).
+        // Esc cancels; the shell already closed this overlay, so unlike
+        // autoCancel this must not re-invoke closeInsetOverlay (which would
+        // reenter onCancel).
         onCancel: () => {
           settleOnce(operatorCancelResult());
         },
@@ -567,8 +550,8 @@ export function wireGates(
     // past session teardown.
     permissionQueue.drain();
     // Cancel every outstanding operator gate (queued or displayed) so its
-    // awaited resolve() never hangs past session teardown either — the
-    // permission-side equivalent of the drain() call above.
+    // resolve() never hangs past teardown — the operator-side equivalent of
+    // drain().
     for (const teardown of [...operatorTeardowns]) teardown();
   };
 }
