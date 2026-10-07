@@ -1,6 +1,5 @@
-// Intentional operator feedback via PostHog custom surveys (headless).
-//
-// Unlike ambient product events, this path can ship when settings.telemetry.enabled
+// Intentional operator feedback via PostHog custom surveys (headless). Unlike
+// ambient product events, this path can ship when settings.telemetry.enabled
 // is false — the operator typed the text for that purpose. Env kill switches
 // (DO_NOT_TRACK / CORBITS_TELEMETRY=0) still block send.
 
@@ -212,9 +211,9 @@ export function getLastTurnTraceId(): string | undefined {
 }
 
 /**
- * Remember the in-flight turn's `$ai_trace_id` so `subagent_end` can link to the
- * turn that is still running when `spawn_agent` dispatch (not the
- * previous completed turn).
+ * Remember the in-flight turn's `$ai_trace_id` so `subagent_end` links to the
+ * turn still running at `spawn_agent` dispatch, not the previous completed
+ * turn.
  */
 export function noteCurrentTurnTraceId(traceId: string): void {
   currentTurnTraceIdCell.note(traceId);

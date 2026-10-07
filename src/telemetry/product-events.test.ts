@@ -568,7 +568,7 @@ test('slash_command buckets a plugin-registered command to "custom"', async () =
   const { telemetry, wire, events } = harness();
 
   // Shared product-event helper — not the TUI runner — so headless and TUI
-  // callers hit the same emission path (CL-5744).
+  // callers hit the same emission path.
   captureSlashCommand(telemetry, "acmecorp-deploy");
   captureSlashCommand(telemetry, "settings");
 
@@ -709,7 +709,7 @@ test("compaction fires only when turns were actually folded away", async () => {
   const compactor = createSessionPruningCompactor({
     summarize: async () => "summary",
     telemetry,
-    // CL-9489: pin a one-token tail budget so this tiny fixture still folds.
+    // Pin a one-token tail budget so this tiny fixture still folds.
     compactionShape: { tailBudgetTokens: 1 },
   });
 

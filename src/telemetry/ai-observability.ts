@@ -2,11 +2,10 @@
 // from a completed turn, in the same privacy mode as product telemetry: only
 // ids, enums, and counts ever leave the process. TurnContext already carries
 // tool call arguments and results for lifecycle hooks — this module reads only
-// the scalar/id fields off it and never the content fields.
+// the scalar/id fields, never the content fields.
 //
-// Default volume shape (CL-6816): one $ai_generation per turn with tool/subagent
-// aggregates folded onto it. Per-call $ai_span events are opt-in via
-// CORBITS_TELEMETRY_AI_SPANS for debugging.
+// One $ai_generation per turn with tool/subagent aggregates folded on; per-call
+// $ai_span events are opt-in via CORBITS_TELEMETRY_AI_SPANS for debugging.
 
 import type { TurnContext } from "../session/hooks.js";
 import { isSubagentToolName } from "../subagent/tool-taxonomy.js";
@@ -24,9 +23,9 @@ import {
   type Telemetry,
 } from "./index.js";
 
-// PostHog reports latency in seconds as a float; the runtime measures every
-// duration in milliseconds. Reporting milliseconds under the seconds-typed
-// property inflates every latency by 1000x and still renders plausibly.
+// PostHog reports latency in seconds; the runtime measures durations in
+// milliseconds. Reporting ms under the seconds-typed property inflates every
+// latency by 1000x and still renders plausibly.
 const MS_PER_SECOND = 1000;
 
 // These adapters share the normalized Chat Completions usage parser.
@@ -49,9 +48,8 @@ export function turnTraceId(sessionId: string, turnIndex: number): string {
   return `${sessionId}:turn:${turnIndex}`;
 }
 
-// Maps a tool call to a fixed span kind. Takes the tool's canonical name
-// rather than reaching into subagent internals, so this module has no dependency on tool
-// implementations beyond the one identifier it needs to classify.
+// Maps a tool call to a fixed span kind. Takes the tool's canonical name so
+// this module stays independent of tool implementations.
 export function classifySpanKind(toolName: string): AiSpanKind {
   return isSubagentToolName(toolName) ? "subagent_call" : "tool_call";
 }
@@ -143,12 +141,11 @@ function shouldSampleSuccessfulGeneration(
   return random() < rate;
 }
 
-// Called once per completed turn. Emits one $ai_generation for the model
-// call with tool/subagent aggregates. Per-call $ai_span events are emitted
-// only when CORBITS_TELEMETRY_AI_SPANS is truthy. The trace is flat by
-// construction: every span's $ai_parent_id is the trace id. PostHog
-// synthesises the trace itself from these children, so no $ai_trace event is
-// emitted.
+// Called once per completed turn. Emits one $ai_generation with tool/subagent
+// aggregates; per-call $ai_span events only when CORBITS_TELEMETRY_AI_SPANS
+// is truthy. The trace is flat by construction (every span's parent is the
+// trace id), so PostHog synthesises it from the children and no $ai_trace
+// event is emitted.
 export function emitAiObservability(
   telemetry: Telemetry,
   ctx: TurnContext,
@@ -220,18 +217,17 @@ export interface EmitAiTurnFailureOptions {
   sessionId: string;
   turnIndex: number;
   // The failed turn has no TurnContext to read its source from, so the caller
-  // supplies it. Without these two the first question failure data is ever
-  // asked — which model is rate-limiting us — has no answer at all.
+  // supplies it — without these, "which model is rate-limiting us" has no
+  // answer.
   source: TurnSource;
   // The raw provider message, classified here and never forwarded.
   error: string;
 }
 
-// Called when a turn ends without ever completing, which is where
-// observability earns its keep and where a completion-only emitter is
-// silent. Emits the $ai_generation the turn never got to emit, marked as an
-// error, with no token counts or latency because the turn produced none.
-// Errored generations always ship (no sampling).
+// Called when a turn ends without completing. Emits the $ai_generation the
+// turn never got to emit, marked as an error, with no token counts or latency
+// because the turn produced none. Errored generations always ship — no
+// sampling gate.
 export function emitAiTurnFailure(
   telemetry: Telemetry,
   options: EmitAiTurnFailureOptions,

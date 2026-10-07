@@ -1,14 +1,10 @@
 // Every identifier a product event would like to carry originates somewhere a
-// user, a project, an MCP server, or a plugin author can name: an MCP server
-// key is a settings key, a skill is a directory under the repo, a plugin id is
-// author-chosen, an agent profile is project-local, a slash command can be
-// registered by a plugin. On a private repo those names are the employer, an
-// internal service, or a path fragment.
-//
-// So none of them are transmitted. Each is matched against a fixed list of
-// names this repo itself ships and reported as that name, or as "custom" when
-// it matches nothing. What leaves the process is a first-party enum: the fact
-// that something unrecognised was used, never what it was called.
+// user, project, MCP server, or plugin author can name — and on a private repo
+// those names are the employer, an internal service, or a path fragment. So
+// none are transmitted: each is matched against a fixed list of names this
+// repo ships and reported as that name, or as "custom" when it matches
+// nothing. What leaves the process is a first-party enum: that something
+// unrecognised was used, never what it was called.
 
 import { DIRECTOR_IDS } from "../agent/directors/types.js";
 import { isHttpServer } from "../mcp/is-http-server.js";
@@ -72,16 +68,15 @@ const BUILT_IN_AGENT_NAMES: ReadonlySet<string> = new Set([
   "worker",
 ]);
 
-// First-party skills reportable by name: the bundled `corbits-skills`
-// skills (plugins/corbits-skills/skills) whose names we ship ourselves, so
-// reporting one cannot identify the operator. The manifest carries only the
-// plugin id and kind — no skill list — so the closed set is spelled out here
-// and pinned by src/telemetry/product-events.test.ts.
-// `user-invocable: false` is a slash-surface flag, not a telemetry flag:
-// background skills stay loadable by explicit name, and a bundled skill that
-// is not in the set below reports `custom` (conservative under-reporting,
-// never a leak). Project- or plugin-authored skills are never reported by
-// name.
+// First-party skills reportable by name: the bundled `corbits-skills` skills
+// whose names we ship ourselves, so reporting one cannot identify the
+// operator. The manifest carries only the plugin id and kind — no skill list —
+// so the closed set is spelled out here and pinned by
+// src/telemetry/product-events.test.ts. `user-invocable: false` is a
+// slash-surface flag, not a telemetry flag: background skills stay loadable
+// by explicit name, and a bundled skill outside the set reports `custom`
+// (conservative under-reporting, never a leak). Project- or plugin-authored
+// skills are never reported by name.
 const FIRST_PARTY_SKILL_NAMES: ReadonlySet<string> = new Set([
   "corbits",
   "corbits-hub-libs",

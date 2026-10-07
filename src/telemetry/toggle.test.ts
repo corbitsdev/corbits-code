@@ -42,8 +42,8 @@ function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
       telemetry: { enabled: true, installationId: "id" },
     }),
     saveGlobalSettings: async () => undefined,
-    // env is pinned to {} (matching telemetry.test.ts) so a developer's real
-    // DO_NOT_TRACK / CORBITS_TELEMETRY never bleeds into these tests.
+    // env is pinned to {} so a developer's real DO_NOT_TRACK /
+    // CORBITS_TELEMETRY never bleeds into these tests.
     createTelemetry: (opts) =>
       createTelemetry({
         ...opts,
@@ -140,12 +140,11 @@ test("capture called immediately after toggle-off makes zero fetch calls", () =>
   expect(fetchCalls()).toBe(0);
 });
 
-// Opting out is a statement about activity already generated, not only about
+// Opting out is a statement about activity already generated, not only
 // activity to come: events captured before the toggle must never be sent
-// afterwards. Dropping the singleton is not enough on its own — the outgoing
-// instance's batch timer would still fire and post its queue — so this test
-// guards the explicit discard. If a future change makes opt-out flush what it
-// was holding, this fails, and that is the point.
+// afterwards. Dropping the singleton is not enough — the outgoing instance's
+// batch timer would still fire and post its queue — so this test guards the
+// explicit discard.
 test("opting out discards events captured before the toggle instead of sending them", async () => {
   let sends = 0;
   const fetchFn = (() => {

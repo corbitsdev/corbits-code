@@ -93,11 +93,10 @@ export const AI_ERROR_KINDS = [
 export type AiErrorKind = (typeof AI_ERROR_KINDS)[number];
 
 // One id per interactive process (TUI session or CLI invocation), generated
-// once at module load and reused by every createTelemetry() instance for the
-// life of the process — including across the toggle handler's re-creation on
-// enable/disable — so PostHog can group every event this process emits into
-// one session. Future emitters (AI turn events, feedback) read this via
-// getSessionId() rather than generating their own.
+// once at module load and reused by every createTelemetry() instance —
+// including across the toggle's enable/disable re-creation — so PostHog
+// groups every event this process emits into one session. Future emitters
+// (AI turn events, feedback) read it via getSessionId().
 const SESSION_ID = randomUUID();
 
 export function getSessionId(): string {
@@ -117,21 +116,13 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
     "session_mode",
     "exit_reason",
   ],
-  // PostHog's LLM analytics views read the $ai_-prefixed properties and
-  // nothing else, so every field these two events exist to surface has to
-  // carry the documented name: an unprefixed property still arrives, but
-  // only as an ordinary custom property no trace, cost, or latency view
-  // will ever query.
-  //
-  // $ai_provider/$ai_model carry canonical runtime ids, never the free-text
-  // name a user gave a provider in onboarding or settings. $ai_latency is
-  // in seconds, per PostHog's schema.
-  //
-  // Cache and reasoning token counts use PostHog's documented cost-property
-  // names (manual-capture installation + cost-properties reference):
-  // $ai_cache_read_input_tokens, $ai_cache_creation_input_tokens,
-  // $ai_reasoning_tokens. Unprefixed names land as custom properties and
-  // are invisible to cost/token views (CL-5749).
+  // PostHog's LLM analytics views read only the $ai_-prefixed properties;
+  // unprefixed fields arrive but no trace, cost, or latency view queries
+  // them. $ai_provider/$ai_model are canonical runtime ids, never the
+  // free-text name a user gave in onboarding or settings. $ai_latency is in
+  // seconds, per PostHog's schema; cache/reasoning counts use PostHog's
+  // documented cost-property names ($ai_cache_read_input_tokens,
+  // $ai_cache_creation_input_tokens, $ai_reasoning_tokens).
   $ai_generation: [
     "$ai_trace_id",
     "$ai_provider",
@@ -145,18 +136,15 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
     "$ai_cache_creation_input_tokens",
     "$ai_cache_reporting_exclusive",
     "$ai_reasoning_tokens",
-    // Aggregates folded from per-call spans (CL-6816). Custom properties —
-    // PostHog LLM cost views still only query the $ai_*-prefixed fields above.
+    // Aggregates folded from per-call spans.
     "tool_call_count",
     "tool_error_count",
     "subagent_call_count",
   ],
 
-  // The trace is flat: every span's $ai_parent_id is the turn's
-  // $ai_trace_id. PostHog documents $ai_parent_id as accepting a trace id or
-  // another span id, so a flat trace is legal and it is all the runtime can
-  // honestly describe — TurnContext only sees top-level tool calls.
-  // $ai_span_name is one of AI_SPAN_KINDS only, never the raw tool name.
+  // The trace is flat: every span's $ai_parent_id is the turn's $ai_trace_id
+  // (legal per PostHog, and all the runtime can describe — TurnContext only
+  // sees top-level tool calls). $ai_span_name is one of AI_SPAN_KINDS only.
   $ai_span: [
     "$ai_trace_id",
     "$ai_span_id",
@@ -357,10 +345,9 @@ export interface Telemetry {
   // requests without ever making capture() itself blocking.
   flush(): Promise<void>;
   // Throws away everything queued and disarms the batch timer, so nothing
-  // captured before this call can ever reach the network. Opting out uses
-  // this: a user who says stop mid-session is saying they do not want the
-  // activity they have already generated sent, which makes discarding the
-  // queue the honest reading of that intent and flushing it a betrayal.
+  // captured before this call can reach the network. Opting out uses this:
+  // a user who stops mid-session does not want the activity already generated
+  // sent — discarding is the honest reading, flushing a betrayal.
   discard(): void;
 }
 
