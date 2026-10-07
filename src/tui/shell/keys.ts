@@ -101,10 +101,9 @@ function logStopWorkersFailure(error: unknown): void {
   });
 }
 
-// Human keys land tens of ms apart; a paste replay lands all at once. 15ms
-// is an empirical gap — too high reads a fast typist's real Enter as paste,
-// too low misses a slow replay. Only matters before the first real paste
-// event; see `sawBracketedPaste` below.
+// Paste replays land as one burst, fast typing tens of ms apart. The 15ms
+// cutoff is empirical — too high eats a fast typist's Enter, too low misses
+// a slow replay. Only matters before the first real paste event.
 const PASTE_BURST_MS = 15;
 
 /** A single unmodified character, as opposed to a control chord or named key. */
@@ -120,11 +119,10 @@ function isPrintableInsertKey(key: KeyEvent): boolean {
 }
 
 /**
- * Which open surface a chord toggles shut, or null when it is not a toggling
- * opener. Only pickers appear here: action openers (Ctrl+P, Ctrl+C, expand)
- * have nothing to toggle, and decision surfaces are absent — re-pressing the
- * chord under one must not count as an answer. `@` and `/` are openers too,
- * but they are also typed characters, so re-pressing them inserts instead.
+ * The picker a re-pressed chord closes, or null when the chord must not
+ * toggle: action openers (Ctrl+P, Ctrl+C, expand) have nothing to close,
+ * decision surfaces must not read a re-press as an answer, and `@`/`/`
+ * re-press as typed characters, not toggles.
  */
 function toggledSurfaceFor(key: KeyEvent): PrimaryOverlayKind | null {
   if (
@@ -138,15 +136,15 @@ function toggledSurfaceFor(key: KeyEvent): PrimaryOverlayKind | null {
 }
 
 /**
- * Re-pressing the chord that opened a picker closes it, through the same path
- * Esc uses so key claims and focus are unwound identically.
+ * Re-pressing a picker's opener closes it via the same path Esc uses, so
+ * key claims and focus unwind identically.
  */
 function toggleCloseOpenSurface(shell: AppShell, key: KeyEvent): boolean {
   if (shell.overlayList === null) return false;
   const kind = toggledSurfaceFor(key);
   if (kind === null || kind !== shell.overlayKind) return false;
-  // The `/` popup borrows the palette overlay; there the chord is still a
-  // character the operator may be typing into the filter.
+  // The `/` popup borrows the palette overlay; there the chord is still
+  // filter input.
   if (kind === "palette" && isSlashPopupOpen(shell)) return false;
   closeInsetOverlay(shell);
   return true;
@@ -180,9 +178,9 @@ type CtrlCArmed = { at: number; state: "armed" | "stopped" };
 const ctrlCArmedAt = new WeakMap<AppShell, CtrlCArmed>();
 
 /**
- * Ctrl+C: interrupt / clear, and quit on a second press inside the window.
- * The double press replaces the old y/n exit confirm — same intent, no modal.
- * Quitting routes through the registered exit handler so host finalize runs.
+ * Ctrl+C interrupts or clears; a second press inside the window quits,
+ * replacing the old y/n confirm. Quitting routes through the registered
+ * exit handler so host finalize runs.
  */
 export function handleCtrlC(
   shell: AppShell,
@@ -219,8 +217,7 @@ export function handleCtrlC(
         return;
       }
       // Real quit (2nd press with no live workers, or 3rd press after stop).
-      // Host teardown usually disposes; unlink too so a delayed onExit
-      // cannot leave clipboard files behind.
+      // Unlink so a delayed onExit cannot leave clipboard files behind.
       clearPendingAttachments(shell);
       onExit();
       return;
@@ -291,10 +288,8 @@ export function readStopAffordance(shell: AppShell): {
 }
 
 /**
- * Wheel/trackpad scroll landing on the prompt scrolls the chat instead.
- * The prompt has its own scrollY (usually nothing to scroll) and holds focus
- * all session, so OpenTUI routes wheel events to it. Overriding the scroll
- * case here keeps the fix to where wheel input actually arrives.
+ * The prompt holds focus all session and has no scrollable content, so
+ * wheel events land on it; forward its scrolls to the transcript.
  */
 export function routePromptWheelToTranscript(
   prompt: BaseRenderable,
@@ -316,17 +311,15 @@ interface ShellKeyHandlers {
 }
 
 /**
- * The onKey/onPaste dispatcher bodies, extracted from createAppShell. The
- * un-bracketed-paste guard state is only read by these handlers, so it lives
- * in this closure rather than on the shared AppShell.
+ * The onKey/onPaste dispatcher bodies, extracted from createAppShell.
+ * Paste-guard state stays in this closure: only these handlers read it.
  */
 export function createShellKeyHandlers(
   shell: AppShell,
   opts: { isDisposed: () => boolean },
 ): ShellKeyHandlers {
-  // A real bracketed paste proves DEC 2004, so the CRLF-submit fallback
-  // below turns itself off for the session. Only these handlers read the
-  // flag, so it lives in this closure rather than on the shared AppShell.
+  // A real bracketed paste proves DEC 2004; the CRLF-submit fallback below
+  // then disables itself for the session.
   let sawBracketedPaste = false;
   let lastKeyAt = 0;
   let lastKeyWasPrintable = false;
@@ -346,8 +339,7 @@ export function createShellKeyHandlers(
       }
       return;
     }
-    // A paste is composer input like any other key: it ends a pending-column
-    // selection instead of editing under it.
+    // Paste is composer input like any key: it ends a pending-column selection.
     clearPendingSelection(shell);
   };
 
@@ -363,9 +355,9 @@ export function createShellKeyHandlers(
       if (shell.overlayList) {
         key.preventDefault();
         abortOverlayHostReservations(shell);
-        // closeSlashPopup closes the inset overlay itself; a second close
+        // A slash popup's close already closes the inset; closing again
         // would idle-notify twice and kill a gate the first notify drains.
-        // Non-slash overlays carry no entry, so the shared close handles those.
+        // Other overlays have no entry, so the shared close handles them.
         const list = shell.overlayList;
         closeSlashPopup(shell);
         if (list !== null && shell.overlayList === list)
@@ -384,14 +376,14 @@ export function createShellKeyHandlers(
         leaveSubagentObserve(shell);
         return;
       }
-      // A pending-column selection is the shallowest dismiss: Esc backs out
-      // of it before touching transcript focus.
+      // The pending-column selection is the shallowest frame; back out of
+      // it before touching transcript focus.
       if (clearPendingSelection(shell)) {
         key.preventDefault();
         return;
       }
-      // Transcript browse (entered with Tab) is the remaining poppable frame:
-      // Esc hands typing back to the prompt.
+      // Transcript browse (Tab) is the last poppable frame: Esc returns
+      // typing to the prompt.
       if (canPopFocus(shell.focus)) {
         key.preventDefault();
         shell.focus = popFocus(shell.focus);
@@ -400,8 +392,8 @@ export function createShellKeyHandlers(
       }
     }
 
-    // Landing starters. Only while the prompt is untouched, so the digit goes
-    // back to being a digit the moment the operator starts typing.
+    // Landing starters; only while the prompt is untouched, so the key is a
+    // plain character once typing starts.
     if (
       shell.overlayList === null &&
       !key.ctrl &&
@@ -426,44 +418,43 @@ export function createShellKeyHandlers(
         interruptShell(shell);
         return;
       }
-      // Checked ahead of the filter handlers: an opener chord pressed again is
-      // a request to close, not a character to narrow the list with.
+      // Checked before the filter handlers: an opener pressed again closes,
+      // it is not a filter character.
       if (toggleCloseOpenSurface(shell, key)) {
         key.preventDefault();
         return;
       }
-      // The `/` popup filters as you type, so it claims printable keys before
-      // the overlay's j/k navigation can swallow them.
+      // The `/` popup filters as you type, claiming printable keys ahead of
+      // j/k navigation.
       if (handleSlashPopupKey(shell, key)) {
         key.preventDefault();
         return;
       }
-      // The `@` popup narrows as you type too, claiming printable keys ahead
-      // of the overlay's j/k navigation.
+      // The `@` popup narrows as you type, same claim on printable keys.
       if (handleMentionPopupKey(shell, key)) {
         key.preventDefault();
         return;
       }
-      // A live answer field owns every printable key, so an operator typing a
-      // free-form answer is not navigating the choice list instead.
+      // A live answer field owns every printable key, so typing an answer
+      // does not navigate the choice list.
       if (handleOverlayAnswerKey(shell, key)) {
         key.preventDefault();
         return;
       }
-      // Type-to-filter overlays (palette, model picker) claim printables —
-      // including j/k that non-filter overlays still use to navigate.
+      // Type-to-filter overlays (palette, model picker) claim printables,
+      // j/k included, which non-filter overlays still use to navigate.
       if (handlePaletteFilterKey(shell, key)) {
         key.preventDefault();
         return;
       }
-      // List overlays (model picker) opt in the same way so a long flat
-      // catalog narrows without a nested pane.
+      // List overlays opt in the same way, so a long flat catalog narrows
+      // without a nested pane.
       if (handleListFilterKey(shell, key)) {
         key.preventDefault();
         return;
       }
-      // Per-overlay bare-key owners (including text panes) get first refusal.
-      // Ordinary lists return false here, preserving j/k navigation below.
+      // Per-overlay bare-key owners get first refusal; ordinary lists return
+      // false, preserving j/k navigation below.
       if (runOverlayAction(shell, key)) {
         key.preventDefault();
         return;
@@ -478,8 +469,8 @@ export function createShellKeyHandlers(
         moveOverlaySelection(shell, 1);
         return;
       }
-      // Left/Right only mean something to an overlay that opted into cycling
-      // (settings). Everywhere else they fall through unclaimed.
+      // Left/Right only matter to overlays that opted into cycling
+      // (settings); elsewhere they fall through unclaimed.
       if (
         (key.name === "left" || key.name === "right") &&
         !key.ctrl &&
@@ -529,10 +520,10 @@ export function createShellKeyHandlers(
           return;
         }
       }
-      // Unclaimed printables fall through to the prompt, which does not hold
-      // focus while the overlay is open. Decision surfaces are the modal
-      // exception: a gate keeps every key until answered, and the overlay
-      // stays open (no idle-notify) so a queued gate cannot drain mid-list.
+      // Unclaimed printables fall through to the prompt, which has no focus
+      // while the overlay is open. Decision surfaces are the modal exception:
+      // the gate keeps every key until answered and the overlay never
+      // idle-notifies, so a queued gate cannot drain mid-list.
       if (
         shell.overlayKind !== "permissions" &&
         shell.overlayKind !== "operator" &&
@@ -546,15 +537,14 @@ export function createShellKeyHandlers(
       return;
     }
 
-    // Emacs-style prompt editing: Ctrl+K/U/W and Alt+D delete natively but
-    // discard the text, and Ctrl+Y/Alt+Y need somewhere to yank it back from
-    // — the kill ring, implemented below.
+    // Emacs-style editing: Ctrl+K/U/W and Alt+D delete but discard text, and
+    // Ctrl+Y/Alt+Y need a place to yank it back from — the kill ring below.
     const keyName = typeof key.name === "string" ? key.name.toLowerCase() : "";
 
-    // Everything below is the un-bracketed-paste fallback: a terminal that
-    // has fired a real `paste` event never needs it again.
+    // The un-bracketed-paste fallback: a terminal that fired a real `paste`
+    // event never needs it again.
     if (!sawBracketedPaste) {
-      // The LF of a CRLF pair the block below just converted: without this,
+      // The LF of a CRLF pair the block below converted; without this,
       // "line one\r\nline two" would insert two newlines.
       const suppressLinefeed = suppressNextLinefeed;
       suppressNextLinefeed = false;
@@ -570,10 +560,10 @@ export function createShellKeyHandlers(
       }
 
       // A bare CR is the same "return" that submits; pasting three lines
-      // would otherwise send three messages. Two signals detect it — a
-      // printable character then Enter, both inside a keystroke burst — which
-      // is unique to a paste replay. Gating on both keeps Ctrl+J-then-Enter
-      // safe, since Ctrl+J is not printable.
+      // would otherwise send three messages. The signal — printable char
+      // then Enter, both within one keystroke burst — is unique to a paste
+      // replay, and gating on both keeps Ctrl+J-then-Enter safe (Ctrl+J is
+      // not printable).
       const now = Date.now();
       const sincePreviousKey = now - lastKeyAt;
       const previousKeyWasPrintable = lastKeyWasPrintable;
@@ -596,9 +586,9 @@ export function createShellKeyHandlers(
       }
     }
 
-    // A pending-column selection owns Enter (kill and send now), ^X (drop)
-    // and ^G (pop back for editing); every other key ends the selection and
-    // falls through. ↑/↓ stay with the column (nav block below).
+    // A pending-column selection owns Enter (send now), ^X (drop) and ^G
+    // (back to editing); any other key ends the selection. ↑/↓ stay with
+    // the column (nav block below).
     if (pendingSelectionActive(shell)) {
       if (
         (keyName === "return" || keyName === "kpenter") &&
@@ -736,9 +726,8 @@ export function createShellKeyHandlers(
       return;
     }
 
-    // Ctrl+V is a real keypress (0x16), not the system paste: CMD+V arrives
-    // as a bracketed `paste` event the input inserts as text, so binding
-    // Ctrl+V cannot swallow an ordinary text paste.
+    // Ctrl+V is a real keypress (0x16), not system paste — that arrives as a
+    // bracketed `paste` event — so binding it cannot swallow text paste.
     if (
       key.ctrl &&
       !key.meta &&
@@ -750,9 +739,8 @@ export function createShellKeyHandlers(
       return;
     }
 
-    // Typing @ at a token boundary opens path suggestions. The overlay owns
-    // focus while open, so the @ is inserted here rather than racing the
-    // focus change.
+    // Typing @ at a token boundary opens path suggestions; the @ is inserted
+    // here because the overlay owns focus once open.
     if (
       !key.ctrl &&
       !key.meta &&
@@ -770,8 +758,7 @@ export function createShellKeyHandlers(
     }
 
     // A slash command is only valid as the whole prompt, so `/` pops the
-    // command list at the start of an empty prompt and nowhere else — mid-line
-    // it is just a path separator.
+    // command list only on an empty prompt — mid-line it is a path separator.
     if (
       !key.ctrl &&
       !key.meta &&
@@ -848,8 +835,8 @@ export function createShellKeyHandlers(
       return;
     }
 
-    // Alt+E, never bare: the prompt almost always holds focus, and a bare
-    // `e` would just type a letter into it instead of expanding a row.
+    // Alt+E, never bare: with the prompt focused a bare `e` would just type
+    // a letter instead of expanding a row.
     if ((key.meta || key.option) && !key.ctrl && key.name === EXPAND_KEY) {
       if (toggleCollapsedRow(shell)) {
         key.preventDefault();
@@ -884,7 +871,7 @@ export function createShellKeyHandlers(
       (key.name === "t" || key.name === "T") &&
       !key.ctrl
     ) {
-      // Alt+T: the task panel toggle (the palette that used to own it is gone).
+      // Alt+T: the task panel toggle (palette no longer owns it).
       key.preventDefault();
       toggleTasksPanel(shell);
       return;
@@ -908,8 +895,8 @@ export function createShellKeyHandlers(
     }
 
     if (key.ctrl && key.name === "g") {
-      // Readline/Emacs "abort" chord: unclaimed elsewhere in the shell and
-      // already means "cancel the pending thing" to muscle memory.
+      // Readline/Emacs "abort" chord, unclaimed elsewhere; muscle memory
+      // already reads it as "cancel the pending thing".
       key.preventDefault();
       applyShellCancelLast(shell);
       return;
@@ -920,8 +907,8 @@ export function createShellKeyHandlers(
       (key.meta || key.option) &&
       !key.ctrl
     ) {
-      // Alt+Enter: follow-up — enqueue kind "queue"; deliver only when the
-      // run goes idle. Does not interrupt or reinject; idle/empty is a no-op.
+      // Alt+Enter: enqueue a follow-up, delivered only when the run goes
+      // idle; does not interrupt or reinject. Idle/empty is a no-op.
       key.preventDefault();
       if (shell.session.run !== "busy") return;
       submitPrompt(shell, "queue");

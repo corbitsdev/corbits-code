@@ -190,7 +190,7 @@ describe("slash command popup", () => {
       press("/");
       press("z");
       await render();
-      // The popup was already open (from "/") when the filter zeroed out —
+      // The popup was already open (from "/") when the filter zeroed out;
       // closing here would release the host, the gap a queued gate can drain
       // into mid-filter. It stays owned and shows "(no matches)".
       expect(isSlashPopupOpen(shell)).toBe(true);
@@ -225,7 +225,7 @@ describe("slash command popup", () => {
       expect(shell.prompt.hasSelection()).toBe(true);
       // One arrow key drops the untouched selection without editing, so the
       // shape is still the placeholder; submitting must dispatch the bare
-      // command, not the literal placeholder.
+      // command, not the placeholder.
       shell.prompt.setSelection(
         shell.prompt.value.length,
         shell.prompt.value.length,
@@ -247,7 +247,7 @@ describe("slash command popup", () => {
       expect(shell.paletteCommands.map((c) => c.id)).toEqual(["scale:high"]);
       for (const ch of " --force") press(ch);
       // The popup's filtering job is over — real arguments are being typed —
-      // so it dismisses and leaves the prompt alone.
+      // so it dismisses.
       expect(shell.prompt.value).toBe("/scale high --force");
       expect(isSlashPopupOpen(shell)).toBe(false);
       expect(shell.overlayList).toBeNull();
@@ -322,7 +322,7 @@ describe("Ctrl+C exit", () => {
 
       lapse[0]?.();
       expect(shell.statusFlash).toBeNull();
-      // The row has nothing left to say, so it is given back to the transcript.
+      // The row has nothing left to say, so it returns to the transcript.
       expect(noticeText(shell)).toBe("");
     });
   });
