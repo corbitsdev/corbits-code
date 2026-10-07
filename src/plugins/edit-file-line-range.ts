@@ -34,7 +34,7 @@ function optionalInt(value: unknown): number | undefined {
 // Models pad the unused mode's fields with fillers (old_string: "", start_line: 0).
 // For mode selection a filler counts as absent: "" is never a valid old_string and
 // 0/null/non-integers are never valid 1-based lines. Treating them as present made
-// filler-padded calls look like "both edit modes" and rejected them (CL-6900).
+// filler-padded calls look like "both edit modes" and rejected them.
 function hasOldStringArg(args: Record<string, unknown>): boolean {
   return typeof args.old_string === "string" && args.old_string.length > 0;
 }
@@ -119,10 +119,11 @@ export function parseEditFileMode(
   const substring = hasOldStringArg(args);
   const lineRange = hasLineRangeArgs(args);
 
-  // Reject rather than guess: silently picking a mode when both are supplied previously
-  // meant line-range mode won and old_string was asserted against the exact line-range
-  // slice, producing a confusing "old_string does not match" error even when the caller
-  // meant plain substring mode (CL-4399). One explicit error beats a wrong guess.
+  // Reject rather than guess: silently picking a mode when both are supplied
+  // previously meant line-range mode won and old_string was asserted against
+  // the exact line-range slice, producing a confusing "old_string does not
+  // match" error even when the caller meant plain substring mode. One
+  // explicit error beats a wrong guess.
   if (substring && lineRange) {
     return { kind: "invalid", message: mixedModeMessage(args) };
   }

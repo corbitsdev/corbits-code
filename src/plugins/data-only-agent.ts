@@ -61,7 +61,7 @@ const NativeCapabilitiesModeSchema = type("'allow' | 'exclude'");
 // skills (frontmatter list, in addition to body `Load the X skill` lines).
 
 // Upstream tool-name aliases mapped to Corbits Code engine ids. Case-insensitive.
-// Posix wire/hidden names come from the shared CL-8400 table.
+// Posix wire/hidden names come from the shared alias table.
 const TOOL_ALIASES: Record<string, readonly string[]> = {
   ...Object.fromEntries(
     Object.entries({ ...WIRE_TO_ENGINE, ...HIDDEN_TO_ENGINE }).map(
@@ -182,8 +182,8 @@ function normalizeCapabilities(
   }
 
   // corbitsdev / OpenCode permission: flat or nested map of allow/deny values.
-  // `mode: primary` upstream means "the host granted the agent its full set of
-  // tools" — so allow entries are descriptive, not restrictive, and would
+  // `mode: primary` upstream means "the host granted the agent its full set
+  // of tools" — so allow entries are descriptive, not restrictive, and would
   // wrongly narrow the agent to only the listed tools. Deny entries are real
   // restrictions and stay. (Subagents' allow entries are real allowlists
   // because there's no inheritance intent.)
@@ -256,8 +256,7 @@ function normalizePermission(
 // array) with optional `effort` applied to legs that don't declare their own.
 //
 // A bare Claude Code `effort: high` with no `model` has nothing to attach the
-// effort to now that tiers (which used to map effort to a model swap) are
-// gone, so it is ignored — set `model` alongside `effort` to pin both.
+// effort to, so it is ignored — set `model` alongside `effort` to pin both.
 function normalizeInference(fm: Record<string, unknown> | null): {
   inference?: InferenceSpec;
 } {
@@ -337,12 +336,12 @@ function normalizeModelField(
   return { mode: "prefer", order: legs };
 }
 
-// Appendix injected into every data-only agent's system prompt so the upstream
-// markdown does not need to know Corbits Code-specific tool names or task rules.
-// Resolve a skill body via the shared skill resolver so data-only plugins and
-// the main session's `use_skill` tool agree on what a skill name means. The
-// plugin's own skills/ directory is prepended to the search path so it shadows
-// same-named skills from project-local directories.
+// Appendix injected into every data-only agent's system prompt so the
+// upstream markdown does not need to know Corbits Code-specific tool names or
+// task rules. Resolve a skill body via the shared skill resolver so data-only
+// plugins and the main session's `use_skill` tool agree on what a skill name
+// means. The plugin's own skills/ directory is prepended to the search path
+// so it shadows same-named skills from project-local directories.
 import { resolveSkillBody } from "../extensions/skills.js";
 
 async function loadSkillText(

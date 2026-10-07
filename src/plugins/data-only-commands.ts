@@ -9,11 +9,11 @@ import {
 } from "../tui/commands/registry.js";
 import { COMMAND_NAME_PATTERN, splitFrontmatter } from "./frontmatter.js";
 
-// A data-only command plugin declares its slash commands as markdown files, the
-// same convention Claude Code (`.claude/commands/`), OpenCode
-// (`.opencode/command/`), and Codex use. The filename stem is the command name;
-// optional YAML frontmatter carries description + argument-hint; the body is the
-// prompt sent to the agent when the command runs.
+// A data-only command plugin declares its slash commands as markdown files,
+// the same convention Claude Code (`.claude/commands/`), OpenCode
+// (`.opencode/command/`), and Codex use. The filename stem is the command
+// name; optional YAML frontmatter carries description + argument-hint; the
+// body is the prompt sent to the agent when the command runs.
 //
 // Two layouts are recognized:
 //   commands/<name>.md        ->  /<name> <args>      (flat command)

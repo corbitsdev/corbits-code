@@ -72,7 +72,8 @@ async function readManifestJson(
 // `{ name, description?, version?, author? }` — no `id`/`kind`. We adapt it
 // to the corbits manifest: `name` becomes `id`+`name`; `kind` is inferred from
 // the plugin's contents (agents present -> "agent", else "command") since a
-// native root `manifest.json`, when present, is always preferred and authoritative.
+// native root `manifest.json`, when present, is always preferred and
+// authoritative.
 interface ClaudePluginManifest {
   id: string;
   name: string;
@@ -154,7 +155,6 @@ export async function loadDataOnlyPlugin(
 
   // Manifest priority: native manifest.json (authoritative, carries kind) >
   // .claude-plugin/plugin.json (id/name/description; kind inferred) > dirname.
-  // agents present -> "agent" (profiles wire; tagged skill-commands wire too via
   // agents present -> "agent" (profiles wire; skill-commands wire too via
   // the agent-kind allowance in register.ts); commands-only (incl. skills-only,
   // since every skill becomes a command) -> "command".

@@ -104,8 +104,8 @@ export function runRg(
     // process `close` event can otherwise win the race against the last pipe
     // chunk: finish would settle as complete output before the cap check in
     // push ever saw the bytes. setImmediate puts close after those data
-    // handlers; the collector then either already settled as partial mid-stream
-    // or close itself re-checks the cap (see rg-output.ts).
+    // handlers; the collector then either already settled as partial
+    // mid-stream or close itself re-checks the cap (see rg-output.ts).
     child.on("close", (code) => {
       setImmediate(() => finish(collector.close(code, stderr)));
     });

@@ -52,8 +52,8 @@ export function stderrPluginWarning(msg: string): void {
  *
  * Skill names are deduplicated because a skill is missing once no matter how
  * many plugins referenced it — the operator installs it once to fix all of
- * them — and the count is taken from the deduplicated list so the number can
- * never disagree with the names printed beside it.
+ * them — and the count comes from the deduplicated list so it never disagrees
+ * with the names printed beside it.
  */
 export function formatPluginWarningsSummary(
   warnings: readonly string[],

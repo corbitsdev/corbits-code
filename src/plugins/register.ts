@@ -15,7 +15,7 @@ export function isPluginEnabled(
 // (user), path, and project plugins cannot self-enable via the flag — except
 // when dedupePluginModules stamped shadowedRepoDefaultEnabled, meaning this
 // module's id shadowed a repo defaultEnabled plugin during discovery dedupe;
-// the bundled default-on survives the shadowing (CL-6716).
+// the bundled default-on survives the shadowing.
 export function isPluginModuleEnabled(
   mod: PluginModule,
   config: Record<string, PluginConfig | undefined>,

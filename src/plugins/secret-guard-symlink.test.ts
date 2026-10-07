@@ -7,8 +7,8 @@ import { createPermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
 
 /**
- * CL-6971: under skip-permissions (yolo), pathEscape absolutizes outside paths
- * without realpath'ing, so an innocuous symlink name defeats the secret-guard
+ * Under skip-permissions (yolo), pathEscape absolutizes outside paths without
+ * realpath'ing, so an innocuous symlink name defeats the secret-guard
  * denylist. Secret guard is a floor — always realpath before isSensitivePath,
  * yolo or not. Covers both shapes: file symlink → secret, and dir symlink →
  * outside secret dir (where the lexical path no longer contains the sensitive

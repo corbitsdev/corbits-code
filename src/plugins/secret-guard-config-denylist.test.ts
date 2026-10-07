@@ -11,12 +11,12 @@ import { ripgrepPlugin } from "./ripgrep-plugin.js";
 import type { RgChild, SpawnRg } from "./rg-run.js";
 
 /**
- * CL-9386: an operator-chosen --config path inside the workspace is
- * model-readable/writable while carrying standing skip-permissions (persisted
- * there by /yolo, which writes the active settings source). The static
- * secret-guard denylist only covers the default .corbits/settings.json shapes,
- * so the active custom path must be runtime-denylisted for the path-keyed
- * tools — reads and writes — even under skip-permissions.
+ * An operator-chosen --config path inside the workspace is model-readable/
+ * writable while carrying standing skip-permissions (persisted there by
+ * /yolo, which writes the active settings source). The static secret-guard
+ * denylist only covers the default .corbits/settings.json shapes, so the
+ * active custom path must be runtime-denylisted for the path-keyed tools —
+ * reads and writes — even under skip-permissions.
  */
 
 const SKIP_PAYLOAD = JSON.stringify(
@@ -339,10 +339,10 @@ describe("CL-9386 runtime-denylist the active --config path holding skip", () =>
     });
   });
 
-  // CL-1187 finding 2: the shell ask-leg must treat the extras-denied active
-  // config like the default settings file. Pre-fix, `cat operator-config.json`
-  // ran with zero approval clicks in non-yolo where the default file needs
-  // one; the builder now forwards the extras into the gate's shell legs.
+  // The shell ask-leg must treat the extras-denied active config like the
+  // default settings file. Pre-fix, `cat operator-config.json` ran with zero
+  // approval clicks in non-yolo where the default file needs one; the builder
+  // now forwards the extras into the gate's shell legs.
   async function shellVerdict(
     command: string,
     cwd: string,

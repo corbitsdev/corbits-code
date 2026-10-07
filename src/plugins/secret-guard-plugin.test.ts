@@ -288,9 +288,9 @@ describe("commandReferencesSensitivePath", () => {
     "cat release.keystore",
     "cat server.ppk",
     "cat service-account.json",
-    // Dollar-prefixed home tokens resolve before matching (CL-8999): the
-    // shell expands these to the operator's home at runtime, so they must
-    // ask exactly like their literal forms.
+    // Dollar-prefixed home tokens resolve before matching: the shell expands
+    // these to the operator's home at runtime, so they must ask exactly like
+    // their literal forms.
     "cat $HOME/.ssh/id_rsa",
     "cat $HOME/.env",
     "cat ${HOME}/.aws/credentials",
@@ -317,7 +317,7 @@ describe("commandReferencesSensitivePath", () => {
     "sed --f=.envrc input.txt",
     "grep --fil=.envrc needle",
     "bun test",
-    // A bare variable with no path shape never names a file (CL-8999).
+    // A bare variable with no path shape never names a file.
     "echo $HOME",
     "cat $HOMEPATH",
   ];

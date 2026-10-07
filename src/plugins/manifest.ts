@@ -1,12 +1,13 @@
 import { type } from "arktype";
 
-// A plugin self-describes through a `manifest` export. The `kind` drives how the
-// plugin is wired: "web" provides the web_search/web_fetch backend, "command"
-// contributes slash commands (a workflow is just a command that fans out to
-// prompts/subagents), "tool" adds agent tools, and "agent" contributes sub-agent
-// profiles (tier, capabilities, system prompt). `credentials` declares what the
-// /plugins UI must collect before the plugin can run (stored in the global
-// settings). Every installable plugin must declare a manifest to be wired in.
+// A plugin self-describes through a `manifest` export. The `kind` drives how
+// the plugin is wired: "web" provides the web_search/web_fetch backend,
+// "command" contributes slash commands (a workflow is just a command that
+// fans out to prompts/subagents), "tool" adds agent tools, and "agent"
+// contributes sub-agent profiles (tier, capabilities, system prompt).
+// `credentials` declares what the /plugins UI must collect before the plugin
+// can run (stored in the global settings). Every installable plugin must
+// declare a manifest to be wired in.
 export type PluginKind = "web" | "command" | "tool" | "agent" | "workflow";
 
 export interface PluginCredentialField {

@@ -70,10 +70,9 @@ export interface PluginModule {
   source?: string;
   /**
    * Set by dedupePluginModules when this module's id shadowed an earlier
-   * repo module that had manifest.defaultEnabled === true. Lets
-   * isPluginModuleEnabled keep the id default-on after a same-id later
-   * install replaces the bundled module, without requiring an explicit
-   * settings flag (CL-6716).
+   * repo module that had manifest.defaultEnabled === true. Keeps the id
+   * default-on after a same-id later install replaces the bundled module,
+   * without requiring an explicit settings flag.
    */
   shadowedRepoDefaultEnabled?: boolean;
 }
@@ -324,8 +323,8 @@ export async function loadPluginEntryMetadata(
 // (corbitsdev-format agents declare skills by name; the resolver searches
 // project-local skill directories relative to cwd). Defaults to
 // process.cwd() for direct callers; internal discovery functions thread the
-// session cwd through so a non-default working directory (test harness,
-// future server-mode) resolves skills correctly.
+// session cwd through so a non-default working directory resolves skills
+// correctly.
 export async function loadPluginEntry(
   entryPath: string,
   opts: {
@@ -518,16 +517,13 @@ export interface ExpandPluginPathOptions {
    */
   containRoot?: string;
   /**
-   * Called for each skipped marketplace source (never silent). Required —
-   * not optional with a stderr default — because an optional sink with a
-   * silent fallback is exactly the shape that let three review rounds each
-   * turn up one more call site writing raw stderr mid-frame in the
-   * interactive TUI (CL-5411). Making it required turns every call site
-   * into a compile error until it picks a handler on purpose:
-   * `expandSkipDiagnosticsHandler(diagnostics)` for a batching caller,
-   * an explicit stderr writer for a headless caller where that is correct
-   * and visible (see `src/exec/runner.ts`), or `() => undefined` to state on the
-   * record that a caller is deliberately ignoring skips.
+   * Called for each skipped marketplace source (never silent). Required, not
+   * optional with a stderr default: an optional sink with a silent fallback
+   * let review rounds keep finding call sites writing raw stderr mid-frame.
+   * Required turns every call site into a compile error until it picks a
+   * handler on purpose: `expandSkipDiagnosticsHandler(diagnostics)` for a
+   * batching caller, an explicit stderr writer for a headless caller, or
+   * `() => undefined` to state that a caller is deliberately ignoring skips.
    */
   onSkip: (skip: ExpandPluginPathSkip) => void;
 }
@@ -563,15 +559,13 @@ function resolveExpandSkip(
 
 /**
  * Containment check with symlink safety. Lexical reject first; when both the
- * candidate and the contain root exist, realpath both and re-check so a symlink
- * under the root that points outside is refused.
+ * candidate and the contain root exist, realpath both and re-check so a
+ * symlink under the root that points outside is refused.
  *
- * Soft-allow when one realpath fails: a missing candidate (create-later member)
- * still expands if it is lexically under the root — the existence filter later
- * drops absent paths. Fail-closed only when both realpaths succeed and the
- * resolved target escapes (symlink-out case). A realpath failure on an existing
- * candidate while the root resolves is treated as soft-allow too (permission /
- * race); tightening that would break create-later members that race with mkdir.
+ * Soft-allow when one realpath fails: a missing candidate (create-later
+ * member) still expands if it is lexically under the root — the existence
+ * filter later drops absent paths. Fail-closed only when both realpaths
+ * succeed and the resolved target escapes (symlink-out case).
  */
 async function pathContainedUnder(abs: string, root: string): Promise<boolean> {
   if (!pathIsInsideOrEqual(abs, root)) return false;
@@ -851,9 +845,9 @@ export async function discoverUserPlugins(
 // A later non-repo module with the same id as a repo defaultEnabled plugin
 // would otherwise silently turn the bundled default off — the survivor is
 // non-repo, so isPluginModuleEnabled's origin==="repo" check fails and
-// enablement then requires an explicit settings flag (CL-6716). Carry the
-// repo default-on forward via shadowedRepoDefaultEnabled so the id stays
-// enabled by default unless the user explicitly disables it in settings.
+// enablement then requires an explicit settings flag. Carry the repo
+// default-on forward via shadowedRepoDefaultEnabled so the id stays enabled
+// by default unless the user explicitly disables it in settings.
 export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
   const indexById = new Map<string, number>();
   const result: PluginModule[] = [];
@@ -1012,9 +1006,10 @@ export async function discoverRepoPlugins(
 // need settings.plugins[id].enabled. Stamp source "claude" for search_agents.
 //
 // `home` is injectable for tests; defaults to the process home directory.
-// Marketplace member expansion uses containRoot=`~/.claude/plugins` so relative
-// sources like `../agents/<name>` resolve when still under that root; absolute
-// sources and escapes outside the root are rejected with skip reporting.
+// Marketplace member expansion uses containRoot=`~/.claude/plugins` so
+// relative sources like `../agents/<name>` resolve when still under that
+// root; absolute sources and escapes outside the root are rejected with skip
+// reporting.
 export async function discoverClaudeInstalledPlugins(
   cwd: string,
   opts: {

@@ -1,12 +1,10 @@
 import type { PluginOrigin } from "../trust/project-trust.js";
 
 /**
- * Inline marker for a bundled (origin "repo") Corbits plugin row. ASCII only:
- * AGENTS.md bans emoji in code, and wide-glyph width tables disagree across
- * terminals, so rows use the same `[origin]` label shape as every other
- * origin. (The brand mark itself is a multi-cell canvas silhouette
- * (`tui/mark-shape.ts`), not a single text glyph, and `●` already means live
- * work in chrome state.)
+ * Inline marker for a bundled (origin "repo") Corbits plugin row. ASCII
+ * only: AGENTS.md bans emoji in code, and wide-glyph width tables disagree
+ * across terminals, so rows use the same `[origin]` label shape as every
+ * other origin.
  */
 export const BUNDLED_PLUGIN_MARKER = "[bundled]";
 

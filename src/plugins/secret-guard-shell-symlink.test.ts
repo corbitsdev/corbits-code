@@ -10,11 +10,11 @@ import { isAutoAllowedShellCommand } from "../permission/classify.js";
 import { autoShellRuleForCall } from "../permission/auto-shell-policy.js";
 
 /**
- * CL-7790: shell token matching ignores symlinks. A benign-named symlink
- * into a secret file (notes.txt -> .env) must not auto-allow a content dump
+ * Shell token matching ignores symlinks. A benign-named symlink into a secret
+ * file (notes.txt -> .env) must not auto-allow a content dump
  * (`cat notes.txt`), identically to the direct name (`cat .env`). Pure
  * name-listing (`ls notes.txt`) still lists freely — dumping contents is the
- * threat, listing a name is not (dump-vs-list distinction, CL-5420).
+ * threat, listing a name is not.
  */
 
 async function withFixture<T>(

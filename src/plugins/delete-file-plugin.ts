@@ -64,8 +64,7 @@ function resolveAllowOutside(
 
 // Above this size, skip reading the file into memory just to show a diff —
 // the diff output is already char-capped (MAX_DIFF_CHARS), so buffering a
-// large file for it is pure waste, and deleting a large file is a common
-// enough case that the read must not become a resource regression.
+// large file for it is pure waste.
 const MAX_DELETE_PREVIEW_BYTES = 256 * 1024;
 
 export function deleteFilePlugin(
@@ -112,9 +111,9 @@ export function deleteFilePlugin(
         }
         // Best-effort content capture before removal, so the result can show
         // what was deleted (bounded, same as edit/write diffs). A failed read
-        // (binary, permissions) never blocks the delete itself. Large files
-        // skip the read entirely (see MAX_DELETE_PREVIEW_BYTES) and get a
-        // byte-count summary instead.
+        // (binary, permissions) never blocks the delete. Large files skip the
+        // read entirely (see MAX_DELETE_PREVIEW_BYTES) and get a byte-count
+        // summary instead.
         let before: string | undefined;
         const tooLargeToPreview = info.size > MAX_DELETE_PREVIEW_BYTES;
         if (!tooLargeToPreview) {

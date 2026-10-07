@@ -14,10 +14,9 @@ import {
 } from "../session/compaction-archive.js";
 
 // Characters, not tokens — conversion ratio is roughly 4 chars/token.
-// Match the reactor's default size-cap (vendor/intx-inference assembly.ts) so
-// leisure materialization owns the spill of the pretty/full bytes under the
-// `:full` key before the reactor's own 10k transform can write a lossier copy
-// under the bare call id.
+// Match the reactor's default size-cap so leisure materialization owns the
+// spill of the pretty/full bytes under the `:full` key before the reactor's
+// own 10k transform can write a lossier copy under the bare call id.
 export const MAX_RESULT_CHARS = 10_000;
 
 /** Writes a blob to the session's context store (ContextStore.writeBlob's shape). */
@@ -41,13 +40,13 @@ export interface TruncationSpillOptions {
 
 /**
  * Blob key the full pre-cut content is written under. Deliberately NOT the
- * bare callId: the reactor's own size-cap transform (vendor/intx-inference's
- * assembly.ts, always on, default cap 10,000 chars) runs on every ToolResult
- * after this middleware returns it. Leisure truncation keeps the inline
- * result (kept + notice) ≤ maxChars so that transform normally passes through
- * within-cap, but any other path that still exceeds the cap would spill under
- * the bare call id and clobber a same-keyed full write. The ":full" suffix
- * keeps our blob a distinct entry the reactor never touches.
+ * bare callId: the reactor's own size-cap transform (always on, default cap
+ * 10,000 chars) runs on every ToolResult after this middleware returns it.
+ * Leisure truncation keeps the inline result (kept + notice) ≤ maxChars so
+ * that transform normally passes through within-cap, but any other path that
+ * still exceeds the cap would spill under the bare call id and clobber a
+ * same-keyed full write. The ":full" suffix keeps our blob a distinct entry
+ * the reactor never touches.
  */
 export function spillBlobKey(callId: string): string {
   return `${callId}:full`;
@@ -164,15 +163,14 @@ async function spillAndTruncate(
 // session's own blob store — the same `ContextStore.writeBlob` /
 // `tool-output:///{key}` machinery the reactor's own size-cap transform uses
 // — and the notice names that real URI (plus the absolute session path when
-// `contextDir` is plumbed). Writing into the blob store (rather than a side
-// file) means the content is staged and committed with the rest of the turn
-// (see createOptimizedContextStore), so it persists exactly as long as the
+// `contextDir` is plumbed). Staged and committed with the rest of the turn
+// (see createOptimizedContextStore), it persists exactly as long as the
 // session's own history does: forever, by design, same as every other spilled
 // tool output. No separate cleanup exists or is needed.
 //
 // Without `spill` (tests, or a caller with no session store to write into)
 // the notice says plainly that the rest is gone; it must never claim a
-// retrieval path that does not exist (CL-6908).
+// retrieval path that does not exist.
 export async function truncateToolResultContent(
   content: string,
   maxChars: number = MAX_RESULT_CHARS,
@@ -297,7 +295,6 @@ export async function applyToolResultTruncation(
 // `Use offset=` footer). Re-cutting it at the 10k leisure cap would slice the
 // footer off the page boundary and strand the pagination chain, so
 // footer-bearing read_file pages pass through intact.
-// Pages without a footer take the normal path.
 const READ_FILE_CONTINUATION_RE = /Use offset=\d+ to continue\./;
 
 function isPagedReadFilePage(

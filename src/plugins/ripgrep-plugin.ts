@@ -102,27 +102,28 @@ export function ripgrepPlugin(
   cwd: string,
   limits: RgLimits = {},
   spawnChild?: SpawnRg,
-  // Extras-denied config paths (CL-9386, CL-1187 finding 1): the active
-  // settings source, including a --config override. The secret-guard plugin
-  // denies single-file grep of these paths, but a directory-scoped grep would
-  // still print their matches — both the rg and fallback legs below drop
-  // matches under denied paths so directory scope cannot exfiltrate them.
-  // Empty by default, which keeps every existing behavior unchanged.
+  // Extras-denied config paths: the active settings source, including a
+  // --config override. The secret-guard plugin denies single-file grep of
+  // these paths, but a directory-scoped grep would still print their matches
+  // — both the rg and fallback legs below drop matches under denied paths so
+  // directory scope cannot exfiltrate them. Empty by default, which keeps
+  // every existing behavior unchanged.
   extraDeniedPaths: readonly string[] = [],
 ): ToolPlugin {
   const maxBytes = limits.maxOutputBytes ?? MAX_OUTPUT_BYTES;
   const isExtraDenied = createExtraDeniedPathMatcher(extraDeniedPaths);
 
-  // The file a `file:line:match` (or context `file-line-`) grep line came from,
-  // resolved so it can be tested against the extras-denied set. Context
+  // The file a `file:line:match` (or context `file-line-`) grep line came
+  // from, resolved so it can be tested against the extras-denied set. Context
   // separators (`--`) and our own `...` notice lines carry no file and are
   // never matches.
   //
   // rg's separator is `:-digits-:` / `:digits:`. A non-greedy first match
-  // treats `-<digits>-` inside a dated or versioned path (`2026-09-26-config.json`,
-  // `gpt-4-1.json`) as the line-number field and tests the wrong prefix. Every
-  // separator is a candidate so a hyphen-digit path is still extras-denied, and
-  // a later `:digits:` in the match text cannot un-deny the real file.
+  // treats `-<digits>-` inside a dated or versioned path
+  // (`2026-09-26-config.json`, `gpt-4-1.json`) as the line-number field and
+  // tests the wrong prefix. Every separator is a candidate so a hyphen-digit
+  // path is still extras-denied, and a later `:digits:` in the match text
+  // cannot un-deny the real file.
   const grepLineDeniedFile = (line: string, rgCwd: string): boolean => {
     if (line.startsWith("...") || line === "--") return false;
     for (const match of line.matchAll(/[:-]\d+[:-]/g)) {

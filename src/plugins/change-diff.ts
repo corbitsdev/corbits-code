@@ -197,8 +197,7 @@ function truncationNote(sliceLen: number, discarded: number): string {
  * note is reserved before slicing, not appended after. The note's own length
  * depends on the digit counts of sliceLen/discarded, which depend on
  * sliceLen, so shrink sliceLen until the assembled result fits (a handful of
- * iterations at most — the note only grows when a digit-count boundary is
- * crossed) and hard-clamp as a fallback.
+ * iterations at most) and hard-clamp as a fallback.
  */
 function truncate(diff: string, maxChars: number): string {
   if (diff.length <= maxChars) return diff;

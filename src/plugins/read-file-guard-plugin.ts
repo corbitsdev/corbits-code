@@ -16,12 +16,13 @@ import {
   PDF_EXTRACTOR_BIN,
 } from "./file-inspection-diagnosis.js";
 
-// Corbits Code-side guard for read_file. Stock @intx/tools-posix read-file loads the
-// whole file into memory (buffer -> string -> split) and, with no limit, returns
-// every line -- so a model told to "go deep" into a tree of large transcripts can
-// pull multi-MB files into context with no ceiling and OOM the host. This
-// middleware short-circuits read_file with an opencode-style streaming reader that
-// never buffers the whole file and caps output. We do not patch interchange.
+// Corbits Code-side guard for read_file. Stock @intx/tools-posix read-file
+// loads the whole file into memory (buffer -> string -> split) and, with no
+// limit, returns every line — so a model told to "go deep" into a tree of
+// large transcripts can pull multi-MB files into context with no ceiling and
+// OOM the host. This middleware short-circuits read_file with an
+// opencode-style streaming reader that never buffers the whole file and caps
+// output.
 
 export const READ_FILE_MAX_BYTES = 50 * 1024;
 export const READ_FILE_DEFAULT_MAX_LINES = 2000;
@@ -73,11 +74,11 @@ export interface ReadFileGuardPluginOptions {
 // A truncated read tells the model to continue with the same path and the
 // explicit next offset from the notice ("Use offset=N to continue"). There is
 // no continuation handle: every read is a stateless, idempotent ranged read,
-// so following a notice verbatim works on first use, on replay, and on a fresh
-// plugin instance after compaction or session resume — and re-reading any
-// earlier window behaves identically. Chunked same-path reads carry rising
-// offsets, so detectors that key on the full call (including arguments) see
-// one ranged read per window, not a same-path loop.
+// so following a notice verbatim works on first use, on replay, and on a
+// fresh plugin instance after compaction or session resume — and re-reading
+// any earlier window behaves identically. Chunked same-path reads carry
+// rising offsets, so detectors that key on the full call (including
+// arguments) see one ranged read per window, not a same-path loop.
 
 function numArg(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
@@ -122,18 +123,18 @@ function resolveExtractorProbe(
 }
 
 /**
- * Streams UTF-8 from `stream`, emitting up to `limit` line-numbered lines after
- * skipping `offset` lines (zero-based). Never splits the full decoded text in one pass.
- * When `wrapLongLines` is set, overlong lines are split into successive numbered
- * windows instead of being truncated and dropped — so a giant JSON line can be
- * paged through with the same offset protocol as a multi-line file.
- * When `windowHugeLines` is set instead, only single lines that on their own
- * exceed the output budget are windowed; ordinary lines keep their numbers, so
- * plain path+offset pagination stays line-aligned.
- * The scan ceiling counts only bytes past the requested offset: bytes skipped
- * to reach a nonzero offset never trip it, so continuation on a large file
- * reads through to the end instead of dead-ending with a scan limit while
- * unread content remains.
+ * Streams UTF-8 from `stream`, emitting up to `limit` line-numbered lines
+ * after skipping `offset` lines (zero-based). Never splits the full decoded
+ * text in one pass. When `wrapLongLines` is set, overlong lines are split
+ * into successive numbered windows instead of being truncated and dropped —
+ * so a giant JSON line can be paged through with the same offset protocol as
+ * a multi-line file. When `windowHugeLines` is set instead, only single
+ * lines that on their own exceed the output budget are windowed; ordinary
+ * lines keep their numbers, so plain path+offset pagination stays
+ * line-aligned. The scan ceiling counts only bytes past the requested
+ * offset: bytes skipped to reach a nonzero offset never trip it, so
+ * continuation on a large file reads through to the end instead of
+ * dead-ending with a scan limit while unread content remains.
  */
 function readStreamBounded(
   stream: Readable,
@@ -411,7 +412,7 @@ export function readFileBounded(
 /**
  * Bounded read over an in-memory UTF-8 blob (tool-output spills). Feeds the
  * buffer in chunks so offset/limit never require a full-text split. Overlong
- * lines wrap into numbered windows instead of being truncated and dropped, and
+ * lines wrap into numbered windows instead of being truncated and dropped;
  * callers should pass a high `limit` so the byte budget — not the source-file
  * 2000-line cap — pages the spill.
  */

@@ -32,10 +32,10 @@ import {
 /** Minimum interval between live shell-tail emits to the transcript feed. */
 export const SHELL_FEED_EMIT_MS = 100;
 
-// We do not patch interchange: this middleware short-circuits run_shell and
-// enforces a 120s foreground default (per-call timeout overrides with no
-// ceiling; background has no default), an
-// output-byte cap, and process-group kill so open-ended walks cannot OOM the host.
+// This middleware short-circuits run_shell and enforces a 120s foreground
+// default (per-call timeout overrides with no ceiling; background has no
+// default), an output-byte cap, and process-group kill so open-ended walks
+// cannot OOM the host.
 
 export const MAX_SHELL_OUTPUT_BYTES = 512_000;
 
@@ -85,7 +85,7 @@ export function formatShellTimeoutNotice(timeoutMs: number): string {
  * Stock tools-posix still advertises timeout default 30000. Shell-guard's
  * foreground default is 120s (settings.shell.timeoutMs overrides; maxTimeoutMs
  * clamps that default path); rewrite the definition the model sees so schema
- * and behavior agree. Corbits Code-only — does not patch interchange.
+ * and behavior agree.
  *
  * Schema `default` is the foreground omit path. Description says omit
  * timeout on background:true so the model does not copy 120000 onto
@@ -170,8 +170,8 @@ const SEARCH_TOOLS = new Set(["grep", "search_files"]);
 // Timeout outcome mapping for scoped search tools, extracted pure so the
 // fail-closed behavior is unit-testable without waiting out the budget: a
 // budget expiry or an abort torn down by the budget is always an explicit
-// error carrying the timeout notice — a timeout never reads as empty
-// results, and genuine empty successes pass through untouched.
+// error carrying the timeout notice — a timeout never reads as empty results,
+// and genuine empty successes pass through untouched.
 export function mapSearchBudgetOutcome(
   callId: string,
   tool: ScopedSearchTool,

@@ -32,8 +32,8 @@ export function verifyPlugin(): ToolPlugin {
       const run = async (): Promise<ToolResult> => {
         // edit_file already read the file here pre-PR (to validate old_string
         // uniqueness downstream) — reusing it for the diff is free. write_file
-        // did not: this pre-write read is a genuine extra read added by the
-        // diff feature, since write_file has no other source for "before".
+        // did not: this pre-write read is the diff feature's only source for
+        // "before".
         let before: string | undefined;
         if (call.name === "edit_file" || call.name === "write_file") {
           const path = String(call.arguments.path ?? "");
