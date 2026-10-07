@@ -33,10 +33,9 @@ export const OPENAI_API_BASE_URL = "https://api.openai.com/v1";
 
 /**
  * Preset models whose first-party endpoint rejects `max_tokens` and requires
- * `max_completion_tokens`. Explicit per-model list: adding a model here
- * declares its own requirement, never inferred from name prefixes. gpt-4.1
- * is non-reasoning and stays on `max_tokens`. This const is only the api
- * path entry's initial value — runtime reads the entry's
+ * `max_completion_tokens`. Explicit per-model list, never inferred from name
+ * prefixes. gpt-4.1 is non-reasoning and stays on `max_tokens`. This const
+ * is only the api path entry's initial value — runtime reads the entry's
  * `maxCompletionTokensModels` field, so that field is the source of truth.
  */
 export const OPENAI_API_MAX_COMPLETION_TOKENS_MODELS: readonly string[] = [
@@ -51,11 +50,11 @@ export const OPENAI_API_MAX_COMPLETION_TOKENS_MODELS: readonly string[] = [
  * First-class providers shown in the models-surface Connect list.
  * Tier A order: dual-path OpenAI, OAuth xAI, Go/Zen, Z.AI, big three, Custom.
  *
- * Canonical static registry for provider identity (CL-5691): base URLs, model
- * lists, and defaults live here. The Codex/xAI OAuth fallbacks stay separate
- * — they back live catalog calls, not static identity — but must agree with
- * this registry; src/provider/identity-divergence.test.ts pins that.
- * Do not add another edge list: reference this registry or the fallbacks.
+ * Canonical static registry for provider identity: base URLs, model lists,
+ * and defaults live here. The Codex/xAI OAuth fallbacks stay separate — they
+ * back live catalog calls, not static identity — but must agree with this
+ * registry; src/provider/identity-divergence.test.ts pins that. Do not add
+ * another edge list: reference this registry or the fallbacks.
  */
 export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
   {

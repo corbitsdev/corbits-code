@@ -6,14 +6,14 @@ import {
 /**
  * True when the URL or base is the public OpenCode Go gateway.
  *
- * Host must be `opencode.ai` or a subdomain, and path must start with `/zen/go`
- * as a segment (not `/zen/goodies` or a query-embedded substring). Path matching
- * is case-insensitive so product bases like `/Zen/Go` still pin.
+ * Host must be `opencode.ai` or a subdomain, and the path must start with
+ * `/zen/go` as a segment (not `/zen/goodies` or a query-embedded substring);
+ * matching is case-insensitive.
  *
- * Intentional false negative: private reverse proxies / self-hosted gateways that
- * front Go under a non-opencode.ai host are not matched by URL alone. Those rows
- * must set `opencodeGo: true` or use the known provider id/label — there is no
- * host allowlist env. Product surface is public-host only.
+ * Intentional false negative: private reverse proxies / self-hosted gateways
+ * under a non-opencode.ai host are not matched by URL alone — those rows must
+ * set `opencodeGo: true` or use the known provider id/label. Product surface
+ * is public-host only.
  */
 export function isOpenCodeGoURL(urlOrBase: string | undefined): boolean {
   if (urlOrBase === undefined || urlOrBase.length === 0) return false;

@@ -11,8 +11,7 @@ function hostMatchesOpencodeDotAi(host: string): boolean {
 
 /**
  * Match a bare Zen base URL: an opencode.ai URL whose first path segment is
- * "zen". The Go catalog URL (https://opencode.ai/zen/go/...) matches Go,
- * never Zen — callers must check Go first.
+ * "zen". The Go catalog URL matches Go, never Zen — callers check Go first.
  */
 export function isZenURL(value: string | undefined): boolean {
   if (!value) return false;
