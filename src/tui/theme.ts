@@ -1,30 +1,22 @@
 /**
  * Corbits terminal palette — the single source of truth for every color the
- * OpenTUI shell paints.
+ * shell paints. Three rules the rest of the TUI depends on:
  *
- * Three rules the rest of the TUI depends on:
- *
- * 1. Gray never sits on the ground. Dimmed text is a dimmed *cream*
- *    (`textDim`, `textFaint`), so the warm bias survives at every emphasis
- *    level; there is deliberately no neutral gray in this file to reach for.
- * 2. Orange is spent once per screen. It marks the session and whatever
- *    awaits a human decision — nothing else. Ongoing status uses the bronze
- *    ramp and `done` (green) so it never competes with the one thing asking
- *    to be answered. Diff removals are the sole exception: there the orange
- *    is content, not chrome.
- * 3. The chrome ramp is warm but never saturated. Every bronze sits at or
+ * 1. No neutral gray: dimmed text is a dimmed cream, so the warm bias holds
+ *    at every emphasis level.
+ * 2. Orange is spent once per screen — the session mark and pending human
+ *    decisions only. Diff removals are the exception (content, not chrome);
+ *    ongoing status stays on the bronze ramp / `done` green.
+ * 3. The chrome ramp is warm but never saturated: every bronze sits at or
  *    below 54% HSL saturation against Breakthrough Orange's 81%, so full
- *    orange arrives as an event, not as another shade of the furniture.
+ *    orange arrives as an event, not another shade of furniture.
  *
- * Summit Blue is deliberately absent: cool information reads foreign
- * against cream, black and orange chrome. The warm structure keeps the
- * brand's discipline — small palette, roles not decoration.
+ * Summit Blue is deliberately absent — cool reads foreign against cream,
+ * black and orange chrome.
  */
 
-/**
- * Palette values a theme supplies. Call sites paint through `UI`, never
- * through a theme directly, so a second theme is a data change here.
- */
+/** Palette values a theme supplies. Call sites paint through `UI`, never a
+ * theme directly, so a second theme is a data change here. */
 export interface Theme {
   readonly name: string;
   /** Terminal ground. Foreground-only discipline means almost nothing fills it. */
@@ -52,16 +44,12 @@ export interface Theme {
   readonly error: string;
 }
 
-/**
- * Brand hues, plus the warm ramp that replaced Summit Blue.
- *
- * Lowercase because the renderer normalizes hex that way, and tests compare a
- * painted span's `fg` against these constants directly.
- */
+/** Brand hues, plus the warm ramp that replaced Summit Blue. Lowercase: the
+ * renderer normalizes hex that way and tests compare a painted span's `fg`
+ * against these constants directly. */
 export const BRAND = {
-  // Charcoal rather than pure black: it lifts the interface off the host
-  // terminal's own background and softens the cream's contrast edge, while
-  // staying dark enough that `textFaint` keeps a readable margin above it.
+  // Charcoal, not pure black: lifts the interface off the host terminal's
+  // background and keeps `textFaint` readable against the cream.
   ground: "#191614",
   canvasCream: "#f7ead5",
   breakthroughOrange: "#e98428",
@@ -69,14 +57,13 @@ export const BRAND = {
   ridgeGreen: "#7b9974",
 } as const;
 
-// Cream stepped down toward the ground rather than desaturated toward gray, so
-// low-emphasis text keeps the same warm hue as full-emphasis text.
+// Cream dimmed toward the ground, not toward gray: low-emphasis text keeps
+// the same warm hue as full-emphasis text.
 const CREAM_DIM = "#a89f91";
 const CREAM_FAINT = "#787166";
 
-// The warm chrome ramp. Three tones so the roles that once shared a blue stay
-// separable — they differ in lightness first, hue second, and all three sit
-// well under the action orange's saturation.
+// The warm chrome ramp: three tones separable by lightness first, hue
+// second, all under the action orange's saturation.
 const BRONZE = "#93733f"; // dimmest: motion and machine chrome
 const SAND = "#d1ad7d"; // brightest: keywords, links, args, and standing caution
 const EMBER = "#a97243"; // burnt, between the two: document structure
@@ -102,24 +89,15 @@ export const corbitsDark: Theme = {
  * Light companion to `corbitsDark`: the same roles on a warm light ground.
  * Data-only — no interface change, no new roles, no per-theme branches.
  *
- * Every value was picked by relative luminance against the cream ground,
- * not by eye: body text holds ~14:1 (near the dark theme's ~15:1) and every
- * essential text role holds >=4.5:1. The dark theme's rules carry over:
- * orange stays a one-per-screen decision marker (darkened, since
- * Breakthrough Orange is ~2.3:1 on cream and unreadable as text), dimmed
- * text is a dimmed ink rather than a neutral gray, and the bronze ramp is
- * darkened (SAND is ~1.8:1 on cream). Standing caution moves to a muted
- * plum: a bronze warning collapses into the machine ramp on cream, while
- * red or orange would spend the failure/action hues.
- *
- * The warm roles separate by lightness first, hue second: action is the
- * darkest warm (~10.5:1) and most saturated, so the decision marker never
- * shares a step with chrome; the dim tier (actionDim, inFlight) sits near
- * ~6.4-7:1, the bright tier (inFlightBright, heading) at ~4.5:1, and each
- * intra-ramp step spans >=1.5:1 so each ramp still reads as a ramp.
- * Same-tier collisions across ramps are carried by hue and saturation:
- * actionDim stays orange against the olive machine, and the gold heading
- * out-saturates the tan machine-bright.
+ * Values were picked by relative luminance against the cream ground, not by
+ * eye: body text holds ~14:1 (near the dark theme's ~15:1) and every
+ * essential role >=4.5:1. The dark rules carry over: action stays a
+ * one-per-screen decision marker (darkened — Breakthrough Orange is ~2.3:1
+ * on cream), dimmed text is dimmed ink, and the bronze ramp is darkened.
+ * Caution moves to a muted plum: a bronze warning collapses into the machine
+ * ramp on cream. Warm roles separate by lightness first, hue and saturation
+ * second, so the decision marker never shares a step with chrome and each
+ * ramp still reads as a ramp.
  */
 export const corbitsLight: Theme = {
   name: "corbits-light",
@@ -151,13 +129,10 @@ export function resolveThemeName(name: string): Theme {
 
 let activeTheme: Theme = corbitsDark;
 
-/**
- * Reset hooks for paint state derived from the palette. Modules that snapshot
- * palette values into renderer-owned registries (a SyntaxStyle) register a
- * reset here; `setTheme` runs every hook right after swapping `UI`, so no
- * stale palette survives a pin change. The single choke point stays here —
- * call sites never reset caches themselves.
- */
+/** Paint state derived from the palette (a SyntaxStyle) registers a reset
+ * here; `setTheme` runs every hook after swapping `UI`, so no stale palette
+ * survives a pin change. The choke point stays here — call sites never reset
+ * caches themselves. */
 type ThemeCacheReset = () => void;
 
 const themeCacheResets = new Set<ThemeCacheReset>();
@@ -169,12 +144,9 @@ export function onThemeChange(reset: ThemeCacheReset): () => void {
   };
 }
 
-/**
- * Switch the live `UI` binding to the named theme, keeping the reference.
- * Everything outside this file paints through `UI`, so existing readers pick
- * the change up without re-importing. Never reassign or destructure this
- * binding — `const { text } = UI` snapshots the old palette forever.
- */
+/** Swap the live `UI` binding to the named theme. Never reassign or
+ * destructure `UI` — `const { text } = UI` snapshots the old palette
+ * forever. */
 export function setTheme(name: ThemeName | string): Theme {
   activeTheme = resolveThemeName(name);
   Object.assign(UI, activeTheme);
@@ -182,11 +154,7 @@ export function setTheme(name: ThemeName | string): Theme {
   return activeTheme;
 }
 
-/**
- * Semantic roles. Everything outside this file paints through these.
- *
- * A settable live binding, not a frozen value: `setTheme` copies the next
- * palette onto this same object. The default is dark; startup detection
- * selects the final theme before renderables are constructed.
- */
+/** Semantic roles everything outside this file paints through. A live
+ * binding `setTheme` copies onto; default dark, startup detection picks the
+ * final theme before renderables are built. */
 export const UI: Theme = { ...corbitsDark };
