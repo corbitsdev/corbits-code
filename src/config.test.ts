@@ -1312,11 +1312,9 @@ describe("buildOpenAISource", () => {
   });
 
   test("stays above the reasoning truncation floor", () => {
-    // Reasoning tokens consume max_output_tokens before any answer text is
-    // emitted. Measured on muse-spark-1.3-contributor, a 512-token cap at
-    // medium effort spent 397 tokens reasoning and returned 3 tokens of
-    // answer; 1024 was the lowest cap that answered on every rung. 4096 is
-    // the floor we will not drop below. See CL-7867.
+    // Reasoning tokens consume max_output_tokens before answer text; measured
+    // on muse-spark-1.3-contributor, 1024 was the lowest cap that answered on
+    // every rung. 4096 is the floor we will not drop below.
     expect(SOURCE_MAX_TOKENS).toBeGreaterThanOrEqual(4096);
   });
 
@@ -1792,14 +1790,11 @@ describe("buildProviderCatalog", () => {
   });
 
   test("round-trips every ProviderSettings field a catalog entry can carry through buildProviderCatalog and back", () => {
-    // ProviderCatalogEntry is defined as Omit<ProviderSettings, "name" | "contextWindow">.
-    // This exercises every field that relationship carries over, so a field
-    // added to ProviderSettings and forgotten in the two conversion sites
-    // below fails here instead of being silently dropped at runtime.
-    // `anthropic` and `opencodeGo` are exercised separately below: both are
-    // protocol markers that also normalize `baseURL` in buildProviderCatalog,
-    // so a provider combining them with an arbitrary baseURL isn't a real
-    // round trip (the healing logic rewrites baseURL by design).
+    // ProviderCatalogEntry is Omit<ProviderSettings, "name" | "contextWindow">;
+    // a field added to ProviderSettings and forgotten in the two conversion
+    // sites fails here instead of being silently dropped. `anthropic` and
+    // `opencodeGo` are exercised separately: both normalize `baseURL` by
+    // design, so combining them with an arbitrary baseURL isn't a round trip.
     const provider: Settings["providers"][string] = {
       baseURL: "https://fp/v1",
       apiKey: "fp-key",

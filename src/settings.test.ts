@@ -991,7 +991,7 @@ describe("sessionMode", () => {
         { ...firepass, sessionMode: "single" },
         join(".corbits", "settings.json"),
       );
-      // CL-5814: "single" still loads without error, then is stripped.
+      // "single" still loads without error, then is stripped.
       expect(await loadSettings(path)).toEqual(firepass);
     });
   });

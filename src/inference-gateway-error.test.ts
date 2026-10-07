@@ -12,10 +12,10 @@ const CLOUDFLARE_503_HTML = `<!DOCTYPE html>
 <body><h1>503 Service Temporarily Unavailable</h1>
 <p>Cloudflare Ray ID: abc</p></body></html>`;
 
-// PROVISIONAL (Phase 0, issue #1295): the real xAI 426 body for xai/default-2
-// is unknown — the issue reports a bare "HTTP 426 Upgrade Required". Grounded
-// in the status code, the reason phrase, and the OAuth provider id only; no
-// body-signal assertions until a real payload lands.
+// PROVISIONAL: the real xAI 426 body for xai/default-2 is unknown — reports
+// show a bare "HTTP 426 Upgrade Required". Grounded in the status code, the
+// reason phrase, and the OAuth provider id only; no body-signal assertions
+// until a real payload lands.
 const PROVISIONAL_XAI_426_UPGRADE_REQUIRED = {
   category: "fatal" as const,
   message: "Upgrade Required",
@@ -85,8 +85,8 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalizeInferenceErrorForRetry(err)).toEqual(err);
   });
 
-  // Phase 1 (issue #1295): normalizeOAuthUpgradeRequiredError grounds the
-  // provisional marker list — OAuth 426 with upgrade signal is reconnect-class.
+  // Phase 1: normalizeOAuthUpgradeRequiredError grounds the provisional marker
+  // list — OAuth 426 with upgrade signal is reconnect-class.
   test("PROVISIONAL: xAI OAuth 426 with upgrade signal normalizes to credential_failure", () => {
     const normalized = normalizeInferenceErrorForRetry(
       PROVISIONAL_XAI_426_UPGRADE_REQUIRED,

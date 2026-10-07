@@ -12,16 +12,15 @@ import { cliCaughtExit, mainWithRunners } from "./index.js";
 import { defined } from "../testkit/defined.js";
 
 const envVars = {
-  // Unit tests must never export telemetry or write an installationId into
-  // the developer's real global settings file.
+  // Never export telemetry or write an installationId into the developer's
+  // real global settings file.
   CORBITS_TELEMETRY: "0",
 };
 
-// Configuration resolution reads a settings file and the local settings file
-// under the run cwd. Both are pinned to a temp sandbox (--config and --cwd) so
-// the run is identical on a developer machine and on a clean runner: os.homedir()
-// is snapshotted at process start in Bun, so mutating HOME here would not work.
-// --config also suppresses the home-level OAuth profile merge.
+// Configuration resolution reads the global settings file and the local one
+// under the run cwd; both are pinned to a temp sandbox (--config, --cwd) so
+// the run is identical on a developer machine and a clean runner. os.homedir()
+// is snapshotted at process start in Bun, so mutating HOME would not work.
 let sandbox: string;
 
 function writeSandboxSettings(root: string): void {
@@ -48,8 +47,7 @@ beforeEach(() => {
   sandbox = mkdtempSync(join(tmpdir(), "corbits-index-test-"));
   writeSandboxSettings(sandbox);
   // Claim the one-shot pricing refresh guard with a sandboxed cache and a
-  // fetch that never fires, so loadConfig's bootstrap cannot reach the network
-  // or write into the real home cache directory.
+  // fetch that never fires, so loadConfig's bootstrap cannot reach the network.
   resetPricingMetadataRefreshForTests();
   schedulePricingMetadataRefresh({
     cachePath: join(

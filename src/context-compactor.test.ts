@@ -65,9 +65,8 @@ function hasConsecutiveSameRole(turns: ConversationTurn[]): boolean {
 
 type CompactorConfig = Parameters<typeof createPruningCompactor>[0];
 
-// CL-9489: every test pins a tiny tail budget so the fold covers older
-// turns the token cap leaves out. Pass tailBudgetTokens instead of a full
-// compactionShape.
+// Every test pins a tiny tail budget so the fold covers older turns the token
+// cap leaves out. Pass tailBudgetTokens instead of a full compactionShape.
 function smallCompactor(
   cfg: Omit<NonNullable<CompactorConfig>, "compactionShape"> & {
     tailBudgetTokens?: number;
@@ -95,10 +94,10 @@ describe("createPruningCompactor", () => {
   });
 
   test("compactorNoOpFloor names the exact turn count apply() no-ops on", async () => {
-    // The compaction governor (agent/compaction.ts) derives its arming floor
-    // from this function so it never arms a compaction guaranteed to no-op.
-    // Anyone changing apply()'s no-op condition without updating
-    // compactorNoOpFloor accordingly breaks that guarantee silently.
+    // The compaction governor derives its arming floor from this function so
+    // it never arms a compaction guaranteed to no-op; changing apply()'s
+    // no-op condition without updating the floor breaks that guarantee
+    // silently.
     const compactor = smallCompactor({
       summaryMaxChars: 500,
     });
@@ -824,8 +823,8 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
       mockStrategyCtx,
     );
     expect(compactedTurns(result2.output)).toHaveLength(1);
-    // CL-8744: the narrative lives in the fat handoff file, not the prompt.
-    // The live output carries only the thin spine plus its pointer.
+    // The narrative lives in the fat handoff file, not the prompt; the live
+    // output carries only the thin spine plus its pointer.
     expect(allText(result2.output)).not.toContain("UNIQUE_SUCCESS_SUMMARY");
     const handoffBlob = defined(
       defined(result2.blobs).find(
@@ -914,9 +913,9 @@ describe("buildTurnSummary via createPruningCompactor", () => {
     const spineText = (
       defined(defined(result.output[0]).content[0]) as { text: string }
     ).text;
-    // CL-8744: the live output carries only the thin spine (goal one-liner,
-    // evidence echo, explicit pointer) — file lists and counts stay in the
-    // fat handoff file, where they cannot make the next spine novel.
+    // The live output carries only the thin spine (goal one-liner, evidence
+    // echo, explicit pointer) — file lists and counts stay in the fat handoff
+    // file, where they cannot make the next spine novel.
     expect(spineText).toContain("[Compacted prior context]");
     expect(spineText).toContain("Handoff: tool-output:///");
     expect(spineText).not.toContain("src/foo.ts");
