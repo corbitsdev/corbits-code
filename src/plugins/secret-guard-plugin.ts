@@ -27,11 +27,10 @@ import { expandShellSubjects } from "../shell/run-shell-authz.js";
 import { peelTransparentCommand } from "../shell/transparent-command.js";
 import { looksLikePath } from "./path-escape-plugin.js";
 
-// Files that hold secrets: path-keyed tools (read_file, write_file, …) must
-// never read or write them — content would land in the model context, so
-// this is a hard deny. Shell commands that merely *reference* these paths
-// are ask-gated (see commandReferencesSensitivePath) so legitimate uses like
-// `bun --env-file=.env run …` can be approved.
+// Secret files: path-keyed tools (read_file, write_file, …) hard-deny them —
+// content would land in the model context. Shell commands that merely
+// reference them are ask-gated (commandReferencesSensitivePath), so
+// legitimate uses like `bun --env-file=.env run …` can be approved.
 const SENSITIVE_PATTERNS: RegExp[] = [
   // .env variants, not templates (.env.example, .env.sample, …).
   /(^|\/)\.env($|\.(?!example|sample|template|dist))/,
@@ -122,10 +121,10 @@ function normalizeWin32Path(value: string): string {
   return aliasNormalized.replace(/^([A-Za-z]:)(?!\/)/, "$1/").toLowerCase();
 }
 
-// Secret-guard floor: match the lexical path and its realpath. The realpath
-// leg stops a symlink alias (config.txt → .env) beating the denylist and
-// covers write targets whose parent is a symlink into a sensitive dir. It is
-// absolute-only: live paths are absolutized; unit-test args match lexically.
+// Secret-guard floor: match the lexical path and its realpath, so a symlink
+// alias (config.txt → .env) cannot beat the denylist and write targets whose
+// parent is a symlink into a sensitive dir are covered. Realpath leg is
+// absolute-only: live paths are absolutized; test args match lexically.
 export function isSensitivePathResolved(
   value: string,
   dialect: ShellDialect = nativeShellDialect(process.platform),
@@ -137,17 +136,16 @@ export function isSensitivePathResolved(
 }
 
 // Extra hard-deny paths. The active --config path can live anywhere — even
-// inside the workspace, where the static patterns above never match — and
-// carries standing skip-permissions, so entry points thread it in here and
-// path-keyed tools deny it exactly like the default settings file.
+// inside the workspace, outside the static patterns above — and carries
+// standing skip-permissions, so entry points thread it in here and
+// path-keyed tools deny it like the default settings file.
 export interface SecretGuardPluginOptions {
   extraDeniedPaths?: readonly string[];
 }
 
 // Exact-path matcher over runtime-denied paths, same two legs as
-// isSensitivePathResolved: lexical (target may not exist yet) and realpath
-// (symlink names). Relative entries match lexically only — production
-// entries are absolute.
+// isSensitivePathResolved: lexical (target may not exist yet) and realpath.
+// Relative entries match lexically only — production entries are absolute.
 export function createExtraDeniedPathMatcher(
   extraDeniedPaths: readonly string[],
 ): (value: string) => boolean {
@@ -173,38 +171,31 @@ export function createExtraDeniedPathMatcher(
 }
 
 // First token in a shell command that names a secret file, or undefined.
-// Matching the file token, not the utility, covers every read tool uniformly
-// — `cat`, `less`, `xxd`, `base64`, `grep`, a custom script — without
-// enumerating them.
+// Matching the file token, not the utility, covers every read tool (`cat`,
+// `less`, `grep`, a custom script) without enumerating them.
 //
-// Callers (auto-shell policy, classify) use this to force an operator ask
-// rather than auto-allow. The plugin no longer hard-denies shell commands:
-// an approval (or --dangerously-skip-permissions) lets a secret reference
-// run, e.g. `bun --env-file=.env.staging run …`. Path-keyed tools stay
-// hard-denied below.
+// Callers (auto-shell policy, classify) force an operator ask; approval (or
+// --dangerously-skip-permissions) lets the reference run, e.g.
+// `bun --env-file=.env.staging run …`. Path-keyed tools stay hard-denied.
 //
-// RESIDUAL THREAT MODEL: shell detection is best-effort. Token matching
-// defeats quoting, env-assignment, and redirection forms, but not dynamic
-// path construction the matcher never sees as one token — indirection via an
-// unrelated variable (`F=.en; cat ${F}v`), character-by-character assembly
-// (`printf`), or an interpreter building the name at runtime. Unexpanded
-// globs are the same class (`cat *` can open a symlink). Perfect shell
-// sandboxing is out of scope; the goal is a prompt for the trivial,
-// single-token references that make exfiltration easy. Tool-result secret
-// scrub still redacts credential-shaped output.
-// A leading $HOME/${HOME} or $USER/${USER} expands before matching (see
-// expandLeadingDollarToken); other path-shaped $-tokens fail closed to ask.
-// Programs that only print directory names / metadata — listing a name never
-// dumps file contents. Single owner for this set: the resolve-leg skip below
-// and classify.ts's pure-listing exemption both read it, so a new names-only
-// program cannot drift into one list without the other.
+// Best-effort: token matching beats quoting, env-assignment, and redirection,
+// but not dynamic path construction it never sees as one token (variable
+// indirection, `printf`, runtime assembly) or unexpanded globs (`cat *` can
+// open a symlink). The goal is a prompt for trivial single-token references;
+// tool-result scrub still redacts credential-shaped output. A leading
+// $HOME/$USER expands before matching; other path-shaped $-tokens fail
+// closed to ask.
+//
+// Programs that only list names never dump contents. Single owner for this
+// set: the resolve-leg skip below and classify.ts's pure-listing exemption
+// both read it, so a new names-only program cannot drift into one list
+// without the other.
 export const PURE_DIRECTORY_LISTING_PROGRAMS = new Set(["ls", "tree"]);
 
 // The shell expands a leading $HOME (or ${HOME}) before opening the path;
-// expand it here (string-only, from the environment — never shell eval) and
-// let the normal legs judge the result. $USER (or ${USER}) gets the same
-// treatment. Only these two prefixes expand — arbitrary variables stay
-// unexpanded and fail closed to ask as path-shaped tokens below.
+// expand it here, string-only from the environment — never shell eval — and
+// let the normal legs judge. $USER (or ${USER}) gets the same treatment.
+// Other variables stay unexpanded and fail closed to ask below.
 function expandLeadingDollarToken(token: string): string {
   const home = process.env.HOME;
   if (home !== undefined && home.length > 0) {
@@ -225,12 +216,10 @@ function expandLeadingDollarToken(token: string): string {
 
 // Path-shaped token the shell could open (slash, extension dot, or
 // absolute), not a flag, variable, or fd number — those can never name a
-// file the shell opens, so they skip the stat and the hot auto-allow path
-// stays syscall-free. Globs are skipped too: the matcher only sees the
-// unexpanded pattern, so `cat *.txt` cannot resolve without running the
-// shell — but a glob CAN expand into a symlink at runtime (a stated
-// residual, see the threat model above), not something this filter
-// disproves.
+// file, so they skip the stat and the hot auto-allow path stays
+// syscall-free. Globs are skipped too: the matcher only sees the unexpanded
+// pattern, and a glob CAN expand into a symlink at runtime (a stated
+// residual, see the threat model above).
 function isPathLikeShellToken(token: string): boolean {
   if (
     token.startsWith("-") ||
@@ -247,19 +236,17 @@ function isPathLikeShellToken(token: string): boolean {
   );
 }
 
-// The shell reads `~` as the operator's home, not a cwd-relative name —
-// expand before the matcher legs so `cat ~/notes` resolves the home symlink
-// instead of a (usually missing) cwd child.
+// `~` is the operator's home, not a cwd-relative name — expand first so
+// `cat ~/notes` resolves the home symlink, not a usually-missing cwd child.
 export function expandHome(token: string): string {
   if (token === "~") return homedir();
   if (token.startsWith("~/")) return joinPath(homedir(), token.slice(2));
   return token;
 }
 
-// Extensionless token the shell could open as a cwd-relative file: same
-// exclusions as the path-like filter minus the dot/slash shape requirement,
-// so names like `notes` (or split out of `--file=notes` / `cat -n notes`)
-// still get an existence probe below.
+// Extensionless token the shell could open as a cwd-relative file: the
+// path-like exclusions minus the dot/slash shape requirement, so `notes`
+// (from `--file=notes` / `cat -n notes`) still gets an existence probe.
 function isBareProbeCandidate(token: string): boolean {
   return (
     token.length > 0 &&
@@ -271,25 +258,20 @@ function isBareProbeCandidate(token: string): boolean {
 }
 
 // One shell-token matcher shared by both secret-guard call sites —
-// commandReferencesSensitivePath below and classify.ts's per-arg sensitive
-// check. The cheap lexical denylist runs first so the hot auto-allow path
-// never touches the filesystem; survivors pay in two bounded tiers:
-// path-like tokens pay a realpath (catches a benign-named symlink into a
-// secret file), bare extensionless tokens pay one lstat existence probe — a
-// miss (the common `cat Makefile` case) costs that one lstat, a hit (file or
-// symlink, dangling included) pays the realpath. Flags, variables, globs,
-// and backticks never probe, so worst case is one lstat per bare token plus
-// one realpath per existing entry. Relative tokens resolve against cwd first
-// (the helper takes absolute paths), `~` expands to home before resolving;
-// that cwd is the session cwd, not a `cd` prefix inside the command —
-// `cd sub && cat notes.txt` resolves against the session cwd, and per-segment
-// `cd` modeling is deliberately out of scope.
+// commandReferencesSensitivePath below and classify.ts's per-arg check. The
+// cheap lexical denylist runs first so the hot auto-allow path never touches
+// the filesystem; survivors pay in two bounded tiers: path-like tokens pay a
+// realpath (catches a benign-named symlink into a secret file), bare
+// extensionless tokens pay one lstat probe — a miss (the common `cat
+// Makefile` case) costs that lstat, a hit pays the realpath. Flags,
+// variables, globs, and backticks never probe. Relative tokens resolve
+// against cwd (the session cwd, not a `cd` prefix inside the command);
+// `~` expands to home first.
 // Pass resolveSymlinks=false for pure name-listings: listing a name is not
-// dumping its contents, so `ls notes.txt` lists freely while `cat notes.txt`
+// dumping contents, so `ls notes.txt` lists freely while `cat notes.txt`
 // asks. `isExtraDenied` extends both legs to the extras-denied config paths;
 // the listing leg resolves cwd-relative tokens because extras entries are
-// exact paths, not name patterns — a lexical match alone would miss
-// `ls operator-config.json` while catching the absolute form.
+// exact paths, not name patterns.
 export function isSensitiveShellToken(
   token: string,
   cwd: string = process.cwd(),
@@ -300,12 +282,10 @@ export function isSensitiveShellToken(
   const expanded = expandHome(expandLeadingDollarToken(token));
   if (isSensitivePath(expanded, dialect)) return true;
   if (isExtraDenied(expanded)) return true;
-  // `$` tokens skip both legs below, so a path-shaped live expansion
-  // ($VAR/${VAR} joined to a path separator, e.g. $BASE/mylink) would never
-  // match — fail closed to ask. Quoted dollars, command substitutions,
-  // ANSI-C quotes, special parameters ($?, $$, $1), ADS streams (no
-  // separator), and bare `$VAR` with no path shape never match: they cannot
-  // name a file the shell opens.
+  // Path-shaped live expansions ($VAR/${VAR} joined to a path separator, e.g.
+  // $BASE/mylink) skip both legs below — fail closed to ask. Quoted dollars,
+  // command substitutions, special parameters ($?, $$, $1), ADS streams, and
+  // bare `$VAR` with no path shape never match: they cannot name a file.
   if (
     expanded.includes("$") &&
     /\$[{]?[A-Za-z_]/.test(expanded) &&
@@ -512,10 +492,10 @@ function subjectReferencesSensitivePath(
   const tokens = literalInspection.commands.flat();
   const inspection = literalPathCandidates(literalInspection.commands, dialect);
   inspection.opaque ||= literalInspection.opaque;
-  // Dump vs list: a lone name-listing never dumps file contents, so only the
-  // cheap lexical leg applies and `ls notes.txt` still lists freely. Anything
-  // composed (pipes, chains, redirects, subshells) takes the resolve leg —
-  // `ls && cat notes.txt` must not ride the listing exemption.
+  // Dump vs list: a lone name-listing never dumps contents, so only the cheap
+  // lexical leg applies and `ls notes.txt` lists freely. Anything composed
+  // (pipes, chains, redirects, subshells) takes the resolve leg — `ls && cat
+  // notes.txt` must not ride the listing exemption.
   const program = tokens.find((token) => !LEADING_ASSIGNMENT.test(token)) ?? "";
   const listingOnly =
     PURE_DIRECTORY_LISTING_PROGRAMS.has(programName(program)) &&
@@ -577,12 +557,11 @@ export function commandReferencesSensitivePath(
 
 // Hard-deny path-keyed tool calls that would put a secret file's contents
 // into (or write them from) the model context. Shell commands that merely
-// mention a secret path are not blocked here — they need operator approval
-// via the permission gate (and auto-shell policy in auto mode).
+// mention a secret path need operator approval instead (permission gate,
+// auto-shell policy in auto mode).
 //
 // Runs before the permission plugin, so it holds even under
-// --dangerously-skip-permissions; symlink resolution is part of that floor so
-// an innocuous link name cannot defeat the denylist.
+// --dangerously-skip-permissions; symlink resolution is part of that floor.
 export function secretGuardPlugin(
   options?: SecretGuardPluginOptions,
 ): ToolPlugin {
