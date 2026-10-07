@@ -120,21 +120,15 @@ export function resumeTranscriptLoadErrorBlock(err: unknown): {
   };
 }
 
-// The agent package releases its workdir lock at the very end of close(),
-// after reactor.abort()/sendQueue.drain() and the shutdown-complete race have
-// all run. If any of that throws (most likely right when an operator
-// interrupts mid-inference, which is exactly when those paths are under
-// stress), the lock is never released — and because the agent is already
-// marked closed internally, retrying close() is a silent no-op that can
-// never release it either. Every rebuild site that reuses the *same* workdir
-// (interrupt, reloadIfIdle) must treat that as fatal for the current rebuild
-// instead of calling buildAgent() again: a second createAgent() for the same
-// workdir is then guaranteed to throw AgentContextLockError for a lock
-// nothing will ever free, which is the "agent already open" crash. Session
-// rotation (newSession) is the one rebuild site that does NOT route through
-// this helper: it always points buildAgent() at a freshly minted workdir
-// before rebuilding, so a leaked lock on the old workdir can never be
-// re-acquired there — see the comment at its close() call for why.
+// agent.close() releases its workdir lock last, after abort/drain and the
+// shutdown-complete race. If any of that throws (likely under an interrupt
+// mid-inference), the lock leaks — and the agent is already marked closed,
+// so retrying close() cannot free it. Every rebuild site reusing the *same*
+// workdir (interrupt, reloadIfIdle) must treat that as fatal: a second
+// createAgent() for it then throws AgentContextLockError for a lock nothing
+// will ever free. Rotation is exempt — it mints a fresh workdir before
+// rebuilding, so the leaked lock is never re-acquired (see the comment at
+// its close() call).
 export async function closeAgentForRebuild(
   agent: Agent,
   context: string,
@@ -150,10 +144,9 @@ export async function closeAgentForRebuild(
   }
 }
 
-// Directors seed allowIdleWithFleet=true (fleet lanes may appear mid-session),
-// so first assemble, /new /clear, and a rebuild while drained must re-sync
-// from the live fleet count. The publisher only fires the flag on a count
-// change, so a session that never sees 0→1→0 would otherwise keep the seed.
+// Directors seed allowIdleWithFleet=true because fleet lanes may appear
+// mid-session. Rebuilds re-sync from the live count: the publisher only
+// fires on a count change, so a session that never sees 0→1→0 keeps the seed.
 export function resyncIdleWithFleetFlag(
   services: Pick<RunnerServices, "directorHolder" | "subAgentSessions">,
 ): void {
@@ -162,9 +155,8 @@ export function resyncIdleWithFleetFlag(
   );
 }
 
-// Every rebuild site funnels its failure (a lock left held by a failed
-// close, or any other buildAgent failure) through here so it surfaces as a
-// plain-language, caught error rather than an unhandled rejection.
+// Funnel every rebuild failure (leaked lock or buildAgent failure) into a
+// plain-language caught error instead of an unhandled rejection.
 export function agentRebuildFailure(err: unknown): Error {
   return err instanceof AgentContextLockError
     ? new Error(
@@ -176,9 +168,9 @@ export function agentRebuildFailure(err: unknown): Error {
 }
 
 /**
- * Hard-stop interrupt: bump delivery generation, then enqueue the agent rebuild.
- * The bump aborts the outstanding permission gate (overlay dismissed, no grant)
- * before enqueue so a later accept cannot mint into the rebuilt identity.
+ * Hard-stop interrupt: bump delivery generation, then enqueue the rebuild.
+ * The bump aborts the outstanding permission gate before enqueue so a later
+ * accept cannot mint into the rebuilt identity.
  */
 export function startInterruptRebuild(args: {
   deliveryGeneration: { bump: () => void };
@@ -241,15 +233,14 @@ function createRunPersistence(state: RunnerState, services: RunnerServices) {
     }
   };
 
-  // Progress snapshots are fired unsequenced (model switch, MCP connect, turn
-  // completion), so a straggler could otherwise land after the terminal write
-  // and resurrect status "running" — atomicWrite is last-rename-wins. Once the
-  // run is finalized, drop them; the run-ending path writes through
-  // writeRunSnapshot directly.
+  // Progress snapshots fire unsequenced (model switch, MCP connect, turn
+  // completion), so a straggler could land after the terminal write and
+  // resurrect "running" — atomicWrite is last-rename-wins. Once the run is
+  // finalized, drop them; the run-ending path writes directly.
   //
-  // Never a "run-end" write: everything routed here happens while the process
-  // is still alive and must stay crash-coverable, including the rotation
-  // "done" that closes out a session on /clear or /new.
+  // Never a "run-end" write: everything here happens while the process is
+  // alive and must stay crash-coverable, including the rotation "done" that
+  // closes out a session on /clear or /new.
   const persistRunSnapshot = async (
     status: SnapshotStatus,
     extra?: SnapshotExtra,
@@ -437,10 +428,10 @@ export async function createRunLifecycle(
   });
   state.streamPromise = consumeStream(liveAgent(state).stream(), streamSink);
 
-  // Serial operation queue. Rotation (reload, interrupt, newSession), compaction
-  // continuation, and proxy deliver enqueue async tasks; they run one at a time.
-  // `send` awaits the tail, then drops if /clear|/new bumped delivery generation
-  // during the wait or token refresh so the prompt cannot land on the rebuilt agent.
+  // Serial operation queue for rotation, compaction continuation, and proxy
+  // deliver; tasks run one at a time. `send` awaits the tail, then drops if
+  // /clear|/new bumped the delivery generation during the wait so the prompt
+  // cannot land on the rebuilt agent.
   const enqueueOp = services.sessionOps.enqueue;
 
   const reloadIfIdle = (): void => {
@@ -474,17 +465,16 @@ export async function createRunLifecycle(
         state.fatalBuildError = agentRebuildFailure(err);
         // A failed rebuild never reaches onBuilt/reset: un-poison the
         // lifecycle here so later compacts work instead of silently no-op
-        // (same guard as the interrupt and rotation rebuilds).
+        // (same guard as interrupt and rotation).
         state.compactionLifecycle?.reset();
       }
     });
   };
   state.reloadIfIdle = reloadIfIdle;
 
-  // Search loads the top ranked hits onto the next infer's tail. Promote-on-execute
-  // still declares a called name that was not in that prefix. Cache prefix
-  // growth on those names is the cost of making the call valid for strict
-  // providers.
+  // Search loads top hits onto the next infer's tail; promote-on-execute
+  // still declares a called name outside that prefix, at the cost of cache
+  // prefix growth for strict providers.
   const promoteTools = (names: string[]): void => {
     activateAndCommitWire(names);
   };
@@ -579,11 +569,10 @@ export async function createRunLifecycle(
   const interrupt = (): void => {
     state.credentialRecovery?.clear();
     // An in-flight compact runs inline on the vendored reactor with no abort
-    // hop of its own, so an interrupt that merely queues behind it parks
-    // until the summary call returns. Abort the compact first — the wrapper
-    // returns a no-op and the reactor reaches dequeue — then run the normal
-    // rebuild. The bumped generation still retires the compaction
-    // continuation onto the replacement agent; no hop is dropped.
+    // hop of its own, so an interrupt that queues behind it parks on the
+    // summary call. Abort the compact first — the wrapper no-ops and the
+    // reactor reaches dequeue — then rebuild. The bumped generation retires
+    // the compaction continuation onto the replacement agent; no hop drops.
     if (state.compactionLifecycle?.isCompacting() === true) {
       state.systemNotice?.("Compaction in progress — interrupting…");
     }
@@ -599,10 +588,9 @@ export async function createRunLifecycle(
       rebuild: async () => {
         try {
           // close() tears down stream consumers before the aborted cycle's
-          // inference.error is delivered, so the recorder never sees a terminal
-          // event for the dead cycle — dispose closes it against stray deltas
-          // and salvages the buffer before that teardown, so it is never lost
-          // or misattributed to the rebuilt agent's next cycle.
+          // inference.error is delivered, so the recorder never sees a
+          // terminal event. Dispose before that teardown salvages the buffer
+          // so it is never lost or misattributed to the next cycle.
           await services.cycleRecorder.dispose("interrupted");
           const closedCleanly = await closeAgentForRebuild(
             liveAgent(state),
@@ -640,14 +628,12 @@ export async function createRunLifecycle(
   };
   state.interrupt = interrupt;
 
-  // /clear and /new start a fresh conversation: mint a new session id and its
-  // own state directory, repoint the working tree at it, and rebuild the agent
-  // so it resumes from an empty git-backed store. The prior session stays on
-  // disk under its own id, resumable later.
-  //
-  // Sub-agent lifecycle on rotation: App cancels live workers (cancelAll +
-  // abort handles → child agent.close) before clearing the session store so
-  // /clear does not leave orphaned child reactors burning tokens.
+  // /clear and /new mint a new session id and state directory, repoint the
+  // working tree, and rebuild the agent from an empty git-backed store; the
+  // prior session stays on disk under its own id, resumable later. The App
+  // cancels live workers (cancelAll + abort handles → child agent.close)
+  // before clearing the session store so /clear leaves no orphaned child
+  // reactors burning tokens.
   const newSession = (): void => {
     state.credentialRecovery?.clear();
     // Rotation must not park behind an in-flight compact either.
@@ -666,11 +652,10 @@ export async function createRunLifecycle(
         await services.cycleRecorder.dispose("rotation");
         // Not routed through closeAgentForRebuild/agentRebuildFailure
         // (unlike interrupt and reloadIfIdle): rotation mints a fresh
-        // sessionId/workdir below before calling buildAgent(), so a leaked
-        // lock on the old workdir can never cause a second acquisition —
-        // buildAgent() always targets the new, unlocked directory, and
-        // nothing ever re-acquires the old one. There is no crash to guard
-        // against here (see closeAgentForRebuild's doc comment).
+        // sessionId/workdir below before buildAgent(), so a leaked lock on
+        // the old workdir can never be re-acquired — buildAgent() always
+        // targets the new, unlocked directory (see closeAgentForRebuild's
+        // doc comment).
         await liveAgent(state)
           .close()
           .catch((err: unknown) => {
@@ -700,10 +685,9 @@ export async function createRunLifecycle(
         const rotatedBundle = services.buildSessionSources();
         // Repointed, not cleared: the process lives on, so the crash handler
         // must keep finding this handle and close out the *new* session. The
-        // fields it copies reseed with the repoint — a crash inside
-        // initSessionDir/buildAgent below would otherwise stamp the outgoing
-        // session's turnsUsed (and task, startedAt, model) onto a session
-        // that has run zero turns.
+        // copied fields reseed with the repoint — a crash below would
+        // otherwise stamp the outgoing session's turnsUsed (and task,
+        // startedAt, model) onto a session that has run zero turns.
         services.activeRunHandle.sessionId = state.sessionId;
         syncRunStateHandle(services.activeRunHandle, {
           turnsUsed: 0,
@@ -774,12 +758,10 @@ export async function finalizeTUIRun(
   state.stopRunHeartbeat?.();
   delete state.stopRunHeartbeat;
   // Stop workers before awaiting the session-op tail so a hung enqueue cannot
-  // delay abort/reap. Persistence, hooks, and telemetry stay after stop.
+  // delay abort/reap; persistence, hooks, and telemetry stay after stop.
   // Toolset dispose lives inside shutdownRuntime so quit, crash, and signals
-  // share one owner.
-  // Quit must not park behind a hung summary call: abort the compact first
-  // (no notice — quitting needs no commentary) so the in-flight apply race
-  // resolves before shutdown and the tail can drain promptly.
+  // share one owner. Quit must not park behind a hung summary call: abort
+  // the compact first so the in-flight apply race resolves before shutdown.
   state.compactionLifecycle?.abortCompaction("quit");
   let teardownFailed = false;
   try {
@@ -807,13 +789,12 @@ export async function finalizeTUIRun(
   // finished run (finishedAt set) can be left reading as still in progress.
   const persistedStatus: RunState["status"] = summaryStatus;
   services.crashGuard.markFinalized();
-  // The run itself is over here, so this write clears the active-run handle
-  // (via finalizeRunState in state.ts) in the same call, rather than pairing
-  // the on-disk write with a separate in-memory statement at this call site.
-  // The dispose host has no on-disk counterpart to piggyback on, so it still
-  // needs its own clear here, mirroring finalizeOnCrash — otherwise a signal
-  // arriving after this normal exit would find a handle pointing at a
-  // torn-down closure.
+  // The run is over here, so the terminal write clears the active-run handle
+  // (via finalizeRunState in state.ts) in the same call rather than pairing
+  // the on-disk write with a separate in-memory statement. The dispose host
+  // has no on-disk counterpart to piggyback on, so it clears its own handle,
+  // mirroring finalizeOnCrash — otherwise a late signal finds a handle
+  // pointing at a torn-down closure.
   clearActiveDisposeHost();
   const { writeRunSnapshot } = createRunPersistence(state, services);
   await writeRunSnapshot(
@@ -837,9 +818,8 @@ export async function finalizeTUIRun(
     ...(sinkError !== undefined ? { error: sinkError } : {}),
   });
   await services.hookManager.dispatchPostRun(runSummary);
-  // exit_reason mirrors status at present — "cancelled" covers both an
-  // operator interrupt and Ctrl+C, since the emit site here cannot tell them
-  // apart (runSink only distinguishes done/failed/cancelled).
+  // exit_reason mirrors status — "cancelled" covers both interrupt and
+  // Ctrl+C, since runSink only distinguishes done/failed/cancelled.
   const exitReason =
     runSummary.status === "done"
       ? "done"
@@ -853,9 +833,9 @@ export async function finalizeTUIRun(
     session_mode: services.liveSessionMode,
     exit_reason: exitReason,
   });
-  // Bound against process.exit dropping the session_end capture for short
-  // sessions; flush itself is deadline-capped so exit stays snappy.
-  // PerfTrace OTEL export runs once at process exit in main (flushPerfToOtel).
+  // Flush before process.exit can drop the session_end capture for short
+  // sessions; flush is deadline-capped so exit stays snappy. PerfTrace OTEL
+  // export runs once at process exit in main (flushPerfToOtel).
   await getTelemetry().flush();
 
   try {

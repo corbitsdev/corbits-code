@@ -173,14 +173,12 @@ export async function assembleTUISession(
       resolveContextDir: () => state.workdir,
     });
 
-  // Shared by the permission gate and every operator-gate emission site: an
-  // unattended auto-continue run must not park on any gate forever, whichever
-  // kind it is. No caller arms this today — the goal subsystem was the only
-  // source of an auto-deny/auto-cancel deadline and has been removed. The
-  // timeout plumbing (gate-events.ts / request-approval.ts, and every
-  // OperatorGateEvent/PermissionGateEvent emission site below) stays for a
-  // future generalized auto-continue mechanism to re-arm by giving this a
-  // real body again.
+  // Auto-continue runs must not park on any gate forever. No caller arms
+  // this today — the goal subsystem was the only source of an
+  // auto-deny/auto-cancel deadline and has been removed. The timeout
+  // plumbing (gate-events.ts / request-approval.ts, and every gate emission
+  // site below) stays for a future generalized auto-continue mechanism to
+  // re-arm by giving this a body.
   const approvalTimeout = ():
     | { timeoutMs: number; timeoutMessage: string }
     | undefined => undefined;
@@ -223,11 +221,9 @@ export async function assembleTUISession(
 
   const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
 
-  // Track the active subagent provider so a live /agent switch (provider, model,
-  // or reasoning effort) reaches subagents spawned afterward. Derives from the
-  // live config binding on every spawn, so every switch path that reassigns
-  // config (model picker, /agent, post-connect refresh) is picked up without
-  // a separate cache to keep in sync.
+  // Derive the subagent provider from the live config binding on every spawn
+  // so a /agent switch (provider, model, reasoning effort) reaches subagents
+  // spawned afterward without a separate cache to keep in sync.
   const liveSubAgent = createLiveSubAgentSources((): SubAgentSourcesConfig => ({
     ...state.config,
     ...(state.config.reasoningEffort !== undefined
@@ -436,10 +432,10 @@ export async function assembleTUISession(
       provider: liveSubAgent.provider,
       sessions: subAgentSessions,
       getWorkdirBase: () => sessionDir(state.config.cwd, state.sessionId),
-      // Progress only — not the full event stream. Forwarding every sub-agent
-      // inference.delta into the parent transcript interleaves worker text with
-      // the parent turn; progress keeps the status bar alive and the Agents
-      // strip current without that pollution.
+      // Progress only, not the full event stream: forwarding every sub-agent
+      // inference.delta interleaves worker text with the parent turn.
+      // Progress keeps the status bar and Agents strip current without that
+      // pollution.
       onProgress: (info) => {
         emitter.emit("subagent.progress", info);
       },
@@ -488,10 +484,10 @@ export async function assembleTUISession(
   });
   workflowHostHolder.instance = workflowHost;
 
-  // Dynamic tool discovery: only the fixed built-in prefix plus
-  // wire-committed activations reach the wire. tool_search returns cards
-  // only; promote-on-execute declares the one name the model actually calls.
-  // Fold drops idle execute-promoted schemas (cache already broken).
+  // Dynamic tool discovery: only the fixed built-in prefix plus committed
+  // activations reach the wire. tool_search returns cards only;
+  // promote-on-execute declares the one name the model actually calls; fold
+  // drops idle execute-promoted schemas (cache already broken).
   const {
     activated: activatedToolNames,
     computeAdvertised,
@@ -507,16 +503,15 @@ export async function assembleTUISession(
       : {}),
   });
   // Re-activate the prior run's promoted tools before the first build so the
-  // post-resume wire matches the transcript the model still sees. Session
-  // start is a cache-safe boundary: commit them to the wire now so the first
-  // turn already declares them.
+  // post-resume wire matches the transcript the model still sees; session
+  // start is a cache-safe boundary, so commit them now.
   activatedToolNames.activate(start.resumeSeed.activatedTools);
   flushPromotions();
   // A registered tool the wire never advertised is intercepted at dispatch:
-  // setToolPromoter declares that one name, then the runner re-checks the gate.
-  // Overlay-denied / unknown names still error toward tool_search.
-  // submit_output rides every infer via the director; hidden posix aliases
-  // dispatch when their engine is advertised.
+  // setToolPromoter declares that one name, then the runner re-checks the
+  // gate. Overlay-denied / unknown names still error toward tool_search;
+  // submit_output rides every infer via the director, and hidden posix
+  // aliases dispatch when their engine is advertised.
   const unadvertisedCallable = new Set<string>([submitOutputDefinition.name]);
   toolset.dynamicRunner.setCallGate(
     (name) => unadvertisedCallable.has(name) || isAdvertised(name),
@@ -570,12 +565,11 @@ export async function assembleTUISession(
   ): void => {
     const stillCurrent = deliveryGeneration.capture();
     void sessionOps.enqueue(async () => {
-      // The shell already popped the queue item and painted it as delivered
-      // by the time this runs, so a failed rebuild or closed agent must settle
-      // here — otherwise the message silently never reaches the agent. The
-      // generation is re-checked at execution time (the queue is FIFO with no
-      // preemption), so a reload that lands while this deliver is queued wins
-      // and the stale answer is dropped as superseded.
+      // The shell already painted this as delivered, so a failed rebuild or
+      // closed agent must settle here — otherwise the message silently never
+      // reaches the agent. Generation is re-checked at execution time (the
+      // queue is FIFO), so a reload that lands while this is queued wins and
+      // the stale answer drops as superseded.
       const result = await runGenerationGuardedDeliver({
         stillCurrent,
         onStale: () => ({
@@ -623,10 +617,11 @@ export async function assembleTUISession(
   // only after that fold commits. Workflow state is read at compaction time so
   // a pass mid-/build or mid-/plan still names the active step. The archive,
   // when mounted, supplies the unclipped excerpt.
-  // Abort-aware compaction lifecycle. The summary call is the only unbounded
-  // await in the compact path, so the lifecycle aborts it on interrupt/rotation
-  // (via getSignal below) and bounds apply itself, so the vendored reactor
-  // always returns to dequeue. Reset per agent build so a prior abort never
+  //
+  // Abort-aware lifecycle: the summary call is the only unbounded await in
+  // the compact path, so the lifecycle aborts it on interrupt/rotation (via
+  // getSignal below) and bounds apply itself, letting the vendored reactor
+  // return to dequeue. Reset per agent build so a prior abort never
   // pre-aborts the replacement agent's compacts.
   const compactionLifecycle = createCompactionLifecycle(
     createCompactionEventNotices((text) => state.systemNotice?.(text)),
@@ -692,13 +687,10 @@ export async function assembleTUISession(
     inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
     totalTimeoutMs: config.totalTimeoutMs,
     // Seed the idle-with-fleet allowance (fleet lanes may appear mid-session;
-    // the fleet-wake publisher keeps it live); retry stamping tracks the live
-    // source id in-reactor now.
-    // (No onTasksChange: task/tool updates arrive as reactor events consumed
-    // in the stream sink; no requestContinuation: compaction re-entry arrives
-    // as the COMPACTION_CONTINUATION_EVENT reactor emission consumed there
-    // instead of a host closure; no getLiveFleetCount: the publisher drives
-    // the allowance through setAllowIdleWithFleet.)
+    // the fleet-wake publisher keeps it live). No onTasksChange /
+    // requestContinuation / getLiveFleetCount closures: task/tool updates and
+    // compaction re-entry arrive as reactor events consumed in the stream
+    // sink, and the publisher drives the allowance via setAllowIdleWithFleet.
     allowIdleWithFleet: true,
     clearDenials: () => permissionGate.clearDenials(),
     getProvider: () => state.config,
@@ -726,9 +718,9 @@ export async function assembleTUISession(
               state.currentStorage?.readBlob.bind(state.currentStorage),
             ),
           // The outer abort race discards this run's output — a fold that
-          // still completes underneath must not report telemetry or side
-          // effects for work that never landed. Capture the signal at apply
-          // start: onBuilt reset() replaces the live controller.
+          // still completes underneath must not report telemetry for work
+          // that never landed. Capture the signal at apply start: onBuilt
+          // reset() replaces the live controller.
           getSignal: () => compactionLifecycle.getSignal(),
           // Stub notice waits until the fold commits (verify abort and
           // completeness-gate discard stay silent).
