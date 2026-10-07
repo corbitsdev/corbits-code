@@ -7,25 +7,21 @@ import {
 
 export { splitChainedCommand } from "../shell/command-segments.js";
 
-// Remove genuine top-level full-line shell comments from command text before it
-// is used to derive or match a persisted grant scope. Agents routinely prefix
-// a command with a `# why I'm running this` line; if that comment stays in the
-// scope pattern, an identical command with a different (or absent) comment
-// never matches and re-prompts forever. Only a line whose first non-whitespace
-// character is "#" at top level is removed:
-//   - a "#" inside '...', "..." or `...` is data, not a comment
-//   - a line glued onto the previous one by a trailing backslash continuation
-//     can never start a comment — payload smuggled in that way must stay
-//     visible to scope matching
+// Remove genuine top-level full-line shell comments before deriving or
+// matching a persisted grant scope: a kept `# why` line makes an identical
+// command with a different (or absent) comment re-prompt forever. Only a line
+// whose first non-whitespace char is "#" at top level is removed:
+//   - "#" inside quotes or backticks is data, not a comment
+//   - a backslash-continued line can never start a comment — payload smuggled
+//     in that way must stay visible to scope matching
 //   - a heredoc body is verbatim payload, never shell syntax
-// A backslash inside an already-open comment is ordinary text (real shells do
-// not honor line continuation there), so it never extends the comment past its
-// own line.
+// A backslash inside an already-open comment is ordinary text (shells do not
+// honor line continuation there), so it never extends past its own line.
 export function stripCommentLines(command: string): string {
   let out = "";
   let line = "";
-  // Whether the physical/logical line currently being scanned is a comment:
-  // "unknown" until its first non-whitespace, top-level character is seen.
+  // Comment state of the current line: "unknown" until its first
+  // non-whitespace, top-level character is seen.
   let commentState: "unknown" | "yes" | "no" = "unknown";
   let quote: '"' | "'" | "`" | null = null;
   let heredocMarker: string | null = null;
@@ -118,19 +114,17 @@ export function stripCommentLines(command: string): string {
   return out;
 }
 
-// A full-line shell comment (or empty line) is a no-op: agents often paste
-// markdown headings like `# worktree` into multi-line run_shell arguments, and
-// those must not become approval subjects or allow-pattern prefixes.
+// A full-line shell comment (or empty line) is a no-op: pasted markdown
+// headings must not become approval subjects or allow-pattern prefixes.
 export function isShellCommentOnly(segment: string): boolean {
   const trimmed = segment.trim();
   return trimmed.length === 0 || trimmed.startsWith("#");
 }
 
-// Segments with no program payload for approval purposes. Agents append
+// Segments with no program payload for approval purposes: agents append
 // `|| true` constantly, and naive chain-splitting strands bare control-flow
-// keywords (`do` / `done` / …) as their own segments — neither should become
-// approval subjects. Only the exact bare word counts (no args, redirects, or
-// quoted forms that would PATH-lookup a different program).
+// keywords as their own segments — neither should become approval subjects.
+// Only the exact bare word counts (no args, redirects, or quoted forms).
 const SHELL_NO_OPS = new Set([
   "true",
   "false",
@@ -150,28 +144,23 @@ export function isShellNoOp(segment: string): boolean {
   return SHELL_NO_OPS.has(segment.trim());
 }
 
-// Split a single command segment into whitespace-separated tokens, treating a
-// quoted run as one token. Backtick and `$(` are not literal text even inside
-// double quotes: shell double-quoting suppresses word-splitting and globbing,
-// but command substitution still runs inside "...". Stripping a backtick pair
-// as literal quoting would glue the substituted command onto the surrounding
-// text as one opaque token, hiding a plain path from every token consumer
-// (classify's dangerous-flag and path checks, commandTargetsRestricted's
-// target scan). So a backtick — and the start of a `$(` substitution — acts
-// as a bare token boundary, whether or not a double quote is open; the content
-// inside surfaces as its own token(s). Single quotes suppress substitution
-// entirely, so '...' keeps swallowing backticks and `$(` as literal
-// characters.
+// Split a command segment into whitespace-separated tokens, treating a quoted
+// run as one token. Backtick and `$(` are not literal text even inside double
+// quotes: command substitution still runs there, and treating it as literal
+// quoting would glue the substituted command onto the surrounding text as one
+// opaque token, hiding a plain path from token consumers (classify's
+// dangerous-flag and path checks, commandTargetsRestricted's target scan).
+// So a backtick — and the start of a `$(` — is a bare token boundary whether
+// or not a double quote is open. Single quotes suppress substitution, so
+// '...' keeps swallowing backticks and `$(` as literal characters.
 export function tokenize(command: string): string[] {
   const tokens: string[] = [];
   let current = "";
   let quote: '"' | "'" | null = null;
-  // Depth of nested "(" seen since the last unmatched "$(" opener, and the
-  // quote state to restore once the substitution's closing ")" is reached.
-  // While a substitution is open its content is parsed like top-level shell
-  // text (whitespace splits, its own quotes nest) even inside a double-quoted
-  // string — "..." suppresses word-splitting of the literal text around a
-  // substitution, not the substitution's own parsing.
+  // Nested "(" depth since the last unmatched "$(" opener, and the quote
+  // state to restore once the substitution closes. Inside a substitution,
+  // content parses like top-level shell text even within double quotes —
+  // "..." only suppresses word-splitting of the literal text around it.
   let substDepth = 0;
   let savedQuote: '"' | "'" | null = null;
 
@@ -199,7 +188,7 @@ export function tokenize(command: string): string[] {
       if (substDepth === 0) savedQuote = quote;
       substDepth++;
       quote = null;
-      i++; // consume the "(" as part of the boundary, not a token
+      i++; // consume "(" as part of the boundary, not a token
       continue;
     }
     if (substDepth > 0 && quote === null) {
@@ -242,10 +231,9 @@ export function tokenize(command: string): string[] {
 
 const MAX_PREFIX_SCOPES = 3;
 
-// Commands that multiplex many subcommands of wildly different risk under one
-// program name. A bare "git *" or "npm *" approval would silently cover
-// `git push`, `git reset --hard`, `npm publish`, etc. — so for these the prefix
-// ladder starts at two tokens (`git push *`), never the program alone.
+// Commands whose subcommands vary widely in risk: a bare "git *" or "npm *"
+// approval would silently cover `git push`, `git reset --hard`, `npm publish`,
+// etc. — so the prefix ladder starts at two tokens, never the program alone.
 const MULTIPLEXERS = new Set([
   "git",
   "npm",
@@ -269,19 +257,17 @@ const MULTIPLEXERS = new Set([
 ]);
 
 // Build the ladder of approval scopes for a shell command segment, broad to
-// specific: "git commit *", "git commit -m *", then the exact command. The
-// caller prepends a "just once" option.
+// specific: "git commit *", "git commit -m *", then the exact command.
 export function deriveCommandScopes(rawCommand: string): ApprovalScope[] {
-  // Strip model-authored comment lines before deriving anything, so the same
-  // underlying command yields the same scopes regardless of what explanation
-  // (if any) an agent wrapped around it.
+  // Strip model-authored comment lines first, so the same command yields the
+  // same scopes regardless of any explanation wrapped around it.
   const command = stripCommentLines(rawCommand).trim();
   const tokens = tokenize(command);
   if (tokens.length === 0) return [];
 
-  // A segment still carrying subshell syntax has no meaningful program prefix —
-  // a persisted "(cd *" would match any subshell starting with cd, far broader
-  // than what the operator saw. Offer only the exact command.
+  // A segment still carrying subshell syntax has no meaningful program prefix:
+  // a persisted "(cd *" would match any subshell starting with cd. Offer only
+  // the exact command.
   if (command.startsWith("(")) {
     return [
       {
@@ -310,9 +296,9 @@ export function deriveCommandScopes(rawCommand: string): ApprovalScope[] {
     });
   }
 
-  // Escape token text only — glob metacharacters typed into a real command
-  // (e.g. the shell-expanded `*` in `rm -rf build/*`) must persist as a
-  // literal match, never as a wildcard the grant did not actually grant.
+  // Escape token text only: a shell-expanded glob character (e.g. the `*` in
+  // `rm -rf build/*`) must persist as a literal match, never a wildcard the
+  // grant did not actually grant.
   const exact = tokens.map(escapeGlobLiteral).join(" ");
   if (!scopes.some((s) => s.pattern === exact)) {
     scopes.push({

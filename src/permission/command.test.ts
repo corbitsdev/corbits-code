@@ -4,11 +4,10 @@ import { splitChainedCommand, deriveCommandScopes } from "./command.js";
 import { matchesPattern } from "./matcher.js";
 
 describe("deriveCommandScopes exact-scope escaping", () => {
-  // The "exact command" scope must persist a grant matching only the literal
-  // command the operator saw. A raw glob character in the command (e.g. the
-  // shell-expanded `*` in `rm -rf build/*`) must not survive into the stored
-  // pattern unescaped, or the grant becomes a wildcard matching unrelated
-  // commands.
+  // The "exact command" scope must match only the literal command the operator
+  // saw: a raw glob character (e.g. the shell-expanded `*` in `rm -rf build/*`)
+  // must not survive unescaped, or the grant becomes a wildcard matching
+  // unrelated commands.
   test("escapes glob metacharacters in the exact-command scope", () => {
     const scopes = deriveCommandScopes("rm -rf build/*");
     const exact = scopes.find((s) => s.id === "exact");
@@ -30,7 +29,7 @@ describe("deriveCommandScopes exact-scope escaping", () => {
 
 describe("splitChainedCommand heredocs", () => {
   // Regression: a heredoc marker followed by trailing text (a redirect) drove
-  // an infinite loop in the opening-line scan, hanging the permission gate.
+  // an infinite loop in the opening-line scan.
   test("terminates on a quoted marker followed by a redirect", () => {
     const command = "cat << 'EOF' > out.txt\nhello world\nEOF";
     expect(splitChainedCommand(command)).toEqual([command]);
@@ -42,8 +41,8 @@ describe("splitChainedCommand heredocs", () => {
   });
 
   test("scopes a terminated heredoc and its following lines together", () => {
-    // Newlines are not chain separators, so the whole multi-line script stays a
-    // single approval subject; the point is that it terminates rather than hangs.
+    // Newlines are not chain separators, so the multi-line script stays a
+    // single approval subject.
     const command = "cat <<EOF > out.txt\nhi\nEOF\necho done";
     expect(splitChainedCommand(command)).toEqual([command]);
   });
@@ -60,7 +59,7 @@ describe("splitChainedCommand lone-& bypass (CL-7781)", () => {
   // A `&` with no trailing space still backgrounds the preceding command —
   // treating it as a redirect token lets a second command hide behind a
   // standing grant for the benign head. Only a redirect-bound `&` (after
-  // `>`/`<`, or opening `&>`/`&>>`) stays attached to its command.
+  // `>`/`<`, or `&>`/`&>>`) stays attached to its command.
   const cases: { command: string; segments: string[] }[] = [
     { command: "a &b", segments: ["a", "b"] },
     { command: "a & b", segments: ["a", "b"] },
@@ -80,9 +79,9 @@ describe("splitChainedCommand lone-& bypass (CL-7781)", () => {
 
 describe("splitChainedCommand redirect and background fragments", () => {
   // A bare digit (or "-") after a chain separator is not, by itself, evidence
-  // of a stray redirect remnant — it may be a genuine, distinct command. Only
-  // fold the following token back in when the segment before the separator
-  // actually ends in a dangling redirect operator.
+  // of a stray redirect remnant — it may be a genuine command. Only fold the
+  // following token back in when the segment before the separator ends in a
+  // dangling redirect operator.
   test("does not fold a bare digit segment across a semicolon", () => {
     expect(splitChainedCommand("sleep 5 ; -1 ; echo end")).toEqual([
       "sleep 5",
@@ -148,8 +147,8 @@ describe("splitChainedCommand redirect and background fragments", () => {
 });
 
 describe("splitChainedCommand heredoc boundaries", () => {
-  // A marker glued to `<<` is still an opener, and separators trailing the
-  // opener line do not split while the heredoc body is pending.
+  // A marker glued to `<<` is still an opener; separators on the opener line
+  // do not split while the heredoc body is pending.
   test("keeps separators on the opener line inside a glued-marker heredoc", () => {
     const command = "cat <<B && echo done\nbody\nB";
     expect(splitChainedCommand(command)).toEqual([command]);
@@ -190,8 +189,8 @@ describe("splitChainedCommand heredoc boundaries", () => {
 });
 
 describe("splitChainedCommand lexical context (arithmetic and comments)", () => {
-  // Inside `((` / `$((` the `<<` token is the left-shift operator, never a
-  // heredoc opener — the chain after it must still split.
+  // Inside `((` / `$((`, `<<` is the left-shift operator, never a heredoc
+  // opener — the chain after it must still split.
   test("never opens a heredoc inside arithmetic expansion", () => {
     expect(splitChainedCommand("echo $((a<<1))")).toEqual(["echo $((a<<1))"]);
     expect(splitChainedCommand("echo $((a << 1)) && echo done")).toEqual([
@@ -226,9 +225,9 @@ describe("splitChainedCommand lexical context (arithmetic and comments)", () => 
     ]);
   });
 
-  // Comment text never touches arithmetic depth: an unbalanced `((` inside
-  // a `#` comment must not poison later lines, so a genuine heredoc after
-  // the comment still opens and the following chain still splits.
+  // Comment text never touches arithmetic depth: an unbalanced `((` in a
+  // `#` comment must not poison later lines, so a heredoc after the comment
+  // still opens and the chain still splits.
   test("never counts comment parens toward arithmetic depth", () => {
     const command = "# (( \ncat <<EOF\nbody\nEOF\n&& echo done";
     expect(splitChainedCommand(command)).toEqual([
@@ -238,8 +237,8 @@ describe("splitChainedCommand lexical context (arithmetic and comments)", () => 
     ]);
   });
 
-  // Chain operators after `#` still split, so a dangerous command hiding
-  // behind a comment still surfaces as its own approval subject.
+  // Chain operators after `#` still split, so a dangerous command behind a
+  // comment surfaces as its own approval subject.
   test("still splits chain operators after a # comment", () => {
     expect(splitChainedCommand("# note && rm -rf /")).toEqual([
       "# note",
@@ -247,8 +246,8 @@ describe("splitChainedCommand lexical context (arithmetic and comments)", () => 
     ]);
   });
 
-  // A `#` line inside a genuine heredoc body stays payload: the marker still
-  // closes and the following chain still splits.
+  // A `#` line inside a heredoc body stays payload: the marker still closes
+  // and the chain still splits.
   test("keeps a # line inside a heredoc body as payload", () => {
     const command = "cat <<EOF\n# payload\nEOF\necho done";
     expect(splitChainedCommand(command)).toEqual([command]);
