@@ -40,22 +40,15 @@ export interface AutoShellRule {
 const CMD = String.raw`(?:^|[\n;&|({]\s*)(?:\w+=\S*\s+)*`;
 const inCmd = (body: string): RegExp => new RegExp(`${CMD}${body}`);
 
-// Quote-aware dequoting for rule matching. Real shells strip quote characters
-// and hand the program a literal argument, so a rule must see what the program
-// would: a quoted redirect target (`>"file"`), flag (`"-c"`), or
-// program/subcommand name (`"sed" -i`, `npm "install"`) reads exactly like
-// its unquoted form. The one thing quoting genuinely changes is that a shell
-// operator character loses its operator meaning inside quotes — `'fix > bug'`
-// is a literal string, not a redirect — so only the operator set (`> < | & ;
-// \`) is neutralized inside a quoted span; every other character passes
-// through. Heredoc bodies are left alone: the file-mutation heredoc pattern
-// keys on the bare `<<` operator, always outside any quoting.
-//
-// A backslash before a quote character escapes it: `\"` is a literal `"`
-// that never opens or closes a quoted span (real bash semantics outside single
-// quotes), so `echo hi \"> file"` is a bare, unquoted redirect. Skip the
-// escaped character without touching quote state so its following operator is
-// still seen as live.
+// Quote-aware dequoting for rule matching. Real shells strip quotes, so a rule
+// must see the program the way it would: a quoted redirect target (`>"file"`),
+// flag, or name (`"sed" -i`) reads exactly like its unquoted form. Quoting
+// only neutralizes the shell-operator set (`> < | & ; \`), so `'fix > bug'`
+// is a literal string, not a redirect; every other character passes through.
+// Heredoc bodies are left alone — the file-mutation pattern keys on the bare
+// `<<`, always outside quotes. A backslash before a quote escapes it (`\"` is
+// a literal `"`, real bash semantics outside single quotes), so `echo hi \"> file"`
+// is a bare redirect; skip the escaped char so its following operator stays live.
 const QUOTE_NEUTRALIZED_OPERATORS = new Set(["<", ">", "|", "&", ";", "`"]);
 
 const dequoteForMatching = (command: string): string => {
@@ -85,25 +78,22 @@ const dequoteForMatching = (command: string): string => {
   return out;
 };
 
-// Named separately (not inlined in AUTO_SHELL_RULES) so the dedicated
-// `env -S`/`--split-string` check further down — which cannot be a plain
-// regex over dequoted text, since the assignment lives inside a quoted
-// argument dequote blanks out — can return this exact rule object.
+// Named separately so the dedicated env -S check further down can return this
+// exact rule object — a plain regex over dequoted text would miss an
+// assignment inside a quoted argument (dequote blanks it out).
 const ENV_ASSIGNMENT_ASK_RULE: AutoShellRule = {
   name: "env-assignment",
   effect: "ask",
   reason:
     "This command sets an environment variable inline (a NAME=value prefix or export) instead of through project shell env settings. It needs explicit operator approval and never runs unattended in auto mode.",
   patterns: [
-    // A NAME=value token or `export` at command position. Deliberately fires
-    // on the raw, unpeeled subject: expandShellSubjects still peels a bare
-    // `env`/`nice`/`timeout` wrapper through to its inner command (so `env
-    // cmd` alone is unaffected), but the original subject retains the
-    // literal assignment text for `FOO=bar cmd`.
+    // A NAME=value token or `export` at command position. Fires on the raw
+    // subject: expandShellSubjects peels a bare env/nice/timeout wrapper (so
+    // `env cmd` is unaffected), but the original subject keeps the literal
+    // assignment text for `FOO=bar cmd`.
     inCmd(String.raw`(?:\w+=\S*\s+|export\s+)`),
-    // The `env` command itself used to set a variable (`env FOO=bar cmd`) —
-    // as opposed to the bare `env cmd` transparent-wrapper form, which has
-    // no assignment and is left to peel through untouched.
+    // `env` itself setting a variable (`env FOO=bar cmd`), as opposed to the
+    // bare `env cmd` wrapper form with no assignment, which peels through.
     inCmd(String.raw`env\s+\w+=\S*`),
   ],
 };
@@ -224,21 +214,18 @@ export function matchAutoShellRule(command: string): AutoShellRule | undefined {
 
 const ENV_ASSIGNMENT_TOKEN = /^\w+=/;
 
-// Whether env's own split-string payload begins with (optionally after other
-// leading assignments) a NAME=value token — mirroring the plain-command
-// check above, but scoped to text env itself will word-split rather than the
-// shell, since that word-splitting happens after the shell has already
-// handed env one quoted argument.
+// True when env's split-string payload begins (after any leading assignments)
+// with a NAME=value token — the plain-command check, scoped to text env
+// word-splits itself after the shell handed it one quoted argument.
 function payloadStartsWithAssignment(payload: string): boolean {
   return /^\s*(?:\w+=\S*\s+)*\w+=/.test(payload);
 }
 
-// Thin ask detection for env forms whose assignment is invisible to the plain
-// ENV_ASSIGNMENT_ASK_RULE regexes: `env -S "FOO=bar …"` (assignment inside a
-// quoted argument dequote blanks out) and `env -i FOO=bar cmd` (`-i` sits
-// between `env` and the assignment). Payload content scanning lives in
-// expandShellSubjects, which peels -S payloads and transparent env prefixes so
-// every rule sees inside them the same way.
+// Ask detection for env forms the plain regexes cannot see: `env -S "FOO=bar …"`
+// (assignment inside a quoted argument, which dequote blanks) and
+// `env -i FOO=bar cmd` (`-i` sits between env and the assignment).
+// expandShellSubjects peels -S payloads and transparent prefixes so every
+// rule scans inside them the same way.
 function segmentHasEnvAssignmentAsk(segment: string): boolean {
   const tokens = tokenize(segment);
   let i = 0;
@@ -419,13 +406,10 @@ function worktreePathArgs(
 
 // `true` = auto-allow, `false` = ask, `undefined` = not a worktree command.
 // Contained non-force add/remove and ordinary prune/list auto-allow so
-// dispatch can create sibling worktrees without a human click; force flags,
-// uncontained paths, and uncommon subcommands still ask.
-// Exported for gate.ts's pre-grant restricted-path guard: a contained or
-// permitted-sibling `git worktree add/remove` destination must not force an
-// operator ask ahead of grant matching the way it already skips the auto-mode
-// ask — one authority for "is this worktree destination safe," used by both
-// auto mode and the standing-grant guard.
+// dispatch can create sibling worktrees without a click; force flags,
+// uncontained paths, and uncommon subcommands ask. Exported for gate.ts's
+// pre-grant guard: one authority for "is this worktree destination safe,"
+// used by both auto mode and the standing-grant guard.
 export function safeWorktreeCommand(
   command: string,
   isRestricted: (path: string, isWrite: boolean) => boolean,
@@ -518,8 +502,8 @@ export function autoShellRuleForCall(
   }
   if (matched?.effect === "deny") return matched;
 
-  // Thin fallback for env forms whose assignment is invisible to the plain
-  // regexes (quoted -S payload, or flags between `env` and NAME=value).
+  // Env forms the plain regexes cannot see (quoted -S payload, flags between
+  // `env` and NAME=value).
   if (commandHasEnvAssignmentAsk(command)) {
     matched = preferRule(matched, ENV_ASSIGNMENT_ASK_RULE);
   }

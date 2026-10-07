@@ -70,10 +70,10 @@ const BLOCKED_PATTERNS: RegExp[] = [
   // chmod/chown against system binaries and config trees.
   /\bchmod\s+.*\/(etc|sys|proc|dev|bin|sbin|usr\/bin|usr\/sbin)/,
   /\bchown\s+.*\/(etc|sys|proc|dev|bin|sbin|usr\/bin|usr\/sbin)/,
-  // Fork bombs and busy-loops. These inspect quoted interpreter payloads
-  // (`bash -c 'while :; do'`, `perl -e 'fork while fork'`), so they run on
-  // the original subject — command-position matchers neutralize separators
-  // inside quotes and would otherwise miss the `;` these patterns need.
+  // Fork bombs and busy-loops. They inspect quoted interpreter payloads
+  // (`bash -c 'while :; do'`, `perl -e 'fork while fork'`) on the original
+  // subject — command-position matchers neutralize in-quote separators and
+  // would miss the `;` these patterns need.
   /:\(\)\s*\{\s*:\|:&\s*\};/,
   // Piping a network download straight into a shell (through any wrappers).
   new RegExp(
@@ -226,8 +226,7 @@ export function tokenizeSegment(segment: string): string[] {
   return tokens.slice(i);
 }
 
-// Count file operands, skipping flags and their values. For grep the first
-// operand is the pattern, so callers require one more than for plain readers.
+// Count file operands, skipping flags and their values.
 function fileOperandCount(args: string[], valueFlags: Set<string>): number {
   let count = 0;
   for (let i = 0; i < args.length; i++) {
@@ -733,13 +732,12 @@ function advancePastEnvValueFlag(tokens: string[], i: number): number | null {
   return null;
 }
 
-// env -S re-parses its payload: quotes and `\_` as an argument separator (not a
-// literal underscore), then more env flags/assignments before the utility.
-// Expand separators so a later tokenize sees real argv boundaries.
-//
-// Only `\_` is modeled. The wider GNU escape set (\\, \", \n, \#) differs
-// across implementations, so any other backslash makes the payload
-// uninspectable (null → opaque → ask) rather than silently mis-parsed.
+// env -S re-parses its payload: quotes and `\_` — inside or outside double
+// quotes — act as argument separators, not literal text. Expand separators
+// so a later tokenize sees real argv boundaries. Only `\_` is modeled; the
+// wider GNU escape set (\\, \", \n, \#) differs across implementations, so
+// any other backslash makes the payload uninspectable (null → opaque → ask),
+// never silently mis-parsed.
 function expandEnvSplitSeparators(payload: string): string | null {
   let out = "";
   let quote: "'" | '"' | null = null;
@@ -754,7 +752,6 @@ function expandEnvSplitSeparators(payload: string): string | null {
     if (c === "\\") {
       const n = payload[i + 1];
       if (n === "_") {
-        // `\_` is env's arg separator outside and inside double quotes.
         out += " ";
         i++;
         continue;
@@ -822,10 +819,7 @@ function finishEnvSplitPayload(
 
 // Peel env -S / --split-string payloads as their own shell subjects so
 // `env -S "rm -rf /"` is blocked like the plain form. Uninspectable payloads
-// are opaque, never silently dropped.
-//
-// Forms: -S PAYLOAD, --split-string[=]PAYLOAD, glued -SPAYLOAD / clustered
-// -iS / -Si, and a trailing utility after the -S argument.
+// are opaque, never silently dropped (forms handled per branch below).
 function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
@@ -856,11 +850,9 @@ function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
       return finishEnvSplitPayload(payload, tokens, i + 2);
     }
 
-    // Short-option cluster that contains S.
-    //   -Sfind / -S"find /"  → glued payload after S (same token)
-    //   -iS / -0S            → S at end of cluster; next token is payload
-    //   -Si / -Sv            → S then only boolean shorts; next token is payload
-    //   -Sifind              → S then non-bool remainder; treat as glued payload
+    // Short-option cluster containing S: glued payload after S (-Sfind), or S
+    // at the end / before only boolean shorts (-iS, -Si, -Sv) taking the next
+    // token as payload; a non-bool remainder (-Sifind) is a glued payload.
     if (
       t.startsWith("-") &&
       t !== "-" &&
@@ -874,12 +866,10 @@ function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
           afterS.length === 0 ||
           [...afterS].every((c) => ENV_BOOL_SHORT.has(c));
         if (onlyBoolAfter) {
-          // Clustered flags; S consumes the following argv token.
           const payload = tokens[i + 1];
           if (payload === undefined) return { kind: "opaque" };
           return finishEnvSplitPayload(payload, tokens, i + 2);
         }
-        // Glued payload in the same token (e.g. -Sfind, -S"find /").
         return finishEnvSplitPayload(afterS, tokens, i + 1);
       }
     }
@@ -926,10 +916,8 @@ function peelOnce(segment: string): PeelOutcome {
     return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
   const prog = shellInterpreterName(current);
   if (SHELL_INTERPRETERS.has(prog)) {
-    // A backtick or `$(` means the -c payload may contain command substitution,
-    // which tokenize() surfaces as bare tokens — the payload token would be only
-    // a fragment of the quoted argument. Treat the wrapper as opaque rather than
-    // peel a truncated, misleading payload.
+    // A backtick or `$(` means tokenize() surfaces the -c payload as bare
+    // tokens; peeling a truncated fragment would mislead, so treat as opaque.
     if (segment.includes("`") || segment.includes("$("))
       return { kind: "opaque" };
     const shellPeel = peelShellDashC(tokens, i + 1, segment, prog);
@@ -940,7 +928,7 @@ function peelOnce(segment: string): PeelOutcome {
   if (prog === "xargs") return peelXargs(tokens, i + 1);
 
   // Prefix-only peel: `env FOO=1 rm -rf build` → `FOO=1 rm -rf build`, keeping
-  // the NAME=value tokens skipEnvArguments collected for the auto-mode ask.
+  // the NAME=value tokens for the auto-mode ask.
   if (strippedPrefix) {
     const innerTokens =
       transparent.assignmentValues.length === 0
@@ -964,14 +952,12 @@ export interface ShellExpandResult {
 }
 
 // Expand a command into subjects for the auto-shell policy, hard-deny, and
-// recursive-rm checks. Peels nested interpreters, xargs utility tails, env -S
-// payloads, busybox applets, and transparent prefixes (env/nice/timeout/…),
-// recursing with a depth cap so nested wrappers cannot hide a dangerous payload.
-//
-// Chain splitting is quote-aware so a pipe inside a `bash -c '…|…'` payload is
-// not an outer pipeline boundary. Drop env/shell end-of-options markers so
-// command-position hard-deny sees the real program (`env -S "-- find /"`).
-// Assignments before the marker are preserved (`FOO=1 -- find /` → `FOO=1 find /`).
+// recursive-rm checks: peel nested interpreters, xargs tails, env -S payloads,
+// busybox applets, and transparent prefixes (env/nice/timeout/…), recursing
+// with a depth cap so nested wrappers cannot hide a dangerous payload. Chain
+// splitting is quote-aware so a pipe inside `bash -c '…|…'` is not an outer
+// boundary; end-of-options markers are dropped so hard-deny sees the real
+// program (`env -S "-- find /"`), assignments before them preserved.
 function dropLeadingEndOfOptionsTokens(tokens: string[]): string[] {
   let i = 0;
   i = skipMatching(tokens, i, (t) => ENV_ASSIGNMENT.test(t));
@@ -1190,9 +1176,9 @@ function isOpenEndedSearch(command: string): boolean {
   return OPEN_ENDED_SEARCH_PATTERNS.some((pattern) => pattern.test(command));
 }
 
-// Scan expanded subjects so wrappers cannot hide the real program inside a
-// quoted payload (`env -S "find /"`, `bash -c 'watch ls'`). Normalize each
-// subject so path-qualified binaries still match command position.
+// Scan expanded subjects (each normalized) so wrappers cannot hide the real
+// program in a quoted payload (`env -S "find /"`); path-qualified binaries
+// still match command position.
 function subjectsHit(
   command: string,
   pred: (normalizedSubject: string) => boolean,
@@ -1240,8 +1226,8 @@ export interface RunShellAuthzBlock {
 export function runShellAuthzBlock(
   command: string,
 ): RunShellAuthzBlock | undefined {
-  // Destructive / open-ended / never-terminating / stdin all expand subjects so
-  // env -S and shell -c payloads cannot hide a blocked program.
+  // All four checks scan expanded subjects so env -S / shell -c payloads
+  // cannot hide a blocked program.
   if (isDestructive(command)) {
     return {
       kind: "destructive",
