@@ -275,9 +275,8 @@ describe("session-store snapshot caching", () => {
 });
 
 describe("outstanding tool clock", () => {
-  // A worker inside one long tool call emits nothing until the result lands.
-  // Without a start clock for that call, silence is indistinguishable from a
-  // wedged reactor, and a whole fleet running shell commands reads as stalled.
+  // A worker inside one long tool call emits nothing until the result lands;
+  // without a start clock, silence reads as a wedged reactor.
   test("tool.start stamps the clock and tool.done clears it", () => {
     let clock = 1_000;
     const store = createSubAgentSessionStore({ now: () => clock });
@@ -323,7 +322,7 @@ describe("outstanding tool clock", () => {
   });
 
   // Argument streaming must refresh the preview so a partial command does
-  // not stick on the lane after the rest of the args arrive.
+  // not stick on the lane.
   test("streaming arguments refresh the lane preview from the same payload the transcript holds", () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b" });
@@ -368,9 +367,8 @@ describe("parallel tool calls", () => {
       data: { result: { callId, content: "ok", isError: false } },
     }) as unknown as ReactorEmittedEvent;
 
-  // Parallel calls run concurrently. A fast sibling finishing must not retire
-  // the clock of a long call still executing, or the lane reads as silent
-  // while it is working perfectly.
+  // Parallel calls run concurrently; a fast sibling finishing must not retire
+  // the clock of a long call still executing.
   test("a fast sibling completing leaves a long call's clock outstanding", () => {
     let clock = 1_000;
     const store = createSubAgentSessionStore({ now: () => clock });
@@ -399,8 +397,8 @@ describe("parallel tool calls", () => {
     expect(store.get(session.id)?.currentToolStartedAt).toBe(1_000);
   });
 
-  // The oldest live call is the one that explains the longest silence, so it is
-  // the one the lane reports.
+  // The oldest live call explains the longest silence, so that is what the
+  // lane reports.
   test("the reported call is the oldest still outstanding", () => {
     let clock = 1_000;
     const store = createSubAgentSessionStore({ now: () => clock });
