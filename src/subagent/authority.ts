@@ -7,8 +7,8 @@
  *  - assertTierMayMountFleetVerb: a Tier 3 leaf may never mount a fleet verb
  *    (spawn_agent, wait_agents, list_agents, interrupt_agent, close_agent,
  *    resume_agent, send_input, read_agent_trace, search_agents).
- *    Fleet *discovery* of the director catalog (search_agents) is Tier 1 only
- *    (CL-7051). list_agents is not catalog discovery — it lists this install's
+ *    Fleet *discovery* of the director catalog (search_agents) is Tier 1 only.
+ *    list_agents is not catalog discovery — it lists this install's
  *    own spawn_agent workers, the same scoped mailbox the fleet uses, so
  *    nested orchestrators may mount it.
  *  - assertCanTargetAgent: a Tier 2 nested orchestrator may act only on its
@@ -41,7 +41,7 @@ export const FLEET_VERBS = new Set([
 
 /**
  * Fleet discovery — Tier 1 (dispatch) only. Nested orchestrators spawn from
- * a closed allowlist and must not index the full fleet (CL-7051).
+ * a closed allowlist and must not index the full fleet.
  */
 export const ORCHESTRATOR_ONLY_FLEET_VERBS = new Set(["search_agents"]);
 

@@ -123,7 +123,7 @@ function isStalled(lane: FleetLane, nowMs: number, stallMs: number): boolean {
 }
 
 /**
- * Lanes still live — the count the idle-with-fleet hold reads (CL-7057).
+ * Lanes still live — the count the idle-with-fleet hold reads.
  * Same rule as the progress strip (`agentLaneIsLive`): interrupted leftovers
  * keep TUI status "running" but are not occupancy.
  */
@@ -184,7 +184,7 @@ export function pendingAskWakeText(
     wake.question,
     "",
   ];
-  // Escalation for a re-surfaced question (CL-8016): the earlier wake turn
+  // Escalation for a re-surfaced question: the earlier wake turn
   // stalled past the bound and was aborted without an answer, so say so and
   // restate the routing — otherwise a second identical wake reads as a
   // duplicate rather than as proof the first one never landed.

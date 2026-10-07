@@ -1,5 +1,5 @@
 /**
- * Pre-spawn capability preflight for `spawn_agent(requires_tools=...)` (CL-9476).
+ * Pre-spawn capability preflight for `spawn_agent(requires_tools=...)`.
  *
  * A `requires_tools` entry is a hard requirement: the named tool must be
  * mounted on the worker or the dispatch is rejected before any session,

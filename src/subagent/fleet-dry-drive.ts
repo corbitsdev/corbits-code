@@ -41,7 +41,7 @@ export interface FleetDryMailboxRecord {
   readonly description?: string;
   readonly hint?: string;
   readonly providerFailure?: true;
-  /** CL-8978: transient provider failure — the parent may spawn one successor. */
+  /** Transient provider failure — the parent may spawn one successor. */
   readonly recoverableFailure?: true;
   readonly stopReason?: string;
 }
@@ -111,7 +111,7 @@ export interface CollectedWorkerReport {
   hint?: string;
   provider_failure?: true;
   /**
-   * CL-8978: failed entries from a transient provider failure carry this
+   * Failed entries from a transient provider failure carry this
    * marker plus single-successor guidance in continue_with. Capped affordance:
    * at most one respawn with the same brief, never a retry loop.
    */

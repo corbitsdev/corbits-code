@@ -1,5 +1,5 @@
 /**
- * CL-7990: a session holding a live shell child must still settle.
+ * A session holding a live shell child must still settle.
  *
  * Teardown path (run.ts finally → disposeSubAgentSession under a 30s
  * awaitBoundedTeardown): posixTools.dispose() runs the shell-guard
@@ -359,7 +359,7 @@ describe("CL-7990 shell-child reap: sessions holding a live shell child settle",
 });
 
 /**
- * CL-7997 kill proof: the tests above prove the run settles under a wedged
+ * Kill proof: the tests above prove the run settles under a wedged
  * child, but none proves a shell-guard-tracked child is actually KILLED on
  * close/dispose. This drives a real `sleep` through `runGuardedShell` (the
  * shell-guard tracking primitive) and the exact `reapLiveChildren` call the

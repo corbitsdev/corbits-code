@@ -322,8 +322,8 @@ describe("outstanding tool clock", () => {
     expect(store.get(session.id)?.currentToolPreview).toBeNull();
   });
 
-  // CL-5765: argument streaming must refresh the preview so a partial command
-  // does not stick on the lane after the rest of the args arrive.
+  // Argument streaming must refresh the preview so a partial command does
+  // not stick on the lane after the rest of the args arrive.
   test("streaming arguments refresh the lane preview from the same payload the transcript holds", () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b" });
@@ -368,9 +368,9 @@ describe("parallel tool calls", () => {
       data: { result: { callId, content: "ok", isError: false } },
     }) as unknown as ReactorEmittedEvent;
 
-  // The reactor runs parallel calls concurrently. A fast sibling finishing must
-  // not retire the clock of a long call still executing, or the lane reads as
-  // silent-for-no-reason thirty seconds later while it is working perfectly.
+  // Parallel calls run concurrently. A fast sibling finishing must not retire
+  // the clock of a long call still executing, or the lane reads as silent
+  // while it is working perfectly.
   test("a fast sibling completing leaves a long call's clock outstanding", () => {
     let clock = 1_000;
     const store = createSubAgentSessionStore({ now: () => clock });
@@ -660,7 +660,7 @@ describe("CL-6943 reusable worker sessions", () => {
       ok: true,
       status: "interrupted",
     });
-    // CL-7344: the interrupt stashes the follow-up until the original run
+    // The interrupt stashes the follow-up until the original run
     // settles; the salvage handoff launches it, it rejects, and the session
     // restamps interrupted.
     store.attachReport(session.id, "interrupted salvage", {
@@ -807,7 +807,7 @@ describe("CL-6943 reusable worker sessions", () => {
   test("resume_agent fails on a session close_agent already shut down (close is permanent)", async () => {
     const store = createSubAgentSessionStore();
     // registerClose always fires in production before onAgentReady's window
-    // closes (CL-7001) — closeOne otherwise waits for it up to the deadline.
+    // closes — closeOne otherwise waits for it up to the deadline.
     const session = retainedSession(store, {
       run: false,
       close: async () => undefined,
@@ -820,16 +820,11 @@ describe("CL-6943 reusable worker sessions", () => {
     });
   });
 
-  // CL-7001 originally folded a retained, still-open session into
-  // maxCompleted (the TUI display cap) with no separate bound at all,
-  // fixing the unbounded leak but creating a new bug: resume_agent
-  // fails once more than `maxCompleted` (default 20) workers
-  // have spawned, even though every one of them is still perfectly
-  // reusable. CL-7007 gives open retained sessions their own cap
-  // (`maxRetained`) instead — this test changed from asserting that
-  // `maxCompleted` evicts a retained session (no longer true: retained
-  // sessions are excluded from that cap, see isOpenRetained) to asserting
-  // that `maxRetained` does, with the same "handles still get released"
+  // maxCompleted originally folded open retained sessions into the TUI
+  // display cap, so resume_agent failed once more than `maxCompleted`
+  // (default 20) workers had spawned even though every one was reusable.
+  // `maxRetained` gives open retained sessions their own cap — this test
+  // asserts that cap evicts, with the same "handles still get released"
   // guarantee.
   test("pruneRetained evicts a retained, still-open session past maxRetained and releases it", () => {
     const store = createSubAgentSessionStore({
@@ -850,9 +845,8 @@ describe("CL-6943 reusable worker sessions", () => {
     expect(closed).toBe(true);
   });
 
-  // CL-7002's fix (retained sessions are no longer exempt from any cap) must
-  // survive CL-7007: a non-retained finished session still obeys
-  // maxCompleted exactly as before.
+  // A non-retained finished session still obeys maxCompleted exactly as
+  // before, even with the separate retained-session cap in place.
   test("maxCompleted still evicts an ordinary (non-retained) finished session", () => {
     const store = createSubAgentSessionStore({ maxCompleted: 1 });
     const first = store.start({
@@ -1241,7 +1235,7 @@ describe("CL-7269 one stored worker lifecycle", () => {
     expect(store.interruptOne(session.id).ok).toBe(true);
     expect(aborted).toBe(1);
     expect(store.get(session.id)?.lifecycleStatus).toBe("interrupted");
-    // CL-7787: the pending_init interrupt must not strand a run-in-flight
+    // The pending_init interrupt must not strand a run-in-flight
     // marker — projectWaitStatus would otherwise report "running" forever and
     // the fleet would never go dry.
     expect(store.isRunInFlight(session.id)).toBe(false);
@@ -1390,7 +1384,7 @@ describe("pending ask_director", () => {
     expect(rejected).toBeInstanceOf(Error);
     expect(String(rejected)).toContain("cancelled by send_input interrupt");
     expect(delivered).toEqual([]);
-    // CL-7344: the interrupt stashes the follow-up until the original run
+    // The interrupt stashes the follow-up until the original run
     // settles; the salvage handoff launches it.
     store.attachReport(session.id, "interrupted salvage", {
       stopReason: "interrupted",

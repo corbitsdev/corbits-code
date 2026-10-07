@@ -168,7 +168,7 @@ export class SubAgentDirector extends DefaultDirector {
   // Once this leaf has replied with a terminal report (complete envelope or
   // salvage), empty continuations from idle-compact / stall must not fall
   // through to DefaultDirector.infer — that re-opens the brief without a new
-  // parent message (CL-7068). Cleared only by a non-empty parent message
+  // parent message. Cleared only by a non-empty parent message
   // (resume_agent / send_input).
   private reportReplied = false;
 
@@ -204,8 +204,8 @@ export class SubAgentDirector extends DefaultDirector {
   private stallNudgeAt: number | undefined;
   private lastAssistantText = "";
   // Every stop and nudge is recorded with its measured value beside its
-  // threshold, so a later threshold change can cite data instead of judgment
-  //. Defaults to a no-op: logging is diagnostic, never required.
+  // threshold, so a later threshold change can cite data instead of judgment.
+  // Defaults to a no-op: logging is diagnostic, never required.
   private interventions: InterventionSink = NOOP_INTERVENTION_SINK;
   // Structured stop-reason side channel: fired synchronously whenever this
   // director force-stops, so the caller learns the reason as a typed value

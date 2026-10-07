@@ -234,16 +234,14 @@ export function assertReplySend(
   throw error;
 }
 
-// Bounded outer retry for the main send (CL-7677). The harness policy in
+// Bounded outer retry for the main send. The harness policy in
 // vendor/intx-inference/src/retry-policy.ts already retries retryable faults
 // up to 3 times per send; this loop covers the case where the harness gives
-// up and the failure terminalizes the worker anyway. A terminal worker death
-// is not a non-terminal director turn (CL-6910), so the outer budget is one
-// retry, not a second full schedule — harness-weighted worst case is 2 outer
-// x 3 inner sends. The single delay matches the first step of the harness
-// backoff (500ms before attempt 2 in vendor/intx-inference/src/retry-policy.ts)
-// with the same jitter applied below: the outer budget is one retry, so only
-// the first backoff step is ever reached — a table would be dead weight.
+// up and the failure terminalizes the worker anyway. The outer budget is one
+// retry, not a second full schedule — worst case is 2 outer x 3 inner sends.
+// The single delay matches the first step of the harness backoff (500ms
+// before attempt 2) with the same jitter applied below, so only the first
+// backoff step is ever reached — a table would be dead weight.
 // createCorbitsRetryPolicy decides per-attempt retry inside a live send and
 // must not drive this loop.
 // Retrying after a tool already executed is unsafe — the second send would
@@ -252,10 +250,10 @@ const MAX_OUTER_ATTEMPTS = 2;
 const OUTER_RETRY_DELAY_MS = 500;
 
 /**
- * CL-7990 reap deadline for the session-stream drain on teardown. A worker
- * parked behind a live shell descendant holds `streamPromise` open; awaiting
- * it unbounded wedges interrupt/close forever. Abandoning the drain after
- * this deadline settles the session — late stream events just go unsalvaged.
+ * Reap deadline for the session-stream drain on teardown. A worker parked
+ * behind a live shell descendant holds `streamPromise` open; awaiting it
+ * unbounded wedges interrupt/close forever. Abandoning the drain after this
+ * deadline settles the session — late stream events just go unsalvaged.
  * Calibrated to the shell-guard reap scale (2s), not the 30s close deadline:
  * the drain is salvage bookkeeping, not teardown.
  */
@@ -372,11 +370,9 @@ export function buildSubAgentPrimarySource(
 
 // Web tools are always-on core built-ins in the main session (see
 // src/agent/tools.ts); the sub-agent discipline block tells every worker to
-// reach for web_fetch/web_search instead of curl/wget, so the tools must
-// actually be installed here too. Read-only-network, so no capability filter
-// special-case: they pass through applyCapabilityFilter by name like any
-// other tool (an "explore" intent that wants a read-only leaf can still
-// exclude them explicitly via capabilities.tools).
+// reach for web_fetch/web_search instead of curl/wget, so the tools must be
+// installed here too. Read-only-network, so no capability filter special-case:
+// they pass through applyCapabilityFilter by name like any other tool.
 export function coreSubAgentWebTools(
   inherited: readonly AgentTool[] = [],
 ): AgentTool[] {
@@ -388,7 +384,7 @@ export function coreSubAgentWebTools(
 
 /**
  * Capability allowlist/exclude over the assembled worker tool set, with
- * on-demand inherited-MCP mounting (CL-9476 follow-up).
+ * on-demand inherited-MCP mounting.
  *
  * Inherited MCP tools (`mcp__<server>__<tool>`) mount only when the dispatch
  * requested them. An explicit stamp always counts: a `requiresTools` entry
@@ -671,15 +667,15 @@ async function runSubAgentInner(
   telemetryRollup: SubAgentTelemetryRollup,
   settlementState: { latestModel: string },
 ): Promise<RunSubAgentResult> {
-  // CL-9010: fleet-spawned workers skip the pricing-cache seed re-read —
+  // Fleet-spawned workers skip the pricing-cache seed re-read —
   // the parent runtime already applied the process seed at boot.
   const inferenceDeps = await assembleInferenceBase(undefined, {
     ...(params.skipPricingSeed === true ? { skipPricingSeed: true } : {}),
   });
 
-  // CL-9475: the fleet session id the parent observes (params.id); falls
-  // back to the local session id below when run without a fleet caller.
-  // Harness-owned denied-call envelopes are keyed by this id.
+  // The fleet session id the parent observes (params.id); falls back to the
+  // local session id below when run without a fleet caller. Harness-owned
+  // denied-call envelopes are keyed by this id.
   let workerGrantSessionId: string | undefined =
     params.id !== undefined && /^[A-Za-z0-9_-]+$/.test(params.id)
       ? params.id
@@ -768,9 +764,9 @@ async function runSubAgentInner(
   // Scoped to this run's `agent.send()` call only. Firing it rejects that
   // one send's promise (per Agent.send's documented signal option) without
   // touching agent.close() or runController — the reactor cycle it belongs
-  // to keeps running in the background, exactly as the vendored send-queue
-  // documents, so a later resume_agent's agent.send() simply queues behind
-  // it rather than racing a half-torn-down session.
+  // to keeps running in the background, so a later resume_agent's
+  // agent.send() simply queues behind it rather than racing a half-torn-down
+  // session.
   // Per-turn abort for interrupt_agent. Recreated at the start of each
   // followup send so a prior abort cannot immediately reject the next turn,
   // and so interrupt_agent can stop a resumed agent.send().
@@ -782,8 +778,8 @@ async function runSubAgentInner(
   // Combines the caller's cancel signal with an optional opt-in wall-clock
   // deadline so a leaf that hits the deadline can still return a salvage
   // report. When deadlineMs is omitted, no timer is armed — cancel remains
-  // the only bound. Declared before try so finally can dispose.
-  // spawn_agent is exempt from the generic per-tool watchdog (see
+  // the only bound. Declared before try so finally can dispose. spawn_agent
+  // is exempt from the generic per-tool watchdog (see
   // resolveToolExecutionTimeoutMs), so there is no outer budget to clamp under.
   const resolvedDeadlineMs =
     params.deadlineMs !== undefined
@@ -825,8 +821,7 @@ async function runSubAgentInner(
     // capability filter so worker allowlists keep them like any other named
     // tool; the scope cannot widen — use_skill refuses names outside the
     // allowlist and refuses attached/already-loaded names without dumping the
-    // body again. Plugin skill dirs match the primary so bundled
-    // corbits-skills resolve.
+    // body again.
     const modelFamilyPolicy = resolveModelFamilyPolicy({
       providerName: params.provider.providerName,
       model: params.provider.model,
@@ -836,9 +831,9 @@ async function runSubAgentInner(
         : {}),
     });
     const skillDirs = [...(params.skillDirs ?? [])];
-    // CL-9010: reuse the dispatcher's catalog when the lane shares its cwd;
-    // otherwise fall back to the cached discovery (same-cwd repeat spawns
-    // skip the rescan). Copies keep one worker from mutating another's list.
+    // Reuse the dispatcher's catalog when the lane shares its cwd; otherwise
+    // fall back to the cached discovery (same-cwd repeat spawns skip the
+    // rescan). Copies keep one worker from mutating another's list.
     const skillSnapshot =
       params.skills !== undefined
         ? [...params.skills]
@@ -895,8 +890,8 @@ async function runSubAgentInner(
     backgroundShellsMounted = hostCommandsMounted;
 
     // Every sub-agent is an agent: multi-step jobs get their own manage_tasks
-    // checklist. The handler is local to this loop; parent and child never share
-    // a list (the parent TUI tracks only the parent's manage_tasks calls).
+    // checklist. The handler is local to this loop; parent and child never
+    // share a list (the parent TUI tracks only the parent's manage_tasks calls).
     tools = [
       ...tools,
       stringTool({
@@ -972,7 +967,7 @@ async function runSubAgentInner(
     // Orchestrators need fleet tools installed, not just mentioned in the prompt.
     // Nested dispatch always forbids further orchestration so the tree
     // bottoms out after one hop. Fleet discovery (search_agents) is Tier-1
-    // only (CL-7051) — nested directors keep spawn allowlists.
+    // only — nested directors keep spawn allowlists.
     if (params.orchestrator === true) {
       // Tier enforcement at the mount point, not the prompt, fails closed:
       // an unresolved tier defaults to "leaf" rather than skipping the check,
@@ -1048,8 +1043,8 @@ async function runSubAgentInner(
           ? { secretGuardExtraDeniedPaths: nd.secretGuardExtraDeniedPaths }
           : {}),
         ...(nd.skillDirs !== undefined ? { skillDirs: nd.skillDirs } : {}),
-        // CL-9010: nested shared-cwd lanes reuse this worker's catalog, which
-        // was discovered (or inherited) for exactly this cwd.
+        // Nested shared-cwd lanes reuse this worker's catalog, which was
+        // discovered (or inherited) for exactly this cwd.
         skillSnapshot,
         ...(nd.extraToolPlugins !== undefined
           ? { extraToolPlugins: nd.extraToolPlugins }
@@ -1104,9 +1099,9 @@ async function runSubAgentInner(
       ];
     }
 
-    // CL-9476 mount echo: dispatch verified requires_tools pre-spawn, but the
-    // filter or mount may have shifted since — a stamped tool missing here is
-    // a stale snapshot, a setup_error that never retries (non-continuable).
+    // Mount echo: dispatch verified requires_tools pre-spawn, but the filter
+    // or mount may have shifted since — a stamped tool missing here is a
+    // stale snapshot, a setup_error that never retries (non-continuable).
     // Dispatch-side rejection is the normal path. This check runs after ALL
     // mounts (manage_tasks, leaf submit_result/ask_director, fleet verbs), so
     // a dispatch that passed preflight against the same mount never throws.
@@ -1185,8 +1180,8 @@ async function runSubAgentInner(
       getContextDir: () => childContextDir,
     });
 
-    // CL-9010: same-cwd spawns within the TTL share the git/top-level
-    // snapshot instead of re-running git per lane.
+    // Same-cwd spawns within the TTL share the git/top-level snapshot
+    // instead of re-running git per lane.
     const environment = await gatherEnvironmentCached(params.cwd);
     const attachedSection =
       params.attachedSkills !== undefined && params.attachedSkills.length > 0
@@ -1306,10 +1301,10 @@ async function runSubAgentInner(
     // Directors are pure decide(event, ...) functions with no timer of their
     // own (see checkStallPing on SubAgentDirector), so a silent leaf needs an
     // external nudge to even get a decide() call. Ping the same continuation
-    // channel compaction uses at the stall interval; the director only acts on
-    // a ping if nothing happened since the last one. Drop the ping while
-    // ask_director is parked — do not defer it through compactContinue, or the
-    // post-unpark flush would look like a stall-window empty continuation.
+    // channel compaction uses at the stall interval; the director only acts
+    // on a ping if nothing happened since the last one. Drop the ping while
+    // ask_director is parked — do not defer it through compactContinue, or
+    // the post-unpark flush would look like a stall-window empty continuation.
     stallWatchdog = setInterval(() => {
       if (askDirectorState.pending) return;
       deliverCompactContinue();
@@ -1360,8 +1355,8 @@ async function runSubAgentInner(
         ? params.id
         : undefined;
     const sessionId = safeRequestedId ?? generateSessionId();
-    // CL-9475: fleet-less runs mint their own id — keep the grant sidecar
-    // keyed to the same session the parent would observe.
+    // Fleet-less runs mint their own id — keep the grant sidecar keyed to
+    // the same session the parent would observe.
     if (workerGrantSessionId === undefined) workerGrantSessionId = sessionId;
     const workdir = join(params.workdirBase, "subagents", sessionId);
     await mkdir(workdir, { recursive: true });
@@ -1468,9 +1463,9 @@ async function runSubAgentInner(
       }
     };
 
-    // Collect tool activity for the parent-facing report, and optionally forward
-    // progress without dumping the full sub-agent event stream into the chat
-    // transcript (which would interleave sub-agent text with the parent turn).
+    // Collect tool activity for the parent-facing report, and forward progress
+    // without dumping the full sub-agent event stream into the chat transcript
+    // (which would interleave sub-agent text with the parent turn).
     const toolNamesUsed: string[] = [];
     let lastPartialText = "";
     // Accumulate assistant prose across turns (capped) so cancel/deadline
@@ -1915,11 +1910,11 @@ async function runSubAgentInner(
         // arrives: closing at entry stops that auto-flush from mislabeling this
         // salvage with the generic error reason. Draining first lets the sink's
         // own bookkeeping (lastPartialText) catch late tool.start / inference.done
-        // events before bare-vs-salvage is decided.
-        // Deadline is already known here; a parent cancel is labeled cancelled
-        // even if the outcome below resolves to rethrow. The drain is reaped
-        // on a bounded deadline: a stream wedged by a live shell descendant
-        // settles the run instead of parking it past every deadline.
+        // events before bare-vs-salvage is decided. Deadline is already known
+        // here; a parent cancel is labeled cancelled even if the outcome below
+        // resolves to rethrow. The drain is reaped on a bounded deadline: a
+        // stream wedged by a live shell descendant settles the run instead of
+        // parking it past every deadline.
         const abortedCycleText = await cycleRecorder.dispose(
           runController.deadlineHit() ? "deadline" : "cancelled",
           { drain: drainStreamWithReapDeadline(streamPromise) },

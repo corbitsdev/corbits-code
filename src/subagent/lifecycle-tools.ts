@@ -506,7 +506,7 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
           : {}),
       });
       if (!outcome.ok) {
-        // CL-8016: name the teardown when one is recorded — after a stop the
+        // Name the teardown when one is recorded — after a stop the
         // session is gone, and a bare status would read as "never existed".
         // Late-send redirect is scoped per terminal status: only `completed`
         // delivered a report (summary + report_uri below, resume for more);
@@ -525,7 +525,7 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
           `Error: cannot send_input to "${target}" (status: ${outcome.status}).${hint}${redirect}`,
         );
       }
-      // CL-7331: an interrupt-with-followup is transitional, not terminal.
+      // An interrupt-with-followup is transitional, not terminal.
       // interrupt_agent/close_agent flip the wait mailbox so an in-flight
       // wait_agents unblocks as interrupted; a queued followup must instead
       // stay wait-live (running/queued) so the followup reply surfaces via

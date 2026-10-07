@@ -1,5 +1,5 @@
 /**
- * CL-9010 spawn cold start: fleet workers reuse the dispatcher's already-paid
+ * Spawn cold start: fleet workers reuse the dispatcher's already-paid
  * init work — the parent skill catalog, the inference deps + pricing seed,
  * and the short-TTL environment snapshot — instead of re-running discovery,
  * git, and the pricing seed per lane. Spawn dispatch itself stays

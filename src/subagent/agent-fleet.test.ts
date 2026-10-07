@@ -528,15 +528,9 @@ describe("spawn_agent + wait_agents", () => {
     // them is collected, proving the wait mailbox pin keeps reports past the
     // store's display cap.
     //
-    // CL-7007: this test previously asserted (as CL-7001's fix left it) that
-    // the store itself had already evicted and released the earliest
-    // session, because a retained session shared the 20-item display cap
-    // with every other finished session — exactly the shipped defect this
-    // ticket fixes (resume_agent failed with a bare
-    // "not_found" past 20 spawned workers, blaming the caller for nothing).
-    // Open retained sessions now have their own cap (`maxRetained`, default
-    // 50), so 25 of them all stay resumable; mailbox pin + wait_agents is
-    // still asserted below as the collect path regardless.
+    // Open retained sessions have their own cap (`maxRetained`, default 50),
+    // so 25 of them all stay resumable; mailbox pin + wait_agents is still
+    // asserted below as the collect path regardless.
     const COUNT = 25;
     const deps = createFleetDeps(async () => ({
       report: "irrelevant",
@@ -575,7 +569,7 @@ describe("spawn_agent + wait_agents", () => {
     }
   });
 
-  // CL-6915: operator cancel aborts the child signal, but run() still returns a
+  // Operator cancel aborts the child signal, but run() still returns a
   // salvage body (partial findings). Dropping that body left the wait mailbox
   // "running" forever so wait_agents never saw the salvage.
   test("cancelled spawn_agent still resolves wait_agents with salvage findings", async () => {
@@ -1406,7 +1400,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
 
     closeHold.resolve(undefined);
     await closing;
-    // CL-7344: close drops the stashed follow-up — it never runs against
+    // Close drops the stashed follow-up — it never runs against
     // the closed agent, and the close overlay survives the run settling.
     expect(followupCalls).toEqual([]);
     gate.resolve({
@@ -1465,7 +1459,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
       message: "stop that",
       interrupt: true,
     });
-    // CL-7344: the follow-up is stashed until the original run settles; the
+    // The follow-up is stashed until the original run settles; the
     // salvage handoff launches it, and its rejection restores the
     // interrupted lane so wait collects the salvage.
     gate.resolve({
@@ -1512,7 +1506,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
       interrupt: true,
     });
     expect(sent.status).toBe("interrupted");
-    // CL-7344: the interrupt stashes the follow-up instead of starting it;
+    // The interrupt stashes the follow-up instead of starting it;
     // the lane is still the live run, so the session stays running while
     // wait/list stay live until the run settles and hands off.
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");

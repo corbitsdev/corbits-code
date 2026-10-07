@@ -59,7 +59,7 @@ export interface SubAgentSandboxDeps {
   /** Project settings.env, merged into the sub-agent's run_shell spawn environment. */
   shellEnv?: Record<string, string>;
   /**
-   * CL-9386: parent's secret-guard runtime denylist (the active --config
+   * Parent's secret-guard runtime denylist (the active --config
    * path), so workers cannot silently read/write standing skip-permissions
    * the primary itself is denied. Inherited down the dispatch chain.
    */
@@ -70,7 +70,7 @@ export interface SubAgentSandboxDeps {
    */
   skillDirs?: readonly string[];
   /**
-   * CL-9010: the dispatcher's already-discovered skill catalog. A worker
+   * The dispatcher's already-discovered skill catalog. A worker
    * whose lane cwd matches the discovery cwd reuses it instead of
    * rescanning; run.ts falls back to the cached discovery when unset (or
    * when the lane runs in an isolated worktree with a different cwd).
@@ -157,7 +157,7 @@ export type RunSubAgentParams = {
   onRunSettled?: (summary: Readonly<SubAgentRunSettlement>) => void;
   capabilities?: CapabilityFilter;
   /**
-   * Canonical tool names this worker hard-requires (CL-9476). Verified
+   * Canonical tool names this worker hard-requires. Verified
    * pre-spawn by the dispatcher; run.ts re-checks them against the mounted
    * tools after the capability filter and fails the run as a stale snapshot
    * when one went missing in between.
@@ -184,14 +184,14 @@ export type RunSubAgentParams = {
    */
   skillDirs?: readonly string[];
   /**
-   * CL-9010: pre-discovered skill catalog for this lane's cwd (the
+   * Pre-discovered skill catalog for this lane's cwd (the
    * dispatcher's snapshot when the lane shares its cwd). Skips the worker's
    * own discovery scan. Unset (or a worktree lane with a different cwd)
    * falls back to the cached discovery.
    */
   skills?: readonly SkillSummary[];
   /**
-   * CL-9010: skip the worker's pricing-cache seed read. Fleet-spawned
+   * Skip the worker's pricing-cache seed read. Fleet-spawned
    * workers reuse the process seed the parent runtime already applied at
    * boot; the singleton no-op keeps this a pure file-read saving.
    */

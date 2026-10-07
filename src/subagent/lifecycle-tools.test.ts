@@ -710,7 +710,7 @@ describe("send_input", () => {
     expect(sessions.get(worker.id)?.stopReason).toBe("interrupted");
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
 
-    // CL-7344: the interrupt stashes the follow-up until the original run
+    // The interrupt stashes the follow-up until the original run
     // settles; the salvage handoff launches it.
     sessions.attachReport(worker.id, "salvage", { stopReason: "interrupted" });
     finish("followup report");
@@ -738,7 +738,7 @@ describe("send_input", () => {
       },
     });
 
-    // CL-7344: the interrupt stashes the follow-up until the original run
+    // The interrupt stashes the follow-up until the original run
     // settles; the salvage handoff launches it, it rejects, and the session
     // restamps interrupted.
     const results = await interruptSteerThenCollect({
@@ -795,7 +795,7 @@ describe("send_input", () => {
     });
     expect(result).toEqual({ agent_id: worker.id, status: "interrupted" });
     expect(interrupted).toBe(true);
-    // CL-7344: the interrupt stashes the follow-up until the original run
+    // The interrupt stashes the follow-up until the original run
     // settles; the salvage handoff launches it.
     expect(followupStarted).toBe(false);
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");

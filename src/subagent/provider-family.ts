@@ -52,7 +52,7 @@ export function isClaudeLeafProvider(input: {
 }
 
 /**
- * True when the model id is the served gpt-6-astra cell. Forensics (CL-9027)
+ * True when the model id is the served gpt-6-astra cell. Forensics
  * showed that cell doom-looping via trivial argument deltas, so it resolves
  * to its own family with an evasion-specific residual; other served cells
  * (sol/terra/luna) keep riding the generic gpt match below.
@@ -80,9 +80,9 @@ export function isDeepSeekLeafProvider(input: {
  * True when the inference path is the GPT family: a Codex provider name
  * (codex/ OAuth profiles, the codex-responses adapter, bare codex) or a
  * gpt-* model id on any provider. Served codex cells (sol/terra/luna)
- * all match the generic gpt-* model shape — never name them here; CL-8265
- * characterizes cells later. Astra is the one exception: it branches to its
- * own family in detectModelFamily below (CL-9027).
+ * all match the generic gpt-* model shape — never name them here. Astra is
+ * the one exception: it branches to its own family in detectModelFamily
+ * below.
  */
 export function isGptProvider(input: {
   providerName: string;

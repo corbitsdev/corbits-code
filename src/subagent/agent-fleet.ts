@@ -144,7 +144,7 @@ interface FleetRecord {
   error?: string;
   stopReason?: string;
   providerFailure?: true;
-  /** CL-8978: transient provider failure — the parent may spawn one successor. */
+  /** Transient provider failure — the parent may spawn one successor. */
   recoverableFailure?: true;
   /** Set once a wait_agents caller has been handed this result. */
   collected?: boolean;
@@ -179,7 +179,7 @@ interface FleetOverlay {
   tombstoned?: boolean;
   hint?: string;
   providerFailure?: true;
-  /** CL-8978: transient provider failure — the parent may spawn one successor. */
+  /** Transient provider failure — the parent may spawn one successor. */
   recoverableFailure?: true;
 }
 
@@ -269,12 +269,12 @@ class FleetMailbox {
   }
 
   /**
-   * Stop teardown (CL-8016): drop every mailbox record alongside the store
-   * wipe, so no stale lane outlives the sessions it pins. The records held
-   * `pinHeld` refs into the store's refcounts; the store teardown clears
-   * `pinCounts` wholesale, so dropping the records here keeps both sides in
-   * agreement with nothing left to unpin. Also resets the parked-ask wake
-   * fingerprint so a later session reusing an id re-surfaces cleanly.
+   * Stop teardown: drop every mailbox record alongside the store wipe, so no
+   * stale lane outlives the sessions it pins. The records held `pinHeld`
+   * refs into the store's refcounts; the store teardown clears `pinCounts`
+   * wholesale, so dropping the records here keeps both sides in agreement
+   * with nothing left to unpin. Also resets the parked-ask wake fingerprint
+   * so a later session reusing an id re-surfaces cleanly.
    */
   clear(): void {
     this.records.clear();
@@ -289,9 +289,9 @@ class FleetMailbox {
   }
 
   /**
-   * CL-8978: stamp a transient (retryable/timeout/overload) provider failure
-   * alongside sessions.fail. Survives session eviction like providerFailure —
-   * snapshot projects it even once the payload is tombstoned.
+   * Stamp a transient (retryable/timeout/overload) provider failure alongside
+   * sessions.fail. Survives session eviction like providerFailure — snapshot
+   * projects it even once the payload is tombstoned.
    */
   markRecoverable(id: string): void {
     const existing = this.records.get(id);
@@ -332,10 +332,10 @@ class FleetMailbox {
   }
 
   /**
-   * CL-7331: mark that a send_input interrupt:true followup owns this lane.
-   * Suppresses any interrupt overlay so wait stays live (running/queued)
-   * until the followup settles. No-op on an unknown id; safe to call on a
-   * collected mailbox (frozen status still wins for projection).
+   * Mark that a send_input interrupt:true followup owns this lane. Suppresses
+   * any interrupt overlay so wait stays live (running/queued) until the
+   * followup settles. No-op on an unknown id; safe to call on a collected
+   * mailbox (frozen status still wins for projection).
    */
   noteFollowup(id: string): void {
     const existing = this.records.get(id);
@@ -707,7 +707,7 @@ function fleetJson(value: unknown): string {
 }
 
 /**
- * Tier gate for stamped requires_tools (CL-9476). run.ts mounts submit_result
+ * Tier gate for stamped requires_tools. run.ts mounts submit_result
  * and ask_director on Tier 3 leaves only, and fleet verbs on orchestrator
  * tiers only — a requirement the dispatch tier can never mount rejects here
  * as missing_tool (pre-spawn) instead of surviving to the mount-time stale
@@ -923,13 +923,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   // writePaths lock. There is no field in the spawn_agent contract a caller
   // uses to declare which files a dispatch will touch, so the only honestly
   // knowable "intended scope" at spawn is the working directory the dispatch
-  // will run in — worktree-isolated lanes always get a fresh, disjoint path
-  // here, so this can only ever fire in the shared-cwd fallback, which is
-  // exactly where two lanes really can stomp each other's writes.
-  // Keyed by call.id for finally cleanup. The session store is authoritative
-  // for liveness: cancel (and other terminals) can stamp finishedAt before the
-  // run promise settles and reaches finally, so a map entry alone is not proof
-  // the lane is still working.
+  // will run in — worktree-isolated lanes always get a fresh, disjoint path,
+  // so this only fires in the shared-cwd fallback, where two lanes really can
+  // stomp each other's writes. Keyed by call.id for finally cleanup; the
+  // session store is authoritative for liveness, since cancel can stamp
+  // finishedAt before the run promise settles.
   // Warnings are for mutating cwd waves only: declared read-only modelRoles
   // (explore/plan/review/test) never participate, and a cwd emits at most one
   // conflict while any live mutating writer remains; the wave flag clears when
@@ -1117,8 +1115,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         );
       }
 
-      // CL-9476: fail closed before any session, telemetry, or worktree exists.
-      // A rejection returns here — no auto re-dispatch, no successor, no retry.
+      // Fail closed before any session, telemetry, or worktree exists. A
+      // rejection returns here — no auto re-dispatch, no successor, no retry.
       // The tier below is the single derivation shared by the tier gate and
       // the run mount: run.ts mounts the leaf reporting channel exactly when
       // tier is "leaf", so gating on any other value would let a requirement
@@ -1141,9 +1139,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         // tool on demand (run.ts retains stamped inherited MCP tools, and
         // retains the inherited set unstamped only when no narrower
         // constraint applies), so preflight validates `mcp__*` requirements
-        // against this set instead of the built-in catalog. Gating through
-        // the worker gate keeps the names to what this dispatch may
-        // actually mount.
+        // against this set instead of the built-in catalog.
         const availableMcpTools = (
           deps.inheritMcpTools?.(deps.permissionGate) ?? []
         )
@@ -1420,8 +1416,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         deps.sessions.markRunInFlight(session.id);
         void (async () => {
           if (!stillAdmissible()) {
-            // CL-7787: the run was marked in flight above but will never
-            // start — settle through the normal terminal path instead of just
+            // The run was marked in flight above but will never start —
+            // settle through the normal terminal path instead of just
             // releasing the admission slot, or the wait projection strands on
             // "running" with nothing left to settle it.
             deps.sessions.settleRun(session.id);
@@ -1460,8 +1456,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           }
 
           if (!stillAdmissible()) {
-            // CL-7787: same stranded-run settle as above — the interrupt (or
-            // cancel) landed while worktree setup was in flight.
+            // Same stranded-run settle as above — the interrupt (or cancel)
+            // landed while worktree setup was in flight.
             deps.sessions.settleRun(session.id);
             finalizeEnd();
             await reclaimWorktree();
@@ -1470,14 +1466,12 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           }
 
           // Detect, don't lock: warn when another live mutating lane is already
-          // working in this same cwd. Worktree-isolated lanes never collide here
+          // working in this same cwd. Worktree-isolated lanes never collide
           // (each gets its own directory); this only fires in the shared-cwd
           // fallback, where two writers genuinely can overwrite each other's
-          // writes. Declared read-only modelRoles are ignored. At most one
-          // conflict per cwd wave. Never blocks the spawn — the least destructive
-          // response that still tells the operator something true, since a
-          // shared cwd does not by itself prove the two lanes touch the same
-          // files, only that they could.
+          // writes. Declared read-only modelRoles are ignored; at most one
+          // conflict per cwd wave. Never blocks the spawn — a shared cwd does
+          // not prove the two lanes touch the same files, only that they could.
           const laneCwd = worktreeCwd ?? deps.cwd;
           const laneModelRole = resolved.pkg?.modelRole;
           const laneIsWriter = !isDeclaredReadOnly(laneModelRole);
@@ -1582,12 +1576,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             ...(deps.skillDirs !== undefined
               ? { skillDirs: deps.skillDirs }
               : {}),
-            // CL-9010: shared-cwd lanes reuse the dispatcher's skill catalog
-            // instead of rescanning — the snapshot was discovered for this
-            // exact cwd. Worktree lanes run elsewhere, so they rediscover
-            // (through the cached discovery) for their own directory.
-            // Every fleet-spawned worker skips the pricing-cache seed read:
-            // the parent runtime already applied the process seed at boot.
+            // Shared-cwd lanes reuse the dispatcher's skill catalog instead of
+            // rescanning — the snapshot was discovered for this exact cwd.
+            // Worktree lanes run elsewhere, so they rediscover for their own
+            // directory. Every fleet-spawned worker skips the pricing-cache
+            // seed read: the parent runtime already applied it at boot.
             ...(deps.skillSnapshot !== undefined && worktreeCwd === undefined
               ? { skills: deps.skillSnapshot }
               : {}),
@@ -1682,12 +1675,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               if (result.interrupted === true) {
                 keepWorktreeAlive = true;
                 runInterrupted = true;
-                // CL-7344: a followup stashed via send_input interrupt launches
-                // from attachReport, so the settling original turn must
-                // attach its salvage here — attachReport records the salvage
-                // and launches the stashed followup in one atomic step.
-                // Skipping the attach would strand the stash and hang
-                // wait_agents on a phantom turn.
+                // A followup stashed via send_input interrupt launches from
+                // attachReport, so the settling original turn must attach its
+                // salvage here — attachReport records the salvage and launches
+                // the stashed followup in one atomic step. Skipping the attach
+                // would strand the stash and hang wait_agents on a phantom turn.
                 deps.sessions.attachReport(session.id, result.report, {
                   ...(result.stopReason !== undefined
                     ? { stopReason: result.stopReason }
@@ -1737,11 +1729,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               if (isProviderFailure || providerFailureObserved) {
                 deps.fleetRecords.markProviderFailure(session.id);
               }
-              // CL-8978: a classified transient failure stays wait-terminal
-              // failed, but carries a continuable marker so the parent can
-              // spawn one successor instead of stalling on the failure.
-              // Fatal categories (credential/quota/context-overflow) and
-              // unclassified throws never mark — no auto-retry is added here.
+              // A classified transient failure stays wait-terminal failed, but
+              // carries a continuable marker so the parent can spawn one
+              // successor instead of stalling on the failure. Fatal categories
+              // (credential/quota/context-overflow) and unclassified throws
+              // never mark — no auto-retry is added here.
               if (
                 isResolvedProviderFailureError(err) &&
                 isRecoverableProviderFailureCategory(err.category)
@@ -1803,12 +1795,11 @@ function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
 /**
  * Blocks until `mode` is satisfied for `targets`, or `timeoutMs` / abort
  * elapses, or the optional (currently unwired in production)
- * `shouldYieldWait` predicate is true. Driven by the session
- * store's mailbox (`subscribe`) raced against a timer and the parent tool
- * signal; never polls. Timeout, abort, and yield do not interrupt
- * workers: live and awaiting_director stay peeked; terminals are taken
- * unless already bodyHanded. Overlay writers wake this wait via
- * `sessions.wake()`.
+ * `shouldYieldWait` predicate is true. Driven by the session store's mailbox
+ * (`subscribe`) raced against a timer and the parent tool signal; never polls.
+ * Timeout, abort, and yield do not interrupt workers: live and
+ * awaiting_director stay peeked; terminals are taken unless already
+ * bodyHanded. Overlay writers wake this wait via `sessions.wake()`.
  */
 async function waitForTerminal(
   sessions: SubAgentSessionStore,
@@ -1928,10 +1919,10 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
       // A yield leaves live records for occupancy (mailbox mail / ask-wake):
       // running/queued stay peeked and the awaiting_director question above
       // stays with the wake path. Terminal records are always taken, even on
-      // a yield or timeout — CL-8028: reporting done with no report while the
-      // record stays uncollected blocks resume_agent ("call wait_agents
-      // first") and the occupancy yield predicate stays true on the
-      // uncollected terminal, so every later wait yields the same way.
+      // a yield or timeout: reporting done with no report while the record
+      // stays uncollected blocks resume_agent ("call wait_agents first") and
+      // keeps the occupancy yield predicate true, so every later wait yields
+      // the same way.
       const results = targets.map((id) => {
         const record = deps.fleetRecords.peek(id);
         if (record === undefined) {
@@ -1964,10 +1955,10 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         if (isLiveWaitStatus(record.status)) {
           return { agent_id: id, status: record.status };
         }
-        // CL-8028: a terminal status shown here must be collected. Falling
-        // through to takeAndProjectMailboxRecord even when yielded (see the
-        // note above) so a timed_out wait never reports done without its
-        // report while leaving the record uncollected.
+        // A terminal status shown here must be collected. Falling through to
+        // takeAndProjectMailboxRecord even when yielded (see the note above)
+        // so a timed_out wait never reports done without its report while
+        // leaving the record uncollected.
         if (record.bodyHanded === true) {
           return {
             agent_id: id,
