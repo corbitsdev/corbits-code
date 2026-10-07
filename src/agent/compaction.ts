@@ -24,27 +24,24 @@ import {
 import { onTurnBoundary } from "./reactor-events.js";
 
 const COMPACTOR_NAME = "pruning-compactor";
-// The compactor's no-op floor, derived from the same helper so it cannot
-// drift; arming at or below it would spend a reactor cycle that shrinks
-// nothing.
+// Compactor no-op floor, from the same helper so it cannot drift; arming
+// at or below spends a cycle that shrinks nothing.
 const MIN_TURNS_TO_COMPACT = compactorNoOpFloor();
-// Bound on context-overflow retries so an unshrinkable history cannot loop
-// forever; cleared when usage lands back under the watermark.
+// Cap overflow retries so an unshrinkable history cannot loop forever;
+// cleared once usage drops back under the watermark.
 const MAX_OVERFLOW_RECOVERIES = 2;
 // Consecutive threshold compacts with no under-watermark relief; tool-call
-// occupancy does not reset it, or every few tool messages re-enable the loop.
+// occupancy must not reset it, or tool traffic re-enables the loop.
 const MAX_CONSECUTIVE_THRESHOLD_COMPACTS = 2;
 
 // A compact runs in its own reactor cycle with no event after it, and worker
-// loops have no operator to send the next one. The governor swaps the
-// post-tool infer for a compact and requests a continuation re-entry that
-// re-issues the infer; without it the loop stalls, which is worse than
-// growing the context.
+// loops have no operator to send the next one. Without the continuation
+// re-entry the loop stalls — worse than growing the context.
 export type CompactionGovernor = ReturnType<typeof createCompactionGovernor>;
 
-// Re-entry after a compact cycle, as a ReactorAction the host answers with
-// buildCompactionContinuationMessage() (what the old requestContinuation
-// closure delivered). Subscribers that only watch provider traffic ignore it.
+// Re-entry after a compact cycle, a ReactorAction the host answers with
+// buildCompactionContinuationMessage(). Subscribers that only watch
+// provider traffic ignore it.
 export const COMPACTION_CONTINUATION_EVENT = "custom.compaction.continue";
 /** Compact reason for `/compact` and `/handoff` (operator-triggered folds). */
 export const OPERATOR_COMPACT_REASON = "operator-request";
@@ -138,44 +135,43 @@ export function createCompactionGovernor(
   let pending = false;
   let idlePending = false;
   let manualPending = false;
-  // Sticky operator instructions from `/compact …` or `/handoff …`: empty
-  // trailing still folds with the default summary, non-empty is kept for
-  // auto-folds and the compact record.
+  // Sticky `/compact`/`/handoff` instructions; empty folds with the default
+  // summary, non-empty is kept for auto-folds and the compact record.
   let extraInstructions: string | undefined;
-  // Snapshots taken at requestHandoff so cancelManual can restore the
-  // pre-pivot idle arming and a prior successful fold's guidance.
+  // requestHandoff snapshots so cancelManual restores pre-pivot idle arming
+  // and a prior fold's guidance.
   let idlePendingAtHandoff = false;
   let extraInstructionsAtHandoff: string | undefined;
   let postCompactInfer = false;
-  // Idle empty compact re-enters decide only to adopt the shrunk turns for
-  // the meter, never to infer. Distinct from postCompactInfer.
+  // Idle empty compact re-enters decide only to sync the meter, never to
+  // infer. Distinct from postCompactInfer.
   let postCompactMeter = false;
   let overflowRecoveries = 0;
   let consecutiveThresholdCompacts = 0;
-  // True when the arming decision fell back to the local estimate (usage
-  // omitted or zero), so a meter can flag the number as approximate.
+  // True when arming fell back to the local estimate (usage omitted or
+  // zero), so a meter can flag the number as approximate.
   let usingEstimate = false;
   let lastModel: string | undefined;
   let turnCount = 0;
-  // Growth latch: snapshot the first inference.done after a compact and only
-  // re-arm on a wide resume gap past it. Every compact sets it;
+  // Growth latch: snapshot the first inference.done after a compact and
+  // re-arm only past a wide resume gap. Every compact sets it;
   // under-threshold folds keep it.
   let tokensAtLastCompact: number | undefined;
   let awaitingPostCompactMeasurement = false;
   // Still-over fold: the growth latch holds (small growth does not re-arm)
-  // but the consecutive cap is spent immediately, so the fold reports
-  // non-convergence instead of saw-toothing on the wide-gap re-arm.
+  // but the consecutive cap is spent, so it reports non-convergence instead
+  // of saw-toothing on the wide-gap re-arm.
   let foldNonConverged = false;
 
-  // Running local estimate of the turns plus fixed prompt/tool overhead.
-  // Fills the gap when the provider omits usage; provider usage is preferred
-  // so a coarse local count cannot thrash a trustworthy signal.
+  // Running estimate of the turns plus fixed prompt/tool overhead; fills the
+  // gap when the provider omits usage. Provider usage is preferred so a
+  // coarse count cannot thrash a trustworthy signal.
   const estimate = createContextEstimate(
     estimateOverheadTokens(systemPrompt, toolDefinitions),
   );
 
   // Re-sync after turn appends, tool results, and compaction rewrites;
-  // callers pass the full list so no incremental bookkeeping.
+  // callers pass the full list.
   function syncFromTurns(turns: readonly ConversationTurn[]): number {
     turnCount = turns.length;
     return estimate.syncFromTurns(turns);
@@ -214,8 +210,8 @@ export function createCompactionGovernor(
     pending = false;
   }
 
-  // Re-entry after a compact. The legacy subagent path holds the host closure
-  // and drives its stall-ping loop through it; the chat path gets an emit
+  // Re-entry after a compact: the legacy subagent path holds the host
+  // closure and drives its stall-ping loop; the chat path gets an emit
   // action the host answers with a deliver.
   function continuationActions(
     capabilities: ReactorCapabilities,
@@ -232,7 +228,7 @@ export function createCompactionGovernor(
     actions: ReactorAction[],
   ): boolean {
     // Fail-closed only: ChatDirector owns spacer-echo completeness; this just
-    // refuses to treat an incomplete wait or reply as an idle-compact pause.
+    // refuses to treat an incomplete wait or reply as an idle pause.
     if (event.type === "inference.done" && isCompactSpacerEchoTurn(event.turn))
       return true;
     return actions.some(
@@ -250,7 +246,7 @@ export function createCompactionGovernor(
     usingEstimate = reportedTokens <= 0;
     const contextTokens = usingEstimate ? estimate.tokens : reportedTokens;
     // Snapshot on the first inference.done after a compact (the post-compact
-    // infer), not at intercept time — intercept has no fresh usage.
+    // infer); intercept has no fresh usage.
     if (awaitingPostCompactMeasurement) {
       tokensAtLastCompact = contextTokens;
       awaitingPostCompactMeasurement = false;
@@ -259,26 +255,26 @@ export function createCompactionGovernor(
         consecutiveThresholdCompacts = MAX_CONSECUTIVE_THRESHOLD_COMPACTS;
       }
     }
-    // Fold evidence: usage back at or under the threshold restores both rails
-    // (consecutive compacts, overflow recoveries) and clears foldNonConverged;
-    // the growth latch stays. Nothing else resets the rails, or
-    // compact→infer→compact would loop forever.
+    // Usage at or under the threshold restores both rails (consecutive
+    // compacts, overflow recoveries) and clears foldNonConverged; the growth
+    // latch stays. Nothing else resets them, or compact→infer→compact loops
+    // forever.
     if (isAtOrUnderCompactThreshold(contextTokens, lastModel)) {
       consecutiveThresholdCompacts = 0;
       overflowRecoveries = 0;
       foldNonConverged = false;
     }
     // Assign, don't OR: an under-threshold follow-up must disarm a sticky
-    // pending left from an earlier over-threshold turn.
+    // pending from an earlier over-threshold turn.
     pending = isOverThreshold(contextTokens);
   }
 
   // Compact at the natural pause between a tool batch and its follow-up
-  // infer: drop the infer, run the compact, and re-enter inference via the
-  // continuation. `pending` is the last inference.done snapshot —
-  // authoritative with real provider usage; with omitted usage it came from
-  // the estimate, so re-derive against the live estimate instead of trusting
-  // a `pending` stale by one tool batch.
+  // infer: drop the infer, compact, and re-enter via the continuation.
+  // `pending` is the last inference.done snapshot — authoritative with real
+  // usage; with omitted usage it came from the estimate, so re-derive
+  // against the live estimate instead of trusting a `pending` stale by one
+  // tool batch.
   function interceptActions(
     event: ReactorInboundEvent,
     actions: ReactorAction[],
@@ -305,10 +301,10 @@ export function createCompactionGovernor(
     ];
   }
 
-  // An interactive turn can end with a reply and sit idle; a pending compact
-  // would then wait for a tool batch forever. When the turn ends without
-  // follow-up work, arm a continuation re-entry and compact when it (or the
-  // next operator message) arrives.
+  // A reply-ending turn can sit idle; a pending compact would then wait for
+  // a tool batch forever. When the turn ends without follow-up work, arm a
+  // continuation re-entry and compact when it (or the next operator message)
+  // arrives.
   //
   // Single-delivery: the closure channel and the boolean return are mutually
   // exclusive, matching continuationActions. With a legacy closure it fires
@@ -345,7 +341,7 @@ export function createCompactionGovernor(
   }
 
   // Idle empty compact needs a meter-only re-entry; a raced operator message
-  // needs a follow-up infer. Shared by the threshold idle path and TTL fold.
+  // needs a follow-up infer. Shared by threshold idle and TTL fold.
   function issueIdleFold(
     content: string,
     capabilities: ReactorCapabilities,
@@ -374,7 +370,7 @@ export function createCompactionGovernor(
       clearManualArming();
       const content = inboundText(event);
       // No event arrives after compact, so always request a continuation to
-      // re-enter decide: raced operator content re-infers, empty synthetic
+      // re-enter decide: raced operator content re-infers, empty
       // continuation only syncs the meter.
       if (operator) {
         if (content.length > 0) postCompactInfer = true;
@@ -389,7 +385,7 @@ export function createCompactionGovernor(
     }
     // Cache expiry is a prompt transform, not a fold: compacting on an
     // unarmed re-entry would drop history the transform leaves stored (it
-    // stubs tool bodies on the outgoing request instead).
+    // stubs tool bodies on the outgoing request).
     return null;
   }
 
@@ -418,9 +414,9 @@ export function createCompactionGovernor(
     ];
   }
 
-  // After compact, a content-less continuation re-enters decide. "infer" means
-  // resume the interrupted loop; "meter" means adopt the shrunk turns for the
-  // Ctx display and stay idle (idle empty compact has nothing to answer).
+  // After compact, a content-less continuation re-enters decide. "infer"
+  // resumes the interrupted loop; "meter" adopts the shrunk turns for the
+  // Ctx display and stays idle (idle empty compact has nothing to answer).
   function resumeAfterCompact(
     event: ReactorInboundEvent,
   ): "infer" | "meter" | null {
@@ -438,15 +434,15 @@ export function createCompactionGovernor(
   }
 
   // Pre-shrink provider usage is stale; re-sync from the compacted turns and
-  // treat the local estimate as authoritative until the next inference.done.
+  // trust the local estimate until the next inference.done.
   function notePostCompact(turns: readonly ConversationTurn[]): void {
     syncFromTurns(turns);
     usingEstimate = true;
   }
 
   // True while the host owes a continuation answer. The resume flags are
-  // consume-on-hit, so an empty message that finds neither set is unsolicited
-  // (forged or replayed) — answering it would burn a billable inference.
+  // consume-on-hit, so an empty message that finds neither set is
+  // unsolicited (forged/replayed) — answering it burns a billable inference.
   function hasOutstandingContinuation(): boolean {
     return postCompactInfer || postCompactMeter;
   }
@@ -462,8 +458,8 @@ export function createCompactionGovernor(
     if (turnCount <= MIN_TURNS_TO_COMPACT) return "noop";
     const trimmed = instructions.trim();
     if (trimmed.length > 0) extraInstructions = trimmed;
-    // A compact is already in flight (apply-to-meter or post-compact infer).
-    // Keep sticky instructions but do not kick a second fold.
+    // A compact is already in flight (apply-to-meter or post-compact infer);
+    // keep sticky instructions but do not kick a second fold.
     if (hasOutstandingContinuation()) return "armed";
     manualPending = true;
     if (options?.inFlight === true) return "armed";

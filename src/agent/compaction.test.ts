@@ -45,14 +45,13 @@ const capabilities = {
   }),
 } as unknown as ReactorCapabilities;
 
-// Distinct non-zero cacheRead/cacheWrite so a total-based assertion would
-// fail if compaction.ts ever summed only `input` again.
+// Distinct non-zero cacheRead/cacheWrite so a total-based assertion fails
+// if compaction.ts ever sums only `input` again.
 function usage(input: number): TokenUsage {
   return { input, output: 0, cacheRead: 3, cacheWrite: 5, thinking: 0 };
 }
 
-// All-zero fields, unlike usage(0) which still carries the cache values
-// above.
+// All-zero fields; usage(0) still carries the cache values above.
 function zeroUsage(): TokenUsage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 };
 }
@@ -409,8 +408,7 @@ describe("compaction governor", () => {
   });
 
   test("arms from accumulated growth across many turns when usage is absent", () => {
-    // One turn stays well under threshold; only the sum across a long
-    // conversation crosses it.
+    // One turn stays well under threshold; only the sum across a long conversation crosses it.
     const governor = createCompactionGovernor(() => undefined);
     const perTurnChars = 2000;
     const turns = turnsOfLength(200, perTurnChars);
@@ -474,7 +472,7 @@ describe("compaction governor", () => {
   });
 
   test("stays inert below the minimum-turn floor no matter how far over threshold", () => {
-    // A single turn is the compactor no-op floor. Arming here would spend a
+    // A single turn is the compactor no-op floor; arming here spends a
     // reactor cycle that cannot shrink anything.
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(
@@ -510,8 +508,7 @@ describe("compaction governor", () => {
   });
 
   test("never arms at the exact turn count createPruningCompactor no-ops on", () => {
-    // The compactor's own no-op floor; arming at or below it would spend a
-    // cycle that shrinks nothing.
+    // The compactor's own no-op floor; arming at or below it spends a cycle that shrinks nothing.
     const floor = compactorNoOpFloor();
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(
@@ -540,8 +537,8 @@ describe("compaction governor", () => {
   });
 
   test("does not catch a huge tool result mid-cycle when the provider reported real usage", () => {
-    // Disclosed gap: the live re-check only re-derives arming from the
-    // estimate when the last snapshot did (usingEstimate). Real usage is
+    // Disclosed gap: the live re-check re-derives arming from the estimate
+    // only when the last snapshot did (usingEstimate). Real usage is
     // authoritative until the next inference.done, so a huge tool result in
     // between is not caught.
     const governor = createCompactionGovernor(() => undefined);
@@ -555,8 +552,7 @@ describe("compaction governor", () => {
       turnsOfLength(10, Math.ceil(overThresholdChars / 10)),
     );
 
-    // Still null: the re-check only applies when the last snapshot used the
-    // estimate.
+    // Still null: the re-check only applies when the last snapshot used the estimate.
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
@@ -588,8 +584,7 @@ describe("compaction governor", () => {
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).not.toBeNull();
 
-    // Deep fold: the next 60% crossing already clears the wide-gap delta, so
-    // it re-arms.
+    // Deep fold: the next 60% crossing already clears the wide-gap delta, so it re-arms.
     governor.noteInferenceDone(inferenceDone(1000), tenTurns);
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
@@ -620,8 +615,7 @@ describe("compaction governor", () => {
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
 
-    // Growth latch survives the under-threshold fold: the next crossing stays
-    // inert.
+    // Growth latch survives the under-threshold fold: the next crossing stays inert.
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
@@ -666,7 +660,7 @@ describe("compaction governor", () => {
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).not.toBeNull();
 
-    // Post-compact measurement is a marginal under-threshold fold. The
+    // Post-compact measurement is a marginal under-threshold fold; the
     // growth latch must survive it so the next 60% crossing stays inert.
     governor.noteInferenceDone(inferenceDone(marginalInput), tenTurns);
     expect(
@@ -851,8 +845,7 @@ describe("compaction governor", () => {
 });
 
 describe("post-compact above-threshold latch (CL-9006)", () => {
-  // Growth that used to re-arm under the old resume delta must no longer
-  // re-arm on its own.
+  // Growth that used to re-arm under the old resume delta must no longer re-arm on its own.
   const smallGrowth = Math.floor(wideDelta / 2);
 
   test("resume-delta-scale growth while still over threshold does not re-arm", () => {
@@ -1004,8 +997,7 @@ describe("post-compact above-threshold latch (CL-9006)", () => {
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).not.toBeNull();
 
-    // Still over: non-converged, cap spent even past a wide gap and tool
-    // occupancy.
+    // Still over: non-converged, cap spent even past a wide gap and tool occupancy.
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
     expect(governor.foldNonConverged).toBe(true);
     governor.noteInferenceDone(
@@ -1068,8 +1060,7 @@ describe("post-compact above-threshold latch (CL-9006)", () => {
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).not.toBeNull();
 
-    // Still over after an operator fold: small growth must not re-arm the
-    // automatic path.
+    // Still over after an operator fold: small growth must not re-arm the automatic path.
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
     governor.noteInferenceDone(
       inferenceDone(overThreshold + smallGrowth),
@@ -1110,8 +1101,7 @@ describe("cache expiry never folds (CL-8914)", () => {
       () => nowMs,
     );
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-    // Threshold arming fires at the tool pause, not on message.received
-    // re-entry.
+    // Threshold arming fires at the tool pause, not on message.received re-entry.
     nowMs += 5 * MINUTE_MS + 1;
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
@@ -1201,8 +1191,7 @@ describe("handoff arming (/handoff)", () => {
       compactor: "pruning-compactor",
       reason: OPERATOR_COMPACT_REASON,
     });
-    // A content-bearing pivot always re-infers after the fold — never the
-    // meter-only idle path.
+    // A content-bearing pivot always re-infers after the fold — never the meter-only idle path.
     expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
     // The single operator fold is spent: a replayed arrival folds nothing.
     expect(
