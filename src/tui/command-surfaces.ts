@@ -1,11 +1,9 @@
 /**
- * Slash-command surfaces for the OpenTUI host.
+ * Slash-command surfaces opened on the shared overlay host.
  *
- * Commands whose result asks for a surface (settings, permissions, plugins,
- * help, model picker) are routed here and opened on the shared overlay host
- * with host-supplied data. Nothing in this module reaches into session state —
- * every read and write arrives through {@link CommandSurfaceDeps}, so the
- * surfaces stay testable without a live runner.
+ * Every read and write arrives through {@link CommandSurfaceDeps} — nothing
+ * here reaches into session state, so surfaces stay testable without a live
+ * runner.
  */
 
 import { isAbsoluteHTTPURL, validateMCPServerName } from "../mcp/add-server.js";
@@ -116,8 +114,8 @@ export interface PermissionsSurfaceDeps {
 
 export interface PluginsSurfaceDeps {
   readonly list: () => readonly PluginEntry[];
-  // A trust-grant load can surface skill-miss and similar warnings; the
-  // optional message is shown via `deps.notify` at the call site.
+  // A trust-grant load can surface skill-miss warnings; the message is
+  // shown via `deps.notify` at the call site.
   readonly setEnabled: (
     id: string,
     enabled: boolean,
@@ -137,16 +135,16 @@ export interface PluginsSurfaceDeps {
   readonly currentWebProvider: () => string | undefined;
   readonly setWebProvider: (id: string | undefined) => Promise<void>;
   /**
-   * Session cwd (`config.cwd`, not `process.cwd()` — `--cwd` does not chdir).
-   * Disk-confirm and ownership checks must use this, never `process.cwd()`.
+   * Session cwd (`config.cwd` — `--cwd` does not chdir). Disk-confirm and
+   * ownership checks must use this, never `process.cwd()`.
    */
   readonly cwd: string;
   /** Home used for user-plugin / ~/.claude ownership checks. */
   readonly home: string;
   /**
-   * Standing session-level load warnings (or the full set when attribution is
-   * weak). Shown as a summary row under `/plugins`; drives `plugin !` via the
-   * runner, not this surface.
+   * Standing session load warnings, shown as a summary row under `/plugins`
+   * (the full set when attribution is weak; `plugin !` uses the runner, not
+   * this surface).
    */
   readonly loadWarnings?: () => readonly string[];
 }
@@ -237,9 +235,8 @@ export interface CommandSurfaceDeps {
   readonly openModels?: () => void;
   /**
    * Opens the host's add-provider selector (owned by the product host).
-   * `/connect` omits returnToModels. `/connect <kind> [profile]` pre-scopes
-   * via initialKind/initialProfile (kind row focused, profile to the flow),
-   * with completion reported after that interactive flow settles.
+   * `/connect <kind> [profile]` pre-scopes via initialKind/initialProfile;
+   * completion is reported once that flow settles.
    */
   readonly openAddProvider?: (opts?: {
     returnToModels?: boolean;
@@ -537,9 +534,8 @@ interface SettingsNavRow {
 
 /**
  * Nav rows other than permissions, the only one with an async source.
- * Plugins and hooks read synchronously, so without a permissions dep the
- * open resolves in the same tick it was requested — callers that open and
- * immediately assert on `shell.overlayKind` depend on that.
+ * Without a permissions dep the open resolves in the same tick — callers
+ * that assert on `shell.overlayKind` right away depend on that.
  */
 function settingsSyncNavRows(deps: CommandSurfaceDeps): SettingsNavRow[] {
   const rows: SettingsNavRow[] = [];
@@ -592,10 +588,9 @@ function renderSettingsMenu(
   settings: SettingsSurfaceDeps,
   navRows: readonly SettingsNavRow[],
 ): void {
-  // Cycling re-enters openSettingsSurface to refresh every row's closures
-  // against the just-written value; closing first forces a real reopen (a
-  // second open of the same kind while one is showing is a no-op) and the
-  // captured index keeps the cursor.
+  // Close first: a same-kind open while one is showing is a no-op, so this
+  // forces a real reopen that refreshes row closures with the new value and
+  // keeps the cursor.
   const activeIndex =
     shell.overlayKind === "settings"
       ? (shell.overlayList?.activeIndex ?? 0)
@@ -790,10 +785,9 @@ function credentialRowLabel(
 
 /**
  * Credential entry pane for one plugin. Enter starts/commits an inline edit;
- * s saves; v saves then verifies. A secret field is never echoed in the
- * clear — the buffer is displayed only through `maskEcho`/`maskSecret`, and
- * every keystroke mutates the real value directly (append/backspace), so
- * there is no masked-display round-trip to get wrong.
+ * s saves; v saves then verifies. A secret never echoes in the clear — the
+ * buffer renders only through `maskEcho`/`maskSecret`, so there is no
+ * masked-display round-trip to get wrong.
  */
 function openCredentialsPane(
   shell: AppShell,
@@ -1149,10 +1143,9 @@ export function openPluginsSurface(
         );
       },
       onAction: (id, key) => {
-        // Alt+<key>, never bare — c/v/t/a/w/x read as ordinary letters the
-        // filter-as-you-type list would otherwise swallow. Alt+C cannot
-        // collide with the global copy-mode chord: this overlay branch returns
-        // before shell.ts's top-level onKey is reached.
+        // Alt+<key>, never bare — bare c/v/t/a/w/x would be swallowed by the
+        // filter list. Alt+C is safe here: this branch returns before
+        // shell.ts's top-level onKey reaches the global copy-mode chord.
         if (key.ctrl || !(key.meta || key.option)) return false;
         const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
         // Surface-level chords — advertised in the how-to even when focus is on
@@ -1590,9 +1583,8 @@ export function openMcpSurface(
         const url = target.authURL;
         if (target.state !== "needs-auth" || url === undefined) return;
         mcp.openAuthURL(url);
-        // The copy is the SSH fallback: the browser taking the redirect is
-        // often not this machine.
-        // Flash long enough (6s) to notice the browser was asked to open.
+        // The copy is the SSH fallback — the browser often runs on another
+        // machine. Flash 6s so the open request is noticeable.
         const flashTtl = { ttlMs: 6000 };
         const say = (suffix: string): void =>
           setStatusFlash(
