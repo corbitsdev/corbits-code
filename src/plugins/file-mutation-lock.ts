@@ -1,5 +1,5 @@
 // Serializes write_file / edit_file per path so verify-plugin's before/after
-// snapshot stays consistent when the model issues parallel edits on one file.
+// snapshot stays consistent under parallel edits to one file.
 
 const tails = new Map<string, Promise<unknown>>();
 

@@ -25,10 +25,8 @@ export const echoArgsHandler: ToolHandler = async (call) => ({
   content: JSON.stringify(call.arguments),
 });
 
-/**
- * The plugin under test is expected to install middleware; a missing one must
- * fail loudly rather than silently pass through `next`.
- */
+/** Plugins under test must install middleware; a missing one fails loudly
+ * rather than silently passing through `next`. */
 export function middlewareOf(plugin: ToolPlugin): Middleware {
   if (plugin.middleware === undefined) {
     throw new Error("expected middleware");
@@ -59,8 +57,8 @@ export interface RgScript {
   closeFirst?: boolean;
 }
 
-// A child whose event order is dictated by the test rather than by how the
-// platform happens to schedule pipe reads.
+// A child whose event order the test dictates, not the platform's pipe-read
+// scheduling.
 export function scriptedRgSpawn(script: RgScript): SpawnRg {
   return () => {
     let onData: ((chunk: unknown) => void) | undefined;
@@ -92,8 +90,8 @@ export function scriptedRgSpawn(script: RgScript): SpawnRg {
   };
 }
 
-// A child that never emits data or closes, so the timeout is the only path
-// to settlement — no race against how fast a real ripgrep happens to run.
+// Never emits or closes: the timeout is the only settlement path, no race
+// with a real ripgrep's speed.
 export const stalledRgSpawn: SpawnRg = (): RgChild => ({
   pid: undefined,
   stdout: { on: () => undefined },

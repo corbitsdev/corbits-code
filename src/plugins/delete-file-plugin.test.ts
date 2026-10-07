@@ -73,9 +73,8 @@ describe("deleteFilePlugin", () => {
       new AbortController().signal,
     );
 
-    // Match on the parts that matter (callId, deletion message, removed
-    // content) rather than the exact hunk header text, which is a
-    // formatChangeDiff implementation detail covered by change-diff.test.ts.
+    // Match callId, deletion message, and removed content, not the exact hunk
+    // header (a formatChangeDiff detail covered by change-diff.test.ts).
     expect(result.callId).toBe("delete-call");
     expect(String(result.content)).toContain("old.txt");
     expect(String(result.content)).toContain("-old");

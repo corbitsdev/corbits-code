@@ -45,10 +45,9 @@ export function pathLooksLikePdf(filePath: string): boolean {
 }
 
 /**
- * Classify the first streamed chunk. PDF magic wins even without a .pdf
- * suffix. A .pdf name with NUL but no magic is malformed. A .pdf that is
- * otherwise valid UTF-8 is left as a normal text read so a misnamed text
- * file is not a new refusal.
+ * First-chunk classification: PDF magic wins even without a .pdf suffix;
+ * .pdf with NUL but no magic is malformed; valid UTF-8 .pdf reads as text
+ * so a misnamed text file is not refused.
  */
 export function inspectionKindFromFirstChunk(
   filePath: string,

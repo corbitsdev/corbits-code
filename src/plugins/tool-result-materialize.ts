@@ -14,8 +14,8 @@ export interface MaterializedToolResult {
 // Pretty-printing a multi-megabyte blob is not worth the CPU/memory; leave it raw.
 const PRETTY_SIZE_CEILING_CHARS = 8 * 1024 * 1024;
 
-// Mirror vendor/intx-storage-isogit + optimized-context-store blob filenames so the
-// absolute path named in the truncation notice matches what writeBlob actually wrote.
+// Mirror vendor/intx-storage-isogit + optimized-context-store blob filenames so
+// the truncation notice's path matches what writeBlob actually wrote.
 const TOOL_OUTPUT_DIR = "tool-output";
 const UNSAFE_FILENAME_CHARS = /[^a-zA-Z0-9_-]/g;
 const BLOB_EXTENSIONS: Readonly<Record<string, string>> = {
@@ -55,9 +55,9 @@ function looksLikeJsonDocument(text: string): boolean {
 }
 
 function isNdjson(text: string): boolean {
-  // Require at least two non-empty lines that each parse as JSON. A single JSON
-  // object on one line is handled by the document path instead. Strip a trailing
-  // CR so CRLF-delimited NDJSON still classifies (JSON.parse rejects `"…}\r"`).
+  // Needs >=2 non-empty lines that each parse as JSON; a single-line object goes
+  // through the document path instead. Strip a trailing CR so CRLF NDJSON
+  // classifies (JSON.parse rejects `"…}\r"`).
   const lines = text.split("\n").filter((line) => line.length > 0);
   if (lines.length < 2) return false;
   for (const line of lines) {

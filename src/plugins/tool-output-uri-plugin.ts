@@ -6,10 +6,9 @@ import {
 
 /**
  * Normalize read_file tool-output URIs before the posix handler or read-file
- * guard resolves blobs. Every other tool that takes a `path` argument (grep,
- * search_files, ...) rejects the scheme here, before it reaches ripgrep or
- * the filesystem — those tools have no blob reader and would otherwise treat
- * the URI as a literal (nonexistent) path.
+ * guard resolves blobs. Other `path` tools (grep, search_files, ...) reject
+ * the scheme here — they have no blob reader and would treat the URI as a
+ * literal (nonexistent) path.
  */
 export function toolOutputUriPlugin(): ToolPlugin {
   return {
