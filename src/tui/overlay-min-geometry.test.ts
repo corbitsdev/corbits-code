@@ -1,7 +1,7 @@
 /**
- * CL-6986: an approval on a terminal shorter than the 10-row guarantee must
- * still be answerable. Geometry may steal from the prompt floor; the painted
- * overlay border must close; at least one choice row must appear in the frame.
+ * An approval on a terminal shorter than the 10-row guarantee must still be
+ * answerable. Geometry may steal from the prompt floor; the painted overlay
+ * border must close; at least one choice row must appear in the frame.
  */
 
 import { describe, expect, test } from "bun:test";

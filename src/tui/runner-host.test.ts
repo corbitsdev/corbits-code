@@ -131,8 +131,8 @@ describe("rowFromTranscriptEntry", () => {
       meta: "grep",
       toolName: "grep",
       verb: "Grep",
-      // Empty summary is intentional: without it the paint layer falls through
-      // to raw argument JSON (CL-5762). Verb alone names the call.
+      // Empty summary is intentional: without it the paint layer falls
+      // through to raw argument JSON. Verb alone names the call.
       summary: "",
       pending: true,
       callKey: "grep Grep ",
@@ -252,10 +252,10 @@ describe("mountRunnerHost chrome wiring", () => {
     );
   });
 
-  // CL-5731: subscribeChrome must stay wired end-to-end. formatChromeZones
-  // now parks both chrome strips (always null), so a tasks push must not
-  // paint the checklist — this test asserts the notify path still runs and
-  // leaves the task panel empty (rebuild later; live work is spawn_agent rows).
+  // subscribeChrome must stay wired end-to-end. formatChromeZones now parks
+  // both chrome strips (always null), so a tasks push must not paint the
+  // checklist — this test asserts the notify path still runs and leaves the
+  // task panel empty (rebuild later; live work is spawn_agent rows).
   test("a live chrome push (subscribeChrome notify) does not auto-paint the task panel", async () => {
     let liveTasks: readonly {
       title: string;
@@ -340,8 +340,8 @@ describe("mountRunnerHost model picker", () => {
   });
 
   test("refreshModels swaps in a freshly connected provider's models without a remount", async () => {
-    // Mount-time deps are a snapshot; a live provider connect (CL-5602) must be
-    // able to replace them without remounting the host, or the newly connected
+    // Mount-time deps are a snapshot; a live provider connect must be able to
+    // replace them without remounting the host, or the newly connected
     // provider's models never appear.
     await withRunnerHost(
       async (host) => {

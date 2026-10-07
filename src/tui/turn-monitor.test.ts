@@ -528,10 +528,10 @@ describe("stall watchdog", () => {
     });
   });
 
-  // The gate exemption (this fix) and the parallel-tool-call exemption
-  // (CL-5641) are independent guards feeding the same stall check — a run
-  // with both outstanding must stay exempt, and closing the gate while the
-  // tool call is still out must not re-expose it to the clock.
+  // The gate exemption (this fix) and the parallel-tool-call exemption are
+  // independent guards feeding the same stall check — a run with both
+  // outstanding must stay exempt, and closing the gate while the tool call
+  // is still out must not re-expose it to the clock.
   test("a gate open alongside a live sibling tool call stays exempt", async () => {
     await withHarness(async (t) => {
       t.bridge.submit("build it", "immediate");

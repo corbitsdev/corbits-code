@@ -578,11 +578,11 @@ export async function createRunLifecycle(
   // works.
   const interrupt = (): void => {
     state.credentialRecovery?.clear();
-    // CL-8220 gate: an in-flight compact runs inline on the vendored reactor
-    // with no abort hop of its own, so an interrupt that merely queues behind
-    // it parks until the summary call returns. Abort the compact first — the
-    // wrapper returns a no-op and the reactor reaches dequeue — then run the
-    // normal rebuild. The bumped generation still retires the compaction
+    // An in-flight compact runs inline on the vendored reactor with no abort
+    // hop of its own, so an interrupt that merely queues behind it parks
+    // until the summary call returns. Abort the compact first — the wrapper
+    // returns a no-op and the reactor reaches dequeue — then run the normal
+    // rebuild. The bumped generation still retires the compaction
     // continuation onto the replacement agent; no hop is dropped.
     if (state.compactionLifecycle?.isCompacting() === true) {
       state.systemNotice?.("Compaction in progress — interrupting…");
@@ -650,7 +650,7 @@ export async function createRunLifecycle(
   // /clear does not leave orphaned child reactors burning tokens.
   const newSession = (): void => {
     state.credentialRecovery?.clear();
-    // CL-8220: rotation must not park behind an in-flight compact either.
+    // Rotation must not park behind an in-flight compact either.
     state.compactionLifecycle?.abortCompaction("session rotation");
     const cancelledWorkers = resetSessionForRotation(state, services);
     // Backend rotation is always enqueued regardless of contention; the queue
@@ -665,10 +665,10 @@ export async function createRunLifecycle(
         // produced it, not the fresh one.
         await services.cycleRecorder.dispose("rotation");
         // Deliberately not routed through closeAgentForRebuild/
-        // agentRebuildFailure (unlike interrupt and reloadIfIdle, CL-5753):
-        // rotation mints a fresh sessionId/workdir below before calling
-        // buildAgent(), so even a close() that leaks the old workdir's lock
-        // (see closeAgentForRebuild's doc comment) can never cause a second
+        // agentRebuildFailure (unlike interrupt and reloadIfIdle): rotation
+        // mints a fresh sessionId/workdir below before calling buildAgent(),
+        // so even a close() that leaks the old workdir's lock (see
+        // closeAgentForRebuild's doc comment) can never cause a second
         // acquisition on that same workdir — buildAgent() always targets
         // the new, unlocked directory. The old lock still leaks for the
         // rest of the process, but nothing ever tries to re-acquire it, so

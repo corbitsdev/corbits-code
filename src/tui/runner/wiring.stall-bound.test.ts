@@ -20,12 +20,12 @@ import {
 } from "../../subagent/session-store.js";
 import { cancelWorkersForStop, createFleetStallPollTick } from "./wiring.js";
 
-// CL-8016: a silent primary turn (wake text sent, inference never starts)
-// must not freeze the message queue and parked worker questions forever.
-// The stall poll tick bounds that turn via shouldAbortForStall (including
-// awaiting-first-token after #1095): past the stall threshold it aborts,
-// the queued operator message gets a fresh turn, and parked asks either
-// re-surface (escalated) or settle exactly once via the ask deadline.
+// A silent primary turn (wake text sent, inference never starts) must not
+// freeze the message queue and parked worker questions forever. The stall
+// poll tick bounds that turn via shouldAbortForStall (including
+// awaiting-first-token): past the stall threshold it aborts, the queued
+// operator message gets a fresh turn, and parked asks either re-surface
+// (escalated) or settle exactly once via the ask deadline.
 
 const STALL_TIMEOUT_MS = 1_000;
 

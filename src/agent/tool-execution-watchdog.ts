@@ -29,8 +29,8 @@ export interface ToolWatchdogConfig {
   /**
    * Override for mcp__* tool calls (settings.mcp.timeoutMs). Unlike the
    * generic defaultMs/maxMs pair, MCP tools are always bounded — a wedged MCP
-   * server otherwise hangs a tool call forever (CL-6895) — so this only
-   * changes the bound, it never leaves it unarmed.
+   * server otherwise hangs a tool call forever — so this only changes the
+   * bound, it never leaves it unarmed.
    */
   mcpTimeoutMs?: number;
   /**
@@ -53,10 +53,10 @@ export interface ToolWatchdogConfig {
 }
 
 // Default wall-clock budget for a single MCP tool call when settings.mcp.timeoutMs
-// is unset. Live forensics (CL-6895) showed multi-minute MCP calls that were
-// merely slow and later completed successfully, not deadlocked — so this stays
-// generous (5 minutes) rather than the shorter default used for other tools,
-// while still bounding a genuinely wedged server.
+// is unset. Live forensics showed multi-minute MCP calls that were merely slow
+// and later completed successfully, not deadlocked — so this stays generous
+// (5 minutes) rather than the shorter default used for other tools, while
+// still bounding a genuinely wedged server.
 export const DEFAULT_MCP_TOOL_TIMEOUT_MS = 300_000;
 
 // Cap applied when Settings set tools.timeoutMs without tools.maxTimeoutMs.
@@ -106,8 +106,7 @@ export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
  *
  * mcp__* tool calls are the opposite of exempt: they arm unconditionally (see
  * resolveMcpToolTimeoutMs) even when no Settings are configured, because an
- * MCP server can wedge a call forever with no other watchdog to bound it
- * (CL-6895).
+ * MCP server can wedge a call forever with no other watchdog to bound it.
  */
 export function resolveToolExecutionTimeoutMs(
   config?: ToolWatchdogConfig,
@@ -430,7 +429,6 @@ export interface ToolExecutionWatchdogOptions {
  * When budget/parent abort wins the race, the signal is still aborted, but we
  * give the in-flight execute a short grace to return a usable non-error body
  * (e.g. wait_agents structured salvage) before synthesizing "aborted"/timeout.
- * This closes the CL-4611 race where salvage was discarded wholesale.
  */
 export async function runWithToolExecutionWatchdog(
   call: ToolCall,

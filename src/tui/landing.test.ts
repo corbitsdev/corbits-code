@@ -294,14 +294,14 @@ describe("landing screen", () => {
   });
 
   test("an idle mount keeps the snow drifting on its own, with nothing pumping frames by hand", async () => {
-    // Regression for CL-5737: every other test in this file drives the mark
-    // by calling `paintLanding` directly with a hand-picked clock. That is
-    // exactly why the landing snow shipped completely unreachable — none of
-    // those tests go through the real driver a running session actually
-    // uses. This one mounts the shell for real and lets it repaint itself:
-    // no `paintLanding`/`renderMark` calls, and critically no `renderOnce`
-    // loop either while waiting — a test that pumps frames by hand can stay
-    // green even when production's self-driving mechanism is dead, which is
+    // Regression: every other test in this file drives the mark by calling
+    // `paintLanding` directly with a hand-picked clock. That is exactly why
+    // the landing snow shipped completely unreachable — none of those tests
+    // go through the real driver a running session actually uses. This one
+    // mounts the shell for real and lets it repaint itself: no
+    // `paintLanding`/`renderMark` calls, and critically no `renderOnce` loop
+    // either while waiting — a test that pumps frames by hand can stay green
+    // even when production's self-driving mechanism is dead, which is
     // exactly the blind spot that let the throttled build ship frozen snow.
     await withAppShell(
       async (_shell, h) => {
@@ -310,12 +310,12 @@ describe("landing screen", () => {
 
         // Poll until the product's own idle-repaint timer moves the snow, or
         // until a deadline. A single fixed sleep-then-check races the timer
-        // under CI load (CL-5766): when the interval is delayed past the
-        // sleep, `flush` finds nothing scheduled and the capture is still
-        // the mount frame. Polling keeps the property intact — nothing here
-        // calls `paintLanding`/`renderMark`/`renderOnce`, so a frozen timer
-        // still fails — while early exit drops the average suite cost below
-        // the old fixed 3s wait.
+        // under CI load: when the interval is delayed past the sleep, `flush`
+        // finds nothing scheduled and the capture is still the mount frame.
+        // Polling keeps the property intact — nothing here calls
+        // `paintLanding`/`renderMark`/`renderOnce`, so a frozen timer still
+        // fails — while early exit drops the average suite cost below the old
+        // fixed 3s wait.
         const deadline = performance.now() + 5_000;
         let after = before;
         while (performance.now() < deadline) {
@@ -674,9 +674,9 @@ describe("landing screen", () => {
   });
 
   test("startup MCP/load errors keep the mountain and ride the notice strip", async () => {
-    // CL-5618 / CL-5600: system notices on load used to appendStreamRow →
-    // clearLandingMark, wiping the brand hero. They must surface as secondary
-    // chrome while geometry still seats MARK_SMALL or larger.
+    // System notices on load used to appendStreamRow → clearLandingMark,
+    // wiping the brand hero. They must surface as secondary chrome while
+    // geometry still seats MARK_SMALL or larger.
     await withAppShell(
       async (shell, h) => {
         await settle(h);
@@ -867,15 +867,15 @@ describe("landing screen", () => {
     // landing screen has not been torn down yet (no transcript content sent)
     // — restored chrome and the version badge's reserved row both compete
     // for the same short terminal at once. This is the regression case for
-    // that interaction (CL-5735/5736 review, blocker 4).
+    // that interaction.
     const size = { width: 100, height: 17 };
     await withAppShell(
       async (shell, h) => {
         setChromeZones(shell, {
           task: [{ label: "wire the version badge", status: "doing" }],
         });
-        // CL-5847: hidden by default — opt in so the regression case (task
-        // row + version badge competing for the same short terminal) still
+        // Hidden by default — opt in so the regression case (task row +
+        // version badge competing for the same short terminal) still
         // exercises both painting at once.
         toggleTasksPanel(shell);
         await settle(h);

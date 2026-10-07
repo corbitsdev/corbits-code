@@ -1,9 +1,10 @@
 /**
  * Density ramp — the activity primitive, replacing the braille spinner.
  *
- * corbits.dev renders an ordered dither at a 4-pixel cell; a terminal has that
- * texture natively as block-density characters, so the house motif ports rather
- * than being approximated. Two surfaces draw from it, at two widths.
+ * corbits.dev renders an ordered dither at a 4-pixel cell; a terminal has
+ * that texture natively as block-density characters, so the house motif
+ * ports rather than being approximated. Two surfaces draw from it, at two
+ * widths.
  *
  * The wide fill (`rampFor`) is the provider-setup status line:
  *
@@ -11,18 +12,19 @@
  *   done       ██████████   green,  still
  *   blocked    █████▓▒░     orange, frozen mid-fill
  *
- * The single cell (`rampPulse`) is the session shell's bottom-left status slot,
- * where one column is all the border row can spare:
+ * The single cell (`rampPulse`) is the session shell's bottom-left status
+ * slot, where one column is all the border row can spare:
  *
  *   working    █ ▓ ▒ ░ …    bronze, cycling density — it visibly moves
  *   done       █            green,  still
  *   blocked    ▌            orange, one static half block — stillness is the signal
  *   stalled    ! / █        orange, bangs alternating with a block, then static !
  *
- * `blocked` and `stalled` share a color deliberately — both name a turn waiting
- * on outside action — but must never be confused for each other, and neither
- * may be confused with a live one. Every distinction above is carried by glyph
- * and motion before color, so all four survive a monochrome terminal.
+ * `blocked` and `stalled` share a color deliberately — both name a turn
+ * waiting on outside action — but must never be confused for each other,
+ * and neither may be confused with a live one. Every distinction above is
+ * carried by glyph and motion before color, so all four survive a
+ * monochrome terminal.
  *
  * Pure and clock-injected: `nowMs` is the only time source, so the caller's
  * existing tick drives the animation and tests drive it deterministically.

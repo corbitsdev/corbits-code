@@ -1,7 +1,7 @@
 /**
- * URL click-through (CL-7346): Ctrl+click opens an http(s) URL in the
- * default browser; a plain click keeps today's row behavior. Armed
- * plain/structured rows open through their own node handlers (with hover
+ * URL click-through: Ctrl+click opens an http(s) URL in the default
+ * browser; a plain click keeps today's row behavior. Armed plain/structured
+ * rows open through their own node handlers (with hover
  * highlight); assistant markdown opens through the bubbling transcript
  * handler — click only, no hover highlight.
  *

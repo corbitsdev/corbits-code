@@ -356,7 +356,7 @@ const BUBBLE_MAX_SHARE = 0.75;
 
 /**
  * Empty bar rows painted above and below the operator's text so the turn
- * reads as a block when scrolling past denser assistant/tool rows (CL-5603).
+ * reads as a block when scrolling past denser assistant/tool rows.
  */
 const USER_BUBBLE_PAD = 1;
 

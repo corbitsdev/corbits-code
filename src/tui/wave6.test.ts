@@ -90,9 +90,9 @@ describe("Wave 6: long-log windowing", () => {
 
       expect(shell.streamLog.length).toBe(n);
       expect(shell.lineCount).toBe(n);
-      // Paint tree tracks the full retained log 1:1 (CL-5553) — capped at
-      // MAX_RETAINED_STREAM_ROWS by CL-5551, not a smaller paint window,
-      // so every retained row stays reachable by scrolling.
+      // Paint tree tracks the full retained log 1:1 — capped at
+      // MAX_RETAINED_STREAM_ROWS, not a smaller paint window, so every
+      // retained row stays reachable by scrolling.
       const painted = shell.transcript.getChildren().length;
       expect(painted).toBeLessThanOrEqual(MAX_RETAINED_STREAM_ROWS + 1);
       expect(painted).toBe(n + 1); // +1: bottom-anchor spacer
@@ -184,8 +184,8 @@ describe("Wave 6: chrome zones", () => {
         agents: [{ label: "explore: map callers", tail: "", stalled: false }],
       });
 
-      // CL-5847: the panel is hidden by default — toggle to show before
-      // asserting it paints.
+      // The panel is hidden by default — toggle to show before asserting
+      // it paints.
       toggleTasksPanel(shell);
 
       expect(shell.layout.heights.task).toBe(1);
@@ -318,9 +318,9 @@ describe("Wave 6: chrome zones", () => {
   });
 });
 
-// CL-5731: the task list and the agents panel are distinct concepts — a
-// task is a unit of work with a status, an agent is an executor — and must
-// render as distinct panels, never merged.
+// The task list and the agents panel are distinct concepts — a task is a
+// unit of work with a status, an agent is an executor — and must render as
+// distinct panels, never merged.
 describe("CL-5731: task list panel", () => {
   test("each task entry renders with its own status, distinct from the agents panel", async () => {
     await withAppShell(async (shell, h) => {
@@ -333,7 +333,7 @@ describe("CL-5731: task list panel", () => {
         agents: [{ label: "explore: map callers", tail: "", stalled: false }],
       });
 
-      // CL-5847: hidden by default — opt in to see the checklist.
+      // Hidden by default — opt in to see the checklist.
       toggleTasksPanel(shell);
 
       expect(shell.layout.heights.task).toBe(3);
@@ -371,7 +371,7 @@ describe("CL-5731: task list panel", () => {
         task: [{ label: "first task", status: "done" }],
       });
 
-      // CL-5847: hidden by default — opt in to see the live update.
+      // Hidden by default — opt in to see the live update.
       toggleTasksPanel(shell);
 
       await h.renderOnce();
@@ -388,8 +388,8 @@ describe("CL-5731: task list panel", () => {
 
   test("default-hidden panel surfaces live task data on toggle without a stale snapshot", async () => {
     await withAppShell(async (shell, h) => {
-      // CL-5847: the panel is hidden by default, even after chrome
-      // carries task rows. The data still lands in tasksRaw underneath.
+      // The panel is hidden by default, even after chrome carries task
+      // rows. The data still lands in tasksRaw underneath.
       setChromeZones(shell, {
         task: [{ label: "wire toggle", status: "doing" }],
       });
@@ -462,7 +462,7 @@ describe("CL-5741: chrome zone rows re-fit on terminal resize", () => {
           task: [{ label: taskTitle, status: "todo" }],
           agents: [{ label: agentLabel, tail: agentTail, stalled: false }],
         });
-        // CL-5847: hidden by default — opt in once during setup.
+        // Hidden by default — opt in once during setup.
         toggleTasksPanel(shell);
 
         await h.renderOnce();

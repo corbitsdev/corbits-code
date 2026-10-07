@@ -128,7 +128,7 @@ function isScalar(value: unknown): boolean {
 /**
  * Scalar (or scalar-array) arguments as `key  value` pairs with their newlines
  * intact — a shell command or a spawn prompt is written to be read as text, and
- * pretty-printed JSON would hand it back with its line breaks escaped (CL-5762).
+ * pretty-printed JSON would hand it back with its line breaks escaped.
  *
  * Nested objects recurse one level so a task brief expands as fields rather than
  * a JSON dump; deeper nesting collapses to a compact token.

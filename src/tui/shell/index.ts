@@ -346,8 +346,8 @@ export function createAppShell(
     if (shellInternals(shell)?.inputSuspended === true) return;
     // Mid-run Enter soft-steers (deliver at next tool.boundary); the bridge
     // upgrades it to an immediate new turn while the parent is idle with a
-    // live fleet (idle-with-fleet, CL-7057). Alt+Enter is follow-up (quiet
-    // wait until idle). Idle sends ignore "kind".
+    // live fleet. Alt+Enter is follow-up (quiet wait until idle). Idle sends
+    // ignore "kind".
     submitPrompt(shell, "steer");
   };
 
@@ -541,11 +541,11 @@ export function createAppShell(
     reducedMotion,
     landingIdleTimerCancel: null,
     chrome: { task: [], tasksRaw: [], agents: [] },
-    // CL-5847: the manage_tasks checklist panel is hidden by default. The
-    // panel owns too much of the screen for the operator to want it forced
-    // into view on a fresh shell; Alt+T (toggleTasksPanel) opts in for the
-    // shell's lifetime. Live task data still lands in tasksRaw while hidden,
-    // so the first toggle shows current data rather than a stale snapshot.
+    // The manage_tasks checklist panel is hidden by default. The panel owns
+    // too much of the screen for the operator to want it forced into view on
+    // a fresh shell; Alt+T (toggleTasksPanel) opts in for the shell's
+    // lifetime. Live task data still lands in tasksRaw while hidden, so the
+    // first toggle shows current data rather than a stale snapshot.
     tasksPanelHidden: true,
     pendingSelId: null,
   });
@@ -562,16 +562,13 @@ export function createAppShell(
   //
   // Cleared on whichever teardown happens first: the landing going away
   // (`clearLandingMark`, first transcript row) or the whole shell disposing
-  // (`dispose` below, e.g. tests that never grow a transcript).
-  //
-  // Also self-cancels on `renderer.isDestroyed`: a real terminal session
-  // always disposes the shell, but headless test harnesses commonly destroy
-  // the renderer directly (`withTestRenderer`'s cleanup) without ever
-  // calling `shell.dispose()`. Without this check the timer would keep
+  // (`dispose` below). Also self-cancels on `renderer.isDestroyed`: headless
+  // test harnesses commonly destroy the renderer directly without ever
+  // calling `shell.dispose()`, and without this check the timer would keep
   // firing against renderables the harness already tore down.
   //
-  // Reduced motion never starts the timer: there is no snow to advance
-  // and the mountain stays on its filled frame.
+  // Reduced motion never starts the timer: there is no snow to advance and
+  // the mountain stays on its filled frame.
   if (!reducedMotion) {
     const landingIdleHandle = setInterval(() => {
       if (renderer.isDestroyed) {

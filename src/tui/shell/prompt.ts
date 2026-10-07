@@ -249,16 +249,13 @@ export function syncPromptHighlights(shell: AppShell): void {
  * Surface a runtime/load notice without stealing the landing hero.
  *
  * MCP connection failures, hook failures and similar startup chatter used to
- * call `appendStreamRow` → `clearLandingMark`, wiping the mountain the moment
- * anything went wrong on load (CL-5618 / CL-5600). While the landing is still
- * mounted the wording rides the notice strip and the row is held for flush
- * once a real session row ends the landing; after that it is a normal system
- * row.
+ * call `appendStreamRow` → `clearLandingMark`, wiping the mountain the
+ * moment anything went wrong on load. While the landing is still mounted the
+ * wording rides the notice strip and the row is held for flush once a real
+ * session row ends the landing; after that it is a normal system row.
  *
  * Every producer of a system-class row belongs here rather than at
- * `appendStreamRow`. CL-5618 fixed the MCP and hook producers one at a time
- * and the plugin producer kept the defect, which is what per-call-site rules
- * buy you. Reaching for `appendStreamRow` directly is the bug.
+ * `appendStreamRow`. Reaching for `appendStreamRow` directly is the bug.
  */
 /**
  * Suspend or resume the shell's own key/paste/submit handling. A full-screen
@@ -287,11 +284,10 @@ export function surfaceSystemNotice(shell: AppShell, text: string): void {
 }
 
 /**
- * Submit the prompt. Product chords (CL-6290):
+ * Submit the prompt. Product chords:
  *  - "steer": mid-run Enter — soft steer at the next tool.boundary.
  *  - "queue": mid-run Alt+Enter — follow-up; deliver only when the run goes
- *    idle. Idle Alt+Enter is a no-op at the key handler (never reaches here
- *    with kind "queue" while idle from the product chord).
+ *    idle. Idle Alt+Enter is a no-op at the key handler.
  *  - "reinject": hard-stop and restart from this message. No product chord
  *    wires this anymore; kept for tests / direct API callers. No-op when the
  *    run isn't busy, or the prompt is empty.
@@ -360,7 +356,7 @@ export function submitPrompt(
   }
 
   if (kind === "reinject") {
-    // Unwired from product chords (CL-6290); kept for tests / direct callers.
+    // Unwired from product chords; kept for tests / direct callers.
     shell.session = interrupt(shell.session);
     shell.prompt.value = "";
     clearPendingAttachments(shell);

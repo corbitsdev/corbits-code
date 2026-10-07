@@ -1,7 +1,7 @@
 /**
- * CL-6720: an overlay with nothing to choose reserves zero list rows and
- * paints an explicit empty state inside the body chrome — including on a
- * short terminal, which must not reserve a phantom choice row.
+ * An overlay with nothing to choose reserves zero list rows and paints an
+ * explicit empty state inside the body chrome — including on a short
+ * terminal, which must not reserve a phantom choice row.
  */
 import { describe, expect, test } from "bun:test";
 

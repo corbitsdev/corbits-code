@@ -684,8 +684,8 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     };
     const { pending } = hangCompact(lifecycle);
     expect(lifecycle.isCompacting()).toBe(true);
-    // CL-8220: the gate aborts the compact first instead of parking the
-    // interrupt behind the unobservable reactor, then rebuilds as usual.
+    // The gate aborts the compact first instead of parking the interrupt
+    // behind the unobservable reactor, then rebuilds as usual.
     defined(state.interrupt, "interrupt")();
     // The abort wins the apply race: the compact returns a no-op fold instead
     // of parking behind the hung summary call, and the flag clears.
@@ -869,16 +869,16 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
   });
 });
 
-// CL-5753: an interrupt can hit close() while reactor.abort()/sendQueue.drain()
-// are mid-teardown, throwing before @intx/agent's close() ever reaches
+// An interrupt can hit close() while reactor.abort()/sendQueue.drain() are
+// mid-teardown, throwing before @intx/agent's close() ever reaches
 // lock.release(). Once that happens the agent is already marked closed, so a
 // retried close() is a silent no-op that can never free the lock either — the
 // workdir's lock is stuck held for the rest of the process. The next
 // buildAgent() for that same workdir is then guaranteed to throw
-// AgentContextLockError ("an agent is already open for workdir: ..."), which
-// is the crash from the ticket. These tests cover the two functions the
-// runner now routes every rebuild through so that failure is reported in
-// plain language rather than escaping as an unhandled rejection.
+// AgentContextLockError ("an agent is already open for workdir: ..."). These
+// tests cover the two functions the runner now routes every rebuild through
+// so that failure is reported in plain language rather than escaping as an
+// unhandled rejection.
 describe("rebuild close helpers", () => {
   function stubAgent(closeImpl: () => Promise<void>): Agent {
     return { close: closeImpl } as unknown as Agent;

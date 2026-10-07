@@ -217,7 +217,7 @@ describe("attachSessionBridge", () => {
         await h.renderOnce();
         expect(port.calls.some((c) => c.op === "enqueue")).toBe(true);
         const enq = port.calls.find((c) => c.op === "enqueue");
-        // Plain Enter mid-run soft-steers (CL-6290). Follow-up is Alt+Enter.
+        // Plain Enter mid-run soft-steers. Follow-up is Alt+Enter.
         expect(enq).toEqual({
           op: "enqueue",
           text: "queued please",
@@ -445,9 +445,9 @@ describe("attachSessionBridge", () => {
   });
 
   test("queued item delivers on a tool-less turn (inference.done, no tool calls)", async () => {
-    // Regression for CL-5563: reactor.done only fires once, at agent
-    // shutdown, never between turns — a plain-text reply with no tool calls
-    // must still drain the queue, or a queued message sits forever.
+    // Regression: reactor.done only fires once, at agent shutdown, never
+    // between turns — a plain-text reply with no tool calls must still drain
+    // the queue, or a queued message sits forever.
     await withBridge({ run: "busy" }, async ({ shell, port, bridge }) => {
       bridge.submit("follow up", "queue");
       expect(badgeCount(shell.session)).toBe(1);
@@ -475,10 +475,10 @@ describe("attachSessionBridge", () => {
     // may never emit connector.reply, the only other event that clears
     // `run` and the turn's `isProcessing`. Without this, every future Enter
     // resolves to "queue" (busy is sticky) and, once the workflow stops
-    // producing cycles, that queued message is never drained — CL-5563's
-    // bug moved one layer over. The ramp indicator has the same failure
-    // mode: it reads `isProcessing`, not `run`, so it can say "working"
-    // forever even once dispatch itself is fixed.
+    // producing cycles, that queued message is never drained — the bug moved
+    // one layer over. The ramp indicator has the same failure mode: it reads
+    // `isProcessing`, not `run`, so it can say "working" forever even once
+    // dispatch itself is fixed.
     await withBridge({ run: "busy" }, async ({ shell, port, bridge }) => {
       bridge.handle({ type: "inference.start" });
       bridge.handle({
@@ -975,9 +975,9 @@ describe("parallel sub-agent dispatch on the live session bridge", () => {
   // The live main-session path tracks a call's row by callId in its own map
   // (applyToolCall/applyToolResult), independent of tool-rows.ts's name-based
   // pendingCallIndex — this pins that down so a future change to either path
-  // cannot silently reintroduce CL-5562's misattribution on the parent
-  // transcript specifically (the observe overlay and resumed history are
-  // covered separately in tool-rows.test.ts / history-hydrate.test.ts).
+  // cannot silently reintroduce the misattribution on the parent transcript
+  // specifically (the observe overlay and resumed history are covered
+  // separately in tool-rows.test.ts / history-hydrate.test.ts).
   test("three parallel spawn_agent calls resolve to three rows, each with its own result", async () => {
     await withBridge({ run: "idle" }, async ({ shell, bridge }) => {
       const events = [

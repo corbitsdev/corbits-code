@@ -1166,11 +1166,9 @@ function isDuplicateSystemEcho(shell: AppShell, row: StreamRow): boolean {
 /**
  * Paint + push onto the visible streamLog (child while observing, parent
  * otherwise). The paint tree stays 1:1 with the (retention-capped) log —
- * CL-5551 already bounds `streamLog` to `MAX_RETAINED_STREAM_ROWS`, so there
- * is no separate, smaller window to maintain on top of it: every retained
- * row gets a node, which is also what makes all of it reachable by
- * scrolling (CL-5553). A trim past the cap costs one node removal here, not
- * a rebuild.
+ * every retained row gets a node, which is also what makes all of it
+ * reachable by scrolling. A trim past the cap costs one node removal here,
+ * not a rebuild.
  */
 function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
   clearLandingMark(shell);

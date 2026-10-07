@@ -7,20 +7,20 @@
  * 1. Gray never sits on the ground. Dimmed text is a dimmed *cream*
  *    (`textDim`, `textFaint`) so the warm bias survives at every emphasis
  *    level. There is deliberately no neutral gray in this file to reach for.
- * 2. Orange is spent once per screen. It marks the session and whatever awaits
- *    a human decision — nothing else. Ongoing status uses the bronze ramp and
- *    `done` (green) so it never competes with the one thing asking to be
- *    answered. Diff removals are the sole exception: there the orange is
- *    content, not chrome, and no decision-marker shares the row.
+ * 2. Orange is spent once per screen. It marks the session and whatever
+ *    awaits a human decision — nothing else. Ongoing status uses the bronze
+ *    ramp and `done` (green) so it never competes with the one thing asking
+ *    to be answered. Diff removals are the sole exception: there the orange
+ *    is content, not chrome.
  * 3. The chrome ramp is warm but never saturated. Every bronze sits at or
  *    below 54% HSL saturation against Breakthrough Orange's 81%, so full
  *    orange still arrives as an event rather than as another shade of the
  *    furniture.
  *
- * The product owner has deliberately dropped Summit Blue from the terminal:
- * cool information read as foreign against cream, black and orange chrome. The
- * brand's discipline is kept — small palette, roles not decoration, no hue
- * without a job — only the cool end of it is replaced by warm structure.
+ * Summit Blue is deliberately absent: cool information read as foreign
+ * against cream, black and orange chrome. The brand's discipline is kept —
+ * small palette, roles not decoration, no hue without a job — only the cool
+ * end of it is replaced by warm structure.
  */
 
 /**

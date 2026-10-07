@@ -219,7 +219,7 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
   // registration overwrites the first, so when the mapping-owning sibling
   // resolves first and clears the slot, the leftover earlier collect is
   // invisible to the name-keyed check above. The per-id record keeps it
-  // bounded (CL-8059).
+  // bounded.
   test("concurrent collects with the mapping owner done first still abort at the stall budget", () => {
     const leftover = {
       ...collect,

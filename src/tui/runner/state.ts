@@ -1,11 +1,11 @@
 /**
- * Shared mutable state for the runner split (CL-6791 phase 4), following the
- * provider-setup `SetupState` pattern: `runTUI` in index.ts threads one state
- * bag plus one const services object through the submit/settings/exit/
- * commands/mcp/session factories so the extracted modules see the same live
- * bindings the old closure did. Lives in its own leaf module because the
- * sibling modules must not import each other (only index composes them), yet
- * need the same contracts.
+ * Shared mutable state for the runner split, following the provider-setup
+ * `SetupState` pattern: `runTUI` in index.ts threads one state bag plus one
+ * const services object through the submit/settings/exit/commands/mcp/session
+ * factories so the extracted modules see the same live bindings the old
+ * closure did. Lives in its own leaf module because the sibling modules must
+ * not import each other (only index composes them), yet need the same
+ * contracts.
  */
 
 import type { Agent, SendResult } from "@intx/agent";
@@ -299,8 +299,8 @@ export interface RunnerState {
   // reading it (isPaused(host.shell.session)) the way systemNotice is wired.
   // Optional because tests build partial states without that mount.
   isPaused?: () => boolean;
-  // CL-8220: abort-aware compaction lifecycle, created by the TUI session
-  // assembly (session.ts) and read by the interrupt/rotation paths (exit.ts).
+  // Abort-aware compaction lifecycle, created by the TUI session assembly
+  // (session.ts) and read by the interrupt/rotation paths (exit.ts).
   // Optional because tests build partial states without session assembly.
   compactionLifecycle?: CompactionLifecycle;
   reloadIfIdle?: () => void;

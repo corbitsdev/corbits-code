@@ -1,6 +1,6 @@
 /**
- * CL-5596: a missing surface dependency must produce an honest empty state,
- * never the hardcoded rows from residuals.ts rendered as if they were real.
+ * A missing surface dependency must produce an honest empty state, never the
+ * hardcoded rows from residuals.ts rendered as if they were real.
  */
 import { describe, expect, test } from "bun:test";
 

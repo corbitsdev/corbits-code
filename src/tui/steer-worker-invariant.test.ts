@@ -1,6 +1,6 @@
 /**
- * CL-6291: soft steer / follow-up must keep workers alive; only hard stop
- * (Ctrl+C → doInterrupt → port.interrupt) tears the fleet down via agent close.
+ * Soft steer / follow-up must keep workers alive; only hard stop (Ctrl+C →
+ * doInterrupt → port.interrupt) tears the fleet down via agent close.
  *
  * Owned separately from runtime-bridge.test.ts so gesture remaps (sibling)
  * do not collide with these invariants.

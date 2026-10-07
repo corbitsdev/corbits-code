@@ -1,6 +1,6 @@
 /**
- * Chrome repaint gating (CL-6791 J2): paintChrome recomposes only when a
- * composed input changed, so idle poll ticks cost nothing.
+ * Chrome repaint gating: paintChrome recomposes only when a composed input
+ * changed, so idle poll ticks cost nothing.
  */
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";

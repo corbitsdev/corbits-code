@@ -1,6 +1,6 @@
 /**
- * Startup theme wiring (CL-8993): gather the detection signals at the process
- * edge and publish the winning palette onto the live `UI` binding before any
+ * Startup theme wiring: gather the detection signals at the process edge and
+ * publish the winning palette onto the live `UI` binding before any
  * renderable is constructed, so the first frame cannot mix palettes.
  */
 

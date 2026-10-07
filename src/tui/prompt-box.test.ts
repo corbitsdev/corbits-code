@@ -106,7 +106,7 @@ describe("prompt box height", () => {
     // from the terminal size handed to the resolver before PROMPT_CAP_FRACTION
     // ever runs, so a landing-screen prompt caps one row lower than the same
     // terminal would allow once real transcript content takes the row back.
-    // This is the regression test for that interaction (CL-5735/5736 review).
+    // This is the regression test for that interaction.
     for (const totalRows of [18, 20, 23]) {
       await withShell({ columns: 80, rows: totalRows }, async (shell, h) => {
         const reducedCap = Math.floor((totalRows - 1) * PROMPT_CAP_FRACTION);

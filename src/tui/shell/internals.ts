@@ -883,8 +883,8 @@ interface ShellInternals {
 export const internals = new WeakMap<AppShell, ShellInternals>();
 
 /**
- * Leading filler row inside the transcript's scroll content. Bottom-anchors a
- * short transcript against the prompt box below: sized to the leftover
+ * Leading filler row inside the transcript's scroll content. Bottom-anchors
+ * a short transcript against the prompt box below: sized to the leftover
  * viewport space so few rows sit at the foot of the zone instead of stranded
  * at its top. Once rows fill the viewport the filler settles at zero and
  * sticky-scroll behaves exactly as it did before this existed.

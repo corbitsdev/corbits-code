@@ -462,9 +462,9 @@ describe("agent ask wake delivery", () => {
     });
   });
 
-  // CL-8061: whichever path releases a deferred wake — gate close, an
-  // idle-with-fleet settle, or releaseRunToIdle — mailbox mail goes first, and
-  // a mail drive that takes the turn suppresses the wake entirely.
+  // Whichever path releases a deferred wake — gate close, an idle-with-fleet
+  // settle, or releaseRunToIdle — mailbox mail goes first, and a mail drive
+  // that takes the turn suppresses the wake entirely.
   const releasePaths: {
     name: string;
     arm: (bridge: WakeBridge) => void;

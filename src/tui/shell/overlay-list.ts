@@ -105,7 +105,7 @@ export function dispatchOverlayAccept(
 export function relayoutOverlayHost(shell: AppShell, itemCount: number): void {
   const perItem = overlayRowsPerItem(shell.overlayKind);
   // An empty list reserves zero rows but still paints its one-line empty
-  // state, so the chrome budget carries that row as a body line (CL-6720).
+  // state, so the chrome budget carries that row as a body line.
   const chrome = overlayChromeRows(
     shell.overlayKind,
     shell.overlayBodyLines.length + (itemCount === 0 ? 1 : 0),

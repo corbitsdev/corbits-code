@@ -1,12 +1,12 @@
 /**
- * CL-6699: a queued permission/operator gate must not open onto the host in
- * the middle of a `/` command filter session. The old close-then-reopen
- * refresh released the host between the two calls (idle-notify via
- * onOverlayClosed), and a gate queued behind the popup drained into that gap.
+ * A queued permission/operator gate must not open onto the host in the
+ * middle of a `/` command filter session. The old close-then-reopen refresh
+ * released the host between the two calls (idle-notify via onOverlayClosed),
+ * and a gate queued behind the popup drained into that gap.
  *
- * CL-6711: accepting a slash/palette command must not drain that same queue
- * onto the host before dispatch has claimed it. A live gate already on the
- * host is not stolen; the command surface waits until that gate settles.
+ * Accepting a slash/palette command must not drain that same queue onto the
+ * host before dispatch has claimed it. A live gate already on the host is
+ * not stolen; the command surface waits until that gate settles.
  */
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
@@ -439,10 +439,10 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
     });
   });
 
-  // CL-8792: the single-slot host drains queued gates before deferred
-  // command surfaces. Denying the live gate opens the queued card (arming its
-  // timer only now that it is shown); the deferred /help waits until no gate
-  // is outstanding. While the queued card is still hidden its timer stays
+  // The single-slot host drains queued gates before deferred command
+  // surfaces. Denying the live gate opens the queued card (arming its timer
+  // only now that it is shown); the deferred /help waits until no gate is
+  // outstanding. While the queued card is still hidden its timer stays
   // unarmed even past its deadline.
   test("queued gate takes the host before a deferred /help after the live gate settles", async () => {
     await withShell(async ({ shell }) => {
@@ -707,9 +707,9 @@ describe("overlay host occupancy and opt-in deferral", () => {
     });
   });
 
-  // CL-8792: a gate arriving over settings preempts it (settings is
-  // suspended, not lost) and settling the gate returns settings, from where
-  // plugins accept still works.
+  // A gate arriving over settings preempts it (settings is suspended, not
+  // lost) and settling the gate returns settings, from where plugins accept
+  // still works.
   test("a gate preempts settings and settling it returns settings for plugins accept", async () => {
     const hanging = hangingSettingsList();
     await withShell(async ({ shell }) => {
@@ -903,9 +903,9 @@ describe("overlay host occupancy and opt-in deferral", () => {
     );
   });
 
-  // CL-8792: a replaceable command surface yields to a newly raised
-  // decision gate and returns after that gate settles. Re-opening help while
-  // the gate holds the host must neither settle the gate nor lose the surface.
+  // A replaceable command surface yields to a newly raised decision gate and
+  // returns after that gate settles. Re-opening help while the gate holds
+  // the host must neither settle the gate nor lose the surface.
   test("a new gate preempts help and help returns after the gate settles", async () => {
     await withShell(async ({ shell }) => {
       const { emitter, dispose } = wireShellGates(shell);

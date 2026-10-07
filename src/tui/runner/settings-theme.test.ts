@@ -1,6 +1,6 @@
 /**
- * Settings-pin live-apply (CL-8993): cycling the theme pin repaints the shell
- * at once — it never records-and-waits-for-relaunch. Pins resolve exactly as
+ * Settings-pin live-apply: cycling the theme pin repaints the shell at once
+ * — it never records-and-waits-for-relaunch. Pins resolve exactly as
  * startup does; explicit pins are deterministic regardless of terminal state,
  * so these tests never touch `process.env` or spawn an OS probe.
  *

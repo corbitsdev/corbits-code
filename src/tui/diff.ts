@@ -523,8 +523,8 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
   // that read the same line are what a repeat looks like to the operator.
   const callKey = `${input.name} ${verb ?? ""} ${summary ?? ""}`;
   // Never leave `summary` unset when we have a verb or a summarised view —
-  // `undefined` makes the paint layer fall through to raw argument JSON
-  // (CL-5762). An empty string is fine: the verb alone names the call.
+  // `undefined` makes the paint layer fall through to raw argument JSON. An
+  // empty string is fine: the verb alone names the call.
   const paintSummary =
     summary !== undefined
       ? summary

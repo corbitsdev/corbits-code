@@ -1,35 +1,29 @@
 /**
  * Live chrome zone formatter for setChromeZones.
  *
- * Pure: structured session state → task / agents zone rows.
- * Heights stay with geometry; this module never invents row budgets.
+ * Pure: structured session state → task / agents zone rows. Heights stay
+ * with geometry; this module never invents row budgets.
  *
  * ## Agents strip (live) / task checklist (parked)
  *
- * `formatChromeZones` paints the agents zone from `formatAgentsPanel` and keeps
- * the task checklist parked (`task: null`). Live fleet status is a flat strip
- * above the prompt (label / status / current tool) — same shape as transcript
- * `spawn_agent` anchors, without a FLEET header board. Transcript spawn_agent
- * rows remain as spawn/final/fail anchors; live progress clocks belong to chrome only
- * (product-host gates `syncAgentProgress` while this strip needs a tick).
+ * `formatChromeZones` paints the agents zone from `formatAgentsPanel` and
+ * keeps the task checklist parked (`task: null`). Live fleet status is a
+ * flat strip above the prompt (label / status / current tool) — same shape
+ * as transcript `spawn_agent` anchors, without a FLEET header board.
+ * Transcript spawn_agent rows remain as spawn/final/fail anchors; live
+ * progress clocks belong to chrome only (product-host gates
+ * `syncAgentProgress` while this strip needs a tick).
  *
  * ## Product host push contract
  *
  * The shell does not poll. The product host owns live state (task list,
- * subagent store) and pushes a full snapshot whenever any of those
- * change:
- *
- *   setChromeZones(shell, formatChromeZones(snapshot))
- *
- * Preferred: subscribe to store/governor change events (or a single
- * session-tick emitter) and re-format on each notification. Polling is fine
- * only as a temporary bridge (e.g. 100–250 ms timer while wiring events).
- *
- * Always pass the full snapshot so absent zones clear (`null` hides the zone).
- * Partial object fields mean “no data” → that zone line is null, not left
- * stale. Observe mode can override the agents line via `state.observe`.
- * Sticky poll continues while any agent is live or still inside the
- * post-finish linger window (`finishedAt` + `AGENTS_PANEL_LINGER_MS`).
+ * subagent store) and pushes a full snapshot whenever any of those change:
+ * `setChromeZones(shell, formatChromeZones(snapshot))`. Always pass the
+ * full snapshot so absent zones clear (`null` hides the zone). Partial
+ * object fields mean "no data" → that zone line is null, not left stale.
+ * Observe mode can override the agents line via `state.observe`. Sticky
+ * poll continues while any agent is live or still inside the post-finish
+ * linger window (`finishedAt` + `AGENTS_PANEL_LINGER_MS`).
  */
 
 import {
@@ -66,7 +60,7 @@ export interface ChromeAgentSession {
   readonly currentToolName?: string | null;
   /**
    * Bounded subject of the outstanding call (command / path / pattern). When
-   * set, the agents panel paints this instead of the bare tool name (CL-5765).
+   * set, the agents panel paints this instead of the bare tool name.
    */
   readonly currentToolPreview?: string | null;
   /** Clock the worker started; feeds the panel row's elapsed time. */
@@ -242,7 +236,7 @@ export function agentIsLingering(
  *
  * Terminal-only lists (every task done/cancelled) collapse to null — a wall of
  * `[x]` rows is not live work, and once the fleet board or parent prose has
- * moved on, painting them is noise (CL-5846).
+ * moved on, painting them is noise.
  */
 export function formatTasksPanel(
   task: readonly ChromeTaskRow[] | null | undefined,
@@ -464,7 +458,7 @@ function formatAgentRow(
   const marker = stalled ? "!" : "●";
   const label = `${marker} ${session.agentId}  ${session.description}`.trim();
   // Prefer the argument subject (command / path) over the bare tool name so a
-  // strip of shell calls is distinguishable at a glance (CL-5765).
+  // strip of shell calls is distinguishable at a glance.
   const preview = session.currentToolPreview;
   const tool = session.currentToolName;
   const doing =

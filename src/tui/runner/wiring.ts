@@ -106,25 +106,26 @@ export function surfaceSavedSkipPermissionsWarning(
 /**
  * One tick of the periodic fleet stall poll.
  *
- * The store-subscribe edge drives mailbox mail the moment a lane terminalizes,
- * but that edge is missable: the parent may be mid-turn (`isProcessing`, so
- * `flushMailboxMail` no-ops) or the driver send may fail (swallowed as
- * retryable with no later edge when the fleet is otherwise quiet). Re-flushing
- * here bounds the stall to one poll interval. Both halves are no-ops when
- * there is nothing to say: `reportFleet` diffs, `flushMailboxMail` no-ops
- * while processing or when no uncollected terminal waits.
+ * The store-subscribe edge drives mailbox mail the moment a lane
+ * terminalizes, but that edge is missable: the parent may be mid-turn
+ * (`isProcessing`, so `flushMailboxMail` no-ops) or the driver send may
+ * fail (swallowed as retryable with no later edge when the fleet is
+ * otherwise quiet). Re-flushing here bounds the stall to one poll interval.
+ * Both halves are no-ops when there is nothing to say: `reportFleet` diffs,
+ * `flushMailboxMail` no-ops while processing or when no uncollected
+ * terminal waits.
  *
- * The CL-8016 stall bound rides the same tick, deadline first: past-deadline
- * asks settle (so the snapshot the abort reconciles against is fresh), then a
+ * The stall bound rides the same tick, deadline first: past-deadline asks
+ * settle (so the snapshot the abort reconciles against is fresh), then a
  * still-silent wake turn aborts and hands over to mail or a re-surface.
  *
- * The CL-8060 deadline bound rides it too: when expireStaleAsks actually
- * expired asks this tick and the reconciling snapshot is empty, the armed
- * wake turn is owed to nobody, so it aborts even inside its stall window
- * (a late wake has not been silent long enough to trip the stall bound at
- * the deadline). send_input emptying pending is not an expire — the parent
- * may still be inferring. Expire-abort runs before the stall abort; at
- * most one fires per tick, and both share the occupancy-first handoff.
+ * The deadline bound rides it too: when expireStaleAsks actually expired
+ * asks this tick and the reconciling snapshot is empty, the armed wake turn
+ * is owed to nobody, so it aborts even inside its stall window (a late wake
+ * has not been silent long enough to trip the stall bound at the deadline).
+ * send_input emptying pending is not an expire — the parent may still be
+ * inferring. Expire-abort runs before the stall abort; at most one fires per
+ * tick, and both share the occupancy-first handoff.
  */
 export function createFleetStallPollTick(
   reportFleet: () => void,
@@ -171,7 +172,7 @@ export async function cancelLiveWorkers(
 }
 
 /**
- * Stop teardown (CL-8016): cancel the workers, wipe the sessions (leaving
+ * Stop teardown: cancel the workers, wipe the sessions (leaving
  * tombstones so a late send_input names the teardown), drop the mailbox
  * lanes that pin them, and clear the bridge queue so no wake-turn bound
  * outlives the sessions it was owed to. Exported so the stall-bound
@@ -216,9 +217,9 @@ export function buildShellStopAffordance(deps: {
 export function createFleetWakePublisher(
   sessions: RunnerServices["subAgentSessions"],
   emitter: RunnerServices["emitter"],
-  // Live idle-with-fleet flag (CL-7972): fired on fleet-count transitions so
-  // the chat director's seeded allowance tracks the live fleet instead of
-  // holding its construction value. Omitted in tests that only assert events.
+  // Live idle-with-fleet flag: fired on fleet-count transitions so the chat
+  // director's seeded allowance tracks the live fleet instead of holding its
+  // construction value. Omitted in tests that only assert events.
   onFleetCount?: (running: number) => void,
 ) {
   let lastLiveFleet = 0;
@@ -392,9 +393,9 @@ export function wirePostStartup(
   const fleetWakePublisher = createFleetWakePublisher(
     services.subAgentSessions,
     services.emitter,
-    // Liven the seeded idle-with-fleet allowance (CL-7972): the director
-    // reads the holder live so rebuilds stay tracked, and degrades gracefully
-    // while the director is not yet built.
+    // Liven the seeded idle-with-fleet allowance: the director reads the
+    // holder live so rebuilds stay tracked, and degrades gracefully while
+    // the director is not yet built.
     (running) =>
       services.directorHolder.instance?.setAllowIdleWithFleet(running > 0),
   );
@@ -476,9 +477,9 @@ export function wirePostStartup(
     reportFleet,
     () => sessionBridge.flushMailboxMail(),
     {
-      // Stall bound (CL-8016): deadline-past asks settle inside the tick
-      // before the abort reconciles, so the abort never re-surfaces a
-      // question the deadline already settled.
+      // Stall bound: deadline-past asks settle inside the tick before the
+      // abort reconciles, so the abort never re-surfaces a question the
+      // deadline already settled.
       abortStalledWakeTurn: () => sessionBridge.abortStalledWakeTurn(),
       abortExpiredWakeTurn: (expiredThisTick) =>
         sessionBridge.abortExpiredWakeTurn(expiredThisTick),

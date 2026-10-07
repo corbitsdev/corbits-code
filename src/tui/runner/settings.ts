@@ -248,7 +248,7 @@ export async function wireSettings(
       });
   }
 
-  // Post-upgrade release notes watermark policy (CL-5475):
+  // Post-upgrade release notes watermark policy:
   // - first_install: stamp quietly so later launches do not dump history.
   // - upgrade: stamp only when notes were actually shown. The former Ink
   //   whats-new banner is gone on the OpenTUI path, so notesShown is false

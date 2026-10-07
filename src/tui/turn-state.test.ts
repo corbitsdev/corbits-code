@@ -107,10 +107,10 @@ describe("turnStateFromEvent", () => {
   });
 
   test("a name-only streamed announcement and an id-bearing tool.start for the same call settle on one tool.done", () => {
-    // Regression for CL-5645: inference.tool_call.start streamed the call
-    // under its name (no callId yet); tool.start then announced the same
-    // call under a real id. One tool.done must clear both records, not
-    // leave a name-keyed duplicate pinning activeToolCalls forever.
+    // Regression: inference.tool_call.start streamed the call under its name
+    // (no callId yet); tool.start then announced the same call under a real
+    // id. One tool.done must clear both records, not leave a name-keyed
+    // duplicate pinning activeToolCalls forever.
     const running = fold([
       { type: "inference.start" },
       { type: "inference.tool_call.start", data: { name: "bash" } },
@@ -156,10 +156,10 @@ describe("turnStateFromEvent", () => {
   });
 
   test("concurrent same-name collects stay tracked when the mapping owner finishes first", () => {
-    // Regression for CL-8059: two concurrent wait_agents calls share one
-    // callIdByName slot, so the second registration overwrites the first.
-    // When the mapping-owning sibling resolves first and clears that slot,
-    // the leftover earlier collect must keep its own name record.
+    // Regression: two concurrent wait_agents calls share one callIdByName
+    // slot, so the second registration overwrites the first. When the
+    // mapping-owning sibling resolves first and clears that slot, the
+    // leftover earlier collect must keep its own name record.
     const running = fold([
       { type: "inference.start" },
       {
@@ -193,10 +193,10 @@ describe("turnStateFromEvent", () => {
   });
 
   test("tool.done only sets awaitingResponse once every parallel call has finished", () => {
-    // Regression for CL-5661: with a fan-out of two outstanding calls, the
-    // first tool.done must not claim the turn is idle while the second call
-    // is still running — that falsely tells consumers (stall watchdog,
-    // status chrome) the model is the only thing left to wait on.
+    // Regression: with a fan-out of two outstanding calls, the first
+    // tool.done must not claim the turn is idle while the second call is
+    // still running — that falsely tells consumers (stall watchdog, status
+    // chrome) the model is the only thing left to wait on.
     const running = fold([
       { type: "inference.start" },
       { type: "tool.start", data: { call: { id: "call_1", name: "grep" } } },
@@ -268,10 +268,10 @@ describe("turnStateFromEvent", () => {
   });
 
   test("inference.done with no active tool calls settles the turn", () => {
-    // Regression for CL-5563/CL-5570: a self-continuing workflow cycle
-    // may never emit connector.reply, the usual
-    // terminator. Without settling here too, isProcessing (and the "working"
-    // ramp it drives) stays true forever once nothing else arrives.
+    // Regression: a self-continuing workflow cycle may never emit
+    // connector.reply, the usual terminator. Without settling here too,
+    // isProcessing (and the "working" ramp it drives) stays true forever
+    // once nothing else arrives.
     const s = fold([
       { type: "inference.start" },
       { type: "inference.text.delta" },

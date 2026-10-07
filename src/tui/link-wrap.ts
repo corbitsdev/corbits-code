@@ -12,28 +12,27 @@ import {
 } from "./link-spans.js";
 
 /**
- * Split pre-wrapped plain-row lines so a URL broken across continuation lines
- * resolves to one target: every fragment highlights and opens the full URL.
+ * Split pre-wrapped plain-row lines so a URL broken across continuation
+ * lines resolves to one target: every fragment highlights and opens the
+ * full URL.
  *
  * `wrapWidth` is the painted width the row was wrapped at. Only a full line
  * ending in a URL run can start a chain, and only a full line the run
  * reaches the end of continues one — a short line ends the chain unless
  * nothing textual follows it (end of text, bubble padding), because a short
- * line with text after it is a natural break, not a wrap. A chain is accepted
- * when its fragments reassemble to one of `sourceUrls`, the links the row's
- * pre-wrap text actually holds: word wrap can orphan a short fragment line
- * with wrapped text after it (indistinguishable from a natural break by
- * geometry alone), and the source is what tells the two apart. Without known
- * source URLs the joined candidate still has to scan as exactly one clean
- * http(s) URL, which keeps an unfortunate line break (a full line that
- * happens to end in a URL, followed by a word) from fusing two unrelated
- * runs. That coincidence is indistinguishable from a real wrap after the
- * fact, so it stays a documented approximation: it needs a URL ending
- * exactly at the wrap edge. A seed with no detectable hit on its own line
- * (a hard split inside the scheme or host) only continues through a full
- * first line: the full line broke at a wrap edge, while a short next line
- * behind a bare scheme reads as prose that happens to scan, not a wrap —
- * unless the fragments reassemble to a known source URL, which settles it.
+ * line with text after it is a natural break, not a wrap. A chain is
+ * accepted when its fragments reassemble to one of `sourceUrls`, the links
+ * the row's pre-wrap text actually holds: word wrap can orphan a short
+ * fragment line with wrapped text after it (indistinguishable from a
+ * natural break by geometry alone), and the source is what tells the two
+ * apart. Without known source URLs the joined candidate still has to scan
+ * as exactly one clean http(s) URL, which keeps an unfortunate line break
+ * from fusing two unrelated runs. A seed with no detectable hit on its own
+ * line (a hard split inside the scheme or host) only continues through a
+ * full first line: the full line broke at a wrap edge, while a short next
+ * line behind a bare scheme reads as prose that happens to scan, not a
+ * wrap — unless the fragments reassemble to a known source URL, which
+ * settles it.
  */
 export function splitWrappedLinkSpans(
   lines: readonly { text: string; fg: string }[],

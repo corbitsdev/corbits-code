@@ -1,8 +1,8 @@
 /**
- * CL-5750: the approval surface must never push the prompt box off screen,
- * and its choices must always be visible/reachable — an unanswerable
- * approval deadlocks the session, so the choices win the row budget over
- * the prompt box's growth and over the overlay's own context text.
+ * The approval surface must never push the prompt box off screen, and its
+ * choices must always be visible/reachable — an unanswerable approval
+ * deadlocks the session, so the choices win the row budget over the prompt
+ * box's growth and over the overlay's own context text.
  */
 import { describe, expect, test } from "bun:test";
 import { defined } from "../../testkit/defined.js";

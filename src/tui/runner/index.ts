@@ -1,9 +1,9 @@
 /**
- * TUI runner orchestration (CL-6791 phase 4): runTUI assembles the state bag
- * and services, wires the split modules in the original runTUI order
- * (session assembly → run lifecycle → settings → commands → submit → mcp →
- * host mount → post-startup wiring → exit), and owns the crash-guard
- * try/catch. Behavior lives in the sibling modules; this file owns ordering.
+ * TUI runner orchestration: runTUI assembles the state bag and services,
+ * wires the split modules in the original runTUI order (session assembly →
+ * run lifecycle → settings → commands → submit → mcp → host mount →
+ * post-startup wiring → exit), and owns the crash-guard try/catch. Behavior
+ * lives in the sibling modules; this file owns ordering.
  */
 
 import type { Config } from "../../config/index.js";

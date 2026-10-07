@@ -1,8 +1,8 @@
 /**
- * CL-5750 follow-up: a palette stacked over an open approval must not
- * clobber the approval's cached raw body text, which a resize re-shapes
- * against the new height's context budget (see `decisionContextBudget` /
- * `applyOverlayBodyText` in shell.ts).
+ * A palette stacked over an open approval must not clobber the approval's
+ * cached raw body text, which a resize re-shapes against the new height's
+ * context budget (see `decisionContextBudget` / `applyOverlayBodyText` in
+ * shell.ts).
  */
 import { describe, expect, test } from "bun:test";
 import { makePermissionItems, withTestRenderer } from "./harness.js";

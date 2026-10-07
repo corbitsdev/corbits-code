@@ -740,17 +740,18 @@ export function summarizeToolResult(
 /**
  * Decide whether raw content is a JSON document worth showing AS JSON.
  *
- * Why a heuristic: tool results are plain strings. Many tools never return JSON
- * (line-numbered file content, "wrote N bytes", shell output). A few legitimately
- * do — e.g. reading a .json file. We must not treat internal status strings or
- * accidental brace-shaped text as documents, and we must not hide genuine JSON.
+ * Why a heuristic: tool results are plain strings. Many tools never return
+ * JSON (line-numbered file content, "wrote N bytes", shell output). A few
+ * legitimately do — e.g. reading a .json file. We must not treat internal
+ * status strings or accidental brace-shaped text as documents, and we must
+ * not hide genuine JSON.
  *
  * Rule: the content must parse as JSON AND be a non-trivial object or array
  * (the shapes a real document takes). Bare scalars ("null", "42", quoted
  * strings) and empty containers are not documents — they are almost always
  * status values, not something the user authored or wants pretty-printed.
- * Documents above MAX_JSON_DOCUMENT_CHARS are excluded so the markdown renderer
- * never chokes on a huge blob (see the constant for why).
+ * Documents above MAX_JSON_DOCUMENT_CHARS are excluded so the markdown
+ * renderer never chokes on a huge blob (see the constant for why).
  */
 export function isUserFacingJSON(raw: string): boolean {
   const trimmed = raw.trim();

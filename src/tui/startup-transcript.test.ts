@@ -1,6 +1,6 @@
 /**
- * CL-7938: consecutive duplicate system echoes collapse instead of painting
- * twice, and a deferred session header flushes first when the landing clears.
+ * Consecutive duplicate system echoes collapse instead of painting twice,
+ * and a deferred session header flushes first when the landing clears.
  *
  * The duplicate-collapse and FIFO flush-order contracts hold with synthetic
  * strings here: the wording of other modules' notices (model picker, wiring)

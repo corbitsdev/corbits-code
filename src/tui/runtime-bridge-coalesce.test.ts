@@ -1,7 +1,7 @@
 /**
- * Perf gate for CL-6791 P5-J1: stream deltas must coalesce to one row retext
- * per renderer frame instead of one full-row reparse per token, and every
- * close/settle seam must apply the accumulated tail exactly.
+ * Perf gate: stream deltas must coalesce to one row retext per renderer
+ * frame instead of one full-row reparse per token, and every close/settle
+ * seam must apply the accumulated tail exactly.
  */
 import { describe, expect, test } from "bun:test";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";

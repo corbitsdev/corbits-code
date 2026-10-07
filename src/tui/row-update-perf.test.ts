@@ -1,7 +1,7 @@
 /**
- * Perf gate for CL-6791 P5-J3: non-markdown rows must update in place or at
- * frame cadence — N updates to a row within one frame apply at most once, and
- * no update destroys and rebuilds the row's paint subtree.
+ * Perf gate: non-markdown rows must update in place or at frame cadence — N
+ * updates to a row within one frame apply at most once, and no update
+ * destroys and rebuilds the row's paint subtree.
  */
 import { describe, expect, test } from "bun:test";
 import {

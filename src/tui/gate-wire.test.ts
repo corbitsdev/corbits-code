@@ -979,10 +979,10 @@ describe("operator.gate auto-cancel", () => {
     });
   });
 
-  // The queue-behind hazard from CL-5664: a stuck overlay in front of an
-  // ask_operator question must not hang the run forever with nothing on
-  // screen to answer. The abort listener is not display-dependent, so it
-  // must settle the queued gate even though it never opened.
+  // The queue-behind hazard: a stuck overlay in front of an ask_operator
+  // question must not hang the run forever with nothing on screen to answer.
+  // The abort listener is not display-dependent, so it must settle the queued
+  // gate even though it never opened.
   test("aborting the run while the operator gate is still queued settles it without ever opening", async () => {
     await withGates(async ({ shell, emitter }) => {
       const controller = new AbortController();

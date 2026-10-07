@@ -3,9 +3,8 @@
  *
  * The prompt's text buffer lives in `@opentui/core`'s InputRenderable, which
  * already implements Ctrl+B/F/D, Ctrl+K/U/W (as one-shot deletes), Alt+D,
- * arrow motion, and Alt+B/F word motion natively (see
- * `defaultTextareaKeyBindings` in @opentui/core). What it does not have is a
- * kill ring: deleted text is simply discarded, so Ctrl+Y (yank) and Alt+Y
+ * arrow motion, and Alt+B/F word motion natively. What it does not have is
+ * a kill ring: deleted text is simply discarded, so Ctrl+Y (yank) and Alt+Y
  * (yank-pop) have nothing to restore.
  *
  * This module is the pure, testable half of that gap: shell.ts calls the
@@ -14,9 +13,6 @@
  * was removed, then hands that text to `recordKill`. `beginYank` and
  * `rotateYank` hand back the text to splice in; shell.ts performs the splice
  * against the InputRenderable directly.
- *
- * Sole kill ring implementation (the former Ink-era src/tui/kill-ring.ts
- * copy was retired once the OpenTUI cutover made it dead code).
  */
 
 export const KILL_RING_MAX = 10;

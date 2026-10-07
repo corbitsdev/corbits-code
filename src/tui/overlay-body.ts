@@ -300,12 +300,12 @@ const DECISION_CONTEXT_BLANK_ROWS = 1;
  * out the one thing this fix guarantees down to a 10-row terminal: at least
  * one choice row, with the prompt box still seated at its floor below it. A
  * generous, fixed context budget reads fine on a tall terminal, but on a
- * short one it can consume the entire overlay host, leaving no room to paint
- * a single option — the operator is then asked to decide between choices
- * they cannot see. Shrinking the context first, down to dropping it entirely
- * on the shortest terminals, is the deliberate trade: the header (which tool,
- * which question) and the choices are the two things an approval cannot
- * render without; the surrounding detail can give way first.
+ * short one it can consume the entire overlay host, leaving no room to
+ * paint a single option. Shrinking the context first, down to dropping it
+ * entirely on the shortest terminals, is the deliberate trade: the header
+ * (which tool, which question) and the choices are the two things an
+ * approval cannot render without; the surrounding detail can give way
+ * first.
  *
  * Below 10 rows this budget alone cannot save the frame: the resolver then
  * falls back to best effort (`resolveGeometry` in geometry/resolve.ts) and

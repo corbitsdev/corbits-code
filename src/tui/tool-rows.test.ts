@@ -503,11 +503,12 @@ describe("a run of identical calls", () => {
 });
 
 describe("parallel calls to the same tool", () => {
-  // CL-5562: three `spawn_agent` calls dispatched in one turn all carry
-  // meta === "spawn_agent" — name alone cannot tell them apart, so a result must
-  // find its own row by call id or it resolves whichever pending "spawn_agent" row
-  // happens to be newest, leaving the others stranded pending forever and
-  // turning any later same-name result into an orphaned extra row.
+  // Three `spawn_agent` calls dispatched in one turn all carry
+  // meta === "spawn_agent" — name alone cannot tell them apart, so a result
+  // must find its own row by call id or it resolves whichever pending
+  // "spawn_agent" row happens to be newest, leaving the others stranded
+  // pending forever and turning any later same-name result into an orphaned
+  // extra row.
   test("each result resolves its own call by id, not the newest pending call of that name", () => {
     const rows: StreamRow[] = [];
     pushToolCall(rows, {

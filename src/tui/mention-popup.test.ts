@@ -287,12 +287,12 @@ describe("@ popup narrows as you type", () => {
     });
   });
 
-  // CL-6698: a queued permission/operator gate must not open onto the host
-  // in the middle of a mention filter session. The old close-then-reopen
-  // refresh released the host between the two calls, and a gate queued
-  // behind the popup drained into that gap — leaving the gate's overlay on
-  // screen while `mentionPopups` still (wrongly) claimed ownership, so
-  // further keystrokes went nowhere.
+  // A queued permission/operator gate must not open onto the host in the
+  // middle of a mention filter session. The old close-then-reopen refresh
+  // released the host between the two calls, and a gate queued behind the
+  // popup drained into that gap — leaving the gate's overlay on screen while
+  // `mentionPopups` still (wrongly) claimed ownership, so further keystrokes
+  // went nowhere.
   test("a queued gate stays queued across a mention filter refresh", async () => {
     await withShell(async (shell) => {
       const emitter = new EventEmitter();

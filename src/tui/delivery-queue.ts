@@ -10,7 +10,7 @@
  * Mid-run queue / steer / interrupt state machine (interaction contract §3).
  * Pure data — no paint, no OpenTUI. Shell + demo own delivery and UI flash.
  *
- * Product chords (CL-6290):
+ * Product chords:
  *   - Enter mid-run → kind "steer" (soft steer; drain at tool.boundary)
  *   - Alt+Enter mid-run → kind "queue" (follow-up; drain only when run goes idle)
  * Internal "reinject" is a separate bridge/shell submit kind, not a QueueKind,

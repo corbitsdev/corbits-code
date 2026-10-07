@@ -108,7 +108,7 @@ describe("stream paint", () => {
 
   test("the operator's bubble has a blank bar row above and below the text", () => {
     const painted = lines({ role: "user", text: "hi" });
-    // Shape: bare bar, body, bare bar — breathing room when scrolling (CL-5603).
+    // Shape: bare bar, body, bare bar — breathing room when scrolling.
     expect(painted.length).toBe(3);
     const pad = defined(painted[0]);
     expect(pad.trim()).not.toBe("");
@@ -576,7 +576,7 @@ describe("sub-agent dispatch row marks", () => {
 // TUI markdown links are click-only: there is no hover tracking, so no hover
 // state may add an affordance the idle render does not have. Pin
 // underline-absence on the link scopes so a future hover style cannot sneak
-// one in (CL-7927).
+// one in.
 describe("transcriptSyntaxStyle markdown links", () => {
   test("link cells carry no underline", () => {
     const styles = transcriptSyntaxStyle().getAllStyles();

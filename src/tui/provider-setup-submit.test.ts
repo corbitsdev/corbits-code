@@ -646,8 +646,8 @@ describe("buildProviderSubmitHandler", () => {
     },
   );
 
-  // CL-5900: every connect path writes the same local selection OAuth writes,
-  // so a restart in this repo resolves to the connected provider/model.
+  // Every connect path writes the same local selection OAuth writes, so a
+  // restart in this repo resolves to the connected provider/model.
   test.each([
     {
       label: "API-key preset",

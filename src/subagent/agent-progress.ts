@@ -31,7 +31,7 @@ export interface AgentProgressSession {
    * Bounded subject of the oldest outstanding call (command, path, pattern…),
    * or null when the args have nothing meaningful to show. When set, this
    * replaces the bare tool name in the row trailer so a fleet of shell
-   * commands is distinguishable (CL-5765).
+   * commands is distinguishable.
    */
   readonly currentToolPreview: string | null;
   /**
@@ -83,15 +83,14 @@ export interface AgentProgress {
 export const DEFAULT_STALL_MS = 300_000;
 
 /**
- * Second, far longer bound: how long one tool call may stay outstanding before
- * the lane reads as stalled anyway.
+ * Second, far longer bound: how long one tool call may stay outstanding
+ * before the lane reads as stalled anyway.
  *
- * Without it `in_tool` would be terminal — a wedged build, a shell blocked on
- * stdin, or a deadlocked child would read as busy forever and never reach the
- * fleet stall count, trading a false-positive storm for a false negative on the
- * failure operators most need to see. It is deliberately generous: real test
- * suites and builds run for minutes, and crying stall over those is the defect
- * this surface was fixed to remove.
+ * Without it `in_tool` would be terminal — a wedged build, a shell blocked
+ * on stdin, or a deadlocked child would read as busy forever and never reach
+ * the fleet stall count. It is deliberately generous: real test suites and
+ * builds run for minutes, and crying stall over those is the defect this
+ * surface was fixed to remove.
  *
  * It also backstops calls that never report a result at all. The reactor's
  * approval-suspend path emits no completion, so a before-tool extension

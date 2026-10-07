@@ -1,9 +1,8 @@
 /**
- * CL-6723: with a suggestion/picker list open, keystrokes the list doesn't
- * use are silently dropped instead of reaching the prompt — typed filter
- * text can vanish without feedback. Unclaimed printables must reach the
- * prompt buffer, whether the open surface is a plain picker or an ephemeral
- * popup.
+ * With a suggestion/picker list open, keystrokes the list doesn't use are
+ * silently dropped instead of reaching the prompt — typed filter text can
+ * vanish without feedback. Unclaimed printables must reach the prompt
+ * buffer, whether the open surface is a plain picker or an ephemeral popup.
  */
 import { describe, expect, test } from "bun:test";
 

@@ -62,9 +62,9 @@ export interface OverlayListPresentation {
 export const OVERLAY_HOST_BORDER_ROWS = 2;
 
 /**
- * What an overlay with no choices paints inside the body chrome (CL-6720).
- * Distinct from the "(no matches)" filter sentinel, which is a real choice
- * row — this paints when the list itself is empty and reserves zero rows.
+ * What an overlay with no choices paints inside the body chrome. Distinct
+ * from the "(no matches)" filter sentinel, which is a real choice row — this
+ * paints when the list itself is empty and reserves zero rows.
  */
 export const OVERLAY_EMPTY_STATE = "(no choices)";
 

@@ -408,14 +408,14 @@ export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
  *
  * A carried call id is exact and wins outright — it is the only thing that
  * tells two in-flight calls to the same tool apart, which parallel sub-agent
- * dispatch produces on every turn that fires more than one `spawn_agent` call
- * (three dispatches all show `meta === "spawn_agent"`; name alone cannot tell them apart).
- * An id that matches nothing on the log still returns -1 rather than falling
- * through to the name scan below: every current caller (the live bridge's own
- * call map, `SubAgentTranscriptEntry`, `BridgeInboundEvent`) always carries an
- * id, so a miss here is a real mismatch, not a legacy record, and papering
- * over it with the newest same-name row is the exact misattribution this
- * function exists to prevent.
+ * dispatch produces on every turn that fires more than one `spawn_agent`
+ * call (three dispatches all show `meta === "spawn_agent"`). An id that
+ * matches nothing on the log still returns -1 rather than falling through to
+ * the name scan below: every current caller (the live bridge's own call map,
+ * `SubAgentTranscriptEntry`, `BridgeInboundEvent`) always carries an id, so a
+ * miss here is a real mismatch, not a legacy record, and papering over it
+ * with the newest same-name row is the exact misattribution this function
+ * exists to prevent.
  *
  * The name scan only runs when `callId` is `undefined` — saved history from
  * before ids were threaded through `HistoryBlock` (`history-hydrate.ts`) is

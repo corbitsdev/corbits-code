@@ -344,9 +344,9 @@ describe("provider setup pure helpers", () => {
   });
 
   test("Alt+A selector rows include Custom and never filter by account count", () => {
-    // Regression for CL-5899: a prior filter dropped Custom from Alt+A even
-    // though onboarding still offered the full manual form. Connected kinds
-    // also stay listed so a second account remains reachable.
+    // Regression: a prior filter dropped Custom from Alt+A even though
+    // onboarding still offered the full manual form. Connected kinds also
+    // stay listed so a second account remains reachable.
     const choices = providerChoices();
     const rows = addProviderSelectorChoices(choices, [
       { name: "openai" },
@@ -365,8 +365,8 @@ describe("provider setup pure helpers", () => {
   test("Alt+A ChatGPT row hides the login CTA once connected (CL-5606)", () => {
     // After a successful browser login the ChatGPT row must not present the
     // "Login via Browser" connect option as if unconnected. The row stays
-    // listed (CL-5899: a second account remains reachable) — only the
-    // connected-state rendering changes.
+    // listed (a second account remains reachable) — only the connected-state
+    // rendering changes.
     const choices = providerChoices();
     const connected = addProviderSelectorChoices(choices, [
       { name: "codex/default" },

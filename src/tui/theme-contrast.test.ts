@@ -1,9 +1,9 @@
 /**
- * Light-palette legibility (CL-8993): every role in `corbitsLight` must hold
- * >=4.5:1 against the cream ground, and the warm roles must keep the
- * lightness/hue structure the palette header promises. Everything here
- * asserts relationships between computed values, never pinned hex, so the
- * palette can be re-tuned without rewriting the contract.
+ * Light-palette legibility: every role in `corbitsLight` must hold >=4.5:1
+ * against the cream ground, and the warm roles must keep the lightness/hue
+ * structure the palette header promises. Everything here asserts
+ * relationships between computed values, never pinned hex, so the palette
+ * can be re-tuned without rewriting the contract.
  */
 
 import { describe, expect, test } from "bun:test";

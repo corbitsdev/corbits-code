@@ -330,7 +330,7 @@ export async function assembleTUISession(
   const liveToolWatchdog: ToolWatchdogConfig = {
     ...(toolWatchdogFromSettings(config.settings) ?? {}),
   };
-  // CL-5814: orchestrator is the only product path — no first-run mode picker.
+  // Orchestrator is the only product path — no first-run mode picker.
   const liveSessionMode: SessionMode = "orchestrator";
   // Local settings still supply shell env; sessionMode is ignored if present.
   const localSettingsForEnv = await loadSessionLocalSettings({
@@ -355,8 +355,8 @@ export async function assembleTUISession(
     skillDirs,
     telemetry: liveTelemetry,
     isCodex: isCodexProviderName(config.providerName),
-    // CL-9386: the active settings source (including a --config override)
-    // is model-unreadable/unwritable, like the default settings file.
+    // The active settings source (including a --config override) is
+    // model-unreadable/unwritable, like the default settings file.
     secretGuardExtraDeniedPaths: [config.globalSettingsPath],
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
     ...(localSettingsForEnv?.env !== undefined
@@ -623,7 +623,7 @@ export async function assembleTUISession(
   // only after that fold commits. Workflow state
   // is read at compaction time so a pass mid-/build or mid-/plan still names
   // the active step. The archive, when mounted, supplies the unclipped excerpt.
-  // CL-8220: abort-aware compaction lifecycle. The summary call is the only
+  // Abort-aware compaction lifecycle. The summary call is the only
   // unbounded await in the compact path, so the lifecycle aborts it on
   // interrupt/rotation (via getSignal below) and bounds apply itself, so the
   // vendored reactor always returns to dequeue. Reset per agent build so a
@@ -691,9 +691,9 @@ export async function assembleTUISession(
     computeAdvertised,
     inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
     totalTimeoutMs: config.totalTimeoutMs,
-    // CL-7918 seed for the idle-with-fleet allowance (fleet lanes may appear
-    // mid-session; CL-7972 keeps it live via the fleet-wake publisher);
-    // retry stamping tracks the live source id in-reactor now.
+    // Seed the idle-with-fleet allowance (fleet lanes may appear mid-session;
+    // the fleet-wake publisher keeps it live); retry stamping tracks the live
+    // source id in-reactor now.
     // (No onTasksChange: task/tool updates arrive as reactor events consumed
     // in the stream sink; no requestContinuation: compaction re-entry arrives
     // as the COMPACTION_CONTINUATION_EVENT reactor emission consumed there
@@ -766,7 +766,7 @@ export async function assembleTUISession(
       state.currentStorage = storage;
       // The replacement agent compacts on a fresh signal: an interrupt or
       // rotation that aborted the outgoing agent's compact must not
-      // pre-abort this one's (CL-8220).
+      // pre-abort this one's.
       compactionLifecycle.reset();
     },
     evidenceArchiveHolder,

@@ -1,5 +1,5 @@
 /**
- * Terminal/OS theme detection (CL-8993).
+ * Terminal/OS theme detection.
  *
  * Precedence, highest first:
  *

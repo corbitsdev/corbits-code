@@ -1,5 +1,5 @@
 /**
- * CL-8792: allow-once must not stall a second destructive command.
+ * Allow-once must not stall a second destructive command.
  *
  * The overlay host is a single slot. Before the fix, accepting the first
  * permission card let a deferred replaceable surface (slash help, settings,

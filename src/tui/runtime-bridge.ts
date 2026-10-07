@@ -330,27 +330,21 @@ export interface SessionBridge {
    */
   flushMailboxMail: () => void;
   /**
-   * Stall bound for a silent ask-wake primary turn (CL-8016). If a wake was
-   * actually sent (`askWakeTurnArmed`) and `shouldAbortForStall` says the
-   * turn is silent past the bound (including awaiting-first-token, per
-   * #1095), interrupt the hung inference, un-dedupe the delivered wakes,
-   * and hand the next turn to occupancy (mailbox mail) before any re-surface.
-   * Returns true when it aborted. Driven by the fleet stall poll, which
-   * settles deadline-past asks first, and by the #1095 monitor tick.
+   * Stall bound for a silent ask-wake primary turn. If a wake was actually
+   * sent (`askWakeTurnArmed`) and `shouldAbortForStall` says the turn is
+   * silent past the bound, interrupt the hung inference, un-dedupe the
+   * delivered wakes, and hand the next turn to occupancy (mailbox mail)
+   * before any re-surface. Returns true when it aborted.
    */
   abortStalledWakeTurn: () => boolean;
   /**
-   * Ask-deadline bound for a silent ask-wake primary turn (CL-8060). The poll
-   * must have expired asks this tick (`expiredThisTick`); then, if a wake was
-   * actually sent (`askWakeTurnArmed`) but the deadline already settled every
-   * pending ask (so `pendingAskWake` is empty after the reconciling report),
-   * the turn has nothing left to surface — interrupt it even when the stall
-   * bound has not tripped (e.g. a late wake still inside its stall window at
-   * the deadline). send_input emptying pending is not an expire: the parent
-   * may still be inferring. Same occupancy-first handoff as the stall abort,
-   * so mailbox mail still wins the next turn; with nothing pending there is
-   * nothing to re-surface. Returns true when it aborted. Driven by the fleet
-   * stall poll, after the deadline settle and its reconciling report.
+   * Ask-deadline bound for a silent ask-wake primary turn. The poll must
+   * have expired asks this tick (`expiredThisTick`); then, if a wake was
+   * actually sent (`askWakeTurnArmed`) but the deadline already settled
+   * every pending ask, the turn has nothing left to surface — interrupt it
+   * even when the stall bound has not tripped. send_input emptying pending
+   * is not an expire: the parent may still be inferring. Same
+   * occupancy-first handoff as the stall abort. Returns true when it aborted.
    */
   abortExpiredWakeTurn: (expiredThisTick: boolean) => boolean;
   /**
@@ -489,11 +483,10 @@ interface TurnThinking {
 const THINKING_FRAGMENT_SEPARATOR = "\n\n";
 
 /**
- * A turn-phase transition stamp (CL-8016, CL-8060): `infer-start`, `first-token`,
- * `settle`, `stall-abort:<layer>`, or `expire-abort`. The stalled layer (inference stream vs
- * turn-loop vs tool execution) cannot be read off the turn record after the
- * fact, so the abort stamps `turnStallLayer` at the moment it fires — that is
- * what names the hung layer instead of a post-mortem guess.
+ * A turn-phase transition stamp: `infer-start`, `first-token`, `settle`,
+ * `stall-abort:<layer>`, or `expire-abort`. The stalled layer cannot be
+ * read off the turn record after the fact, so the abort stamps
+ * `turnStallLayer` at the moment it fires.
  */
 export interface TurnMarker {
   readonly path: string;
@@ -548,10 +541,10 @@ export interface BridgeBag {
   pendingAskWake: Map<string, PendingAskWake>;
   deliveredAskWake: Map<string, string>;
   /**
-   * Stall bound for the ask-wake turn (CL-8016). Armed when an ask-wake send
-   * starts a primary turn; disarmed when any turn settles, an interrupt or
-   * abort ends it, or the queue is cleared — so only a still-silent wake turn
-   * can match the abort predicate, never an operator turn or a later retry.
+   * Stall bound for the ask-wake turn. Armed when an ask-wake send starts a
+   * primary turn; disarmed when any turn settles, an interrupt or abort ends
+   * it, or the queue is cleared — so only a still-silent wake turn can match
+   * the abort predicate.
    */
   askWakeTurnArmed: boolean;
   /**
@@ -1381,9 +1374,8 @@ function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
 }
 
 /**
- * Soft steer only (CL-6290): tool.boundary drains steers; follow-ups wait
- * for idle / interrupt. Full drain uses drainOrder via drainOne without a
- * kind filter.
+ * Soft steer only: tool.boundary drains steers; follow-ups wait for idle /
+ * interrupt. Full drain uses drainOrder via drainOne without a kind filter.
  */
 function drainSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
   // Pause gate (CL-10149): soft steers are also held while paused; the parent
@@ -1549,8 +1541,7 @@ function applyInbound(
     // both flushes to gateClosed so a wake cannot send before mail.
     // A fresh snapshot with nothing pending means no wake is owed, but a
     // still-armed silent turn must stay armed until the poll's expire-abort
-    // (CL-8060, only when expireStaleAsks expired this tick) or stall abort
-    // can interrupt it. Disarming here (expire / send_input) would leave
+    // or stall abort can interrupt it. Disarming here would leave
     // isProcessing hung; send_input emptying pending must not expire-abort.
     if (bag.turn.blockedGateCount === 0) bag.flushOccupancyThenWake?.();
     return;
@@ -1906,8 +1897,8 @@ export function attachSessionBridge(
     if (bag.disposed) return;
     trackParkedCalls(event);
     if (event.type === "inference.start") {
-      // Infer-start stamp (CL-8016): separates "inference never started"
-      // from "stream went quiet" when a turn later stalls past the bound.
+      // Infer-start stamp: separates "inference never started" from "stream
+      // went quiet" when a turn later stalls past the bound.
       recordTurnMarker(bag, "infer-start");
       bag.awaitingContinuationInference = false;
     }
@@ -2004,9 +1995,9 @@ export function attachSessionBridge(
     }
 
     if (kind === "reinject") {
-      // No product chord wires reinject anymore (CL-6290: Alt+Enter is
-      // follow-up / kind "queue"). Kept for tests and any direct API callers:
-      // stop the run right now, then fall into the immediate-send branch.
+      // No product chord wires reinject anymore (Alt+Enter is follow-up /
+      // kind "queue"). Kept for tests and any direct API callers: stop the
+      // run right now, then fall into the immediate-send branch.
       if (shell.session.run !== "busy") return;
       closeOpenRow(shell, bag);
       bag.pendingEchoes.length = 0;
@@ -2159,8 +2150,8 @@ export function attachSessionBridge(
   };
 
   /**
-   * Shared abort used by Ctrl+C, the #1095 monitor tick, and the fleet-poll
-   * stall bound. Interrupt the hung inference before any new deliver, then
+   * Shared abort used by Ctrl+C, the monitor tick, and the fleet-poll stall
+   * bound. Interrupt the hung inference before any new deliver, then
    * occupancy/mailbox first so a re-surface wake cannot steal that turn.
    */
   const abortInFlightAndHandoff = (): void => {
@@ -2198,12 +2189,12 @@ export function attachSessionBridge(
   };
 
   /**
-   * Stall bound for a silent ask-wake primary turn (CL-8016). Only an armed
-   * (wake-sent, never settled) turn can match. Silence uses `shouldAbortForStall`
-   * — the same #1095 bound that already covers awaiting-first-token — then
-   * interrupts the hung inference before any new deliver. Mail first so
-   * occupancy can take the next turn; the trailing wake flush restates only
-   * if mail did not start one.
+   * Stall bound for a silent ask-wake primary turn. Only an armed
+   * (wake-sent, never settled) turn can match. Silence uses
+   * `shouldAbortForStall` — the same bound that already covers
+   * awaiting-first-token — then interrupts the hung inference before any
+   * new deliver. Mail first so occupancy can take the next turn; the
+   * trailing wake flush restates only if mail did not start one.
    */
   const abortStalledWakeTurn = (): boolean => {
     if (bag.disposed || !bag.askWakeTurnArmed) return false;
@@ -2215,16 +2206,15 @@ export function attachSessionBridge(
   };
 
   /**
-   * Ask-deadline bound for a silent ask-wake primary turn (CL-8060). Only an
-   * expire this tick plus an armed (wake-sent, never settled) turn with
-   * nothing left pending can match: expireStaleAsks settled the questions
-   * and the reconciling `reportFleet` emptied `pendingAskWake`, so the wake
-   * turn is owed to nobody. send_input emptying pending is not an expire.
-   * Unlike the stall bound there is no silence clock — the questions expired,
-   * so the turn ends even inside its stall window. Shares
+   * Ask-deadline bound for a silent ask-wake primary turn. Only an expire
+   * this tick plus an armed (wake-sent, never settled) turn with nothing
+   * left pending can match: expireStaleAsks settled the questions and the
+   * reconciling `reportFleet` emptied `pendingAskWake`, so the wake turn is
+   * owed to nobody. send_input emptying pending is not an expire. Unlike
+   * the stall bound there is no silence clock — the questions expired, so
+   * the turn ends even inside its stall window. Shares
    * `abortInFlightAndHandoff` with the stall abort, so occupancy (mailbox
-   * mail) still wins the next turn and the trailing wake flush restates
-   * nothing.
+   * mail) still wins the next turn.
    */
   const abortExpiredWakeTurn = (expiredThisTick: boolean): boolean => {
     if (!expiredThisTick) return false;
@@ -2250,9 +2240,9 @@ export function attachSessionBridge(
     bag.liveFleet = 0;
     bag.pendingAskWake.clear();
     bag.deliveredAskWake.clear();
-    // Stop teardown (CL-8016): with the queue gone no wake turn is owed, so
-    // disarm the bound and drop the escalation counts — a later session
-    // reusing an id re-surfaces cleanly instead of inheriting a stale count.
+    // Stop teardown: with the queue gone no wake turn is owed, so disarm
+    // the bound and drop the escalation counts — a later session reusing an
+    // id re-surfaces cleanly instead of inheriting a stale count.
     bag.askWakeTurnArmed = false;
     bag.askWakeResurface.clear();
     bag.droveOpenTasksThisDry = false;

@@ -11,16 +11,12 @@
  *
  * The mark is the screen. Beside it sit exactly two lines — `/` for commands
  * and `/yolo` so permission prompts are not required — because those two are
- * the only doors an operator needs on a screen where nothing has happened yet;
- * every other key is behind one of them, and listing keys here would trade the
- * one legible thing on the screen for a reference card nobody reads twice.
+ * the only doors an operator needs on a screen where nothing has happened
+ * yet.
  *
- * The disclosure sits directly under the box rather than at the bottom edge
- * because it has to be read, not discovered.
- *
- * Layout math is pure (`splitLandingRows`, `resolveMarkGrid`, `wrapLanding`) so
- * the composition is testable without a renderer, and the mark repaints off an
- * injected clock.
+ * Layout math is pure (`splitLandingRows`, `resolveMarkGrid`, `wrapLanding`)
+ * so the composition is testable without a renderer, and the mark repaints
+ * off an injected clock.
  */
 
 import {

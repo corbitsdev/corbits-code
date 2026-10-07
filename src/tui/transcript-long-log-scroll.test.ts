@@ -1,7 +1,7 @@
 /**
- * CL-5553: the full retained transcript (bounded by CL-5551's
- * MAX_RETAINED_STREAM_ROWS) has to stay reachable by scrolling, and
- * appending a new row must not rebuild the whole paint tree to do it.
+ * The full retained transcript (bounded by `MAX_RETAINED_STREAM_ROWS`) has
+ * to stay reachable by scrolling, and appending a new row must not rebuild
+ * the whole paint tree to do it.
  */
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";

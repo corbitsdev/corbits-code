@@ -127,8 +127,7 @@ describe("markdown transcript rows", () => {
       const frame = await settle(
         h,
         // Require the bold body line too: heading-only frames can pass a
-        // "no ### / no **Hardware:**" check while the body has not painted yet
-        // (CI flake CL-5715).
+        // "no ### / no **Hardware:**" check while the body has not painted yet.
         (f) =>
           f.includes("What the site is") &&
           f.includes("Hardware:") &&

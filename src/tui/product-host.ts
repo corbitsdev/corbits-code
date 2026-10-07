@@ -358,10 +358,10 @@ export async function mountProductHost(
         // in the main shell. OpenTUI selection still works and auto-copies
         // on mouse-up; Alt+M hands the mouse back when native select is wanted.
         // enableMouseMovement stays on (?1003): URL hover highlighting
-        // (CL-7346) needs pointer motion with the modifier held — clicks and
-        // wheel alone never report where an unpressed pointer is. Cost
-        // accepted alongside the native-drag-select one above: a motion event
-        // per pointer move while capture is on; Alt+M still hands the mouse
+        // needs pointer motion with the modifier held — clicks and wheel
+        // alone never report where an unpressed pointer is. Cost accepted
+        // alongside the native-drag-select one above: a motion event per
+        // pointer move while capture is on; Alt+M still hands the mouse
         // back when native select is wanted.
         useMouse: config.useMouse ?? true,
         enableMouseMovement: true,
@@ -401,7 +401,7 @@ export async function mountProductHost(
   // rather than logged: a log line is invisible behind a full-screen shell, and
   // the operator is the only one who can fix a terminal setting. Using the
   // startup-notice path keeps the landing mountain painted when this fires
-  // before the first turn (CL-5618).
+  // before the first turn.
   const widthReport = checkWidthContract(renderer.widthMethod);
   if (!widthReport.agrees) {
     surfaceSystemNotice(shell, widthContractNotice(widthReport));

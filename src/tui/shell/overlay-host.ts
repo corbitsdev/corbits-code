@@ -180,8 +180,7 @@ function restorePrimaryFrame(
  * with (`model_picker` / `add_provider`, not the command-surface aliases
  * `models` / `add-provider`). Inline popups (mentions, palette, pickers that
  * stack) keep their stacking contracts — suspending one would strand its
- * owner, the CL-6698 mention-refresh stall — so a gate arriving behind them
- * stays queued.
+ * owner — so a gate arriving behind them stays queued.
  */
 const GATE_PREEMPTABLE_SURFACE_KINDS: ReadonlySet<PrimaryOverlayKind> = new Set(
   [

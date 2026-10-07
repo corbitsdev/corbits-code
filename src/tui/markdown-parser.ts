@@ -863,13 +863,14 @@ export function splitAtSettledHeading(text: string): MarkdownSplit | null {
  * live tail).
  *
  * The walk below mirrors parseMarkdown's dispatch order line for line —
- * loose fence pairing (`FENCE_OPEN_RE`/`FENCE_CLOSE_RE`), indented-code runs,
- * then `parseTableBlock`'s start/consume/shape rules — so every recorded
- * boundary is a block boundary in the one-shot parse, and the frozen prefix
- * plus the live suffix render the same apart as they do together. An
- * unclosed fence consumes to the end of the row, so nothing after its opener
- * can settle. A single non-blank line between a boundary and the live tail
- * still yields `gapRows: 0`; blank lines collapse to one gap row, as before.
+ * loose fence pairing (`FENCE_OPEN_RE`/`FENCE_CLOSE_RE`), indented-code
+ * runs, then `parseTableBlock`'s start/consume/shape rules — so every
+ * recorded boundary is a block boundary in the one-shot parse, and the
+ * frozen prefix plus the live suffix render the same apart as they do
+ * together. An unclosed fence consumes to the end of the row, so nothing
+ * after its opener can settle. A single non-blank line between a boundary
+ * and the live tail still yields `gapRows: 0`; blank lines collapse to one
+ * gap row, as before.
  */
 export function splitAtSettledBlock(withheld: string): MarkdownSplit | null {
   const lines = withheld.split("\n");

@@ -554,21 +554,19 @@ export function openSlashCommands(shell: AppShell): boolean {
       cmd.id.toLowerCase().startsWith(q),
     );
 
-    // Every keystroke lands here while the popup is already open. Closing and
-    // reopening released the overlay host between the two calls (closeSlashPopup
-    // routes through closeInsetOverlay, which idle-notifies) — long enough for a
-    // queued permission/operator gate to drain onto it. Refreshing the open
-    // palette in place never releases the host, so a queued gate has nothing to
-    // drain into. priorOverlay stacking is untouched here (it is only ever
-    // written by openListOverlay's stack-on-open path), so a palette stacked
-    // over a prior overlay keeps that snapshot across the refresh.
+    // Every keystroke lands here while the popup is already open. Closing
+    // and reopening released the overlay host between the two calls
+    // (closeSlashPopup routes through closeInsetOverlay, which
+    // idle-notifies) — long enough for a queued permission/operator gate to
+    // drain onto it. Refreshing the open palette in place never releases
+    // the host, so a queued gate has nothing to drain into.
     //
-    // A typo that zeroes the matches must not fall through to closeSlashPopup
-    // while the popup is already open — that closes through the same idle-notify
-    // path and drains a queued gate mid-filter. Instead this refreshes in place
-    // to a "(no matches)" row, same as the general palette does, and holds the
-    // host until a real dismiss (deleting the `/`, Esc, accept) or a backspace
-    // that restores matches.
+    // A typo that zeroes the matches must not fall through to
+    // closeSlashPopup while the popup is already open — that closes through
+    // the same idle-notify path and drains a queued gate mid-filter.
+    // Instead this refreshes in place to a "(no matches)" row, same as the
+    // general palette does, and holds the host until a real dismiss
+    // (deleting the `/`, Esc, accept) or a backspace that restores matches.
     if (isSlashPopupOpen(shell) && shell.overlayKind === "palette") {
       refreshSlashPopupInPlace(shell, matches);
       return true;

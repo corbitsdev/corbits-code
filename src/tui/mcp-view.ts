@@ -9,10 +9,10 @@
  * The grid is carried on the row and painted by `TextTableRenderable`, whose
  * native column measurement does the alignment. We do not reimplement layout.
  *
- * This module also owns what a tool result *says* when collapsed — one sentence
- * derived from the shape of the payload ("Grabbed 10 Linear issues") rather
- * than from the arguments that asked for it, since nobody reads a transcript
- * for the pagination cursor.
+ * This module also owns what a tool result *says* when collapsed — one
+ * sentence derived from the shape of the payload ("Grabbed 10 Linear
+ * issues") rather than from the arguments that asked for it, since nobody
+ * reads a transcript for the pagination cursor.
  */
 
 import { isSameTool } from "../agent/canonical-tool-name.js";

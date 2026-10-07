@@ -377,14 +377,12 @@ export async function prepareTUISession(
   // path marks finalized so this never double-writes on a clean exit. The
   // flag also gates persistRunSnapshot from *issuing* a straggler write at
   // all once the run is closed — a different job from saveState's per-session
-  // write ordering in state.ts. That ordering only decides which
-  // already-issued write lands last; it has no way to know a "running"
-  // snapshot fired after finalize is stale and should never be written in
-  // the first place. Without this flag such a snapshot would still queue
-  // behind the terminal write and legitimately "win" the ordering,
-  // resurrecting a closed run.json. Two different constraints (don't issue a
-  // stale write vs. order the writes you do issue), each owned by its own
-  // layer — not a duplicate check.
+  // write ordering in state.ts, which only decides which already-issued
+  // write lands last. Without this flag a stale "running" snapshot would
+  // still queue behind the terminal write and resurrect a closed run.json.
+  // Two different constraints (don't issue a stale write vs. order the
+  // writes you do issue), each owned by its own layer — not a duplicate
+  // check.
   //
   // Defaults to these prepare-time lets until runTUI binds the live loop
   // identity (sessionId / model rotate on /clear and /model).
