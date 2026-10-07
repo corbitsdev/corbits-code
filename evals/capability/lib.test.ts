@@ -473,8 +473,7 @@ describe("parseMatrix", () => {
   });
 
   test("a trailing segment that is not a real effort literal falls through to the model", () => {
-    // "grok-4.6:not-an-effort" has no valid effort literal in the third slot,
-    // so the whole thing after the first colon is the model id.
+    // Third slot is not an effort literal, so the model id keeps the colon.
     const v = parseMatrix("xai:grok-4.6:not-an-effort", {});
     expect(defined(v[0]).provider).toBe("xai");
     expect(defined(v[0]).model).toBe("grok-4.6:not-an-effort");
@@ -809,14 +808,10 @@ describe("detectProviderFallback", () => {
 });
 
 describe("resolveRequestedProviderModel", () => {
-  // Regression fixture (evals/capability/regression-fixtures/probe-provider-mismatch.json):
-  // a live probe run launched with no --provider/--model flags relied on this
-  // repo's local .corbits/settings.json (xai/grok-4.5), but the unlabeled default
-  // matrix cell silently resolved to zen/north-mini-code-free with providerFallback
-  // null — the silent substitution the gate exists to catch. The check must compare
-  // against the run's resolved labels, not the variant's own fields. The live
-  // artifact under evals/capability/results/ is regenerated and gitignored, so this
-  // fixture lives outside that directory.
+  // Regression fixture (probe-provider-mismatch.json): an unlabeled default
+  // matrix cell silently resolved elsewhere with providerFallback null. The
+  // check must compare against the run's resolved labels, not the variant's
+  // own fields. The live artifact is gitignored, so this fixture sits outside.
   test("a live probe artifact's default-cell mismatch is detected against the run's resolved labels", async () => {
     const fixturePath = join(
       dirname(fileURLToPath(import.meta.url)),
@@ -1074,8 +1069,7 @@ describe("loadEvalCases (integration with tmp dir)", () => {
 });
 
 describe("withEnv / httpFixtureEnv", () => {
-  // The absent-variable case is a precondition of these tests, not something
-  // inherited from the shell or from whatever ran earlier in this process.
+  // EVAL_HTTP_URL absence is a test precondition, not inherited from the shell.
   beforeEach(() => {
     delete process.env.EVAL_HTTP_URL;
   });

@@ -221,11 +221,9 @@ describe("parseArgs", () => {
 });
 
 describe("validateVariantEfforts", () => {
-  // Wiring-level regression: parseArgs -> parseMatrix -> validateVariantEfforts,
-  // the same path main() runs before any inference. A matrix cell pairing an
-  // effort the model does not accept must fail fast, naming the model and its
-  // accepted levels, rather than silently falling back to the provider default
-  // and poisoning the matrix.
+  // Wiring regression: parseArgs -> parseMatrix -> validateVariantEfforts (the
+  // path main() runs before inference). An unsupported effort must fail fast,
+  // naming the model and its accepted levels, not fall back silently.
   test("rejects an unsupported model/effort matrix cell before any inference runs", async () => {
     const opts = parseArgs([
       "--matrix",

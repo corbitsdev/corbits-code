@@ -1,10 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Local capability eval runner.
- *
- * Uses the product non-TUI path (`loadConfig` + `runExec`) against fixture
- * copies, then objective verify.sh graders. Supports multi-model matrices so
- * one run can try different provider/model combos. See evals/capability/README.md.
+ * Local capability eval runner: runs the product non-TUI path
+ * (`loadConfig` + `runExec`) on fixture copies, then verify.sh graders.
+ * See evals/capability/README.md.
  */
 
 import {
@@ -95,15 +93,9 @@ interface CliOptions {
   concurrency: number;
   dryRun: boolean;
   help: boolean;
-  /**
-   * Allow a run/comparison to proceed when the resolved provider/model
-   * differs from what was requested, instead of hard-failing.
-   */
+  /** Proceed when the resolved provider/model differs from what was requested. */
   allowProviderFallback: boolean;
-  /**
-   * Exec overlay: run the product path as this closed-fleet director.
-   * Eval/CI override, not single-agent mode. Omitted = dispatch default.
-   */
+  /** Exec overlay: run the product path as this director (eval/CI only, not single-agent). */
   director?: string;
 }
 
@@ -150,10 +142,7 @@ function defaultConcurrency(): number {
   return parsePositiveInteger(raw, "CORBITS_EVAL_CONCURRENCY");
 }
 
-/**
- * Run `mapper` over `items` with at most `concurrency` in flight.
- * Results stay in input order even when later items finish first.
- */
+/** Run `mapper` over `items` with at most `concurrency` in flight; results stay in input order. */
 export async function mapPool<T, R>(
   items: readonly T[],
   concurrency: number,
@@ -288,9 +277,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
   return opts;
 }
 
-// exactOptionalPropertyTypes forbids passing an explicit `undefined` for an
-// optional field, so build the fallback object with the key present only
-// when the CLI option was actually given.
+// exactOptionalPropertyTypes forbids explicit `undefined`; add keys only when set.
 function providerModelFallback(opts: CliOptions): {
   provider?: string;
   model?: string;
@@ -409,11 +396,7 @@ const EVAL_SKILL_STUBS = [
   "typescript",
 ] as const;
 
-/**
- * Seed minimal skill stubs under `.agents/skills/` so plugin agent skill
- * resolution finds them via project skill dirs. Global plugins reference these
- * names; evals run in a throwaway cwd without marketplace skill trees.
- */
+/** Seed `.agents/skills/` stubs so global-plugin skill references resolve in the throwaway cwd. */
 async function seedEvalSkillStubs(workdir: string): Promise<void> {
   for (const name of EVAL_SKILL_STUBS) {
     const skillDir = join(workdir, ".agents", "skills", name);
@@ -432,12 +415,9 @@ async function seedEvalSkillStubs(workdir: string): Promise<void> {
 }
 
 /**
- * Initialize a git repo in an eval tmp workdir so isolated workers have HEAD
- * and git-aware skills have a baseline. Identity is `git -c`, never env or
- * global config. The fixture commit is unsigned (`--no-gpg-sign`,
- * `-c commit.gpgsign=false`) and skips hooks (`--no-verify`) so operator
- * `commit.gpgsign` / `core.hooksPath` cannot fail or sign with the operator
- * key. Do not call this on source fixtures.
+ * Initialize a git repo in an eval workdir so workers have HEAD and
+ * git-aware skills have a baseline. Identity and signing are `git -c`
+ * scoped, never env/global config. Do not call on source fixtures.
  */
 export async function initEvalGitRepo(workdir: string): Promise<void> {
   const identity = [
@@ -474,8 +454,7 @@ async function prepareWorkdir(
   const fixtureAbs = resolveFixturePath(REPO_ROOT, caseDef.fixture);
   const work = await mkdtemp(join(tmpdir(), `corbits-eval-${caseDef.id}-`));
   await cp(fixtureAbs, work, { recursive: true });
-  // Global plugins reference style/philosophy/etc.; evals run in a throwaway
-  // cwd without marketplace skill trees, so seed stubs for project skill dirs.
+  // Throwaway cwd has no marketplace skill trees; seed stubs for global plugins.
   await seedEvalSkillStubs(work);
   await initEvalGitRepo(work);
   // Sibling of the workdir so the agent and verify.sh never see the capture.
@@ -485,9 +464,8 @@ async function prepareWorkdir(
 }
 
 /**
- * Drop a post-run lifecycle hook into the workdir so the product path hands us
- * the full turn stream (tool calls + assistant content) for behavior metrics.
- * The hook writes the postRun payload verbatim and swallows other kinds.
+ * Install a postRun lifecycle hook that captures the full turn stream for
+ * behavior metrics, swallowing other hook kinds.
  */
 async function installRunCaptureHook(
   workdir: string,
@@ -526,11 +504,7 @@ interface HTTPFixture {
   close: () => Promise<void>;
 }
 
-/**
- * Hermetic local page for web-fetch cases: 127.0.0.1 on an ephemeral port,
- * serving a small HTML page with a per-run token. Started and stopped per
- * case run; never left running.
- */
+/** Hermetic 127.0.0.1 page with a per-run token for web-fetch cases; per-run lifetime. */
 function startHTTPFixture(): Promise<HTTPFixture> {
   const token = randomBytes(8).toString("hex");
   const html =
@@ -616,11 +590,9 @@ async function resolveVariantLabels(
 }
 
 /**
- * Fail fast, before any inference runs, when a variant's requested reasoning
- * effort is not one the resolved model accepts. Per-model rungs genuinely
- * differ (grok-4.6 takes xhigh, grok-composer-2.5-fast does not; the
- * gpt-5.6 family also takes max/ultra) — silently running at the provider's
- * default instead would poison a matrix without anyone noticing.
+ * Fail before any inference when a variant's effort is not one the resolved
+ * model accepts — per-model rungs genuinely differ, and silently running
+ * the provider default would poison a matrix.
  */
 export async function validateVariantEfforts(
   variants: readonly EvalVariant[],
@@ -640,10 +612,9 @@ export async function validateVariantEfforts(
 }
 
 /**
- * Write the requested reasoning effort into the fixture workdir's local
- * settings so the product path (loadConfig -> local settings -> Config)
- * picks it up the same way an interactive session would — without ever
- * touching the operator's real ~/.corbits/settings.json.
+ * Write the requested effort into the workdir's local settings so the
+ * product path picks it up like an interactive session, never the real
+ * ~/.corbits/settings.json.
  */
 async function applyEvalEffort(
   workdir: string,
@@ -661,11 +632,8 @@ async function applyEvalEffort(
 }
 
 /**
- * Per-cell diagnostics for debugging eval failures: which built-in tools the
- * model was offered, and the requested reasoning effort. Reuses the exec
- * runner's own resolution (resolveSessionMode, resolveExecDirectorOverlay)
- * rather than forking the logic, so a --director overlay or a non-default
- * session mode here reports the same advertised list exec actually runs with.
+ * Per-cell diagnostics: advertised built-in tools and requested effort.
+ * Reuses the exec runner's own resolution so overlays report the same list.
  */
 export async function buildEvalDiagnostics(
   config: Config,
@@ -680,10 +648,8 @@ export async function buildEvalDiagnostics(
     overlay.advertisedAllow ??
     advertisedToolNamesForSessionMode(sessionMode, {
       languageServerAvailable: detectLanguageServerAvailable(config.cwd),
-      // Capability evals run through exec; they are non-TTY, so ask_operator
-      // is unmounted the same way the runner does when interactive is false.
+      // Exec runs are non-TTY: ask_operator unmounts, wait_agents stays mounted.
       operatorAvailable: false,
-      // ...and wait_agents stays mounted the way the exec runner mounts it.
       waitAgentsMounted: true,
     });
   return {
@@ -763,15 +729,9 @@ async function runCase(
       console.log(`http fixture: ${httpFixture.url}`);
     }
 
-    // Force the run's resolved provider/model (from the catalog/OAuth-aware
-    // loadConfig probe above) explicitly into this case's argv rather than
-    // leaving it to ambient default resolution inside the fixture workdir.
-    // The workdir is a throwaway copy with no project-local
-    // .corbits/settings.json of its own, so ambient resolution there can
-    // silently land on a different provider than the one the run actually
-    // resolved at plan time (e.g. this repo's local settings pin an
-    // OAuth-profile provider that the isolated fixture copy has no way to
-    // see) — exactly the substitution this eval exists to catch, not commit.
+    // Pass the resolved provider/model explicitly: the fixture workdir has no
+    // local settings, so ambient resolution there could silently land on a
+    // different provider than the one resolved at plan time.
     const requested = resolveRequestedProviderModel(variant, labels);
     const argv: string[] = ["exec", "--cwd", workdir];
     if (requested.provider !== undefined)
@@ -792,9 +752,8 @@ async function runCase(
 
     const diagnostics = await buildEvalDiagnostics(config);
     const agentStarted = Date.now();
-    // runExec runs the agent in-process (no child, unlike verify.sh below), so
-    // the fixture origin must reach it via process.env directly for the
-    // eval-only SSRF exception in src/tools/ssrf-guard.ts to activate.
+    // runExec is in-process, so the fixture origin reaches the agent via
+    // process.env for the eval-only SSRF exception to activate.
     const execResult = await withTimeout(
       httpFixture !== null
         ? withEnv(httpFixtureEnv(httpFixture), () => runExec(config))
@@ -884,7 +843,7 @@ async function runCase(
     }
     console.log(`verify exit: ${verify.exitCode}  (${verify.durationMs}ms)`);
 
-    // requireBehaviors can fail a green agent+verify run (e.g. web-bait honesty).
+    // requireBehaviors can fail a green agent+verify run.
     const passed =
       agentExitCode === 0 && verify.exitCode === 0 && requireBehaviorCheck.ok;
     const preview =
