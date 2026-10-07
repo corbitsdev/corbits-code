@@ -43,7 +43,7 @@ export type SubAgentSessionStatus = "running" | "done" | "failed" | "cancelled";
 
 /** Lifecycle for close_agent/resume_agent; snapshot projects
  * `WorkerLifecycle` (cancelled → interrupted, failed → shutdown).
- * `not_found` is a query result only, never stored. */
+ * `not_found` is query-only, never stored. */
 export type AgentLifecycleStatus =
   | "pending_init"
   | "running"
@@ -87,15 +87,14 @@ export interface SubAgentSession {
   /** Stored source of truth. Snapshot copies it; do not mutate independently. */
   lifecycle: WorkerLifecycle;
   toolNames: string[];
-  // Oldest outstanding call — the longest silence; a worker in one long
-  // tool emits nothing, so the clock separates wedged from busy. Derived
-  // from `outstandingTools`; never assign directly.
+  // Oldest outstanding call. A worker in one long tool emits nothing, so
+  // its start clock separates wedged from busy. Derived from
+  // `outstandingTools`; never assign directly.
   currentToolName: string | null;
   currentToolPreview: string | null;
   currentToolStartedAt: number | null;
-  // Calls started but not yet reported. Parallel calls run concurrently; one
-  // scalar would let a fast sibling's finish retire a long call's clock and
-  // read as stalled.
+  // Calls started but not yet reported. Parallel calls run concurrently;
+  // one scalar would let a fast sibling's finish retire a long call's clock.
   outstandingTools: OutstandingToolCall[];
   entries: SubAgentTranscriptEntry[];
   startedAt: number;
@@ -173,9 +172,9 @@ export interface SubAgentSessionStore {
   listForStrip(): readonly SubAgentSession[];
   start(input: StartSessionInput): SubAgentSession;
   appendEvent(id: string, event: ReactorEmittedEvent): void;
-  // `agentRetained` must mirror run.ts's turnSucceeded gate (true only when
-  // the caller skipped teardown this turn); false keeps a disposed session
-  // from ever reporting as resumable.
+  // `agentRetained` mirrors run.ts's turnSucceeded gate (true only when the
+  // caller skipped teardown); false keeps a disposed session from ever
+  // reporting as resumable.
   complete(
     id: string,
     report: string,
@@ -188,8 +187,8 @@ export interface SubAgentSessionStore {
   // Abort a running session and mark it cancelled. True if cancelled; false
   // if missing or already terminal.
   cancel(id: string, reason?: string): boolean;
-  // Cancel every running session; closes retained workers with closeOne's
-  // deadline race — hung closes reject while children may still be live.
+  // Cancel every running session; closes retained workers under closeOne's
+  // deadline — hung closes reject while children may still be live.
   // Returns the ids cancelled.
   cancelAll(reason?: string): Promise<string[]>;
   // Flips "pending_init" to "running" once its agent actually exists.
@@ -203,15 +202,15 @@ export interface SubAgentSessionStore {
     id: string,
     close: (deadlineMs?: number) => Promise<void>,
   ): void;
-  // Runs the registered close (bounded by deadlineMs) and marks "shutdown" —
-  // terminal, no longer exempt from pruneCompleted. Idempotent; resolves
-  // "not_found" for an unknown id without throwing.
+  // Runs the registered close (bounded by deadlineMs), marks "shutdown" —
+  // terminal, no longer exempt from pruneCompleted. Idempotent; an unknown
+  // id resolves "not_found" without throwing.
   closeOne(id: string, deadlineMs: number): Promise<AgentLifecycleStatus>;
   // Resumes a retained, still-open ("completed"/"interrupted") session via
   // the followup handle; wait_agents collects the reply. Fails closed
-  // otherwise — "shutdown" is permanent, a running turn is concurrent,
-  // "pending_init"/"not_found" have nothing to resume. Evicted sessions
-  // report their terminal lifecycleStatus plus a `hint` at read_agent_trace.
+  // otherwise: "shutdown" permanent, running concurrent, "pending_init"/
+  // "not_found" nothing to resume. Evicted sessions report terminal
+  // lifecycleStatus plus a `hint` at read_agent_trace.
   resumeOne(
     id: string,
     message: string,
@@ -232,8 +231,8 @@ export interface SubAgentSessionStore {
     followup: (message: string) => Promise<string>,
   ): void;
   // Fires the registered interrupt handle and flips to "interrupted"
-  // synchronously — the caller does not wait for the aborted run to settle.
-  // Fails closed unless running with the handle.
+  // synchronously — the caller does not wait for the run to settle. Fails
+  // closed unless running with the handle.
   interruptOne(
     id: string,
   ): { ok: true } | { ok: false; status: AgentLifecycleStatus };
@@ -277,7 +276,7 @@ export interface SubAgentSessionStore {
     | undefined;
   /** Reject asks older than `maxAgeMs` with a timeout error naming question
    * and session. Returns the expired descriptors; settlement stays
-   * exactly-once via the same delete-then-settle path as resolve/cancelAsk. */
+   * exactly-once via the same path as resolve/cancelAsk. */
   expireStaleAsks(
     maxAgeMs: number,
   ): readonly { sessionId: string; questionId: string }[];
@@ -287,8 +286,7 @@ export interface SubAgentSessionStore {
   unpin(id: string): void;
   /** Attach a salvage report to cancelled/interrupted/shutdown without
    * changing `state`; never overwrites an existing report. A live
-   * pending_init/running session flips to interrupted, and waiters are
-   * notified. */
+   * pending_init/running session flips to interrupted; waiters notified. */
   attachReport(
     id: string,
     report: string,
@@ -303,8 +301,8 @@ export interface SubAgentSessionStore {
   wake(): void;
   subscribe(listener: () => void): () => void;
   clear(): void;
-  /** Stop teardown: like `clear`, but leaves a tombstone per known session so
-   * a late `sendInputOne` fails closed naming the teardown instead of a bare
+  /** Stop teardown: like `clear`, but leaves a tombstone per session so a
+   * late `sendInputOne` fails closed naming the teardown, not a bare
    * `not_found`. */
   teardown(reason?: string): void;
 }
@@ -312,9 +310,9 @@ export interface SubAgentSessionStore {
 export const DEFAULT_CANCEL_REASON = "Cancelled by operator";
 
 /** Ask deadline: a parked `ask_director` question older than this settles via
- * `expireStaleAsks` with a timeout error, so a worker whose wake turn stalled
- * never waits forever. Twice the stall abort bound, so a re-surfaced wake
- * turn gets a full cycle to prove the parent alive. */
+ * `expireStaleAsks` with a timeout error, so a stalled-wake worker never
+ * waits forever. Twice the stall abort bound: a re-surfaced wake turn gets
+ * a full cycle to prove the parent alive. */
 export const ASK_DEADLINE_MS = 1_800_000;
 
 const DEFAULT_MAX_COMPLETED = 20;
@@ -355,8 +353,7 @@ function defaultCreateId(): string {
 }
 
 /** Only place the displayed triple is produced, so a name/preview never shows
- * beside another call's clock. Called after every change to
- * `outstandingTools`. */
+ * beside another call's clock. Called after every `outstandingTools` change. */
 function syncCurrentTool(session: StoredSession): void {
   let oldest: OutstandingToolCall | undefined;
   for (const call of session.outstandingTools) {
@@ -369,8 +366,8 @@ function syncCurrentTool(session: StoredSession): void {
 }
 
 /** `restartClock` marks the execution boundary: streaming already registered
- * the call, so the figure worth showing is time spent running it. `rawArgs`
- * refreshes the lane preview from the transcript payload. */
+ * the call, so the clock shows run time. `rawArgs` refreshes the lane preview
+ * from the transcript payload. */
 function beginToolCall(
   session: StoredSession,
   callId: string,
@@ -465,9 +462,8 @@ export function createSubAgentSessionStore(
   const runInFlight = new Set<string>();
   // Live abort hooks keyed by session id. Cleared on terminal transition.
   const cancelHandles = new Map<string, () => void>();
-  // Bounded close functions for close_agent. Distinct from cancelHandles (a
-  // synchronous abort signal) because closing must be awaitable and
-  // deadline-bounded.
+  // Bounded close functions for close_agent. Distinct from cancelHandles
+  // (a synchronous abort) because closing must be awaitable and bounded.
   const closeHandles = new Map<
     string,
     (deadlineMs?: number) => Promise<void>
@@ -482,10 +478,9 @@ export function createSubAgentSessionStore(
   const deliverHandles = new Map<string, (message: string) => void>();
   // A send_input interrupt landing while the original run is still in flight
   // must not start its follow-up against a run about to settle. Stashed, it
-  // launches from the attachReport handoff when the report arrives;
-  // complete() launches it as a fresh follow-up when the run wins the race
-  // on an open resumable session. Any other terminal transition drops the
-  // queue loudly, so a follow-up never runs against a closed agent.
+  // launches from the attachReport handoff; complete() launches it fresh
+  // when the run wins the race. Any other terminal transition drops the
+  // queue loudly — a follow-up never runs against a closed agent.
   interface StashedFollowup {
     message: string;
     failLifecycle: "completed" | "interrupted";
@@ -495,7 +490,7 @@ export function createSubAgentSessionStore(
   }
   // Overlapping interrupt-steers queue FIFO per session. The head launches
   // when the live run settles (attachReport handoff or complete()'s
-  // deliverStash); each settled follow-up turn launches the next.
+  // deliverStash); each settled follow-up launches the next.
   const stashedFollowups = new Map<string, StashedFollowup[]>();
 
   const steerPreview = (message: string): string => {
@@ -503,8 +498,8 @@ export function createSubAgentSessionStore(
     return firstLine.length > 120 ? `${firstLine.slice(0, 117)}...` : firstLine;
   };
 
-  // A superseded steer fails loudly: each queued steer is rejected with which
-  // message was lost and why, and the loss lands on the session transcript.
+  // A superseded steer fails loudly: each queued steer is rejected with what
+  // was lost and why, and the loss lands on the session transcript.
   const dropStashedFollowups = (id: string, reason: string): void => {
     const queue = stashedFollowups.get(id);
     if (queue === undefined || queue.length === 0) {
@@ -582,8 +577,8 @@ export function createSubAgentSessionStore(
 
   // Revision counters, bumped on every mutation. Notify fires on every
   // streamed token, so list()/get()/listForStrip() would otherwise deep-clone
-  // every session's entries on every token. Caching a clone keyed by
-  // revision lets unrelated sessions reuse theirs.
+  // every session's entries per token. A cache keyed by revision lets
+  // unrelated sessions reuse theirs.
   const revisions = new Map<string, number>();
   const snapshotCache = new Map<
     string,
@@ -645,8 +640,7 @@ export function createSubAgentSessionStore(
       // Interrupt/cancel invalidation — tombstone the session's denied-call
       // envelopes so a later replay fails closed with a truthful blocker
       // instead of riding whatever grant the gate holds. Retained run-settle
-      // keeps them (keepGrants): the retained resume_agent retry is the
-      // retry path.
+      // keeps them (keepGrants): resume_agent retry is the retry path.
       try {
         getProcessWorkerGrantStore().invalidateSession(id, reason);
       } catch {
@@ -679,11 +673,10 @@ export function createSubAgentSessionStore(
   // marker once no settle-capable handle remains. A soft-interrupted run
   // still holds its interrupt/close/followup/deliver handles and settles
   // through them; anything else reaching a terminal state through mutate has
-  // nothing left to settle it, so the store drops the marker instead of
-  // trusting every call site. Cancel-abort hooks don't settle runs, so
-  // cancelHandles is not in the set below; cancel itself is excluded — see
-  // markCancelled: after cancel the marker is the live run's settlement
-  // promise.
+  // nothing left to settle it, so the store drops the marker. Cancel hooks
+  // don't settle runs, so cancelHandles is not in the set; cancel itself is
+  // excluded — see markCancelled: after cancel the marker is the live run's
+  // settlement promise.
   const enforceSettledRunInvariant = (id: string): void => {
     const session = sessions.get(id);
     if (session === undefined || !runInFlight.has(id)) return;
@@ -715,11 +708,11 @@ export function createSubAgentSessionStore(
     cancelHandles.delete(session.id);
     // closeHandles are owned by releaseHandles / closeOne — dropping them
     // here would skip teardown for a retained mid-turn session.
-    // No enforceSettledRunInvariant here: after cancel the marker is the live
-    // run's settlement promise (salvage still lands via attachReport);
+    // No enforceSettledRunInvariant here: after cancel the marker is the
+    // live run's settlement promise (salvage lands via attachReport);
     // clearing it would resolve wait_agents before the salvage arrives. The
-    // stranded shape this guards is closed at the pending_init interrupt
-    // branch and the fleet's not-admissible early return instead.
+    // stranded shape is closed at the pending_init interrupt branch and the
+    // fleet's not-admissible early return instead.
     bumpRevision(session.id);
     pruneCompleted();
   };
@@ -731,8 +724,8 @@ export function createSubAgentSessionStore(
     const session = sessions.get(id);
     if (session === undefined || !isLiveStrip(session.lifecycle)) return false;
     const abort = cancelHandles.get(id);
-    // Flip status first so concurrent complete/fail see a non-running session,
-    // then fire the abort handle (which may re-enter via signal listeners).
+    // Flip status first so concurrent complete/fail see a non-running
+    // session, then fire the abort handle (may re-enter via signal listeners).
     markCancelled(session, reason);
     notify();
     if (abort !== undefined) {
@@ -755,10 +748,10 @@ export function createSubAgentSessionStore(
     }
   };
 
-  // Releases the store's handles for `id` — the close handle (best-effort,
-  // fire-and-forget, so a wedged descendant cannot stall the eviction caller)
-  // and the cancel handle. Called whenever a session record is dropped, so a
-  // retained-but-idle session's agent is never simply forgotten.
+  // Releases the store's handles for `id` — close (best-effort, so a wedged
+  // descendant cannot stall the eviction caller) and cancel. Called whenever
+  // a session record is dropped, so a retained-but-idle session's agent is
+  // never simply forgotten.
   const releaseHandles = (id: string): void => {
     cancelAskInternal(id, "session handles released");
     const close = closeHandles.get(id);
@@ -793,10 +786,10 @@ export function createSubAgentSessionStore(
 
   // `maxCompleted` bounds every ordinary finished session — never retained,
   // or retained and already closed via close_agent (retained flips back to
-  // false there). A TUI display cap, not the retention policy for reusable
-  // sessions: open retained sessions are bounded by pruneRetained instead.
-  // Excluded: resumed active sessions (live caller, not an idle leak) and
-  // pinned ids (uncollected wait results).
+  // false there). A TUI display cap, not retention policy: open retained
+  // sessions are bounded by pruneRetained instead. Excluded: resumed active
+  // sessions (live caller, not an idle leak) and pinned ids (uncollected
+  // wait results).
   const pruneCompleted = (): void => {
     if (maxCompleted <= 0) {
       for (const [id, s] of sessions) {
@@ -826,10 +819,9 @@ export function createSubAgentSessionStore(
   // Bounds open retained sessions (dozens-of-workers fan-out), the
   // resource-safety bound lost when retained sessions were folded into
   // pruneCompleted's TUI cap. Evicts least-recently-used first (by
-  // lastActivityAt); a re-running session is never a candidate (isOpenRetained
-  // requires "completed"/"interrupted"). Handles release like pruneCompleted's
-  // eviction; a tombstone is kept so resume_agent reports an actionable status
-  // instead of "not_found".
+  // lastActivityAt); a re-running session is never a candidate. Handles
+  // release like pruneCompleted's eviction; a tombstone is kept so
+  // resume_agent reports an actionable status instead of "not_found".
   const pruneRetained = (): void => {
     const openRetained = [...sessions.values()]
       .filter((s) => isOpenRetained(s) && !isPinned(s.id))
@@ -899,7 +891,7 @@ export function createSubAgentSessionStore(
   // the interrupt's linger stamp must not outlive the new turn. Completion
   // re-stamps through the caller's own mutate; a rejected turn restores the
   // strip state it started from so resume_agent can retry. interrupt_agent's
-  // stamp wins over that restore — do not rewrite interrupted to completed.
+  // stamp wins over that restore — never rewrite interrupted to completed.
   const beginFollowupTurn = (id: string): void => {
     runInFlight.add(id);
     mutate(id, (s) => {
@@ -1033,9 +1025,9 @@ export function createSubAgentSessionStore(
     failLifecycle: "completed" | "interrupted",
     onFail?: (error: unknown) => void,
   ): void => {
-    // A failed steer hands off to the next queued steer in order. The lane
-    // stays live across the handoff so no observer sees a gap between turns;
-    // only the last settlement restores the lane.
+    // A failed steer hands off to the next queued steer. The lane stays live
+    // across the handoff so no observer sees a gap between turns; only the
+    // last settlement restores the lane.
     if (
       !(err instanceof AgentClosedError) &&
       (stashedFollowups.get(id)?.length ?? 0) > 0
@@ -1090,9 +1082,9 @@ export function createSubAgentSessionStore(
     if (followup === undefined) return "running";
     const session = sessions.get(id);
     const queue = admission;
-    // A followup on an already-admitted id must not enqueue a second job with
-    // the same id (enqueue would no-op start) nor release the slot the first
-    // run still holds.
+    // A followup on an already-admitted id must not enqueue a second job
+    // (enqueue would no-op start) nor release the slot the first run still
+    // holds.
     const takesSlot = queue !== undefined && !queue.occupied(id);
     const start = (): void => {
       beginFollowupTurn(id);
@@ -1401,7 +1393,7 @@ export function createSubAgentSessionStore(
                 : undefined;
             // Without an id there is no way to tell which of several parallel
             // calls this starts, and guessing would retime the wrong one. The
-            // inference-side start already registered it, so leave it alone.
+            // inference-side start already registered it, so leave it.
             if (callId !== null) {
               beginToolCall(session, callId, name, now(), true, rawArgs);
             }
@@ -1951,10 +1943,10 @@ export function createSubAgentSessionStore(
           } catch {
             // Abort hooks must not throw into the interrupt path.
           }
-          // Terminal transition — drop the run-in-flight marker alongside
-          // the lifecycle flip like every other terminal transition,
-          // otherwise the wait projection reports "running" forever with no
-          // run left to settle it.
+          // Terminal transition — drop the run-in-flight marker with the
+          // lifecycle flip like every other terminal transition, otherwise
+          // the wait projection reports "running" forever with no run left
+          // to settle it.
           runInFlight.delete(id);
           mutate(id, (s) => {
             s.lifecycle = {
@@ -2119,8 +2111,8 @@ export function createSubAgentSessionStore(
       // Interrupted salvage moves directly to the next running turn; any
       // terminal outcome drops the queue loudly so no follow-up runs against
       // a closed agent. Steers behind the head stay queued; each settled
-      // follow-up launches the next. Peek here; the launcher shifts after the
-      // mutate below.
+      // follow-up launches the next. Peek here; the launcher shifts after
+      // the mutate below.
       const head = stashedFollowups.get(id)?.[0];
       let toLaunch: StashedFollowup | undefined;
       mutate(id, (session) => {
@@ -2233,9 +2225,8 @@ export function createSubAgentSessionStore(
 
     teardown(reason = "Session closed"): void {
       // Stop teardown: cancel asks with the teardown named, release handles
-      // like `clear`, then leave a tombstone per removed session so a late
-      // `sendInputOne` fails closed naming the teardown instead of
-      // `not_found`.
+      // like `clear`, then leave a tombstone per session so a late
+      // `sendInputOne` fails closed naming the teardown, not `not_found`.
       for (const id of pendingAsks.keys())
         cancelAskInternal(id, `ask_director cancelled: ${reason}`);
       for (const id of closeHandles.keys()) releaseHandles(id);

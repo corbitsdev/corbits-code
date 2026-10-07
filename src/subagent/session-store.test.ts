@@ -658,9 +658,9 @@ describe("CL-6943 reusable worker sessions", () => {
       ok: true,
       status: "interrupted",
     });
-    // The interrupt stashes the follow-up until the original run
-    // settles; the salvage handoff launches it, it rejects, and the session
-    // restamps interrupted.
+    // The interrupt stashes the follow-up until the original run settles;
+    // the salvage handoff launches it, it rejects, and the session restamps
+    // interrupted.
     store.attachReport(session.id, "interrupted salvage", {
       stopReason: "interrupted",
     });
@@ -818,10 +818,9 @@ describe("CL-6943 reusable worker sessions", () => {
     });
   });
 
-  // maxCompleted originally folded open retained sessions into the TUI
-  // display cap, so resume_agent failed once more than `maxCompleted`
-  // (default 20) workers had spawned even though every one was reusable.
-  // `maxRetained` gives open retained sessions their own cap — this test
+  // maxCompleted originally folded open retained sessions into the TUI display
+  // cap, so resume_agent failed once too many workers had spawned even though
+  // every one was reusable. `maxRetained` caps them separately — this test
   // asserts that cap evicts, with the same "handles still get released"
   // guarantee.
   test("pruneRetained evicts a retained, still-open session past maxRetained and releases it", () => {
