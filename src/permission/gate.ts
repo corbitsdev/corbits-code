@@ -75,8 +75,7 @@ import {
 } from "./approval-log.js";
 
 // Closes out an operator prompt: ends the wait span and records the outcome.
-// buildRequests yields at most one request per tool call, and the two prompt
-// sites below are mutually exclusive, so this runs once per prompt shown.
+// The two prompt sites below are mutually exclusive, so this runs once.
 function finishApprovalWait(
   telemetry: Telemetry,
   waitSpanId: string,
@@ -92,10 +91,8 @@ function finishApprovalWait(
 }
 
 // Classifies a settled ApprovalOutcome into the approval-log taxonomy.
-// gate-wire.ts's timeout/abort auto-denies carry a fixed message text (see
-// autoDeny in gate-wire.ts and the timeout branch in tui/request-approval.ts's
-// finish() usage); anything else that denies is a plain operator/unavailable
-// decision.
+// gate-wire's timeout/abort auto-denies carry fixed message text; anything
+// else that denies is a plain operator/unavailable decision.
 function classifyOutcome(
   outcome: ApprovalOutcome | undefined,
 ): ApprovalOutcomeKind {
@@ -119,22 +116,16 @@ export type GateVerdict =
   | { allowed: false; reason: string };
 
 // One shell segment's forced-ask guard: a secret-path reference or a
-// restricted target, either of which forces an operator decision no matter
-// what a grant would otherwise cover. Shared by evaluate() (which also needs
-// to know *which* guard tripped, to drive the anySecret behavior below) and
-// preGrantGuardReason (which only needs to know whether one tripped).
+// restricted target forces an operator decision no matter what a grant
+// would cover. Shared by evaluate() and preGrantGuardReason.
 interface SegmentGuard {
   kind: "secret" | "opaque" | "restricted";
 }
 
-// `cwd`/`rootsProvider`, when both supplied, let a contained or
-// permitted-sibling `git worktree add/remove` destination (see
-// safeWorktreeCommand) skip the generic restricted-path scan below — the
-// same exemption auto mode already applies (autoShellRuleForCall) — so a
-// standing `git worktree *` grant gets a chance to match instead of the
-// destination forcing an ask on every call regardless of any grant. Omitted
-// (as from call sites with no cwd on hand) simply skips the exemption and
-// falls back to today's behavior.
+// When both `cwd` and `rootsProvider` are supplied, a contained or
+// permitted-sibling `git worktree add/remove` destination (safeWorktreeCommand)
+// skips the restricted-path scan so a standing `git worktree *` grant can
+// match instead of forcing an ask. Omitting them skips the exemption.
 function segmentGuard(
   segment: string,
   isRestricted: (path: string, isWrite: boolean) => boolean,
@@ -159,9 +150,8 @@ function segmentGuard(
 }
 
 // Classifies a guarded `git worktree add/remove` segment so a grant-mismatch
-// notice can name the operative reason: a force flag, or a destination the
-// containment authority did not approve. Returns undefined for anything else.
-// Display-only refinement — the guard decision itself is unchanged.
+// notice can name the operative reason. Display-only — the guard decision is
+// unchanged.
 type WorktreeMismatch =
   | { kind: "force"; flag: string }
   | { kind: "destination" }
@@ -181,8 +171,7 @@ function worktreeMismatchKind(segment: string): WorktreeMismatch | undefined {
 }
 
 // Explains a grant mismatch: a standing grant covers the segment, but the
-// pre-grant guard still forced an ask. The wording names the guard's reason,
-// never the grant — matching semantics are untouched.
+// pre-grant guard still forced an ask. Matching semantics are untouched.
 function grantMismatchNotice(
   segment: string,
   kind: SegmentGuard["kind"],
@@ -206,13 +195,10 @@ function grantMismatchNotice(
   return "A standing grant matches this command, but it targets a path outside the workspace, so it still needs approval.";
 }
 
-// Relative path tokens in a shell command resolve against the process cwd of the
-// agent that issued the call — not the session cwd that built the gate. Absolute
-// paths pass through unchanged so createPathRestriction still judges them against
-// the session workspace + registered worktree roots. Without this rebinding, a
-// sub-agent in an isolated worktree would have `cat secrets.txt` auto-allowed or
-// restriction-checked as if it opened `$SESSION/secrets.txt` while the shell
-// actually opened `$WORKTREE/secrets.txt`.
+// Relative path tokens resolve against the issuing agent's process cwd, not the
+// session cwd that built the gate. Without this rebinding, a sub-agent in an
+// isolated worktree would have `cat secrets.txt` checked as if it opened
+// `$SESSION/secrets.txt` while the shell opens `$WORKTREE/…`.
 function bindRestrictedToProcessCwd(
   isRestricted: (path: string, isWrite: boolean) => boolean,
   processCwd: string,
@@ -223,15 +209,12 @@ function bindRestrictedToProcessCwd(
   };
 }
 
-// Every guard a run_shell request must clear BEFORE it is ever matched
-// against a grant — hard-deny and forced-ask checks that no grant, however
-// broad, is allowed to bypass. This is the single place that sequence is
-// owned: both evaluate() and isRequestCoveredByGrant call it (directly or
-// via segmentGuard), so a guard added here automatically applies to fresh
-// requests and to reconciliation of already-queued ones alike. Returns the
-// deny/ask reason if any guard trips, or undefined when the request is clear
-// to proceed to grant evaluation. Non-shell tools have no pre-grant guard
-// sequence today, so this always returns undefined for them.
+// Every guard a run_shell request must clear before grant matching: hard-deny
+// and forced-ask checks no grant, however broad, can bypass. The single owner
+// of that sequence — evaluate() and isRequestCoveredByGrant both call it (via
+// segmentGuard) — so a guard added here applies to fresh requests and
+// reconciliation alike. Returns the deny/ask reason, or undefined to proceed.
+// Non-shell tools have no pre-grant guards, so this always returns undefined.
 export function preGrantGuardReason(
   request: PermissionRequest,
   isRestricted: (path: string, isWrite: boolean) => boolean,
@@ -271,18 +254,13 @@ export function preGrantGuardReason(
   return undefined;
 }
 
-// Pure reconciliation check used to re-evaluate the TUI's pending approval
-// queue against newly-minted grant(s) (see PermissionGateOptions.onGrant).
-// A queued request is covered only when the supplied approval(s) would let
-// evaluate() skip the prompt — same per-segment matching and the same
-// preGrantGuardReason sequence — so reconciliation never auto-approves
-// something evaluate() would still ask for or hard-deny.
-//
-// For run_shell, coverage is per-segment: every real segment must match some
-// supplied approval (or be an auto-allowed no-op/safe tail). A legacy
-// whole-string chain pattern (e.g. `"a && b"`) is not special-cased and does
-// not cover — minting decomposes chains into per-segment grants, and evaluate()
-// likewise matches per segment only.
+// Reconciliation check for the TUI's pending approval queue (see
+// PermissionGateOptions.onGrant): a queued request is covered only when the
+// supplied approval(s) would let evaluate() skip the prompt — same per-segment
+// matching and the same preGrantGuardReason sequence — so reconciliation never
+// auto-approves something evaluate() would still ask for or hard-deny.
+// For run_shell, coverage is per-segment; legacy whole-string chain patterns
+// never cover.
 export function isRequestCoveredByGrant(
   request: PermissionRequest,
   approval: Approval,
@@ -303,10 +281,9 @@ export function isRequestCoveredByGrant(
   );
 }
 
-// Same coverage predicate as isRequestCoveredByGrant, but against a live
-// approvals list. mintGrant hands this to onGrant so that after per-segment
-// minting of `a && b`, the second onGrant sees both `a` and `b` already in the
-// list and can drain a queued identical chain.
+// Same coverage predicate as isRequestCoveredByGrant, against a live approvals
+// list. mintGrant hands this to onGrant so a queued identical chain drains
+// once every per-segment grant is in the list.
 function isRequestCoveredByApprovals(
   request: PermissionRequest,
   approvals: readonly Approval[],
@@ -357,12 +334,9 @@ function isRequestCoveredByApprovals(
   });
 }
 
-// In auto mode these non-shell built-in tools auto-allow without an operator
-// prompt: file mutations plus the benign built-ins that a hands-off run should
-// not stop for. Reads auto-allow via their own path and run_shell via the shell
-// policy. Read-only MCP (annotations or list_/get_ prefixes) auto-allows via
-// classifyTool. Everything else — ask_operator, unknown built-ins, mutating MCP —
-// falls through to prompt.
+// Auto-mode auto-allow for non-shell tools: file mutations plus benign
+// built-ins a hands-off run should not stop for. Reads, run_shell, and
+// read-only MCP auto-allow via their own paths; everything else prompts.
 const AUTO_ALLOWED_TOOLS = new Set([
   ...PRODUCT_MUTATION_TOOLS,
   "manage_tasks",
@@ -382,93 +356,66 @@ const AUTO_ALLOWED_TOOLS = new Set([
 ]);
 
 export interface PermissionGateOptions {
-  // Approvals already remembered for this directory. Used only to SEED the gate;
-  // the gate copies them and owns its in-memory list, so the caller's array is
-  // never mutated and two gates never cross-contaminate through a shared array.
+  // Approvals to seed the gate with. The gate copies them; the caller's array
+  // is never mutated.
   approvals: Approval[];
   // Surface a request to the operator. Required when interactive.
   requestApproval?: RequestApproval;
-  // Persist a newly granted approval to the store selected by `scope`
-  // (best-effort). `session` grants are never routed here — they stay in the
-  // gate's in-memory list only.
+  // Persist a newly granted approval to the store selected by `scope`.
+  // `session` grants stay in the gate's in-memory list only.
   persist?: (approval: Approval, scope: GrantScope) => void;
   // No operator is attached (headless). An unresolved "ask" becomes a denial
   // unless skipPermissions is set.
   interactive: boolean;
-  // Headless operator surface: fired with the deny reason when decide() denies
-  // because no operator is attached (the !interactive exits above). Exec wires
-  // it to stderr so the denial names the action and the remedy; gates without
-  // an operator surface omit it and stay silent by construction. The reason
-  // already carries the secret-path distinction (no bypass remedy on
-  // sensitive-path denials), so callers emit it verbatim.
+  // Fired with the deny reason when decide() denies with no operator attached
+  // (headless). Exec wires it to stderr; callers emit the reason verbatim.
   onHeadlessDeny?: ((reason: string) => void) | undefined;
   // The --dangerously-skip-permissions escape hatch: auto-allow anything the
   // authorization layer did not already deny.
   skipPermissions: boolean;
   // Auto-approve non-destructive permissions (repeat writes, safe shell commands).
   auto?: boolean | undefined;
-  // The active inference provider name and model. A `provider-model` grant only
-  // auto-allows future calls when these still match the grant's providerModel.
+  // Active provider name and model. A `provider-model` grant only auto-allows
+  // when these still match the grant's providerModel.
   providerName?: string | undefined;
   model?: string | undefined;
-  // The workspace root. Used to confine auto-allowed shell reads to the project;
-  // a command whose path arguments resolve outside it is never auto-allowed.
-  // Defaults to the process cwd (the workspace) when omitted.
+  // Workspace root: confines auto-allowed shell reads to the project.
+  // Defaults to the process cwd.
   cwd?: string;
-  // Supplies additional directories that count as inside the workspace
-  // boundary — e.g. the session's registered git worktrees. Read/write/edit
-  // paths inside these roots are treated the same as paths inside `cwd`;
-  // everything outside every root asks regardless of tool or auto mode.
-  // Defaults to a provider that lazily discovers `cwd`'s git worktrees,
-  // re-listing (debounced) whenever a checked path is outside the roots it
-  // already knows about — so a worktree created mid-session is picked up
-  // without a restart.
+  // Additional directories inside the workspace boundary — e.g. the session's
+  // registered git worktrees. Defaults to a provider that lazily discovers
+  // `cwd`'s worktrees, re-listing (debounced) when a checked path is outside
+  // the roots it already knows about.
   rootsProvider?: RootsProvider;
-  // Directories of trusted (fully loaded) plugins. Reads under these roots are
-  // not path-escape hard-denies — they stay restricted and can be granted.
-  // Writes and deletes remain path-escape denies; plugin trust is not write
-  // consent.
+  // Directories of trusted (fully loaded) plugins. Reads under them stay
+  // restricted and grantable, not path-escape hard-denies; writes remain
+  // hard-denies — plugin trust is not write consent.
   trustedPluginRoots?: RootsProvider;
-  // Extras-denied config paths the shell legs treat as sensitive (CL-9386):
-  // the active settings source, including a --config override. Mirrors the
-  // secret-guard plugin's extraDeniedPaths so a custom config path asks in
-  // shell commands exactly like the default settings file. May also be set
-  // after construction via setSensitiveExtraDeniedPaths when the paths are
-  // learned later (the toolset builder forwards them).
+  // Extras-denied config paths the shell legs treat as sensitive (the active
+  // settings source, including a --config override). Mirrors the secret-guard
+  // plugin's extraDeniedPaths so a custom config path asks like the default
+  // settings file. May be set later via setSensitiveExtraDeniedPaths.
   sensitiveExtraDeniedPaths?: readonly string[];
-  // Tiers learned from connected MCP servers (tools/list annotations). Tests may
-  // inject a shared registry; production gates create one when omitted.
+  // Tiers learned from connected MCP servers (tools/list annotations).
   mcpTiers?: McpToolPermissionRegistry;
-  // Fires synchronously right after a grant is minted (in-memory list already
-  // updated), before evaluate() moves on to the next request. Callers use this
-  // to re-evaluate any requests already queued behind the one just answered —
-  // see isRequestCoveredByGrant — so a scope-widening grant drains the rest of
-  // the queue instead of re-prompting for coverage it already grants.
-  // `covers` answers whether an already-queued request is drained by this
-  // grant. The gate supplies it because only the gate holds the path
-  // restriction anchored to the session cwd; a caller resolving a sub-agent
-  // request's own cwd would clear restrictions the gate still enforces.
+  // Fires synchronously after a grant is minted so callers can drain requests
+  // already queued behind the one just answered (see isRequestCoveredByGrant).
+  // `covers` answers whether an already-queued request is drained; the gate
+  // supplies it because only the gate holds the session-cwd path restriction.
   onGrant?:
     | ((
         approval: Approval,
         covers: (request: PermissionRequest) => boolean,
       ) => void)
     | undefined;
-  // Records that a prompt was shown and how it was answered. Injected rather
-  // than read from the process-wide handle so a gate built without one is
-  // silent by construction.
+  // Records that a prompt was shown and how it was answered. A gate built
+  // without one stays silent.
   telemetry?: Telemetry | undefined;
-  // This gate's decisions are consumed by the reactor's before-tool authz
-  // seam (env.authorize) instead of evaluate() in the tool-runner middleware.
-  // Set for the main session so approved re-dispatches skip the middleware
-  // prompt; kept false for sub-agents, which still gate via evaluate().
-  // Workers receive a reactor-gated view over this same policy (see
-  // workerPermissionGate). Required so a caller cannot silently fall back
-  // to middleware gating by omitting it.
+  // This gate's decisions go through the reactor's before-tool authz seam
+  // (env.authorize) instead of evaluate() in the tool-runner middleware.
+  // Required so a caller cannot silently fall back to middleware gating.
   reactorGated: boolean;
-  // Ask/settle event log (see approval-log.ts): one record per consequential
-  // decision, auto or interactive. Defaults to a no-op so nothing depends on
-  // logging being wired.
+  // Ask/settle event log (approval-log.ts). Defaults to a no-op.
   approvalLog?: ApprovalLog;
 }
 
@@ -480,72 +427,61 @@ export type AuthorizeVerdict =
 export interface PermissionGate {
   evaluate: (call: ToolCall) => Promise<GateVerdict>;
   // Reactor-path policy: the same decision evaluate() makes, as the effect the
-  // vendored before-tool authz hook consumes (see authorizeCall above).
+  // vendored before-tool authz hook consumes.
   authorizeCall: (call: ToolCall) => Promise<AuthorizeVerdict>;
-  // Execution-time backstop for reactor-gated posix/MCP middleware: consume the
-  // authorizeCall verdict when the same call identity (id, name, arguments) is
-  // cached; decide only on a miss (nested posix whose outer tool is not
-  // run_shell, colliding reused ids, and tests).
+  // Execution-time backstop for reactor-gated posix/MCP middleware: consumes
+  // the cached authorizeCall verdict for the same call identity; decides only
+  // on a miss.
   executionVerdict: (call: ToolCall) => Promise<AuthorizeVerdict>;
-  // Resolve a suspended reactor approval against the operator (and mint the
-  // outcome's grant when the session identity is still current). Returns
+  // Resolve a suspended reactor approval against the operator; mints the
+  // outcome's grant when the session identity is still current. Returns
   // undefined when no outcome arrived.
   resolveSuspended: (
     request: PermissionRequest,
     stillCurrent?: () => boolean,
   ) => Promise<ApprovalOutcome | undefined>;
-  // True when this gate's decisions go through env.authorize (authorizeCall)
-  // rather than evaluate() in the tool-runner middleware. Under reactor gating,
-  // gateToolCall is an execution backstop: it consumes a matching cached
-  // verdict and decides on a miss. Deny still blocks; ask/allow skip the
-  // middleware prompt so an approved re-dispatch never re-asks.
+  // True when decisions go through env.authorize rather than evaluate().
+  // Under reactor gating, gateToolCall consumes the cached verdict and
+  // decides on a miss, so an approved re-dispatch never re-asks.
   isReactorGated: () => boolean;
   // The gate's current in-memory approvals, including any granted this session.
   getApprovals: () => readonly Approval[];
   // Forget every remembered approval so a fresh session re-prompts from scratch.
   reset: () => void;
-  // Drop cached operator/headless denies so the next user turn re-asks. Same-turn
-  // retries still short-circuit until this runs.
+  // Drop cached operator/headless denies so the next user turn re-asks.
   clearDenials: () => void;
   // The approvals granted only for this session (not persisted to any store).
   getSessionApprovals: () => readonly Approval[];
-  // Drop one approval from the gate's live list and from the session set so the
-  // /permissions surface can revoke a session grant without a restart.
+  // Drop one approval from the live list and the session set so /permissions
+  // can revoke a session grant without a restart.
   removeSessionApproval: (target: Approval) => void;
-  // Replace the persisted portion of the live list (session grants are kept) so
-  // a store edit made through /permissions takes effect immediately.
+  // Replace the persisted portion of the live list (session grants are kept)
+  // so a /permissions store edit takes effect immediately.
   setSeededApprovals: (seeded: readonly Approval[]) => void;
-  // Whether auto mode is currently on. Auto mode auto-approves non-destructive
-  // consequential actions (file writes/edits, unconstrained shell) without prompting.
+  // Whether auto mode is on. Auto mode auto-approves non-destructive
+  // consequential actions without prompting.
   getAuto: () => boolean;
-  // Turn auto mode on or off for the rest of the session. Live callers (slash
-  // commands, settings) wire the toggle here so a switch takes effect on the
-  // next tool call. There is currently no in-session key chord for this.
-  // `/yolo` toggles skip-permissions (getSkipPermissions / setSkipPermissions),
-  // not auto mode.
+  // Turn auto mode on or off for the rest of the session. Live callers wire
+  // the toggle here so it takes effect on the next tool call. `/yolo` toggles
+  // skip-permissions, not auto mode.
   setAuto: (value: boolean) => void;
-  // Whether --dangerously-skip-permissions / yolo mode is active for this session.
-  // Pre-gate sandboxes (path-escape, shell cwd bounds) consult this so
-  // outside-workspace access is not hard-denied under yolo mode.
+  // Whether --dangerously-skip-permissions / yolo mode is active. Pre-gate
+  // sandboxes consult this so outside-workspace access is not hard-denied.
   getSkipPermissions: () => boolean;
-  // Turn skip-permissions on or off for the rest of the session. `/yolo` in the
-  // TUI wires the toggle here so a switch takes effect on the next tool call —
-  // including pre-gate sandboxes that read getSkipPermissions live.
+  // Turn skip-permissions on or off for the rest of the session. `/yolo` in
+  // the TUI wires the toggle here so it takes effect on the next tool call.
   setSkipPermissions: (value: boolean) => void;
-  // Point matching and newly minted provider-model grants at a different
-  // providerName:model. A live `/model` switch calls this so a grant scoped to
-  // the previous pair no longer auto-allows, and new grants tag the new pair.
+  // Repoint matching and newly minted provider-model grants at a different
+  // providerName:model. A live `/model` switch calls this.
   setProviderIdentity: (providerName: string, model: string) => void;
   registerMcpClient: (client: MCPClient) => void;
   unregisterMcpServer: (serverName: string) => void;
-  // Live trusted plugin directories for path-escape's read exception. The
-  // posix plugin stack reads this so authorize-time and execution-time
-  // containment share one list.
+  // Live trusted plugin directories for path-escape's read exception, shared
+  // by authorize-time and execution-time containment.
   getTrustedPluginRoots: () => readonly string[];
-  // Replace the extras-denied config paths the shell legs treat as sensitive
-  // (CL-9386). The toolset builder calls this to forward the active settings
-  // source after gate construction, so the gate and the secret-guard plugin
-  // share one list. Optional so test doubles of this interface keep compiling.
+  // Replace the extras-denied config paths the shell legs treat as sensitive.
+  // The toolset builder calls this to forward the active settings source after
+  // gate construction. Optional so test doubles keep compiling.
   setSensitiveExtraDeniedPaths?: (paths: readonly string[]) => void;
 }
 
@@ -558,10 +494,9 @@ function canSafelyMintPerSegment(pattern: string): boolean {
   return true;
 }
 
-// posix pathEscapePlugin rewrites path-like args to resolveWorkspacePath before
-// gateToolCall. Cache identity must use that same resolution — deep, like the
-// plugin's escapeValue walk — so an authorizeCall allow is not treated as a
-// different call (and re-decided) at execution.
+// Cache identity must use the same path resolution pathEscapePlugin applies
+// before gateToolCall, so an authorizeCall allow is not re-decided at
+// execution.
 function identityArguments(
   args: ToolCall["arguments"],
   cwd: string,
@@ -607,66 +542,46 @@ export function createPermissionGate(
   const trustedPluginRoots = options.trustedPluginRoots ?? (() => []);
   const pathRestriction = createPathRestriction(resolvedCwd, rootsProvider);
   const isRestricted = pathRestriction.isRestricted;
-  // This gate's project boundary for grant matching (see cwdMatchesGrant):
-  // this session's root plus its currently-known registered worktrees. Built
-  // fresh per read from the same rootsProvider the gate already uses for
-  // path containment, so "same project" for a grant and "inside the
-  // workspace" for a path share one authority.
+  // This gate's project boundary for grant matching (cwdMatchesGrant): the
+  // session root plus currently-known registered worktrees, from the same
+  // rootsProvider path containment uses.
   const grantWorkspace = (): GrantWorkspace => ({
     resolvedCwd,
     roots: rootsProvider(),
   });
   let auto = options.auto;
   let skipPermissions = options.skipPermissions;
-  // Own a private copy so evaluating a grant never mutates the caller's array.
-  // Seeded grants enter in native key space (pure renames collapsed, narrow
-  // update_plan keys dropped fail-closed).
+  // Private copy so evaluating never mutates the caller's array. Seeded grants
+  // enter in native key space (normalizeSeededApprovals).
   const approvals: Approval[] = normalizeSeededApprovals(options.approvals);
   let activeProviderModel =
     providerName !== undefined && model !== undefined
       ? `${providerName}:${model}`
       : undefined;
-  // Session grants live only in this array; persisted grants are seeded in via
-  // options.approvals and re-routed to a store by the persist callback.
+  // Session grants live only in this array; persisted grants route to a store
+  // via the persist callback.
   const sessionGrants: Approval[] = [];
-  // CL-9386: the extras-denied config paths (the active settings source) the
-  // shell legs consult, mirrored from the secret-guard plugin's own matcher so
-  // both agree on what "denied" means. Mutable via
-  // setSensitiveExtraDeniedPaths because the toolset builder learns the paths
-  // after the gate is constructed.
+  // Extras-denied config paths the shell legs consult, mirrored from the
+  // secret-guard plugin's matcher. Mutable via setSensitiveExtraDeniedPaths
+  // because the toolset builder learns them after gate construction.
   let isExtraDenied = createExtraDeniedPathMatcher(
     options.sensitiveExtraDeniedPaths ?? [],
   );
 
-  // Record an operator-granted approval in the live list and route it to the
-  // scope-appropriate home: session grants stay in memory, everything else is
-  // persisted. Both approval branches must mint identically — this is the
+  // Records an operator-granted approval and routes it to its scope home. The
   // single place a grant comes into existence.
   const mintGrant = (requestedTool: string, outcome: ApprovalOutcome): void => {
     // Mint in native key space; live requests are already post-coercion.
     const tool = canonicalToolName(requestedTool);
     if (!outcome.persist || outcome.persist.pattern === null) return;
     const grant: GrantScope = outcome.persist.grant ?? "session";
-    // A run_shell pattern may still carry a model-authored comment line (the
-    // multi-segment chain scope persists the command verbatim as its payload).
-    // Strip it here, at the single place a grant comes into existence, so every
-    // stored run_shell pattern is already in the same normalized space grant
-    // matching works against.
-    //
-    // Decompose the chain payload into one Approval per real segment (reusing
-    // the same quote-aware splitter the gate's own evaluation loop uses) so
-    // approving `a && b` grants `a` and `b` individually — reusable on their
-    // own. That is broader than a whole-string grant was (a segment can replay
-    // outside the original chain); the CHANGELOG Security note documents the
-    // tradeoff. onGrant's covers predicate consults the live approvals list so
-    // a queued identical chain drains only once every segment has been minted.
-    //
-    // splitChainedCommand / tokenize intentionally have no backslash-escape
-    // support (CL-6988 / #673 rely on that so misparsed wrappers stay opaque).
-    // When the pattern contains escapes or inline `#` comments, the naive
-    // splitter can invent phantom segments (`printf "…\" && evil"` → `evil`).
-    // Fall back to one exact grant for the whole normalized pattern instead of
-    // minting those phantoms.
+    // Strip any model-authored comment line first so every stored run_shell
+    // pattern is in the space grant matching works against. Decompose chains
+    // into one Approval per real segment (same quote-aware splitter evaluate
+    // uses), so approving `a && b` grants `a` and `b` individually. When the
+    // pattern contains backslash escapes or inline `#` comments, the naive
+    // splitter can invent phantom segments — fall back to one exact grant for
+    // the whole pattern instead of minting those phantoms.
     const normalizedPattern =
       tool === "run_shell"
         ? stripCommentLines(outcome.persist.pattern).trim()
@@ -714,11 +629,9 @@ export function createPermissionGate(
     denialMemory.clear();
   };
 
-  // An auto-mode (or non-interactive-unavailable) decision settles the
-  // instant it is made — there is no operator to wait on, so queued/displayed/
-  // settled all collapse to now. Interactive prompts use approvalLog.ask
-  // directly (see below) so their real queued/displayed/settled timestamps
-  // are captured.
+  // An auto-mode (or headless) decision settles the instant it is made — no
+  // operator to wait on. Interactive prompts log via approvalLog.ask directly
+  // so their real timestamps are captured.
   const recordAutoDecision = (
     tool: string,
     rule: string | undefined,
@@ -734,14 +647,10 @@ export function createPermissionGate(
   };
 
   // Consume-once handoff from env.authorize to execution-time middleware.
-  // Not session-lifetime uniqueness: call.id is reused for every Codex proxy
-  // inner posix op, so a lasting set would mute later JSONL records. A hit
-  // still requires matching name and arguments so a reused id cannot apply an
-  // outer allow to a different inner tool. Nested posix with the same id still
-  // consume-once when identity matches. Path-like arguments are compared after
-  // the same workspace resolve pathEscapePlugin applies, so a Darwin
-  // /var/folders vs /private/var/folders rewrite is still the same call.
-  // reset() clears leftovers (outer tools that never hit posix middleware).
+  // call.id is reused for every Codex proxy inner posix op, so a lasting set
+  // would mute later JSONL records; a hit still requires matching name and
+  // arguments. Path-like arguments compare after the workspace resolve
+  // pathEscapePlugin applies. reset() clears leftovers.
   const authorizedByCallId = new Map<
     string,
     { name: string; arguments: string; verdict: AuthorizeVerdict }
@@ -749,19 +658,15 @@ export function createPermissionGate(
 
   // Same-turn denial memory: stable fingerprints of headless and
   // operator-declined denies so a retry with a fresh tool_call.id returns the
-  // identical cached reason instead of re-evaluating. Cleared on inbound user
-  // turns (clearDenials), by reset(), and by every state change that can flip a
-  // deny to an allow (new grants, re-seeded approvals, auto/skip toggles,
-  // provider-identity switches). Timeouts and aborts are never recorded.
+  // identical cached reason. Cleared on user turns, reset(), and every state
+  // change that can flip a deny to an allow. Timeouts and aborts are never
+  // recorded.
   const denialMemory = new DenialMemory();
 
   // Single canonical denial key: the raw call coerced onto its engine id
-  // (hidden shell argv/workdir, default./doubled aliases) before the stable
-  // request id, so a same-turn retry in any shape — raw, coerced, or fresh
-  // tool_call.id — fingerprints identically. Coercion is idempotent on
-  // already-coerced run_shell (looksLikeCodexShellArgs ignores native
-  // cwd/timeout), so decide() passing the raw call and evaluate() passing
-  // the raw call share one derivation with resolveSuspended()'s rebuild.
+  // before the stable request id, so a same-turn retry in any shape — raw,
+  // coerced, or fresh tool_call.id — fingerprints identically. Coercion is
+  // idempotent, so all decline paths share one derivation.
   const denialFingerprint = (rawCall: ToolCall, cwd: string): string =>
     stableRequestId(
       callForIdentity(rawCall),
@@ -770,13 +675,10 @@ export function createPermissionGate(
       trustedPluginRoots,
     );
 
-  // Non-blocking policy decision for one tool call: everything the gate owns —
-  // tier pre-filter, auto rules, pre-grant guards, grants, headless denial —
-  // resolved WITHOUT waiting on an operator. `ask` carries the fully-built
-  // request so the two consumers need no re-derivation: evaluate() (the
-  // middleware path) resolves it inline against requestApproval, and
-  // authorizeCall() maps it onto the reactor authz seam, whose `ask` effect
-  // suspends the call as a PendingOperation keyed by correlationId.
+  // Non-blocking policy decision for one tool call — every gate rule resolved
+  // without waiting on an operator. `ask` carries the fully-built request so
+  // evaluate() (middleware) and authorizeCall() (reactor seam) need no
+  // re-derivation.
   type GateDecision =
     | { kind: "allow" }
     | { kind: "deny"; reason: string }
@@ -798,16 +700,12 @@ export function createPermissionGate(
       };
     }
     // Catastrophic shell commands are hard-denied here, at the top of the
-    // single verdict path every entry (evaluate, authorizeCall,
-    // executionVerdict) flows through — this is the owning enforcement point
-    // for the run-shell-authz classification. The verdict is invariant across
-    // modes: auto, headless, and skipPermissions never allow these commands.
-    // Judged against the full command string, not per split segment, so a
-    // stage that only reads bounded, already-piped data (e.g.
-    // `git show sha:path | rg -n foo`) is not denied in isolation when the
-    // full pipeline is exempt. This runs before every grant shortcut — a
-    // stored grant must never admit a hard-denied command (see
-    // preGrantGuardReason).
+    // single verdict path every entry flows through. The verdict is invariant
+    // across modes (auto, headless, skipPermissions). Judged against the full
+    // command string, not per split segment, so a stage that only reads
+    // bounded, already-piped data (e.g. `git show sha:path | rg -n foo`) is
+    // not denied in isolation. Runs before every grant shortcut — a stored
+    // grant must never admit a hard-denied command (preGrantGuardReason).
     if (call.name === "run_shell") {
       const command = String(call.arguments.command ?? "");
       const block = runShellAuthzBlock(command);
@@ -825,33 +723,25 @@ export function createPermissionGate(
       }
     }
     if (skipPermissions) return { kind: "allow" };
-    // Sub-agent tool calls run under ALS identity (identity-context.ts). The
-    // process cwd is the worktree (or session when no identity is set); every
-    // relative-path judgment below must use it so auto-allow and restriction
-    // match what the shell will open.
+    // Sub-agent calls run under ALS identity (identity-context.ts); the process
+    // cwd is the worktree. Every relative-path judgment below must use it so
+    // auto-allow and restriction match what the shell will open.
     const subAgentIdentity = getSubAgentIdentity();
     const effectiveCwd = subAgentIdentity?.cwd ?? resolvedCwd;
 
-    // A same-turn retry of an already-denied request (fresh tool_call.id, same
-    // stable fingerprint) returns the identical cached reason instead of
-    // re-evaluating and re-logging. This check runs before the path-escape
-    // deny below: the decision is the same deny either way, but the reason
-    // text is the originally recorded one, not a freshly computed escape
-    // reason.
-    // Fingerprint the raw call, not the coerced `call` above: the coercion
-    // inside denialFingerprint is idempotent, so both forms share one key,
-    // and the raw form is what evaluate() and resolveSuspended() also derive
-    // from — keeping the three decline paths on the identical reason.
+    // A same-turn retry of an already-denied request returns the identical
+    // cached reason instead of re-evaluating and re-logging. Runs before the
+    // path-escape deny so the reason text is the originally recorded one.
+    // Fingerprint the raw call, not the coerced `call` above — coercion is
+    // idempotent, so all three decline paths share one key.
     const stableId = denialFingerprint(rawCall, effectiveCwd);
     const cachedDenial = denialMemory.isDenied(stableId);
     if (cachedDenial !== undefined)
       return { kind: "deny", reason: cachedDenial };
 
-    // Path-escape will hard-reject these at execution unless skipPermissions
-    // (already returned allow above). Deny here rather than showing Accept for
-    // a call that cannot succeed. Match the plugin stack: workers sandbox
-    // against their own cwd and that cwd's worktree roots, not the session
-    // listing (which excludes the session root itself).
+    // Path-escape will hard-reject these at execution; deny here rather than
+    // showing Accept for a call that cannot succeed. Workers sandbox against
+    // their own cwd's roots, not the session listing.
     const escapeRoots =
       effectiveCwd === resolvedCwd
         ? rootsProvider
@@ -871,19 +761,18 @@ export function createPermissionGate(
       isRestricted,
       effectiveCwd,
     );
-    // A call targeting a restricted in-bounds path (a write under the session
-    // state root) drops from allow to ask, so it never auto-allows on
-
-    // tier or shell-safety below.
+    // A restricted in-bounds path (a write under the session state root)
+    // drops from allow to ask, so it never auto-allows on tier or
+    // shell-safety below.
     const restricted = callTargetsRestricted(call, isRestrictedHere);
     const shellCmd =
       call.name === "run_shell" && typeof call.arguments.command === "string"
         ? call.arguments.command
         : undefined;
     // Full-command secret check: whole-call auto-allow and headless messaging.
-    // Per-segment secret checks below govern grants and segment auto-skip so a
-    // safe pipeline tail (e.g. `| sort`) is not re-prompted when only an earlier
-    // segment mentions a secret path.
+    // Per-segment checks below govern grants and auto-skip so a safe pipeline
+    // tail (`| sort`) is not re-prompted when only an earlier segment mentions
+    // a secret path.
     const shellRequiresSecretApproval =
       shellCmd !== undefined &&
       shellSecretInspectionRequiresApproval(
@@ -901,11 +790,10 @@ export function createPermissionGate(
     }
     if (auto) {
       if (call.name === "run_shell") {
-        // Auto-shell policy: `deny` (file mutations) blocks outright; `ask`
-        // (dependency installs, sensitive-path refs) falls through to the
-        // operator prompt. Everything else auto-allows. Path-keyed secret
-        // reads stay hard-denied by secret-guard; shell that only *mentions*
-        // a secret path is ask so an explicit one-time approval can pass it.
+        // Auto-shell policy: `deny` blocks outright, `ask` falls through to the
+        // operator prompt, everything else auto-allows. Path-keyed secret
+        // reads stay hard-denied by secret-guard; shell that only mentions a
+        // secret path is ask.
         const shellRule = autoShellRuleForCall(
           call,
           isRestrictedHere,
@@ -939,9 +827,9 @@ export function createPermissionGate(
           ? { agentLabel: subAgentIdentity.description }
           : {}),
       };
-      // Shell: security still splits the chain, but the operator sees (and
-      // accepts/rejects) the full command once. Any unapproved segment fails the
-      // whole block. Execution always runs the full string the model asked for.
+      // Shell: security splits the chain, but the operator sees the full
+      // command once. Any unapproved segment fails the whole block, and
+      // execution always runs the full string the model asked for.
       if (request.tool === "run_shell") {
         const fullCommand = request.subject;
         const segments = splitChainedCommand(fullCommand).filter(
@@ -957,11 +845,9 @@ export function createPermissionGate(
         let mismatchNotice: string | undefined;
         for (const segment of segments) {
           // A secret-path reference or restricted target always requires the
-          // operator, whether the segment would otherwise auto-allow or match
-          // a stored grant — a grant approved for a safe command must never
-          // replay for a guarded one just because the pattern also matches it.
-          // segmentGuard is the same guard preGrantGuardReason applies before
-          // isRequestCoveredByGrant lets a queued request skip the prompt.
+          // operator — a grant approved for a safe command must never replay
+          // for a guarded one just because the pattern matches. Same guard
+          // preGrantGuardReason applies before queue reconciliation.
           const guard = segmentGuard(
             segment,
             isRestrictedHere,
@@ -972,9 +858,8 @@ export function createPermissionGate(
           if (guard !== undefined) {
             if (guard.kind !== "restricted") anySecret = true;
             needsOperator = true;
-            // A standing grant may still cover this segment even though the
-            // pre-grant guard forces an ask — record why so the prompt can say
-            // so. Matching semantics are untouched; this only annotates the ask.
+            // A standing grant may still cover this segment while the pre-grant
+            // guard forces an ask — record why so the prompt can say so.
             if (
               mismatchNotice === undefined &&
               (await approvalCoversSubject({
@@ -1003,7 +888,6 @@ export function createPermissionGate(
             continue;
           }
           // Safe pipeline tails (`| sort`) and pure no-ops (`|| true`) skip.
-          // Containment is judged against the process cwd, not the session cwd.
           if (
             isAutoAllowedShellSegment(
               segment,
@@ -1034,10 +918,9 @@ export function createPermissionGate(
           return { kind: "deny", reason };
         }
 
-        // Secret-path shell must never mint a stored grant — even an exact match
-        // would be misleading because future secret-path shell always re-asks.
-        // A grant mismatch carries the guard's reason on the prompt so the
-        // operator sees why the standing grant did not apply.
+        // Secret-path shell must never mint a stored grant — future secret-path
+        // shell always re-asks. A grant mismatch carries the guard's reason on
+        // the prompt so the operator sees why the standing grant did not apply.
         const requestForOperator = anySecret
           ? {
               ...request,
@@ -1084,10 +967,9 @@ export function createPermissionGate(
     return { kind: "allow" };
   };
 
-  // Resolve an `ask` decision against the operator: log the ask, open the wait
-  // span, await the requestApproval seam, settle the log/span, and mint any
-  // grant the outcome carries (never for secret-path shell). Returns undefined
-  // when no outcome arrived (timeout/abort auto-deny paths).
+  // Resolve an `ask` decision against the operator: log it, open the wait
+  // span, await the seam, settle, and mint any grant the outcome carries
+  // (never for secret-path shell). Returns undefined when no outcome arrived.
   const resolveInteractiveAsk = async (
     decision: Extract<GateDecision, { kind: "ask" }>,
     stillCurrent?: () => boolean,
@@ -1130,9 +1012,8 @@ export function createPermissionGate(
     return outcome;
   };
 
-  // Operator-decline reason for a decided-ask request and its outcome. Shared
-  // by evaluate() (middleware) and resolveSuspended() (reactor) so a cached
-  // decline reads identically whichever path recorded it.
+  // Operator-decline reason for a decided-ask request and its outcome, shared
+  // by the middleware and reactor paths so a cached decline reads identically.
   const declineReason = (
     request: PermissionRequest,
     outcome: ApprovalOutcome | undefined,
@@ -1144,10 +1025,9 @@ export function createPermissionGate(
     return `${OPERATOR_DECLINED_PREFIX}${request.action} (${request.subject})${suffix}`;
   };
 
-  // Middleware path: blocking evaluation used by tool-runner consumers whose
-  // calls never pass through the reactor (sub-agents). When the gate is
-  // reactor-gated, gateToolCall uses executionVerdict instead of evaluate() so
-  // deny still blocks and ask never re-prompts (see gateToolCall).
+  // Middleware path: blocking evaluation for tool-runner consumers whose calls
+  // never pass through the reactor. Reactor-gated gates use executionVerdict
+  // instead, so ask never re-prompts.
   const evaluate = async (rawCall: ToolCall): Promise<GateVerdict> => {
     const decision = await decide(rawCall);
     if (decision.kind === "allow") return { allowed: true };
@@ -1156,12 +1036,10 @@ export function createPermissionGate(
     const outcome = await resolveInteractiveAsk(decision);
     if (outcome === undefined || !outcome.allow) {
       const reason = declineReason(decision.request, outcome);
-      // Cache operator declines so a same-turn retry (fresh tool_call.id,
-      // same stable fingerprint) denies with the identical reason instead of
-      // re-asking. Timeouts, aborts, and missing outcomes are never cached —
-      // the operator made no decision, so the retry must ask again (mirrors
-      // resolveSuspended). The key derives from the raw call through the one
-      // canonical coercion, so a coerced-shape retry hits the same entry.
+      // Cache operator declines so a same-turn retry denies with the identical
+      // reason. Timeouts, aborts, and missing outcomes are never cached — the
+      // retry must ask again. The key derives from the raw call through the
+      // one canonical coercion, so a coerced-shape retry hits the same entry.
       if (
         outcome !== undefined &&
         !outcome.allow &&
@@ -1177,12 +1055,9 @@ export function createPermissionGate(
     return { allowed: true };
   };
 
-  // Reactor path: the same policy as evaluate(), expressed as the effect the
-  // vendored before-tool authz hook consumes. `allow` proceeds, `deny` becomes
-  // an upstream `block`, and `ask` suspends the call as a PendingOperation
-  // keyed by the hook-minted correlationId — no resolve closure is held here.
-  // Stashes the verdict for gateToolCall to consume so middleware is not a
-  // second copy of env.authorize.
+  // Reactor path: evaluate()'s decision as the effect the vendored before-tool
+  // authz hook consumes — `ask` suspends the call keyed by the hook-minted
+  // correlationId. authorizeCall stashes the verdict for gateToolCall.
   const mapAuthorizeVerdict = (decision: GateDecision): AuthorizeVerdict => {
     switch (decision.kind) {
       case "allow":
@@ -1235,8 +1110,8 @@ export function createPermissionGate(
   };
 
   // Resolve a suspended reactor approval once the operator answers. The
-  // request is the one authorizeCall built at decision time, so the ask log,
-  // wait span, and grant minting are identical to the middleware path.
+  // request is the one authorizeCall built, so ask log, wait span, and grant
+  // minting match the middleware path.
   const resolveSuspended = (
     request: PermissionRequest,
     stillCurrent?: () => boolean,
@@ -1264,20 +1139,15 @@ export function createPermissionGate(
     };
     return (async () => {
       const outcome = await resolveInteractiveAsk(decision, stillCurrent);
-      // Cache operator declines so a same-turn reactor retry (fresh
-      // tool_call.id, same stable fingerprint) denies with the identical
-      // reason instead of re-prompting. Timeouts, aborts, and missing outcomes
-      // are never cached — the operator made no decision, so the retry must
-      // ask again. Invalidation (grant-mint/mode/identity clears) is unchanged.
-      // Rebuild the denied ToolCall from the suspended request through the
-      // one canonical helper decide()/evaluate() use. The suspended request
-      // carries post-coercion run_shell {command} only — buildRequests drops
-      // the workdir-scoped cwd — so the recorded key is {command}-keyed while
-      // a same-workdir retry's decide() key is {command, cwd}-keyed: the retry
-      // misses and re-asks (fail-safe, never a bypass). Conversely a cwd-less
-      // retry of the same command hits the workdir record and denies
-      // (fail-closed over-deny). The synthesized id never participates
-      // (stableRequestId ignores call.id and correlationId).
+      // Cache operator declines so a same-turn reactor retry denies with the
+      // identical reason; timeouts/aborts/missing outcomes never cache.
+      // Rebuild the denied ToolCall from the suspended request through the one
+      // canonical helper decide()/evaluate() use. The suspended request
+      // carries {command} only (buildRequests drops the workdir cwd), so the
+      // recorded key is {command}-keyed while a same-workdir retry's key is
+      // {command, cwd}-keyed: the retry misses and re-asks (fail-safe), and a
+      // cwd-less retry hits the workdir record and denies (fail-closed). The
+      // synthesized id never participates (stableRequestId ignores id).
       if (
         outcome !== undefined &&
         !outcome.allow &&
@@ -1333,8 +1203,7 @@ export function createPermissionGate(
   const setSeededApprovals = (seeded: readonly Approval[]): void => {
     approvals.length = 0;
     approvals.push(...normalizeSeededApprovals(seeded), ...sessionGrants);
-    // Re-seeded approvals can cover previously-denied requests — cached
-    // denies must re-evaluate instead of serving stale reasons.
+    // Re-seeded approvals can flip a deny to an allow — cached denies re-evaluate.
     denialMemory.clear();
   };
 

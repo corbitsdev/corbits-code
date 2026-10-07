@@ -1,29 +1,14 @@
 /**
  * Approval log: one record every time the permission gate settles a
- * consequential action — whether that settlement came from an operator
- * prompt or from auto mode deciding without one.
+ * consequential action, from an operator prompt or auto mode.
  *
- * Before this file, the only durable record of an approval was a lifetime
- * "Allow Always" grant (see store.ts) — every allow-once and every deny, the
- * overwhelming majority of answers, was discarded the moment it was given.
- * There was no way to answer how many approvals a session fires, which
- * classifier rule triggers them, or whether a prompt was even auto-allowed by
- * policy rather than shown to the operator (CL-5666).
- *
- * No command text, file content, path, credential, or any other
- * model-authored or user-authored free text ever appears here — only the tool
- * name (a fixed identifier), the classifier/auto-shell rule that fired
- * (reusing the rule names already defined in auto-shell-policy.ts and
- * classify.ts, plus a small closed set of additional literals this file
- * defines for decisions those modules don't otherwise name — never a new
- * taxonomy), a shell chain's segment count, and timing. Every field is either
- * a fixed enum, a count, or a timestamp; a sub-agent's free-text dispatch
- * label was deliberately left out even though it would enable a per-agent
- * breakdown, because nothing constrains what a model puts in it. Writes are
- * fire-and-forget and never throw: a diagnostic must not be able to fail a
- * run. A hard size cap on the serialized line (see MAX_RECORD_BYTES) is
- * belt-and-suspenders insurance against a future field reintroducing free
- * text.
+ * Records hold only fixed enums, counts, and timestamps — never command text,
+ * paths, or model-authored free text. A sub-agent's free-text dispatch label
+ * is deliberately left out even though it would enable a per-agent breakdown,
+ * because nothing constrains what a model puts in it. Writes are fire-and-
+ * forget and never throw: a diagnostic must not be able to fail a run.
+ * MAX_RECORD_BYTES caps the serialized line against a future field
+ * reintroducing free text.
  */
 
 import { appendFile } from "node:fs/promises";
@@ -73,8 +58,8 @@ export interface ApprovalRecord {
   /**
    * ISO timestamp the request actually reached the operator's screen. Equal
    * to queuedAt unless the request sat behind another overlay first — the gap
-   * between the two is the CL-5664 defect signal (timers arming before the
-   * operator can see the request).
+   * is the defect signal for timers arming before the operator can see the
+   * request.
    */
   displayedAt: string;
   /** ISO timestamp the request settled (decided, auto-decided, timed out, or aborted). */
@@ -92,12 +77,11 @@ export interface AskEvent {
   segments?: number;
 }
 
-// Belt-and-suspenders cap on the serialized record. Every field here is
-// either a fixed enum, a count, or a timestamp, so a well-formed line should
-// never come close to this — it exists only so a future field that
-// reintroduces free text (an agent label, a subject, a message) cannot grow
-// this file into a content leak; oversized lines are dropped, not truncated,
-// so no partial secret survives half-written.
+// Cap on the serialized record. Every field is a fixed enum, count, or
+// timestamp, so a well-formed line never comes close — it exists only so a
+// future field that reintroduces free text cannot grow this file into a
+// content leak. Oversized lines are dropped, not truncated, so no partial
+// secret survives half-written.
 const MAX_RECORD_BYTES = 512;
 
 /** Handle for one in-flight ask, returned by ApprovalLog.ask(). */

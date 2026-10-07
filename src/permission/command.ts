@@ -7,23 +7,20 @@ import {
 
 export { splitChainedCommand } from "../shell/command-segments.js";
 
-// Remove genuine top-level full-line shell comments from command text before
-// it is used to derive or match a persisted grant scope. Agents routinely
-// prefix a command with a `# why I'm running this` line; if that comment
-// stays part of the scope pattern, an identical command with a different (or
-// absent) comment never matches a previously granted scope and re-prompts
-// forever. Only a line whose first non-whitespace character is "#" at top
-// level is removed:
-//   - a "#" inside a '...', "..." or `...` quoted span is data, not a comment
+// Remove genuine top-level full-line shell comments from command text before it
+// is used to derive or match a persisted grant scope. Agents routinely prefix
+// a command with a `# why I'm running this` line; if that comment stays in the
+// scope pattern, an identical command with a different (or absent) comment
+// never matches and re-prompts forever. Only a line whose first non-whitespace
+// character is "#" at top level is removed:
+//   - a "#" inside '...', "..." or `...` is data, not a comment
 //   - a line glued onto the previous one by a trailing backslash continuation
-//     can never itself start a comment, however it looks in isolation — the
-//     continuation makes it part of the prior (non-comment) line, and a
-//     payload smuggled in that way must stay visible to scope matching
-//   - a heredoc body is verbatim payload, never shell syntax, so lines
-//     inside it are never treated as comments
-// A backslash inside an already-open comment is ordinary comment text (real
-// shells do not honor line continuation there), so it never extends the
-// comment past its own line.
+//     can never start a comment — payload smuggled in that way must stay
+//     visible to scope matching
+//   - a heredoc body is verbatim payload, never shell syntax
+// A backslash inside an already-open comment is ordinary text (real shells do
+// not honor line continuation there), so it never extends the comment past its
+// own line.
 export function stripCommentLines(command: string): string {
   let out = "";
   let line = "";
@@ -154,30 +151,27 @@ export function isShellNoOp(segment: string): boolean {
 }
 
 // Split a single command segment into whitespace-separated tokens, treating a
-// quoted run as one token. Backtick and `$(` are not treated as literal text
-// even inside double quotes: shell double-quoting suppresses word-splitting
-// and globbing, but command substitution still runs inside "...". Stripping
-// a backtick pair as literal quoting (e.g. `cat "`/etc/passwd`"`) would glue
-// the substituted command onto the surrounding text as one opaque token,
-// hiding the plain path from every caller that inspects tokens (classify's
-// dangerous-flag and path checks, commandTargetsRestricted's target scan).
-// So a backtick — and the start of a `$(` substitution — acts as a bare
-// token boundary, the same way whitespace does, whether or not a double
-// quote is currently open; the content inside surfaces as its own visible
-// token(s). Single quotes are the one shell construct that suppresses
-// substitution entirely, so '...' keeps swallowing backticks and `$(`
-// as literal characters.
+// quoted run as one token. Backtick and `$(` are not literal text even inside
+// double quotes: shell double-quoting suppresses word-splitting and globbing,
+// but command substitution still runs inside "...". Stripping a backtick pair
+// as literal quoting would glue the substituted command onto the surrounding
+// text as one opaque token, hiding a plain path from every token consumer
+// (classify's dangerous-flag and path checks, commandTargetsRestricted's
+// target scan). So a backtick — and the start of a `$(` substitution — acts
+// as a bare token boundary, whether or not a double quote is open; the content
+// inside surfaces as its own token(s). Single quotes suppress substitution
+// entirely, so '...' keeps swallowing backticks and `$(` as literal
+// characters.
 export function tokenize(command: string): string[] {
   const tokens: string[] = [];
   let current = "";
   let quote: '"' | "'" | null = null;
   // Depth of nested "(" seen since the last unmatched "$(" opener, and the
-  // double-quote state to restore once the substitution's closing ")" is
-  // reached. While a substitution is open its content is parsed like
-  // top-level shell text (whitespace splits, its own quotes nest) even
-  // though it may be sitting inside a double-quoted string, matching real
-  // shell semantics: "..." suppresses word-splitting of the literal text
-  // around a substitution, not the substitution's own parsing.
+  // quote state to restore once the substitution's closing ")" is reached.
+  // While a substitution is open its content is parsed like top-level shell
+  // text (whitespace splits, its own quotes nest) even inside a double-quoted
+  // string — "..." suppresses word-splitting of the literal text around a
+  // substitution, not the substitution's own parsing.
   let substDepth = 0;
   let savedQuote: '"' | "'" | null = null;
 

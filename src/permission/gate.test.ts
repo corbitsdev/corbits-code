@@ -26,21 +26,20 @@ const shellCall = (command: string): ToolCall => ({
   arguments: { command },
 });
 
-// Every guard evaluate() applies before a grant is ever consulted, keyed to
-// a command that trips it. isRequestCoveredByGrant must refuse to cover each
-// of these even when handed a grant that would otherwise match verbatim.
+// Every guard evaluate() applies before a grant is ever consulted, keyed to a
+// command that trips it. isRequestCoveredByGrant must refuse to cover each of
+// these even when handed a grant that would otherwise match verbatim.
 //
 // The secret-path and restricted-path cases are a genuine reconciliation
-// path: evaluate() forces those through to the operator (queuing the
-// request) rather than denying outright, so isRequestCoveredByGrant is the
-// only thing standing between a queued one and a silent auto-approve once a
-// broad grant lands.
+// path: evaluate() forces those through to the operator (queuing the request)
+// rather than denying outright, so isRequestCoveredByGrant is the only thing
+// standing between a queued one and a silent auto-approve once a broad grant
+// lands.
 //
 // The shell-authz hard-deny cases are not independently reachable through
-// reconciliation today — evaluate() already denies and returns before such a
-// request is ever queued (see the block-reason check at the top of the
-// verdict path), so a queued entry has always already cleared this guard. They stay
-// in preGrantGuardReason and this table anyway as drift-resistance: if a
+// reconciliation today — evaluate() denies and returns before such a request
+// is ever queued — so a queued entry has always already cleared this guard.
+// They stay in preGrantGuardReason and this table as drift-resistance: if a
 // future refactor ever let a hard-denied command reach the queue, this still
 // catches it.
 const GUARD_CASES: { name: string; command: string }[] = [
@@ -386,9 +385,9 @@ describe("reactorGated is a required, explicit decision", () => {
   });
 });
 
-// CL-5638: an Always-allow grant minted for `git worktree *` must cover a later
-// worktree command whose destination is a sibling directory the operator has
-// already implicitly approved under that pattern, without a second prompt.
+// A standing grant minted for `git worktree *` must cover a later worktree
+// command whose destination is a sibling directory the operator has already
+// implicitly approved under that pattern, without a second prompt.
 describe("standing grant covers a later git worktree command (CL-5638)", () => {
   const root = mkdtempSync(join(tmpdir(), "gate-worktree-grant-"));
   const sessionCwd = join(root, "main");
@@ -436,10 +435,10 @@ describe("standing grant covers a later git worktree command (CL-5638)", () => {
   });
 });
 
-// CL-6824: when a standing grant covers a command but a pre-grant guard still
-// forces an ask, the prompt carries PermissionRequest.notice naming the
-// guard's reason. Matching semantics are unchanged — every case below still
-// asks (and stays deniable); only the prompt gains the why.
+// When a standing grant covers a command but a pre-grant guard still forces
+// an ask, the prompt carries PermissionRequest.notice naming the guard's
+// reason. Matching semantics are unchanged — every case below still asks (and
+// stays deniable); only the prompt gains the why.
 describe("grant-mismatch asks carry the guard reason as a notice (CL-6824)", () => {
   const root = mkdtempSync(join(tmpdir(), "gate-mismatch-notice-"));
   const sessionCwd = join(root, "main");
@@ -526,9 +525,9 @@ describe("grant-mismatch asks carry the guard reason as a notice (CL-6824)", () 
   });
 });
 
-// Spill URI sandbox (CL-6727): the permission gate denies a non-reader
-// virtual ref at authorize time, mirroring the execution-time middleware
-// deny, while the exempted reader is not denied.
+// Spill URI sandbox: the permission gate denies a non-reader virtual ref at
+// authorize time, mirroring the execution-time middleware deny, while the
+// exempted reader is not denied.
 describe("spill URI sandbox at authorize time (CL-6727)", () => {
   const cwd = mkdtempSync(join(tmpdir(), "gate-spill-uri-"));
   const gate = createPermissionGate({

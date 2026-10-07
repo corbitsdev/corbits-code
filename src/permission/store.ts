@@ -140,22 +140,20 @@ export async function loadApprovals(
   return readApprovalsField(storePath(cwd, sessionId, home), "approvals");
 }
 
-// CL-7782: the project approvals file is repo content — committable,
-// copyable, plantable — so its entries are NOT approvals until the operator
-// confirms each one (see trustedGrantFingerprints in ../trust/project-trust).
-// An untrusted directory therefore contributes zero approvals here; entries
-// still awaiting confirmation are visible via loadPendingProjectApprovals so
-// the first encounter shows what the file would grant instead of silently
-// dropping it. DECISION: project trust does not imply grant trust — plugins
-// and MCP servers trusted for a directory confer no approval coverage; grants
-// require their own confirmation. This is the safer default because a grant
-// auto-allows future tool calls with no further prompt, while plugin/MCP
-// trust only permits code to load or a server to connect.
+// The project approvals file is repo content — committable, copyable,
+// plantable — so its entries are NOT approvals until the operator confirms
+// each one (see trustedGrantFingerprints in ../trust/project-trust). An
+// untrusted directory therefore contributes zero approvals here; entries still
+// awaiting confirmation are visible via loadPendingProjectApprovals so the
+// first encounter shows what the file would grant instead of silently dropping
+// it. DECISION: project trust does not imply grant trust — plugins and MCP
+// servers trusted for a directory confer no approval coverage; grants require
+// their own confirmation (a grant auto-allows future calls with no prompt,
+// while plugin/MCP trust only permits code to load or a server to connect).
 // REVOCATION: trust follows the file. Each load reconciles the trust record
 // against the entries currently on disk and drops fingerprints with no
-// corresponding entry, so hand-removing an entry revokes its confirmation
-// just like removeProjectApproval does — a byte-identical replant re-surfaces
-// as pending instead of applying silently.
+// corresponding entry, so hand-removing an entry revokes its confirmation — a
+// byte-identical replant re-surfaces as pending instead of applying silently.
 export async function loadProjectApprovals(
   cwd: string,
   home?: string,

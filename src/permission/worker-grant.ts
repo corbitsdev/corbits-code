@@ -1,13 +1,12 @@
-// Worker denied-call envelope (CL-9475 Phase 1): harness-owned sidecar for a
-// worker tool call denied pending operator approval. The worker `deny` text
-// keeps `deny` + WORKER_CANNOT_COMPLETE_APPROVAL wording and names only the
-// envelope requestId; the envelope itself carries the exact denied call
+// Worker denied-call envelope: harness-owned sidecar for a worker tool call
+// denied pending operator approval. The worker deny text names only the
+// envelope requestId; the envelope carries the exact denied call
 // (tool/action/subject/args + stable hash, callId, worker session/cwd) so the
 // parent replays the EXACT ToolCall through its own gate operator path and
-// retries via the existing resume_agent verb with exact args + questionId ref.
-// Model prose (ask_director text, send_input content) is never authoritative:
-// nothing here parses message text, and plain send_input stays text-only.
-// The dedicated atomic grant-and-retry verb is a Phase 2 follow-up.
+// retries via the existing resume_agent verb. Model prose (ask_director text,
+// send_input content) is never authoritative: nothing here parses message
+// text, and plain send_input stays text-only. The dedicated atomic
+// grant-and-retry verb is a Phase 2 follow-up.
 
 import { createHash, randomUUID } from "node:crypto";
 
@@ -273,12 +272,10 @@ export class WorkerGrantStore {
    * the questionId so the parent's retry references it. When the ask names
    * its denial (the grant requestId quoted from the deny reason), bind that
    * exact envelope — first-pending-wins would join question-about-B to
-   * exact-call-A when two denies share a session, poisoning the audit and
-   * (Phase 2) replaying the wrong call. A named id that resolves to no
-   * pending own-session envelope fails closed with no attach (never falls
-   * back to another denial). An unnamed ask keeps the legacy first-pending
-   * bind for the single-deny case. Sweeps overdue envelopes first: an ask
-   * can never join an expired denial. */
+   * exact-call-A when two denies share a session. A named id resolving to no
+   * pending own-session envelope fails closed with no attach. An unnamed ask
+   * keeps the legacy first-pending bind for the single-deny case. Sweeps
+   * overdue envelopes first: an ask can never join an expired denial. */
   attachToAsk(
     sessionId: string,
     questionId: string,
@@ -331,10 +328,9 @@ export class WorkerGrantStore {
       if (envelope.argsFingerprint !== fingerprint) continue;
       // Another session's envelope never vetoes this session: each session
       // mints and spends its own envelope through its own grant round, so a
-      // sibling's pending or already-consumed envelope is irrelevant here.
-      // (Reactor retries share the worker's session, so consume-once within
-      // the session survives this scoping. Spending stays session-scoped in
-      // consumeOnAllow, and tampered args/cwd still fail closed below.)
+      // sibling's pending or consumed envelope is irrelevant here. (Reactor
+      // retries share the worker's session, so consume-once within the session
+      // survives this scoping.)
       if (
         envelope.canonicalTool !== identity.canonicalTool ||
         envelope.workerSessionId !== identity.sessionId

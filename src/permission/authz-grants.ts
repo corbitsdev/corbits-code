@@ -35,9 +35,8 @@ export function approvalToGrantRule(
 }
 
 // The gate's own project boundary: the session root it was constructed with,
-// plus every git worktree registered against that root (which, per CL-4929,
-// may live outside the root entirely — a sibling directory, not a
-// subdirectory). Built once per gate from its closed-over resolvedCwd and
+// plus every git worktree registered against that root (which may live outside
+// the root entirely — a sibling directory, not a subdirectory). Built once per gate from its closed-over resolvedCwd and
 // rootsProvider and threaded through — never accept one built anywhere else,
 // or "same project" quietly stops meaning "same gate's project."
 export interface GrantWorkspace {

@@ -1073,12 +1073,10 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(tools.length);
   });
 
-  // CL-9362: agentId-targeted fleet calls address workers by opaque session
-  // id (`target`), never by path — there is nothing path-shaped for
-  // callTargetsRestricted to judge, so the gate's auto-allow `!restricted`
-  // guard is intentionally vacuous for them. Path restriction is enforced
-  // where paths are actually touched: inside the target worker, whose own
-  // gate binds restriction judgments to its process cwd.
+  // AgentId-targeted fleet calls address workers by opaque session id
+  // (`target`), never by path — nothing path-shaped for callTargetsRestricted
+  // to judge. Path restriction is enforced inside the target worker, whose
+  // own gate binds restriction to its process cwd.
   test("auto mode auto-allows agentId-targeted fleet calls even when every path is treated as restricted", async () => {
     const { gate, asked } = gatedPrompts({ allow: false }, { auto: true });
     const calls: ToolCall[] = [
@@ -1209,8 +1207,8 @@ describe("createPermissionGate", () => {
     // by definition isn't a registered root yet. Here the registered root
     // lives in its own parent directory (an org-style "…/wts/<repo>" layout)
     // distinct from cwd's own parent, and cwd reaches the new sibling through
-    // a relative "../../wts/CL-5602" path — still the narrow one-level-up
-    // sibling shape, just anchored at a different trusted parent than cwd's.
+    // a relative ../../wts/… path — still the narrow one-level-up sibling
+    // shape, just anchored at a different trusted parent than cwd's.
     const base = mkdtempSync(join(tmpdir(), "corbits-worktree-org-"));
     const cwd = join(base, "main-repo");
     mkdirSync(cwd);
@@ -1403,10 +1401,9 @@ describe("createPermissionGate", () => {
     expect(mutate.allowed).toBe(false);
   });
 
-  // SECURITY: shell-wrapper bypass. Wrapping a dangerous payload in bash/sh/zsh -c
-  // or xargs must not auto-allow what the inner command would deny or ask for.
-  // stripQuoted deletes the quoted -c payload, so without unwrap the outer shell
-  // name matches no rule and auto mode rubber-stamps catastrophic commands.
+  // SECURITY: shell-wrapper bypass. Wrapping a dangerous payload in
+  // bash/sh/zsh -c must not auto-allow what the inner command would deny or
+  // ask for; without peeling, the outer shell name matches no rule.
   test("auto mode peels bash/sh/zsh -c wrappers for recursive rm", async () => {
     const cases = [
       "bash -c 'rm -rf build'",
@@ -1536,13 +1533,11 @@ describe("createPermissionGate", () => {
     expect(asked.count).toBe(0);
   });
 
-  // SECURITY: skipPermissions must short-circuit BEFORE the approval callback is
-  // ever invoked. If the callback fires it means skipPermissions is being used as
-  // a post-classification hint rather than a gate bypass, which could leave the
-  // callback in control of the allow/deny outcome. Uses a non-catastrophic
-  // ask-tier call: catastrophic shell has its own hard-deny above the
-  // skipPermissions shortcut (CL-7950 ordering regression), so `rm -rf /`
-  // would deny here regardless of the callback.
+  // SECURITY: skipPermissions must short-circuit BEFORE the approval callback
+  // ever fires; if it fires, skipPermissions is a post-classification hint
+  // rather than a gate bypass. Uses a non-catastrophic ask-tier call:
+  // catastrophic shell has its own hard-deny above the shortcut, so `rm -rf /`
+  // would deny regardless of the callback.
   test("skipPermissions never invokes the approval callback", async () => {
     const { gate, asked } = gatedPrompts(
       { allow: false },
@@ -1569,9 +1564,9 @@ describe("createPermissionGate", () => {
     expect(asked.count).toBe(0);
   });
 
-  // CL-8002: the reactor retries a denied ask-tier call with a fresh
-  // tool_call.id. The retry must deny with the identical cached reason
-  // instead of re-evaluating, or the loop never settles.
+  // The reactor retries a denied ask-tier call with a fresh tool_call.id. The
+  // retry must deny with the identical cached reason instead of re-evaluating,
+  // or the loop never settles.
   test("headless denies a same-URL web_fetch retry with the identical reason", async () => {
     const gate = createGate({
       interactive: false,
@@ -1589,10 +1584,9 @@ describe("createPermissionGate", () => {
     expect(retry.reason).toBe(first.reason);
   });
 
-  // CL-8002: the reactor path suspends an ask-tier call, resolves the operator
-  // decline via resolveSuspended, then retries same-turn with a fresh
-  // tool_call.id. The retry must deny with the identical cached reason (the
-  // same text the middleware path records) and the operator is asked once.
+  // The reactor path suspends an ask-tier call, resolves the operator decline
+  // via resolveSuspended, then retries same-turn with a fresh tool_call.id.
+  // The retry must deny with the identical cached reason and ask once.
   test("reactor-path decline is cached: fresh-id retry denies without re-asking", async () => {
     const { gate, asked } = gatedPrompts(
       { allow: false },
@@ -1667,8 +1661,8 @@ describe("createPermissionGate", () => {
     expect(retry.reason).toBe(first.reason);
   });
 
-  // CL-8002: a reactor-path timeout is not an operator decision, so
-  // resolveSuspended must not cache it — the retry re-asks the operator.
+  // A reactor-path timeout is not an operator decision, so resolveSuspended
+  // must not cache it — the retry re-asks the operator.
   test("reactor-path timeout is not cached: retry re-asks", async () => {
     let asked = 0;
     const gate = createGate({
@@ -1729,8 +1723,8 @@ describe("createPermissionGate", () => {
     }
   });
 
-  // CL-8002: distinct URLs deny independently, and reset() clears the denial
-  // memory so the next turn re-denies cleanly with no stale state.
+  // Distinct URLs deny independently, and reset() clears the denial memory so
+  // the next turn re-denies cleanly with no stale state.
   test("headless denies distinct web_fetch URLs independently; reset clears denials", async () => {
     const gate = createGate({
       interactive: false,
@@ -1857,9 +1851,9 @@ describe("createPermissionGate", () => {
   });
 
   test("escaped quotes do not mint grants for unexecuted text", async () => {
-    // splitChainedCommand has no backslash-escape support (CL-6988). Minting
-    // per segment would invent a phantom `touch PWNED` grant, so the gate
-    // falls back to one exact whole-pattern grant instead.
+    // splitChainedCommand has no backslash-escape support. Minting per segment
+    // would invent a phantom `touch PWNED` grant, so the gate falls back to
+    // one exact whole-pattern grant.
     const full = `printf "safe \\" && touch PWNED && \\""`;
     const persisted: Approval[] = [];
     const built = buildRequests(shellCall(full))[0]?.scopes.find(
@@ -2555,7 +2549,7 @@ describe("listWorktreeRoots", () => {
     const { repo } = createRepoWithWorktree();
     const roots = await listWorktreeRoots(repo);
     const relativeTarget = join("..", "secondary", "notes.md");
-    // Canonical (realpath-resolved), not the lexical join — see CL-6712.
+    // Canonical (realpath-resolved), not the lexical join.
     expect(resolveWorkspacePath(repo, relativeTarget, () => roots)).toBe(
       join(realpathSync(join(repo, "..")), "secondary", "notes.md"),
     );
@@ -2927,9 +2921,9 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
     execFileSync("git", args, { cwd, stdio: "ignore" });
   };
 
-  // A sibling worktree, not nested under the session root — mirrors CL-4929's
-  // real-world layout where a sub-agent's worktree lives outside the repo
-  // entirely (e.g. a dispatch worktrees directory next to the checkout).
+  // A sibling worktree, not nested under the session root — the real-world
+  // layout where a sub-agent's worktree lives outside the repo entirely (a
+  // dispatch worktrees directory next to the checkout).
   const createRepoWithSiblingWorktree = (): {
     repo: string;
     worktree: string;

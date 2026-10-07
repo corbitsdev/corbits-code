@@ -65,7 +65,7 @@ function isFileExistsError(err: unknown): boolean {
 // Exclusive atomic backup: fully write a sibling tmp, then link it onto
 // `.bak` so the rollback copy never appears torn. rename would replace a
 // pre-existing bak and lose first-original-wins; a direct wx write of `.bak`
-// can crash mid-write and leave a truncated file that a later start treats as
+// can crash mid-write and leave a truncated file a later start treats as
 // EEXIST success. link is exclusive (EEXIST if the name is taken) and the
 // destination inode is complete at the moment it appears.
 async function writeBackupExclusive(

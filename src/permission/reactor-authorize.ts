@@ -117,10 +117,10 @@ function workerCallIdentity(
 }
 
 /**
- * Harness-owned denied-call sidecar (CL-9475 Phase 1): on a worker
- * deny-on-ask, register the exact denied call and name only its requestId in
- * the deny reason. Reuses a still-pending envelope for the same exact call
- * instead of minting duplicates across reactor retries with fresh call ids.
+ * Denied-call sidecar: on a worker deny-on-ask, register the exact denied
+ * call and name only its requestId in the deny reason. Reuses a still-pending
+ * envelope for the same exact call instead of minting duplicates across
+ * reactor retries with fresh call ids.
  */
 function denyWorkerCallWithEnvelope(
   options: WorkerGrantOptions | undefined,
@@ -211,11 +211,10 @@ async function authorizeWorkerCallInner(
   const verdict = await gate.authorizeCall(call);
   // Authorize never consumes: it only permits the call to proceed to the
   // tool-runner middleware, which enforces executionVerdict. Consuming here
-  // would spend the envelope before execution, so the execution backstop's
-  // precheck would deny the granted retry as "already consumed". The single
-  // consumption happens in executionVerdictWorkerCallInner below — the stage
-  // that actually permits execution — where the same mutex still serializes
-  // concurrent identical retries to exactly one.
+  // would spend the envelope before execution and deny the granted retry as
+  // "already consumed". The single consumption happens in
+  // executionVerdictWorkerCallInner, the stage that actually permits
+  // execution.
   if (verdict.effect === "allow") return verdict;
   if (verdict.effect !== "ask") return verdict;
   return denyWorkerCallWithEnvelope(
@@ -343,8 +342,7 @@ export function createReactorAuthorize(
         return allowAuthz();
       case "deny":
         // The model-facing block stays generic (upstream's formatBlockReason);
-        // the gate's specific reason is preserved here for the audit trail —
-        // without this it reaches neither model, transcript, nor any log.
+        // the gate's specific reason is preserved here for the audit trail.
         logger.warn`authz deny resource=${resource} reason=${verdict.reason}`;
         return { effect: "deny", matchingGrants: [], resolvedBy: null };
       case "ask":

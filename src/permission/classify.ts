@@ -34,28 +34,24 @@ import { AUTO_ALLOW_READ_TOOLS as READ_ONLY_TOOLS } from "../agent/tool-classifi
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
 
 // Read-only tools never need approval as long as they don't touch a restricted
-// path; they cannot change the workspace. `lsp` is included here even though
-// it is activated dynamically mid-session (see CHAT_TOOLS_ACTIVATE_EVENT in
-// director.ts) —
-// hover/definition/reference lookups are as inert as a grep. `manage_tasks` is
-// included for a related but distinct reason: its handler (src/agent/tools.ts)
-// has no side effect of its own — the task list is mutated earlier, by the
-// director's decide() loop at the tool_call event, before this tool ever
-// executes (see applyManageTasksToolCall in src/agent/director.ts). By the
-// time an operator would see an approval prompt for it, there is nothing left
-// for a denial to prevent. Every other posix tool is consequential and
-// defaults to the "ask" tier. Catastrophic commands are denied earlier by the
-// authorization plugin, so they never reach here.
+// path; they cannot change the workspace. `lsp` is included even though it is
+// activated dynamically mid-session — hover/definition/reference lookups are as
+// inert as a grep. `manage_tasks` is included for a related reason: its handler
+// (src/agent/tools.ts) has no side effect of its own — the task list is mutated
+// earlier by the director's decide() loop (applyManageTasksToolCall in
+// src/agent/director.ts), so by the time an operator would see an approval
+// prompt there is nothing left for a denial to prevent. Every other posix tool
+// is consequential and defaults to the "ask" tier; catastrophic commands are
+// denied earlier by the authorization plugin.
 //
-// Membership lives in tool-classification.ts (AUTO_ALLOW_READ_TOOLS, imported
-// here as READ_ONLY_TOOLS) — see CL-6809.
+// Membership lives in tool-classification.ts (AUTO_ALLOW_READ_TOOLS).
 
 // Tools that take a single path-like argument the gate should check against
-// restriction (outside the workspace boundary, or writes under the session state root).
-
-// Covers both read-only tools (dropped from allow to ask) and the mutating
-// file tools (dropped from auto-allow to ask in auto mode). apply_patch is
-// omitted here — its subjects come from the envelope (see productMutationPaths).
+// restriction (outside the workspace boundary, or writes under the session
+// state root). Covers read-only tools (dropped from allow to ask) and the
+// mutating file tools (dropped from auto-allow to ask in auto mode).
+// apply_patch is omitted — its subjects come from the envelope
+// (productMutationPaths).
 const PATH_ARG_TOOLS = new Set([
   "read_file",
   "search_files",
@@ -73,10 +69,9 @@ function pathArgKey(toolName: string): string {
 }
 
 // Product mutation tools mutate the target; every other path-arg tool only
-// reads it. Restriction policy (see path-restriction.ts) treats reads and
-// writes of a session-state path differently, so callers need to tell the
-
-// gate which mode a given tool call is in.
+// reads it. Restriction policy (path-restriction.ts) treats reads and writes
+// of a session-state path differently, so callers tell the gate which mode a
+// call is in.
 function isWriteTool(toolName: string): boolean {
   return isProductMutationTool(toolName);
 }
@@ -84,12 +79,10 @@ function isWriteTool(toolName: string): boolean {
 export type Tier = "allow" | "ask";
 
 // The tier is a pre-filter ABOVE the authz grant path, not authz policy itself
-// (RFC-ask-authz-suspend decision (c)). It encodes Corbits' tool-level
-// defaults — knowledge upstream authz cannot express — and decides whether and
-// how the grant path is consulted: `allow` short-circuits, `ask` flows through
-// grants, where deny and the reactor's suspend effect live. Collapsing the two
-// would push tool defaults into grant-matching or force the grant store to
-// re-implement tiering.
+// (RFC-ask-authz-suspend decision (c)). It encodes tool-level defaults —
+// knowledge upstream authz cannot express — and decides whether and how the
+// grant path is consulted: `allow` short-circuits, `ask` flows through grants,
+// where deny and the reactor's suspend effect live.
 export function classifyTool(
   toolName: string,
   mcpTiers?: McpToolPermissionRegistry,
@@ -123,8 +116,8 @@ export function restrictedPathArg(
 
 // Outside-workspace path arguments are fine for pure-listing programs — listing
 // is not a content read. Content readers (cat, head, xxd, …) still fail the
-// restricted-path check below. The program set itself is owned by
-// secret-guard-plugin.ts (shared with the CL-7790 resolve-leg skip).
+// restricted-path check below. The program set is owned by
+// secret-guard-plugin.ts (shared with the resolve-leg skip).
 
 // Cap accepted tree depth so `tree -L 999999 /` cannot auto-allow an OOM walk.
 const MAX_PURE_TREE_DEPTH = 10;
@@ -258,8 +251,8 @@ function pathLikeTokens(command: string): string[] {
   return out;
 }
 
-// AgentId-addressed fleet continuation verbs (see the CL-9362 note on
-// callTargetsRestricted below).
+// AgentId-addressed fleet continuation verbs (see the callTargetsRestricted
+// note below).
 const AGENT_ID_TARGETED_FLEET_TOOLS = new Set([
   "close_agent",
   "interrupt_agent",
@@ -274,20 +267,14 @@ export function callTargetsRestricted(
 ): boolean {
   const name = canonicalToolName(call.name);
   // Fleet verbs that address workers by opaque agent id (`target`), never by
-  // path (CL-9362). There is nothing path-shaped here for isRestricted to
-  // judge, so agentId-to-worktree resolution deliberately does not live in
-  // this function and the gate's auto-allow `!restricted` guard stays
-  // vacuous for these calls — intentionally, not by oversight. Path
+  // path — there is nothing path-shaped for isRestricted to judge. Path
   // restriction is enforced where paths are actually touched: inside the
-  // target worker, whose own gate binds restriction judgments to its process
-  // cwd (bindRestrictedToProcessCwd in gate.ts). Resolving ids to worktrees
-  // here would duplicate that enforcement at a layer with no session access,
-  // so these calls always report "not restricted", exactly like
-  // spawn_agent/wait_agents. (The full fleet verb list lives in
-  // subagent/authority.ts as FLEET_VERBS; the five single-`target`
-  // agentId-addressed verbs are named above — spawn_agent, wait_agents,
-  // list_agents, and search_agents take no single-agent `target` argument
-  // and already fall through to false below.)
+  // target worker, whose own gate binds restriction to its process cwd
+  // (bindRestrictedToProcessCwd in gate.ts), so these calls always report
+  // "not restricted". The full fleet verb list lives in subagent/authority.ts
+  // (FLEET_VERBS); the five agentId-addressed verbs are named above —
+  // spawn_agent, wait_agents, list_agents, and search_agents take no
+  // single-agent `target` argument and fall through to false below.
   if (AGENT_ID_TARGETED_FLEET_TOOLS.has(name)) return false;
   if (name === "run_shell")
     return commandTargetsRestricted(stringArg(call, "command"), isRestricted);
@@ -366,15 +353,11 @@ const EXEC_FLAG = /^(--pre|--pre-glob|--hostname-bin|--search-zip|-z)(=|$)/;
 // `strings /proc/self/environ` from auto-reading any file on the host. Pure
 // directory listing (`ls`, `tree`) is the exception: names/metadata only, so
 // outside-workspace targets still auto-allow. Sensitive path names (`.env`,
-// keys) additionally never auto-allow; the permission gate asks so the operator
-// can approve legitimate shell uses (e.g. `--env-file`). Path-keyed secret
-// reads remain a hard deny in secret-guard.
-// Containment is delegated to path-restriction.ts's resolveWorkspacePath —
-// the same authority gate.ts's restriction check uses — so a path inside a
-// registered worktree root is never auto-allow-eligible under a stricter (or
-// looser) rule than the one that judges it restricted. `rootsProvider`
-// defaults to no extra roots, so callers that don't pass one keep exactly
-// today's cwd-only behavior.
+// keys) never auto-allow; the gate asks so legitimate uses (`--env-file`) work.
+// Path-keyed secret reads remain a hard deny in secret-guard. Containment
+// delegates to path-restriction.ts's resolveWorkspacePath — the same authority
+// gate.ts's restriction check uses — and `rootsProvider` defaults to no extra
+// roots.
 function escapesWorkspace(
   token: string,
   cwd: string,
@@ -471,10 +454,10 @@ function isAutoAllowedSegment(
     if (args.some((token) => WRITE_FLAG.test(token))) return false;
     if (args.some((token) => EXEC_FLAG.test(token))) return false;
   }
-  // CL-7790: resolve symlinks before the secret denylist — a benign-named
-  // symlink into a secret file (notes.txt -> .env) asks exactly like the
-  // secret name itself. Pure name-listings skip the resolve leg: `ls
-  // notes.txt` lists freely (CL-5420), and an impure listing fails above.
+  // Resolve symlinks before the secret denylist — a benign-named symlink into
+  // a secret file (notes.txt -> .env) asks exactly like the secret name
+  // itself. Pure name-listings skip the resolve leg (`ls notes.txt` lists
+  // freely); an impure listing fails above.
   if (
     args.some((token) =>
       isSensitiveShellToken(token, cwd, !pureListing, isExtraDenied),

@@ -45,24 +45,21 @@ export function matchesPattern(
 
 // Lexically normalize a grant path (POSIX, no fs I/O): collapse `.`, `..`,
 // and duplicate slashes. Absolute paths normalize in place; relative paths
-// resolve against cwd when one is supplied, else collapse in place. Shared by
-// the matcher gate below and file-scope minting so both sides agree on what
-// a directory grant covers.
+// resolve against cwd when one is supplied. Shared by the matcher gate and
+// file-scope minting so both sides agree on what a directory grant covers.
 export function normalizeGrantPath(path: string, cwd?: string): string {
   if (posix.isAbsolute(path)) return posix.normalize(path);
   if (cwd !== undefined) return posix.normalize(posix.resolve(cwd, path));
   return posix.normalize(path);
 }
 
-// Containment gate for Directory Always grants (`<dir>/*`): the package
-// `*` matches `..` lexically, so a subject like `/proj/sub/../evil` would
-// otherwise match `/proj/sub/*` and escape the granted directory. A
-// normalized subject must sit strictly under the anchor (`anchor/` prefix),
-// or the grant does not cover it — the grant covers directory contents, so
-// even the anchor itself (`/proj/sub/.` normalizes to `/proj/sub`) does not
-// match. Returns true for every non-directory pattern (exact-escaped,
-// non-`/*`, or non-literal anchors) so those defer to their existing matcher
-// untouched — the gate only ever denies, never allows.
+// Containment gate for Directory Always grants (`<dir>/*`): the package `*`
+// matches `..` lexically, so `/proj/sub/../evil` would otherwise match
+// `/proj/sub/*` and escape the granted directory. A normalized subject must
+// sit strictly under the anchor, or the grant does not cover it — even the
+// anchor itself does not match. Returns true for every non-directory pattern
+// so those defer to their existing matcher untouched — the gate only ever
+// denies, never allows.
 export function directoryGrantAllows(
   pattern: string,
   subject: string,

@@ -5,26 +5,22 @@ import type { RootsProvider } from "./worktree-roots.js";
 import { projectSessionsRoot } from "../session/project-key.js";
 
 // Paths the agent should not touch without explicit operator approval, even
-// though the read tools are otherwise allow-tier and write/edit auto-allow in
-// auto mode:
+// though read tools are otherwise allow-tier and write/edit auto-allow in auto
+// mode:
 //
 //   - anything outside the session workspace (the primary cwd and its
-//     registered worktrees) — autonomy is scoped to the workspace boundary, not
-//     the whole filesystem. Restricted for both reads and writes.
-//   - writes under the session state root (global
-//     ~/.corbits/projects/<project-key>/… and legacy in-repo .agent-state) —
-//     the agent should not rewrite its own session history without operator
-//     approval. Reads stay unrestricted since state holds the transcripts
-//     users read to debug a run. The state root is an exception to the
-//     outside-workspace rule: global state lives under $HOME, not under cwd.
+//     registered worktrees) — restricted for both reads and writes
+//   - writes under the session state root (global ~/.corbits/projects/… and
+//     legacy in-repo .agent-state) — reads stay unrestricted since state holds
+//     the transcripts users read to debug a run; the state root is an
+//     exception to the outside-workspace rule (global state lives under $HOME)
 //
 // Gitignore status is deliberately not a factor: build output, node_modules,
-// and scratch files are ordinary workspace files for both reads and writes.
-// Secret-guard independently hard-blocks path-keyed reads/writes of sensitive
-// files (.env, keys, certs); shell commands that only mention those paths
-// require operator approval instead of a hard deny. Results are cached per
-// resolved path and access mode because the gate consults this on every tool
-// call with a path argument.
+// and scratch files are ordinary workspace files. Secret-guard independently
+// hard-blocks path-keyed reads/writes of sensitive files (.env, keys, certs);
+// shell commands that only mention those paths ask instead of hard-denying.
+// Results are cached per resolved path and access mode because the gate
+// consults this on every path-argument tool call.
 export interface PathRestriction {
   isRestricted: (path: string, isWrite: boolean) => boolean;
 }
@@ -39,27 +35,21 @@ function realpathOr(path: string): string {
   }
 }
 
-// Sentinel returned by realpathNearestOr for a path that exists but couldn't
-// be resolved (a dangling symlink, or a symlink loop) rather than one that's
-// simply missing. Contains a NUL byte, which can never appear in a real
-// filesystem path, so it can't collide with (or be mistaken for a prefix of)
-// any genuine result, and every containment compare against it fails.
+// Sentinel returned by realpathNearestOr for a path that exists but could not
+// be resolved (dangling symlink or loop). Contains a NUL byte, which can never
+// appear in a real path, so it cannot collide with any genuine result.
 export const UNRESOLVABLE = "\0unresolvable\0";
 
-// A write/edit target usually doesn't exist yet, so realpath the nearest
-// existing ancestor and rejoin the missing tail rather than falling back to
-// the raw (possibly symlink-relative) path, which would defeat containment
-// checks whenever the workspace root itself is reached through a symlink
-// (e.g. macOS's /tmp -> /private/tmp).
+// A write/edit target usually does not exist yet, so realpath the nearest
+// existing ancestor and rejoin the missing tail instead of falling back to the
+// raw (possibly symlink-relative) path, which would defeat containment when
+// the workspace root itself is reached through a symlink (e.g. macOS's /tmp ->
+// /private/tmp).
 //
-// realpath failure is ambiguous: it's either "this component doesn't exist
-// yet" (safe — the missing tail gets rejoined onto the nearest real ancestor)
-// or "this component exists but is a dangling symlink / symlink loop" (unsafe
-// — the link's name must not stand in for a normal under-cwd path segment,
-// since the walk otherwise reattaches it verbatim and containment sees a
-// plain child path with no idea a symlink is involved). lstat distinguishes
-// the two: it succeeds for an existing-but-broken symlink and fails only when
-// the component is genuinely absent.
+// realpath failure is ambiguous: "this component doesn't exist yet" (safe) or
+// "this component exists but is a dangling symlink / loop" (unsafe). lstat
+// distinguishes the two: it succeeds for an existing-but-broken symlink and
+// fails only when the component is genuinely absent.
 export function realpathNearestOr(path: string): string {
   try {
     return realpathSync(path);
@@ -106,10 +96,9 @@ function danglingLinkOf(path: string): string | undefined {
 }
 
 // realpathNearestOr reports a dangling symlink as UNRESOLVABLE because the
-// link's own name says nothing about where a write would land. A write
-// through `link -> .env` creates `.env`, so security judgments that need the
-// landing path follow the link targets by hand. Still UNRESOLVABLE for a
-// symlink loop or an unreadable link.
+// link's own name says nothing about where a write would land. A write through
+// `link -> .env` creates `.env`, so judgments needing the landing path follow
+// link targets by hand. Still UNRESOLVABLE for a loop or unreadable link.
 export function realpathFollowingDangling(path: string): string {
   let current = path;
   for (let hop = 0; hop < MAX_SYMLINK_HOPS; hop++) {
@@ -129,34 +118,28 @@ export function realpathFollowingDangling(path: string): string {
 }
 
 // An empty root must never reach the prefix compare: `"" + sep` is just
-// `sep` (e.g. "/" on Unix), which every absolute path starts with, turning
-// containment into allow-all. A root of exactly `sep` itself is not this bug
-// — `startsWith(sep + sep)` correctly rejects unrelated absolute paths.
+// `sep`, which every absolute path starts with, turning containment into
+// allow-all. A root of exactly `sep` itself is not this bug.
 const inKnownRoots = (real: string, roots: readonly string[]): boolean =>
   roots.some(
     (root) => root.length > 0 && (real === root || real.startsWith(root + sep)),
   );
 
 // Resolves `path` (relative or absolute, possibly traversing `..`) against
-// `cwd` and checks it against the workspace boundary: `cwd` itself plus every
-// root `rootsProvider` reports (the session's registered git worktrees, or
-// any other allowlisted sibling). Returns the CANONICAL real path (symlink
-// segments resolved; for a not-yet-created target, the nearest existing
-// ancestor's real path rejoined with the missing tail) when the target is in
-// bounds, `undefined` otherwise — callers that need a hard allow/deny (rather
-// than an allow/ask distinction) can key off that.
+// `cwd` and checks it against the workspace boundary: `cwd` plus every root
+// `rootsProvider` reports. Returns the CANONICAL real path (symlink segments
+// resolved; for a not-yet-created target, the nearest existing ancestor's real
+// path rejoined with the missing tail) when in bounds, `undefined` otherwise.
 //
-// Returning the canonical path rather than the lexical `abs` closes a
-// TOCTOU: a symlink segment that is in-bounds at check time can be
-// retargeted before a write actually happens. Callers (e.g. pathEscapePlugin)
-// substitute this return value into the tool call's path argument, so the
-// writer that ultimately opens the file never re-traverses the original
-// symlink — it uses the already-resolved location.
+// Returning the canonical path rather than the lexical `abs` closes a TOCTOU:
+// a symlink segment in-bounds at check time can be retargeted before a write
+// happens. Callers (e.g. pathEscapePlugin) substitute this value into the call
+// so the writer never re-traverses the original symlink.
 //
-// A relative `../` is deliberately resolved and realpath-checked against the
-// allowlist rather than rejected outright: the raw path alone can't tell a
-// legitimate sibling worktree from a genuinely foreign directory, and both
-// resolve to `../something` from inside a worktree checkout.
+// A relative `../` is resolved and realpath-checked rather than rejected
+// outright: the raw path alone cannot tell a legitimate sibling worktree from
+// a genuinely foreign directory, and both resolve to `../something` from
+// inside a worktree checkout.
 export function resolveWorkspacePath(
   cwd: string,
   path: string,
@@ -181,15 +164,12 @@ function isResolvedPathInWorkspace(
 }
 
 // Whether `path` (relative to `cwd`) names a not-yet-created sibling worktree
-// location: a direct child of the parent directory of `cwd` or of a currently
-// registered root — the "one new dir next to something already trusted" shape
-// `git worktree add ../name` uses. This is the single containment authority's
-// answer to "can auto mode create a brand-new worktree that isn't a registered
-// root yet"; there is deliberately no separate basename denylist or `..` depth
-// counter — the parent-directory equality check *is* the depth bound (a path
-// with any extra segment resolves to a different, non-matching parent), and
-// the home-directory guard below is the one home-config bag it purpose-built
-// against ($HOME's own children — .ssh, .aws, .config, … must never qualify).
+// location: a direct child of the parent of `cwd` or of a currently registered
+// root — the "one new dir next to something already trusted" shape `git
+// worktree add ../name` uses. There is deliberately no separate basename
+// denylist or `..` depth counter — the parent-directory equality check *is*
+// the depth bound, and the home guard below is the one home-config bag it
+// was built against ($HOME's own children must never qualify).
 export function isPermittedSiblingWorktreePath(
   cwd: string,
   path: string,
@@ -223,14 +203,12 @@ function underResolvedRoot(real: string, root: string): boolean {
 }
 
 // `rootsProvider` supplies the additional workspace roots (the session's
-// registered git worktrees) beyond cwd itself. A worktree created mid-session
-// is missing from whatever set the provider started with; when a checked path
-// falls outside every currently-known root, we ask the provider to refresh
-// once (subject to its own debounce) and re-check before concluding the path
-// is genuinely outside the workspace.
+// registered git worktrees) beyond cwd. A worktree created mid-session is
+// missing from the provider's set; when a checked path falls outside every
+// known root, ask the provider to refresh once (subject to its debounce) and
+// re-check before concluding the path is genuinely outside.
 //
-// `home` is injectable so tests can pin the global state root without
-// mutating process env.
+// `home` is injectable so tests can pin the global state root.
 export function createPathRestriction(
   cwd: string,
   rootsProvider: RootsProvider = () => [],
@@ -239,8 +217,8 @@ export function createPathRestriction(
   const legacyStateDir = resolve(cwd, LEGACY_STATE_DIR);
   const globalStateDir = projectSessionsRoot(cwd, home);
   // Cache keyed by both absolute path and realpath to invalidate when symlinks
-  // change. If only keyed by absolute path, a cached "unrestricted" verdict
-  // persists after a symlink retargets outside the workspace.
+  // change. Keyed by absolute path alone, a cached "unrestricted" verdict
+  // would persist after a symlink retargets outside the workspace.
   const cache = new Map<string, { realpath: string; verdict: boolean }>();
 
   const underStateDir = (real: string): boolean =>

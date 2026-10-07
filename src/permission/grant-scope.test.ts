@@ -225,7 +225,7 @@ describe("a scope-mismatched grant never replays a multi-segment chain", () => {
   });
 });
 
-// Explicit rejection of the pre-CL-5752 whole-string chain grant shape: both
+// Explicit rejection of the legacy whole-string chain grant shape: both
 // evaluate() and isRequestCoveredByGrant match per segment only, so a stored
 // pattern equal to the full chain never short-circuits. Dual paths stay
 // aligned — neither honors legacy while the other rejects it.
@@ -392,12 +392,12 @@ describe("queue reconcile drains an identical chain after per-segment mint", () 
 // A project-scoped grant is confined to the session that minted it, so it may
 // replay only inside THIS gate's workspace. The grant cwd must equal the gate
 // workspace resolvedCwd before roots membership (or an exact request-cwd
-// match) is considered. Before CL-6706, grantCwd === requestCwd short-circuited
-// first, so a foreign grant stamped for /foreign replayed for any request with
-// that same cwd even under a gate whose workspace is /proj — a cross-project
-// replay. The predicate, the shared scoping predicate, and both live call
-// sites (approvalCoversSubject, isRequestCoveredByGrant) must all reject the foreign
-// case and agree.
+// match) is considered. The bug this pins: grantCwd === requestCwd
+// short-circuited first, so a foreign grant stamped for /foreign replayed for
+// any request with that same cwd even under a gate whose workspace is /proj —
+// a cross-project replay. The predicate, the shared scoping predicate, and
+// both live call sites (approvalCoversSubject, isRequestCoveredByGrant) must
+// all reject the foreign case and agree.
 describe("foreign grant cwd matching request cwd under a different workspace is rejected (CL-6706)", () => {
   const workspace: GrantWorkspace = {
     resolvedCwd: "/proj",
@@ -419,7 +419,7 @@ describe("foreign grant cwd matching request cwd under a different workspace is 
   };
 
   test("cwdMatchesGrant: foreign grant cwd equals request cwd but differs from workspace → false", () => {
-    // The pre-CL-6706 short-circuit would have returned true here.
+    // The old short-circuit would have returned true here.
     expect(cwdMatchesGrant("/foreign", "/foreign", workspace)).toBe(false);
   });
 

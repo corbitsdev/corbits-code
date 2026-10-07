@@ -56,13 +56,10 @@ export interface PermissionRequest {
   // withheld for a reason beyond the ordinary "no persistent option exists
   // yet" case. Plain literal text, never model-authored.
   notice?: string;
-  // Set by the gate right before handing this request to requestApproval, so
-  // whichever surface actually renders it (see gate-wire.ts's overlay host)
-  // can report the moment it reached the operator's screen — distinct from
-  // the moment it was raised, when a busy overlay host queues it first (see
-  // src/permission/approval-log.ts). Never present on requests built for
-  // display/matching only (buildRequests), only on the copy passed to
-  // requestApproval.
+  // Set by the gate right before handing the request to requestApproval, so
+  // the rendering surface can report when it reached the operator's screen —
+  // distinct from when it was raised (a busy overlay host queues it first).
+  // Never present on requests built for display/matching only (buildRequests).
   markDisplayed?: () => void;
 }
 
