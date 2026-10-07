@@ -523,14 +523,8 @@ describe("spawn_agent + wait_agents", () => {
   });
 
   test("reports survive well past the session store's display cap (20) until wait_agents collects them", async () => {
-    // DEFAULT_MAX_COMPLETED on SubAgentSessionStore is 20 finished sessions;
-    // spawn (and complete) enough workers to blow well past it before any of
-    // them is collected, proving the wait mailbox pin keeps reports past the
-    // store's display cap.
-    //
-    // Open retained sessions have their own cap (`maxRetained`, default 50),
-    // so 25 of them all stay resumable; mailbox pin + wait_agents is still
-    // asserted below as the collect path regardless.
+    // DEFAULT_MAX_COMPLETED is 20 finished sessions; spawn well past it before
+    // any collect, proving the wait mailbox pin keeps reports past the cap.
     const COUNT = 25;
     const deps = createFleetDeps(async () => ({
       report: "irrelevant",
