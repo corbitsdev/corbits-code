@@ -1,6 +1,6 @@
 /**
  * Shared shell state: AppShell surface types, the ShellInternals bag, per-shell
- * WeakMap registries. Imports no sibling shell module — everything else imports this.
+ * WeakMap registries. Imports no sibling shell module.
  */
 import { type AgentPanelRow, type TaskPanelRow } from "../chrome-state.js";
 import {
@@ -69,8 +69,8 @@ export interface ShellBridgeHooks {
     attachments?: readonly PendingImageAttachment[],
   ) => void;
   onInterrupt: () => void;
-  /** Enter on a selected pending item: deliver now via `port.deliver`, skipping
-   * its wait. Absent where the host cannot deliver — the prompt edits instead. */
+  /** Enter on a selected pending item: deliver now, skipping its wait. Absent
+   * where the host cannot deliver. */
   onForceDeliver?: (itemId: string) => void;
   exclusive: boolean;
 }
@@ -129,7 +129,7 @@ export function getShellStopAffordance(
 export interface ItemDescription {
   /** What the focused thing is. One line. */
   readonly what: string;
-  /** What choosing it costs or changes. One line; omit when there is nothing to say. */
+  /** What choosing it costs or changes. One line. */
   readonly impact?: string;
   /** `consequence` paints impact in UI.warning — billing, trust, anything that spends or extends reach. */
 
@@ -148,9 +148,8 @@ export interface OverlaySelection {
   readonly value?: string;
 }
 
-/** Shell-level overlay accept hooks. Host binds authz / ask_operator / settings.
- * Kind-specific hooks win over `onSelect`; a per-open `onAccept` wins for that
- * open. */
+/** Shell-level overlay accept hooks: authz, ask_operator, settings. Kind-specific
+ * hooks win over `onSelect`; a per-open `onAccept` wins for that open. */
 export interface ShellOverlayHooks {
   readonly onPermission?: (selection: OverlaySelection) => void;
   readonly onOperator?: (selection: OverlaySelection) => void;
@@ -183,9 +182,8 @@ export function getShellOverlayHooks(
   return shellOverlayHooks.get(shell);
 }
 
-/** Registry-backed palette selection handler (`dispatch: "command"`). Residual
- * openers still go through `runPaletteAction`; the palette never imports the
- * registry. */
+/** Palette selection handler (`dispatch: "command"`); the palette never imports
+ * the registry. */
 export type PaletteOnCommand = (name: string) => void;
 
 const shellPaletteOnCommand = new WeakMap<AppShell, PaletteOnCommand>();
@@ -204,8 +202,8 @@ export function getPaletteOnCommand(
   return shellPaletteOnCommand.get(shell);
 }
 
-/** Clipboard image reader behind Ctrl+P. Injectable so tests (and non-macOS
- * hosts) supply their own source instead of shelling out to osascript. */
+/** Clipboard image reader behind Ctrl+P. Injectable so tests and non-macOS
+ * hosts avoid shelling out to osascript. */
 export type PromptImageSource = () => Promise<ClipboardImageResult>;
 
 export const shellPromptImageSource = new WeakMap<
@@ -311,8 +309,7 @@ export interface AppShellOptions {
   /** Overlay list labels for inset demo. */
   readonly overlayItems?: readonly string[];
   /** Default palette catalog when `openPalette` has no `catalog`: static array
-   * or lazy builder; defaults to residual openers. Hosts pass
-   * `buildPaletteCatalog({ commands: listCommands() })`. */
+   * or lazy builder. */
   readonly paletteCatalog?:
     | readonly PaletteCommand[]
     | (() => readonly PaletteCommand[]);
@@ -320,7 +317,7 @@ export interface AppShellOptions {
    * openers never hit this path. */
   readonly onCommand?: PaletteOnCommand;
   /** Palette "observe" action ran: the `ObserveSession` to enter, or `null`
-   * when none runs. Unset falls back to `makeObserveFixture()`. */
+   * when none runs. */
   readonly onObserveRequest?: PaletteOnObserveRequest;
   /** First-run telemetry disclosure for the landing screen. Omitted once shown,
    * so it is not permanent chrome. */
@@ -328,11 +325,8 @@ export interface AppShellOptions {
   /** Suppress landing snow and mountain motion: no idle timer is armed;
    * `paintLanding` holds a still mountain with no flakes. */
   readonly reducedMotion?: boolean;
-  /**
-   * Clipboard port for Alt+C and drag-select auto-copy. Defaults to an
-   * in-memory recorder (tests and demos never shell out); the product host
-   * injects the system clipboard.
-   */
+  /** Clipboard port for Alt+C and drag-select auto-copy. Defaults to an
+   * in-memory recorder; the product host injects the system clipboard. */
   readonly clipboard?: ClipboardPort;
   /** Mouse-reporting switch behind Alt+M (see MouseCapturePort). Absent on
    * hosts without renderer-level control (tests, demos). */
@@ -357,13 +351,11 @@ export interface AppShell {
   readonly topPad: BoxRenderable;
   /** Blank row below the prompt box (0 on short terminals). */
   readonly bottomPad: BoxRenderable;
-  /** Build version's row: pinned to the terminal's last line, right-aligned,
-   * visible whether or not landing shows. Hides on a narrow/short terminal
-   * ahead of anything actionable (`versionBadgeVisible`). */
+  /** Build version's row: pinned to the terminal's last line, right-aligned.
+   * Hides on a narrow/short terminal ahead of anything actionable. */
   readonly versionRow: BoxRenderable;
-  /** Optional task/agents chrome zone — a task is a unit of work with a status,
-   * an agent an executor. One row per rendered line; rebuilt when the line
-   * count or any row's status changes. */
+  /** Optional task/agents chrome zone. One row per rendered line; rebuilt when
+   * the line count or any row's status changes. */
   readonly taskBox: BoxRenderable;
   /** One row per rendered agents-panel line; rebuilt whenever the line count changes. */
   readonly agentsBox: BoxRenderable;
@@ -399,13 +391,12 @@ export interface AppShell {
   /** Retained tail of the stream log — capped at MAX_RETAINED_STREAM_ROWS,
    * never the full session history on a long run. */
   streamLog: StreamRow[];
-  /** Absolute index of `streamLog[0]`, so indices the bridge holds stay valid
-   * once eviction shifts the array. Bumped by the rows dropped per trim. */
+  /** Absolute index of `streamLog[0]`, so bridge-held indices stay valid once
+   * eviction shifts the array. */
   streamLogBase: number;
   /** Older history exists on disk but was not loaded into this window.
    * Independent of `streamLogBase`: a truncated resume that fits the cap
-   * splices nothing, so the first retained row stays at absolute 0, but the
-   * marker still paints. */
+   * splices nothing. */
   unloadedHistory: boolean;
   /** Distinct writers in the visible transcript. Rows carry a name and icon
    * only once this holds more than one. */
@@ -433,8 +424,8 @@ export interface AppShell {
   clipboard: ClipboardPort;
   /** Mouse-reporting control for Alt+M, or null when the host has none. */
   mouseCapture: MouseCapturePort | null;
-  /** Frozen copy targets while the copy overlay is open (null when closed).
-   * Confirm writes from this snapshot, not live streamLog. */
+  /** Copy targets while the copy overlay is open (null when closed). Confirm
+   * writes from this snapshot, not live streamLog. */
   copyTargets: readonly CopyTarget[] | null;
   /** Short transient flash (copy feedback, …). Cleared when replaced or set to
    * null; never appended to the stream log. */
@@ -442,20 +433,17 @@ export interface AppShell {
   /** MCP servers awaiting authorization; the top rule carries `mcp !`. */
   mcpNeedsAuth: readonly string[];
   /** Plugin load left standing warnings (skill misses, failed tool starts, …).
-   * The top rule carries `plugin !` (or `mcp ! · plugin !` with MCP). Cleared
-   * only when the warning set is empty. */
+   * The top rule carries `plugin !` (or `mcp ! · plugin !` with MCP). */
   pluginNeedsAttention: boolean;
-  /** Clock, motion and content state for the bottom-left status slot. The
-   * bridge pushes it off its monitor tick (`setLockupFrame`); a shell without
-   * a bridge paints the settled idle slot. */
+  /** Clock and motion state for the bottom-left status slot. The bridge pushes
+   * it off its monitor tick; a shell without a bridge paints the idle slot. */
   lockupNowMs: number;
   /** Parent tool currently in flight, for the steer `waiting on` notice. Null
    * when none remain or the run is idle. Not TurnState. */
   inFlightTool: { name: string; startedAt: number } | null;
   lockupAnimating: boolean;
   /** Live activity state the slot shows, or null for the idle wordmark. Typed
-   * to the closed set (not `string`) so a raw identifier here is a compile
-   * error. */
+   * to the closed set so a raw identifier is a compile error. */
   lockupPhase: ActivityState | null;
   /** Clock reading when `lockupPhase` last changed — the fade's origin. */
   lockupChangedMs: number;
@@ -464,8 +452,7 @@ export interface AppShell {
   /** How long the turn has been stalled, or null when it is not — bounds the blink. */
   lockupStalledForMs: StallAge;
   /** Cost/context meter carried by the bottom border, or null when the active
-   * session has nothing to report. Pushed by the host on run-sink usage
-   * change — no timer of its own. */
+   * session has nothing to report. Pushed by the host, not a timer. */
   costContext: CostContextMeter | null;
   /** Active subagent observe session (null when viewing parent). Independent
    * stream window; Esc restores the parent lease. */
@@ -490,9 +477,8 @@ export interface AppShell {
   sentHistory: SentHistoryBrowse;
   /** Detach key/resize listeners and unmount root. */
   dispose: () => void;
-  /** True once `dispose` has run. Paint entry points read this so a caller
-   * that outlives the shell (a poll timer, a resolved continuation) does not
-   * write into renderables whose buffers are already freed. */
+  /** True once `dispose` has run. Paint paths read this so a caller that
+   * outlives the shell does not write into freed renderables. */
   disposed: boolean;
 }
 
@@ -542,8 +528,7 @@ export const flashTimers = new WeakMap<AppShell, () => void>();
 export const shellFlashSchedules = new WeakMap<AppShell, FlashSchedule>();
 
 /** Free-text answer field an overlay can offer alongside its choices. `active`
- * routes keystrokes into it rather than list navigation — the row is painted
- * either way, so the affordance stays on screen. */
+ * routes keystrokes into it rather than list navigation. */
 export interface OverlayAnswerState {
   text: string;
   active: boolean;
@@ -560,10 +545,8 @@ export interface OverlayListRange {
 
 /**
  * The open overlay's list, backed by @opentui/core's SelectRenderable. OpenTUI
- * owns selection clamping, movement and scroll-keep-visible; this wrapper
- * exposes the item-count view the shell reads (`rowsPerItem`) and rebuilds on
- * geometry change — it only recomputes visible-item capacity in its
- * constructor and resize callbacks.
+ * owns selection and scrolling; this wrapper exposes the item-count view the
+ * shell reads and rebuilds on geometry change.
  */
 export interface OverlayList {
   readonly select: SelectRenderable;
@@ -603,8 +586,7 @@ interface PrimaryOverlayBindings {
    * instead of silently dropping. */
   onCancel: (() => void) | null;
   /** Per-open cleanup for a replaced or dismissed overlay (MCP unsubscribe).
-   * closeReplaceableOverlay runs it but skips `onCancel`, so Esc-only
-   * navigation (add-provider back to models) does not fire. */
+   * closeReplaceableOverlay runs it but skips `onCancel`. */
   onDispose: (() => void) | null;
   /** True while the open primary is a decision gate that must not be replaced. */
   isGate: boolean;
@@ -659,15 +641,13 @@ interface ShellInternals {
   overlayMode: OverlayMode;
   overlayBodyRows: number | undefined;
   overlayMinBodyRows: number | undefined;
-  /** Raw text last passed to `applyOverlayBodyText`, kept so a resize re-shapes
-   * the body against the new height's context budget instead of leaving it
-   * fixed. */
+  /** Raw text last passed to `applyOverlayBodyText`, so a resize re-shapes the
+   * body against the new height's context budget. */
   overlayRawBodyText: string;
   /** Snapshot when palette stacks over another primary overlay. */
   priorOverlay: PriorOverlaySnapshot | null;
   /** Replaceable command surface suspended while a decision gate holds the
-   * host. One slot; restored after the gate settles when no queued gate takes
-   * the host first. Never a gate or palette. */
+   * host. One slot; restored after the gate settles. Never a gate or palette. */
   suspendedCommandSurface: PriorOverlaySnapshot | null;
   /** Advances on a new overlay taking the host, and when the host empties. */
   overlayGeneration: number;
@@ -675,8 +655,8 @@ interface ShellInternals {
   /** False while an overlay that reports its own outcome is open. */
   overlayEchoChoice: boolean;
   /** While true the shell ignores its own key/paste/submit handlers — a
-   * full-screen surface (inline provider connect) shares this renderer, so
-   * two live key handlers on one stdin would both act on every keystroke. */
+   * full-screen surface shares this renderer, so two live key handlers on one
+   * stdin would both act on every keystroke. */
   inputSuspended: boolean;
   /** Per-open free-text answer field, when the overlay opted into one. */
   overlayAnswer: OverlayAnswerState | null;
@@ -685,15 +665,14 @@ interface ShellInternals {
   /** Fired once the overlay host is idle, so queued gates can re-open. */
   overlayClosedListeners: Set<() => void>;
   /** Command-surface open while a live overlay still holds the host. One slot;
-   * a newer command replaces an older one. Flushed only after that overlay
-   * closed and the host is idle — never from idle-notify, which would drain a
-   * queued gate onto the same host. */
+   * a newer command replaces an older one. Flushed only after the host is
+   * idle — never from idle-notify, which would drain a queued gate. */
   deferredCommandOverlay: OpenListOverlayOpts | null;
   /** True while a microtask to flush deferredCommandOverlay is queued. */
   deferredFlushScheduled: boolean;
   /** Host-owned holds that outlive overlayList being null (async /settings
-   * list(), etc.). While > 0, idle-notify must not fire so a queued gate
-   * cannot drain into the gap before the surface paints. */
+   * list()). While > 0, idle-notify must not fire so a queued gate cannot
+   * drain into the gap before the surface paints. */
   overlayHostReservations: number;
   /** Advanced when Esc aborts in-flight reservations so a stale `release()`
    * cannot decrement a newer hold. */
@@ -708,21 +687,19 @@ interface ShellInternals {
   paletteFilter: PaletteFilterState | null;
   /** Live type-to-filter state for a non-palette list overlay (model picker). */
   listFilter: ListFilterState | null;
-  /** Landing composition shown while the transcript has no content: the mark
-   * above the prompt box, the disclosure and starters below it. Dropped (not
-   * hidden) on the first row so it never occupies a transcript line later. */
+  /** Landing composition shown while the transcript has no content. Dropped
+   * (not hidden) on the first row so it never occupies a transcript line. */
   landing: {
     readonly above: LandingAbove;
     readonly below: BoxRenderable;
   } | null;
   /** The disclosure the landing is showing. Re-appended to the transcript at
-   * teardown so consent-by-proceeding leaves a durable record rather than a
-   * screen the first prompt wipes. */
+   * teardown so consent-by-proceeding leaves a durable record. */
   landingNotice: string | null;
   /** System/runtime notices that arrived while the landing was up (MCP load
    * failures, width-contract warnings, hook failures). Painted on the notice
-   * strip so they never call `clearLandingMark`; flushed into the transcript
-   * when the first real session row ends the landing. */
+   * strip; flushed into the transcript when the first real row ends the
+   * landing. */
   landingDeferredRows: StreamRow[];
   /** What the rows below the box are painting, so they can be repainted. */
   landingBelow: LandingBelowContent | null;
@@ -737,14 +714,12 @@ interface ShellInternals {
    * `createAppShell`. */
   reducedMotion: boolean;
   /** Cancels the mount-scoped idle repaint timer armed in `createAppShell`, or
-   * null while none is armed. Cleared by whichever teardown happens first —
-   * landing teardown or shell dispose — so it can never outlive either. */
+   * null while none is armed. Cleared by whichever teardown happens first. */
   landingIdleTimerCancel: (() => void) | null;
   /** Chrome content (empty array = zone off). */
   chrome: {
     /** Rendered task rows — empty when there is nothing to show or the panel
-     * is hidden. `tasksRaw` holds live data independent of the toggle, so
-     * un-hiding shows the current list without waiting on manage_tasks. */
+     * is hidden. */
     task: readonly TaskPanelRow[];
     /** Last live task rows pushed via setChromeZones, regardless of hidden state. */
     tasksRaw: readonly TaskPanelRow[];
@@ -754,26 +729,21 @@ interface ShellInternals {
   /** Operator toggle for the task panel; in-memory, held for the life of the shell. */
   tasksPanelHidden: boolean;
   /** Pending-column selection, by queue item id (stable across drains/cancels
-   * of other items). Null while the prompt holds the keys — selection is
-   * entered with ↑ and left with ↓, Esc, or any other claimed key. */
+   * of other items). Null while the prompt holds the keys. */
   pendingSelId: string | null;
 }
 
 export const internals = new WeakMap<AppShell, ShellInternals>();
 
 /**
- * Leading filler row inside the transcript's scroll content, sized to the
- * leftover viewport space so a short transcript bottom-anchors against the
- * prompt box below. Once rows fill the viewport it settles at zero, so
- * sticky-scroll behaves exactly as before.
+ * Leading filler row sized to the leftover viewport space, so a short
+ * transcript bottom-anchors against the prompt box. Once rows fill the
+ * viewport it settles at zero, so sticky-scroll behaves as before.
  *
- * A real child rather than padding: the content box's `minHeight: "100%"`
- * floor makes padding always read back as viewport height, so
- * `scrollHeight - spacer.height` reliably isolates the rows' real height.
- *
- * Costs every row-index code path (`getChildren()` lookups, the two external
- * tests noted at their call sites) one constant offset: index 0 is always the
- * spacer, never a row.
+ * A real child rather than padding: the content box's `minHeight: "100%"` floor
+ * makes padding read back as viewport height, so `scrollHeight - spacer.height`
+ * reliably isolates the rows' real height. Index 0 is always the spacer, never
+ * a row.
  */
 export const transcriptSpacers = new WeakMap<AppShell, BoxRenderable>();
 
@@ -790,8 +760,7 @@ export interface OpenListOverlayOpts {
   readonly itemIds?: readonly string[];
   /** Optional plain chosen value aligned with `items`, for rows whose display
    * label carries more than the value (a cycled field's name, padding, `‹ ›`
-   * markers). The accept echo reads this instead of parsing the label back
-   * apart. */
+   * markers). */
   readonly itemValues?: readonly (string | undefined)[];
   readonly body?: string;
   readonly activeIndex?: number;
@@ -799,17 +768,16 @@ export interface OpenListOverlayOpts {
   /** Per-open accept callback. Takes precedence over shell-level overlay
    * hooks; not invoked on Esc / closeInsetOverlay. */
   readonly onAccept?: (selection: OverlaySelection) => void;
-  /** Per-open expand/collapse hook. When set, the modal overlay claims a bare
-   * key for it (OVERLAY_EXPAND_KEY) — no global binding, since the overlay
-   * owns the keyboard while it is open. */
+  /** Per-open expand/collapse hook. When set, the overlay claims a bare key
+   * (OVERLAY_EXPAND_KEY) — no global binding, since it owns the keyboard while
+   * open. */
   readonly onToggleExpand?: () => void;
   /** Per-open ← → cycle hook. When set, the overlay claims Left/Right for
-   * settings-style inline value cycling. Scoped to this open only, like
-   * `onToggleExpand` and `typeToFilter`. */
+   * settings-style inline value cycling. Scoped to this open only. */
   readonly onCycle?: (itemId: string, direction: -1 | 1) => void;
   /** Per-open Esc/dismiss hook for promise-backed overlays (permissions,
-   * operator). Invoked by closeInsetOverlay before the accept path is
-   * cleared, so the caller's promise resolves instead of hanging. */
+   * operator). Invoked before the accept path is cleared, so the caller's
+   * promise resolves instead of hanging. */
   readonly onCancel?: () => void;
   /** Per-open cleanup for replace and dismiss. closeReplaceableOverlay invokes
    * this and skips `onCancel`, which is Esc/dismiss only. */
@@ -819,16 +787,14 @@ export interface OpenListOverlayOpts {
    * tear a live gate down. */
   readonly isGate?: boolean;
   /** Invoked only after this open actually takes the host (including a
-   * deferred flush). Busy no-ops and deferred stashes do not run it. */
+   * deferred flush). */
   readonly onOpened?: () => void;
   /** Description-zone source. Called with the focused item's id on every move
    * (its label when no `itemIds` were supplied). Returning null leaves the
-   * zone blank, not collapsed — the fixed two-line zone charges the row
-   * budget whenever this is set. */
+   * zone blank, not collapsed. */
   readonly describe?: (itemId: string) => ItemDescription | null;
   /** Per-open bare-key claim, checked before list navigation. Returning false
-   * leaves the key to the ordinary j/k and arrow handlers. Scoped to this
-   * open only, so it cannot shadow prompt typing. */
+   * leaves the key to the ordinary j/k and arrow handlers. */
   readonly onAction?: (itemId: string, key: KeyEvent) => boolean;
   /** Per-open bracketed-paste target for synthetic text panes. */
   readonly onPaste?: (text: string) => void;
@@ -839,37 +805,31 @@ export interface OpenListOverlayOpts {
   /** Open with the answer field already taking keystrokes. Used when there is
    * nothing to choose, so the overlay is never a chooser with an empty list. */
   readonly textAnswerActive?: boolean;
-  /**
-   * Suppress the `chose (kind): label` echo: it leaves a trace for a choice
-   * with no other visible result, but quotes the label from *before* the
-   * action — authorizing a server would leave a permanent line saying it
-   * needs authorization.
-   */
+  /** Suppress the `chose (kind): label` echo: it would quote the label from
+   * *before* the action — authorizing a server would leave a permanent line
+   * saying it needs authorization. */
   readonly echoChoice?: boolean;
   /** Claim printable keys for a `>` filter row so the list narrows as you
-   * type. Opt-in per open (model picker, palette, resume); without it, j/k
-   * navigate. */
+   * type. Opt-in per open; without it, j/k navigate. */
   readonly typeToFilter?: boolean;
   /** Advertise Alt+A and /connect in the footer and yield Option+A (å/Å) from
-   * type-to-filter. Set only when the caller wired an add-provider handler
-   * via `onAction`, so the hint never names a dead chord. */
+   * type-to-filter. Set only when the caller wired an add-provider handler. */
   readonly addProviderHint?: boolean;
-  /** Advertise the Alt+D set-default hint in the footer for this open. Set
-   * only when the caller wired an Alt+D handler via `onAction`. */
+  /** Advertise the Alt+D set-default hint in the footer. Set only when the
+   * caller wired an Alt+D handler. */
   readonly setDefaultHint?: boolean;
-  /** Advertise the Alt+R remove-provider hint in the footer for this open and
-   * yield Option+R (®) from type-to-filter. Set only when the caller wired an
-   * Alt+R handler via `onAction`. */
+  /** Advertise the Alt+R remove-provider hint in the footer and yield Option+R
+   * (®) from type-to-filter. Set only when the caller wired an Alt+R handler. */
   readonly removeProviderHint?: boolean;
   /** Advertise Alt+D disable / Alt+R remove in the `/mcp` footer. Confirm
    * overlays leave this unset so they fall back to DEFAULT_OVERLAY_HINTS. */
   readonly mcpManageHint?: boolean;
   /** Advertise Alt+A add in the `/mcp` footer. False while local settings
-   * shadow global MCP (add is hidden and Alt+A is a dead chord). */
+   * shadow global MCP. */
   readonly mcpAddHint?: boolean;
   /** When the host already shows a non-palette overlay, stash this open in the
    * one deferred slot and print a system line. Off by default: a busy open is
-   * a silent no-op (demo, mentions, same-kind re-open). */
+   * a silent no-op. */
   readonly deferIfBusy?: boolean;
 }
 
@@ -882,8 +842,7 @@ interface PaletteFilterState {
 }
 
 /** Live type-to-filter state for a non-palette list overlay (model picker).
- * Holds the full unfiltered row set so each keystroke re-narrows in place
- * without reopening the overlay. */
+ * Holds the full unfiltered row set so each keystroke re-narrows in place. */
 interface ListFilterState {
   query: string;
   readonly allItems: readonly string[];
@@ -930,7 +889,7 @@ export function isSlashPopupOpen(shell: AppShell): boolean {
 
 /** Popup query = prompt text after the leading `/`. Null once the operator
  * typed whitespace (the name is settled, the rest is arguments) or a second
- * `/` (a path like `/Users/…`, never a command). */
+ * `/` (a path, never a command). */
 export function slashPopupQuery(shell: AppShell): string | null {
   const value = shell.prompt.value;
   if (!value.startsWith("/")) return null;
@@ -948,9 +907,8 @@ export interface SlashArgQuery {
   readonly arg: string;
 }
 
-/** Arg-stage parse for the `/` popup. Null when the prompt is not `/name`
- * followed by whitespace — `slashPopupQuery`'s null-on-whitespace contract is
- * unchanged; this is the second stage on top of it. */
+/** Arg-stage parse for the `/` popup: `/name` + whitespace + arg tail. Null
+ * when the prompt is not `/name` followed by whitespace. */
 export function slashArgQuery(shell: AppShell): SlashArgQuery | null {
   const value = shell.prompt.value;
   if (!value.startsWith("/")) return null;
