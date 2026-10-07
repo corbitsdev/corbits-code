@@ -36,10 +36,10 @@ import { canonicalToolName } from "../agent/canonical-tool-name.js";
 // Read-only tools never need approval while they stay off restricted paths —
 // they cannot change the workspace. `lsp` is included despite activating
 // mid-session: hover/definition lookups are as inert as a grep. `manage_tasks`
-// has no side effect of its own (the director's decide() loop already applied
-// the task list), so an approval denial would prevent nothing. Every other
-// posix tool defaults to "ask"; catastrophic commands are denied earlier by
-// the authorization plugin.
+// has no side effect (the director's decide() loop already applied the task
+// list), so an approval denial would prevent nothing. Every other posix tool
+// defaults to "ask"; catastrophic commands are denied earlier by the
+// authorization plugin.
 //
 // Membership lives in tool-classification.ts (AUTO_ALLOW_READ_TOOLS).
 
@@ -72,9 +72,9 @@ function isWriteTool(toolName: string): boolean {
 
 export type Tier = "allow" | "ask";
 
-// Tier is a pre-filter above the authz grant path, not authz policy itself. It
-// encodes tool-level defaults upstream authz cannot express: `allow`
-// short-circuits, `ask` flows through grants, where deny and the reactor's
+// Tier is a pre-filter above the authz grant path, not authz policy itself: it
+// encodes tool-level defaults upstream authz cannot express. `allow`
+// short-circuits; `ask` flows through grants, where deny and the reactor's
 // suspend effect live.
 export function classifyTool(
   toolName: string,
@@ -93,8 +93,8 @@ export function classifyTool(
 
 // The restricted path argument of a path-arg tool call, or undefined when the
 // path is absent or not restricted. grep/search_files without a path scan the
-// whole workspace (ripgrep already skips gitignored files), so a
-// workspace-wide search stays allow-tier.
+// whole workspace (ripgrep already skips gitignored files), so a workspace-wide
+// search stays allow-tier.
 export function restrictedPathArg(
   call: ToolCall,
   isRestricted: (path: string, isWrite: boolean) => boolean,
@@ -204,7 +204,7 @@ export function commandHasUnboundedDirectoryListing(command: string): boolean {
 // The auto-shell allowlist (SAFE_SHELL_PROGRAMS) admits only read-only
 // commands, so shell targets always read. Surfaces flag-glued paths
 // (`--file=PATH`, `-fPATH`) and treats `~…` as outside-workspace. Pure
-// directory listings (`ls`, bounded `tree`) are exempt: names/metadata only,
+// directory listings (`ls`, bounded `tree`) are exempt — names/metadata only,
 // even outside the workspace. Chains and pipes are judged per segment, so
 // `ls /tmp && cat …` still flags the content-reading half.
 export function commandTargetsRestricted(
@@ -259,9 +259,9 @@ export function callTargetsRestricted(
   // Agent-id-addressed verbs have no path for isRestricted to judge; the
   // target worker's own gate binds restriction to its process cwd
   // (bindRestrictedToProcessCwd in gate.ts), so these always report "not
-  // restricted". The remaining fleet verbs (spawn_agent, wait_agents,
-  // list_agents, search_agents) take no single-agent `target` and fall
-  // through to false below. Full verb list: subagent/authority.ts (FLEET_VERBS).
+  // restricted". The remaining fleet verbs take no single-agent `target` and
+  // fall through to false below. Full verb list: subagent/authority.ts
+  // (FLEET_VERBS).
   if (AGENT_ID_TARGETED_FLEET_TOOLS.has(name)) return false;
   if (name === "run_shell")
     return commandTargetsRestricted(stringArg(call, "command"), isRestricted);
@@ -340,9 +340,9 @@ const EXEC_FLAG = /^(--pre|--pre-glob|--hostname-bin|--search-zip|-z)(=|$)/;
 // from auto-reading the host. Pure listings (`ls`, `tree`) are the exception
 // (names/metadata only). Sensitive names (`.env`, keys) never auto-allow; the
 // gate asks so legitimate uses (`--env-file`) work, and path-keyed secret
-// reads stay a hard deny in secret-guard. Containment uses
-// resolveWorkspacePath from path-restriction.ts — the same authority gate.ts's
-// restriction check uses — with `rootsProvider` defaulting to no extra roots.
+// reads stay a hard deny in secret-guard. Uses resolveWorkspacePath from
+// path-restriction.ts — the same authority gate.ts's restriction check uses —
+// with `rootsProvider` defaulting to no extra roots.
 function escapesWorkspace(
   token: string,
   cwd: string,

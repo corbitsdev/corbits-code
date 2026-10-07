@@ -15,9 +15,8 @@ import { splitChainedCommand, tokenize } from "./command.js";
 import { isPermittedSiblingWorktreePath } from "./path-restriction.js";
 import type { RootsProvider } from "./worktree-roots.js";
 
-// Auto-mode shell policy: a flat table of rules constraining what a run_shell
-// command may do in auto mode, which otherwise rubber-stamps every
-// consequential call.
+// Auto-mode shell policy: a flat rule table constraining run_shell in auto
+// mode, which otherwise rubber-stamps every consequential call.
 //
 // To add a category, append one rule. `deny` blocks outright and returns
 // `reason`; `ask` routes the call to the operator prompt instead. The first
@@ -34,21 +33,21 @@ export interface AutoShellRule {
   patterns: RegExp[];
 }
 
-// The start of the command, or immediately after a shell separator / subshell
-// or brace-group open, optionally preceded by NAME=value env assignments — so a
-// program name is only matched in command position, not inside a path argument.
+// Command start, or after a separator / subshell / brace-group open, optionally
+// preceded by NAME=value env assignments — a program name matches only in
+// command position, never inside a path argument.
 const CMD = String.raw`(?:^|[\n;&|({]\s*)(?:\w+=\S*\s+)*`;
 const inCmd = (body: string): RegExp => new RegExp(`${CMD}${body}`);
 
-// Quote-aware dequoting for rule matching. Real shells strip quotes, so a rule
-// must see the program the way it would: a quoted redirect target (`>"file"`),
-// flag, or name (`"sed" -i`) reads exactly like its unquoted form. Quoting
-// only neutralizes the shell-operator set (`> < | & ; \`), so `'fix > bug'`
-// is a literal string, not a redirect; every other character passes through.
-// Heredoc bodies are left alone — the file-mutation pattern keys on the bare
-// `<<`, always outside quotes. A backslash before a quote escapes it (`\"` is
-// a literal `"`, real bash semantics outside single quotes), so `echo hi \"> file"`
-// is a bare redirect; skip the escaped char so its following operator stays live.
+// Quote-aware dequoting for rule matching: real shells strip quotes, so a
+// quoted redirect target (`>"file"`), flag, or name (`"sed" -i`) reads like
+// its unquoted form. Quoting only neutralizes the shell-operator set
+// (`> < | & ; \`), so `'fix > bug'` is a literal string, not a redirect;
+// every other character passes through. Heredoc bodies are left alone — the
+// file-mutation pattern keys on the bare `<<`, always outside quotes. A
+// backslash before a quote escapes it (`\"` is a literal `"`, real bash
+// semantics outside single quotes), so `echo hi \"> file"` is a bare redirect;
+// skip the escaped char so its operator stays live.
 const QUOTE_NEUTRALIZED_OPERATORS = new Set(["<", ">", "|", "&", ";", "`"]);
 
 const dequoteForMatching = (command: string): string => {
@@ -78,9 +77,9 @@ const dequoteForMatching = (command: string): string => {
   return out;
 };
 
-// Named separately so the dedicated env -S check further down can return this
-// exact rule object — a plain regex over dequoted text would miss an
-// assignment inside a quoted argument (dequote blanks it out).
+// Named separately so the env -S check below can return this exact rule — a
+// plain regex over dequoted text would miss an assignment inside a quoted
+// argument (dequote blanks it out).
 const ENV_ASSIGNMENT_ASK_RULE: AutoShellRule = {
   name: "env-assignment",
   effect: "ask",
@@ -105,12 +104,12 @@ export const AUTO_SHELL_RULES: AutoShellRule[] = [
     reason:
       "File creation and edits must go through the write_file and edit_file tools, not shell tooling (python, sed -i, awk, perl, tee, or output redirection). Re-do this change with edit_file for a surgical replacement or write_file for the full contents.",
     patterns: [
-      // `>` / `>>` (optionally fd-qualified, optionally clobber-forced with a
-      // trailing `|` as in `>|` / `>>|`) to a target that is not an fd dup
-      // (`2>&1`) or a safe pseudo-device (`> /dev/null`, a TTY).
+      // `>` / `>>` (optionally fd-qualified, clobber-forced `>|` / `>>|`) to
+      // a target that is not an fd dup (`2>&1`) or a safe pseudo-device
+      // (`> /dev/null`, a TTY).
       /[0-9]?>>?\|?\s*(?!&|\/dev\/(?:null|stdout|stderr|stdin|tty|pts\/|fd\/))[^\s|;&)]/,
-      // bash `>& word` is `>word 2>&1` when word is not an fd number or `-`.
-      // `2>&1` and `n>&-` stay unmatched; `>& /dev/null` stays a safe sink.
+      // bash `>& word` is `>word 2>&1` when word is not an fd number or `-`;
+      // `2>&1` / `n>&-` stay unmatched, `>& /dev/null` stays a safe sink.
       /[0-9]?>&\s*(?!(?:[0-9]+|-|\/dev\/(?:null|stdout|stderr|stdin|tty|pts\/|fd\/)\S*)(?:\s|$|[|;&)]))[^\s|;&)]/,
       // tee writes its stdin to one or more files.
       /(?:^|[\n;&|({]\s*)tee\b/,
@@ -176,7 +175,7 @@ export const AUTO_SHELL_RULES: AutoShellRule[] = [
       "This command dumps or prints credentials from the OS keychain, a GPG keyring, or a cloud CLI's cached token store. It needs explicit operator approval and never runs unattended in auto mode.",
     patterns: [
       // macOS Keychain: `security find-generic-password` / `find-internet-password`,
-      // both of which can print the stored secret with `-w`.
+      // both can print the stored secret with `-w`.
       inCmd(String.raw`security\s+find-(?:generic|internet)-password\b`),
       // GPG secret-key export: --export-secret-keys / --export-secret-subkeys.
       /\bgpg2?\b[^\n]*--export-secret/,
@@ -198,8 +197,8 @@ export const AUTO_SHELL_RULES: AutoShellRule[] = [
       // ask rather than try to distinguish a repo-local target from that.
       inCmd(String.raw`git\s+config\s+--file\b`),
       // Unsetting GIT_CONFIG_GLOBAL falls back to the real ~/.gitconfig, the
-      // same as never having scoped it. (Reassigning it to a new path is
-      // already caught by the env-assignment rule above.)
+      // same as never having scoped it. Reassigning to a new path is already
+      // caught by the env-assignment rule above.
       inCmd(String.raw`unset\s+GIT_CONFIG_GLOBAL\b`),
     ],
   },
@@ -224,8 +223,6 @@ function payloadStartsWithAssignment(payload: string): boolean {
 // Ask detection for env forms the plain regexes cannot see: `env -S "FOO=bar …"`
 // (assignment inside a quoted argument, which dequote blanks) and
 // `env -i FOO=bar cmd` (`-i` sits between env and the assignment).
-// expandShellSubjects peels -S payloads and transparent prefixes so every
-// rule scans inside them the same way.
 function segmentHasEnvAssignmentAsk(segment: string): boolean {
   const tokens = tokenize(segment);
   let i = 0;
@@ -290,8 +287,8 @@ const RECURSIVE_RM_ASK_RULE: AutoShellRule = {
 
 // Shell commands that mention a secret file (`.env`, keys, certs, …) never run
 // unattended in auto mode. The operator can still approve them — secret-guard
-// only hard-denies path-keyed tools, not shell — so legitimate uses like
-// `--env-file=.env.staging` work after an explicit yes.
+// only hard-denies path-keyed tools, not shell — so `--env-file=.env.staging`
+// works after an explicit yes.
 const SENSITIVE_PATH_ASK_RULE: AutoShellRule = {
   name: "sensitive-path",
   effect: "ask",
@@ -332,25 +329,21 @@ const WORKTREE_PRUNE_FLAGS = new Set(["-n", "--dry-run", "-v", "--verbose"]);
 const WORKTREE_ADD_VALUE_FLAGS = new Set(["-b", "-B", "--reason"]);
 
 export function isWorktreeForceFlag(arg: string): boolean {
-  // Git's --force takes no value (real git rejects --force=<value> with
-  // "error: option `force' takes no value"), but the spelling still expresses
-  // force intent, so the policy treats it as force rather than letting the
+  // Git's --force takes no value, but the `--force=<value>` spelling still
+  // expresses force intent — treat it as force rather than letting the
   // --flag=value path skip swallow it.
   if (arg === "--force" || arg.startsWith("--force=")) return true;
-  // Short -f takes no value either (real git rejects `-f=<value>` with
-  // "error: unknown switch `='" and glued `-f<val>` with
-  // "error: unknown switch `<char>'"); the same fail-closed reasoning applies.
-  // Any `-f`-prefixed token expresses force intent. `--no-force` negations are
-  // unaffected: they start with "--n", not "-f".
+  // Same for short -f: real git rejects `-f=<value>` and glued `-f<val>`.
+  // Any `-f`-prefixed token expresses force intent; `--no-force` negations
+  // are unaffected (they start with "--n", not "-f").
   return arg.startsWith("-f");
 }
 
 // True when the path is safe for unattended worktree add/remove: inside the
-// session workspace, or a not-yet-registered sibling location the same
-// authority's narrow isPermittedSiblingWorktreePath rule allows
-// (path-restriction.ts). Everything routes through that one authority so a
-// path is never judged contained under a looser or stricter rule than the one
-// gate.ts uses for restriction.
+// session workspace, or a not-yet-registered sibling the narrow
+// isPermittedSiblingWorktreePath rule allows (path-restriction.ts). Everything
+// routes through that one authority so a path is never judged under a looser
+// or stricter rule than gate.ts uses.
 function isContainedWorktreePath(
   pathArg: string,
   isRestricted: (path: string, isWrite: boolean) => boolean,
@@ -359,9 +352,9 @@ function isContainedWorktreePath(
 ): boolean {
   if (!pathArg) return false;
   // `resolve()` treats a leading `~` as a literal segment and a glob is not a
-  // single destination, so both forms must be rejected before the
-  // isRestricted() shortcut below — same guard as isPermittedSiblingWorktreePath,
-  // duplicated because this check must run first.
+  // single destination — reject both before the isRestricted() shortcut below.
+  // Same guard as isPermittedSiblingWorktreePath, duplicated because this check
+  // must run first.
   if (/[*?[]/.test(pathArg)) return false;
   if (pathArg.startsWith("~")) return false;
 
@@ -409,7 +402,7 @@ function worktreePathArgs(
 // dispatch can create sibling worktrees without a click; force flags,
 // uncontained paths, and uncommon subcommands ask. Exported for gate.ts's
 // pre-grant guard: one authority for "is this worktree destination safe,"
-// used by both auto mode and the standing-grant guard.
+// shared by auto mode and the standing-grant guard.
 export function safeWorktreeCommand(
   command: string,
   isRestricted: (path: string, isWrite: boolean) => boolean,
@@ -526,10 +519,10 @@ export function autoShellRuleForCall(
       return UNBOUNDED_LISTING_ASK_RULE;
   }
 
-  // Containment: a command whose path arguments resolve outside the workspace
-  // (including through a symlink) must ask, the same way path-arg tools do.
-  // Contained worktree ops are exempt — their destinations are often
-  // intentional siblings — and judged by the worktree path policy below.
+  // Path arguments resolving outside the workspace (including through a
+  // symlink) must ask, like path-arg tools do. Contained worktree ops are
+  // exempt — destinations are often intentional siblings — and are judged by
+  // the worktree path policy below.
   for (const subject of subjects) {
     if (safeWorktreeCommand(subject, isRestricted, cwd, rootsProvider) === true)
       continue;

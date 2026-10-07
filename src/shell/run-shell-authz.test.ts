@@ -416,8 +416,8 @@ describe("authz hard-deny peels env -S / --split-string payloads", () => {
 
   test("N2: deep nested env -S does not hang under the peel depth cap", () => {
     // Two-deep alternating quotes peels fully (covers recursion). A long
-    // unpeelable nest must still return without hanging or throwing — the
-    // depth cap / seen-set are the backstop, not perfect quote reconstruction.
+    // unpeelable nest must still return without hanging — the depth cap /
+    // seen-set are the backstop, not perfect quote reconstruction.
     const twoDeep = `env -S "A=1 env -S 'B=2 rm -rf /'"`;
     expect(runShellAuthzBlockReason(twoDeep)).toMatch(destructive);
 
@@ -460,8 +460,8 @@ describe("authz hard-deny peels env -S / --split-string payloads", () => {
 });
 
 // Peel-gap coverage: glued -S forms, a trailing utility after -S, value-flag
-// soup before -S, and open-ended / never-terminating / stdin hard-deny through
-// expanded subjects (not just catastrophic rm).
+// soup before -S, and open-ended / never-terminating / stdin hard-deny
+// through expanded subjects (not just catastrophic rm).
 describe("authz hard-deny peels glued and trailing env -S forms", () => {
   const openEnded = /Open-ended shell search blocked/;
   const neverTerm = /Never-terminating command blocked/;
@@ -469,9 +469,9 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
   const destructive = /Destructive command blocked/;
 
   test("unmodeled -S backslash escapes make the payload opaque, never garbled", () => {
-    // GNU env's -S escape grammar (\\, \", \n, \#) is wider than the modeled
-    // \_ separator; a pass-through would garble subjects and miss hard-deny,
-    // so opaque routes to ask instead.
+    // GNU env's -S escape grammar (\\, \", \n, \#) is wider than the
+    // modeled \_ separator; a pass-through would garble subjects and miss
+    // hard-deny, so opaque routes to ask instead.
     expect(expandShellSubjects(`env -S "rm \\-rf \\/"`).opaque).toBe(true);
     expect(
       expandShellSubjects(`env -S 'x' && env -S "rm -rf \\"/\\""`).opaque,

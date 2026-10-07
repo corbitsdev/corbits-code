@@ -99,9 +99,9 @@ const BLOCKED_QUOTED_PAYLOAD_PATTERNS: RegExp[] = [
 ];
 
 // Open-ended tree walks OOM the host: `find | tail` still forces the full
-// stream through the collector and recursive grep/rg walks huge trees. Hard-deny
-// those; the bounded grep/glob tools are the alternative. `git log | tail` and
-// similar non-walk pipes are fine (the 512KB output cap backstops those).
+// stream through the collector, and recursive grep/rg walks huge trees.
+// Hard-deny those; the bounded grep/glob tools are the alternative (the 512KB
+// output cap backstops `git log | tail` and similar non-walk pipes).
 const OPEN_ENDED_SEARCH_PATTERNS: RegExp[] = [
   // `find` is almost always a full-tree walk — keep full CMD so
   // `… | find …` cannot bypass (find does not treat the pipe as search domain).
@@ -167,10 +167,10 @@ export const GREP_VALUE_FLAGS = new Set([
   "--file",
 ]);
 
-// The head of each pipeline (stage before the first `|`) is the only stage that
-// reads terminal stdin. Split on unquoted `;`, newline, `&&`, `||`; end each
-// head at its first unquoted `|` — a naive regex split would break on `|`
-// inside quotes (e.g. `grep 'a|b' file`).
+// The head of each pipeline (stage before the first `|`) is the only stage
+// that reads terminal stdin. Split on unquoted `;`, newline, `&&`, `||`; end
+// each head at its first unquoted `|` — a naive regex split would break on
+// `|` inside quotes (e.g. `grep 'a|b' file`).
 function pipelineHeads(command: string): string[] {
   const heads: string[] = [];
   let head = "";
@@ -422,10 +422,10 @@ type PeelOutcome =
 const SAFE_REJOIN_TOKEN = /^[A-Za-z0-9_@%+=:,./-]+$/;
 
 // IMPORTANT: output must round-trip through this project's `tokenize()` as a
-// single token — not through a POSIX shell. `tokenize()` has NO backslash
+// single token — not through a POSIX shell. `tokenize()` has no backslash
 // escape support, so the bash `'\''` idiom re-splits the token and drops the
 // dangerous tail. Wrap in the delimiter the token does not contain; if it
-// contains both, return null and the caller treats the wrapper as opaque (→ ask).
+// contains both, return null and the caller treats the wrapper as opaque.
 function quoteTokenForRejoin(token: string): string | null {
   if (SAFE_REJOIN_TOKEN.test(token)) return token;
   if (!token.includes("'")) return `'${token}'`;
@@ -733,10 +733,10 @@ function advancePastEnvValueFlag(tokens: string[], i: number): number | null {
 }
 
 // env -S re-parses its payload: quotes and `\_` — inside or outside double
-// quotes — act as argument separators, not literal text. Expand separators
-// so a later tokenize sees real argv boundaries. Only `\_` is modeled; the
-// wider GNU escape set (\\, \", \n, \#) differs across implementations, so
-// any other backslash makes the payload uninspectable (null → opaque → ask),
+// quotes — act as argument separators, not literal text. Expand them so a
+// later tokenize sees real argv boundaries. Only `\_` is modeled; the wider
+// GNU escape set (\\, \", \n, \#) differs across implementations, so any
+// other backslash makes the payload uninspectable (null → opaque → ask),
 // never silently mis-parsed.
 function expandEnvSplitSeparators(payload: string): string | null {
   let out = "";
