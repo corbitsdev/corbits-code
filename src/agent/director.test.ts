@@ -69,9 +69,8 @@ function makeCapabilities(): ReactorCapabilities {
   };
 }
 
-// Varied arguments per call so the fingerprint changes turn to turn — the
-// shape of genuine, varied tool-only orchestration (Linear lookups, reading
-// different files, ...).
+// Varied arguments per call so the fingerprint changes turn to turn, like
+// real tool-only orchestration.
 function toolOnlyTurn(id: string): ReactorInboundEvent {
   return {
     type: "inference.done",
@@ -143,10 +142,9 @@ describe("toolSetDigest", () => {
     expect(toolSetDigest([{ ...base }])).toBe(toolSetDigest([{ ...base }]));
   });
 
-  // The digest gates the tool-set-changed log line, and the serialized tools
-  // array is the head of the provider's cached prompt prefix — an
-  // inputSchema-only change reshapes the wire bytes, so it must move the
-  // digest or the cache bust goes unlogged.
+  // The digest gates the tool-set-changed log line; an inputSchema-only
+  // change reshapes the cache prefix bytes, so it must move the digest or
+  // the bust goes unlogged.
   test("an inputSchema-only change alters the digest", () => {
     const before = [{ ...base }];
     const after = [
@@ -262,10 +260,10 @@ describe("ChatDirector tool-only loop protection", () => {
 });
 
 // The harness's own retry policy owns `timeout`/`retryable`/`quota_exhausted`
-// and exhausts its full attempt budget before an `inference.error` reaches
-// the director; see the aborted-category comment in director.ts for why the
-// director must not re-wrap them. `aborted` (internal-recovery) is the one
-// category the harness never retries, so it stays the director's to recover.
+// and exhausts its full budget before an `inference.error` reaches the
+// director (see the aborted-category comment in director.ts for why it must
+// not re-wrap them). `aborted` (internal-recovery) is never harness-retried,
+// so it stays the director's to recover.
 function inferenceErrorEvent(
   category: "retryable" | "timeout" | "aborted" | "quota_exhausted",
   raw?: unknown,
@@ -295,8 +293,7 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
         ),
       );
 
-      // No additional full-context send: the base director's terminal
-      // checkpoint + reply is the only outcome, not another `infer`.
+      // No re-issue: the terminal checkpoint + reply is the only outcome.
       expect(actions.some((a) => a.type === "infer")).toBe(false);
       expect(actions.some((a) => a.type === "reply")).toBe(true);
     },
@@ -331,9 +328,8 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     expect(third.some((a) => a.type === "reply")).toBe(true);
   });
 
-  // user-stop origin: the "does not auto-recover user-stop aborted inference
-  // errors" test in chatDirector compaction pins this classification (and the
-  // absence of the recovery checkpoint) at the long-state layer.
+  // user-stop classification is pinned in the compaction describe below; here
+  // only the turn-boundary reset is at stake.
   test("inference-recovery budget resets at the next turn boundary", async () => {
     const director = createChatDirector("system", [], {
       provider: providerlessPolicy,
@@ -363,8 +359,8 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     expect(afterBoundary.some((a) => a.type === "infer")).toBe(true);
   });
 
-  // A turn that throws after queueing task-change notifications must drop the
-  // queue instead of flushing it stale on the next turn.
+  // A turn that throws after queueing task-change notifications must drop
+  // the queue instead of flushing it stale on the next turn.
   test("a throwing turn drops queued task-change notifications", async () => {
     const throwingCoordinator = {
       isActive: () => true,
@@ -505,8 +501,8 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
   }
 
   // Every coordinator rail consulted on the turn boundary rethrows instead
-  // of degrading — a throwing rail rejects decide() and the next turn
-  // carries no stale task-change notifications.
+  // of degrading, so decide() rejects and the next turn carries no stale
+  // task-change notifications.
   test.each(["isActive", "currentStepIsGate", "currentStepId"] as const)(
     "a throwing %s rail rejects the inference turn without leaking task-change emits",
     async (rail) => {
@@ -531,9 +527,8 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
       director.setWorkflowCoordinator(coordinator);
       const capabilities = makeCapabilities();
 
-      // The step-id rail only runs past a terminal base action, so it
-      // throws on a text turn; the earlier rails throw on a manage_tasks
-      // turn after it queues its task-change notification.
+      // currentStepId runs only past a terminal base action, so it throws
+      // on a text turn; the earlier rails throw on a manage_tasks turn.
       const triggering =
         rail === "currentStepId" ? keeperTextTurn() : keeperManageTasksTurn();
       await expect(
@@ -571,9 +566,8 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     expect(keeperTasksChanged(actions)).toHaveLength(1);
   });
 
-  // A throwing handleToolDone degrades (it takes no rethrow parameter)
-  // instead of marking the turn stale, so a later non-coordinator failure
-  // still preserves the queued notifications.
+  // handleToolDone degrades (no rethrow parameter), so a later
+  // non-coordinator failure still preserves the queued notifications.
   test("a throwing handleToolDone degrades without dropping preserved task-change emits", async () => {
     let handleToolDoneSeen = false;
     const coordinator = {
@@ -618,12 +612,11 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
   });
 });
 
-// The director's live source id (which stamps retry decisions so a
-// mid-session /model switch remaps the xAI short-429 handling) is observable
-// only through the retry policy it hands to each infer action. An xAI-gated
-// capacity error retries when the tracked id is an xAI source and aborts
-// otherwise, so driving tracking events then invoking the attached policy
-// reads the tracked id without reaching into privates.
+// The director's live source id is observable only through the retry policy
+// it hands to each infer action: an xAI-gated capacity error retries when
+// the tracked id is an xAI source and aborts otherwise, so driving tracking
+// events then invoking the policy reads the id without reaching into
+// privates.
 type LiveRetryPolicy = (situation: {
   attempt: number;
   elapsedMs: number;
@@ -871,8 +864,7 @@ describe("operator declined tool calls", () => {
 
   // Contract: interactive chat surfaces the rejection and waits for
   // the next user message; it does NOT emit done(), which would kill the
-  // reactor and break further sends, and it does not re-infer off a bare
-  // decline.
+  // reactor, and it does not re-infer off a bare decline.
   test("chat director surfaces the decline and waits, keeping the reactor alive", async () => {
     const director = createChatDirector("", [], {});
     const actions = actionsArray(
@@ -884,13 +876,13 @@ describe("operator declined tool calls", () => {
     );
     expect(hasCheckpoint(actions)).toBe(true);
     expect(hasDeclineReply(actions)).toBe(true);
-    // No done(): the TUI must stay alive so the user can send another message.
+    // No done(): the TUI must stay alive for the next user message.
     expect(hasDone(actions)).toBe(false);
     expect(hasInfer(actions)).toBe(false);
   });
 
-  // Reactor path: a reason-bearing rejection must re-infer so the model can
-  // respond to the reason — never the canned decline, from any origin.
+  // A reason-bearing rejection must re-infer so the model can respond to
+  // the reason — never the canned decline, from any origin.
   test.each([
     ["approver", "denied by approver: never touch /etc"],
     ["middleware", `${declined} — only run it in the build sandbox`],
@@ -911,8 +903,8 @@ describe("operator declined tool calls", () => {
     },
   );
 
-  // Reactor path: a reason-less approver rejection has nothing for the model
-  // to respond to; the canned reply stands.
+  // A reason-less approver rejection has nothing for the model to respond
+  // to; the canned reply stands.
   test("reason-less approver rejection takes the canned path", async () => {
     const director = createChatDirector("", [], {});
     const actions = actionsArray(
@@ -1222,8 +1214,8 @@ describe("open-task termination guard", () => {
   });
 
   test("empty model turn settles with a valid empty reply", async () => {
-    // DefaultDirector ends empty responses with bare wait; without a reply,
-    // agent.send hangs and the TUI Working spinner sticks forever.
+    // DefaultDirector ends empty responses with bare wait; no reply hangs
+    // agent.send and the TUI Working spinner.
     const director = createChatDirector("base", [], {});
     const emptyTurn = {
       type: "inference.done",
@@ -1414,9 +1406,9 @@ describe("open-task termination guard", () => {
       stubReactorCapabilities,
     );
 
-    // Spend both of the declined-path nudges, with a successful tool result
-    // interleaved after the first. If the successful result reset the budget,
-    // a third decline would still re-infer instead of terminating.
+    // Spend both of the declined-path nudges with a successful tool result
+    // interleaved; if the success reset the budget, a third decline would
+    // still re-infer instead of terminating.
     const first = actionsArray(
       await director.decide(
         makeToolErrorEvent("c", declined),
@@ -1718,9 +1710,8 @@ describe("chatDirector compaction", () => {
     expect(options?.systemPrompt).toBe("Corbits operating prompt");
   });
 
-  // `timeout`/`retryable` are owned entirely by the harness's own retry
-  // policy; the describe above pins the no-reissue contract per category.
-  // Here the abort and overflow paths carry the unique legs.
+  // `timeout`/`retryable` are harness-owned (pinned above per category);
+  // here the abort and overflow paths carry the unique legs.
   test("recovers an internally aborted inference but keeps explicit abort terminal", async () => {
     const director = chatDirector("Corbits operating prompt");
     const internalAbort = {
@@ -1995,9 +1986,9 @@ describe("updateToolDefinitions rewrites infer tools", () => {
 
     const before = await firstInferTools(director, messageReceived("do work"));
 
-    // A full tool_search round-trip: the model calls it, it resolves. Under the
-    // stable-superset design this promotes nothing, so the advertised set is
-    // untouched.
+    // A full tool_search round-trip: the model calls it, it resolves. Under
+    // the stable-superset design this promotes nothing, so the advertised set
+    // is untouched.
     await director.decide(
       makeInferenceDoneEvent([
         { id: "ts", name: "tool_search", args: { query: "find files" } },
@@ -2094,8 +2085,8 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     await toolset.dispose();
   });
 
-  // submit_output is always on the wire so a workflow going active never grows
-  // the array and busts the provider cache prefix.
+  // submit_output is always on the wire so a workflow going active never
+  // grows the array and busts the provider cache prefix.
   test("submit_output is advertised even with no active workflow", async () => {
     const director = createChatDirector("base-prompt", [], {});
     director.updateToolDefinitions([lateTool]);
@@ -2107,7 +2098,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     expect(inferToolNames(inferAction)).toContain("submit_output");
   });
 
-  // The taskClassifier host closure is gone, so a plain message flows to
+  // The taskClassifier host closure is gone: a plain message flows to
   // normal inference with no new-task checkpoint or envelope.
   test("a message with no classifier configured takes the normal infer path", async () => {
     const director = createChatDirector("base-prompt", [], {});
@@ -2136,8 +2127,8 @@ describe("CL-7919 coordinator shape", () => {
   };
 
   // Coordination is host-owned and reaches the director only through
-  // setWorkflowCoordinator — the constructor takes no coordinator. Attaching
-  // a live coordinator injects its directive into the next infer.
+  // setWorkflowCoordinator; attaching a live one injects its directive into
+  // the next infer.
   test("setWorkflowCoordinator attaches live coordination to the loop", async () => {
     const { WorkflowRuntime } = await import("../workflows/runtime.js");
     const { WorkflowCoordinator } = await import("../workflows/coordinator.js");
@@ -2188,7 +2179,7 @@ describe("CL-7919 coordinator shape", () => {
     expect(inferEphemeralText(infer)).toBeUndefined();
   });
 
-  // A throwing coordinator degrades to plain inference: decide() resolves
+  // A throwing directive degrades to plain inference: decide() resolves
   // with an infer free of the workflow directive instead of rejecting.
   test("a throwing directive falls back to plain inference", async () => {
     const { MAX_WORKFLOW_DIRECTIVE_CHARS } = await import("./director.js");
@@ -2216,8 +2207,8 @@ describe("CL-7919 coordinator shape", () => {
   });
 
   // Every per-turn consult is guarded, not just directive(): a coordinator
-  // whose rails all throw still lets decide() (including the tool.done
-  // handleToolDone path) resolve to the plain loop.
+  // whose rails all throw still lets decide() (including the handleToolDone
+  // path) resolve to the plain loop.
   test("throwing idle rails and handleToolDone fall back to the plain loop", async () => {
     const director = createChatDirector("base-prompt", [], {});
     director.setWorkflowCoordinator({
@@ -2700,10 +2691,10 @@ describe("chatDirector spacer echo", () => {
   });
 });
 
-// The rules are only worth anything if they reach the model. An earlier cut of
-// this change appended them to the director's own copy of the system prompt
-// AFTER calling super(), so the base director kept sending the original and
-// the whole feature was a no-op that every existing test passed.
+// The rules are only worth anything if they reach the model. An earlier cut
+// appended them to the director's own prompt copy AFTER calling super(), so
+// the base director kept sending the original and the whole feature was a
+// silent no-op.
 describe("tool-discipline rules on the wire", () => {
   async function promptSentFor(model: string): Promise<string | undefined> {
     const director = createChatDirector("BASE PROMPT", [], {
