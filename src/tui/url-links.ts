@@ -131,17 +131,16 @@ function linkLinesChunks(
 /**
  * Arm a text node as a link hit target over caller-built per-line spans:
  * Ctrl+hover highlights the URL under the pointer, Ctrl+press and release on
- * the same URL opens it. When no line holds a URL the node is disarmed — any
+ * the same URL opens it. With no URL on any line the node is disarmed — any
  * handlers a previous arming installed are cleared — so a retext that drops
- * the last URL leaves no stale hit target behind; handler assignment
- * replaces, so re-arming never stacks.
+ * the last URL leaves no stale hit target; re-arming replaces handlers and
+ * never stacks.
  *
  * The press keeps bubbling — stopping it would break drag-select starting on
  * a URL — and the open fires on release only when the pointer resolves to
- * the same URL it pressed on, so a Ctrl+drag still selects. Columns map over
- * the unwrapped line; on a wrapped line the continuation rows resolve
- * against the same ranges, and the press/release equality check keeps a
- * stray resolution from opening.
+ * the same URL it pressed on, so a Ctrl+drag still selects. Wrapped
+ * continuation rows resolve columns against the same ranges, and the
+ * press/release equality check keeps a stray resolution from opening.
  */
 export function armLinkLine(
   node: TextRenderable,
@@ -299,8 +298,7 @@ function markdownUrlAt(line: string, offset: number): string | null {
  * offset starts painting somewhere in [min, max] (the spread comes from
  * concealable markup before it) and paints up to wMax wide; the column hits
  * the offset when it falls in that range. Columns before any markup map
- * exactly; around markup the set holds neighbors too — the caller opens
- * only when every plausible offset agrees on one URL.
+ * exactly; around markup the set holds neighbors too.
  */
 function paintedColumnToSource(
   line: string,
@@ -333,9 +331,8 @@ function paintedColumnToSource(
  * The link target under terminal-absolute (x, y) inside one painted code
  * block: the row maps through the block's own line info to a source line,
  * the column maps to plausible source offsets, and the click opens only
- * when every plausible offset agrees on one URL — concealment ambiguity
- * misses rather than opening wrong. Stale layout or an unexpected library
- * shape resolves to null, never throws.
+ * when every plausible offset agrees on one URL. Stale layout or an
+ * unexpected library shape resolves to null, never throws.
  */
 function codeBlockLinkAt(
   block: CodeRenderable,
@@ -381,12 +378,11 @@ function codeBlockLinkAt(
  * The markdown click target: the raw link target under terminal-absolute
  * (x, y), or null when the cell paints no link. Walks from the hit leaf up to
  * the nearest painted code block (assistant markdown paints through library
- * CodeRenderables, one per block), and that first block decides: a miss
- * inside one block never falls through to a wider ancestor that pairs the
- * same column with a link the narrower block already rejected. Clicks
- * landing outside any block miss. TextRenderable rows never resolve here —
- * their own armed node handlers own those clicks. Never throws: anything
- * unexpected resolves to null so a missed click stays a missed click.
+ * CodeRenderables, one per block); that first block decides, so a miss inside
+ * one block never falls through to a wider ancestor that pairs the same
+ * column with a link the narrower block already rejected. TextRenderable rows
+ * never resolve here — their own armed node handlers own those clicks. Never
+ * throws: anything unexpected resolves to null.
  */
 export function markdownLinkAt(
   renderer: CliRenderer,

@@ -8,9 +8,8 @@
  * on, when the reap reports leftovers.
  *
  * These tests drive the real `runSubAgent` with a stub agent whose `send`
- * holds a REAL live `sleep` child (killed on abort, like runGuardedShell's
- * onAbort) and whose `stream()` stays open until the session closes — the
- * production shape of a worker parked in a shell call.
+ * holds a real live `sleep` child (killed on abort, like runGuardedShell's
+ * onAbort) and whose `stream()` stays open until the session closes.
  */
 import { describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -56,10 +55,9 @@ async function waitForChildExit(
  * onAbort. `stream()` stays open until `releaseStream` — the session cannot
  * drain while the descendant is wedged. `leakOnAbort` models a stub that
  * never kills: send-abort rejects and close() releases the stream, both
- * without killAll (and close stays non-wedged). The descendant is spawned
- * outside the shell guard, so production teardown never sees it — the run
- * must settle with the child still live, and the test reaps its own orphan
- * via the exposed killAll.
+ * without killAll. The descendant is spawned outside the shell guard, so
+ * production teardown never sees it — the run must settle with the child
+ * still live, and the test reaps its own orphan via the exposed killAll.
  */
 function createShellChildAgent(opts?: {
   wedgeClose?: boolean;

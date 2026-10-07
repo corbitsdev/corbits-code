@@ -274,18 +274,16 @@ export function describeZoneLines(
 /**
  * Context rows a decision overlay's body may occupy on a terminal with room
  * to spare. The shaped body charges its header and its two rows of air on
- * top of this, so the spacing never costs the operator a row of the command
- * they are being asked to approve.
+ * top of this (see composeDecisionBody).
  */
 const DECISION_CONTEXT_ROWS = 8;
 
 /**
  * Rows the shaped body always spends, budget or not: one header line plus
- * the trailing blank row. Approximate (a header long enough to wrap costs
- * one more), but an underestimate here only makes `decisionContextBudget`
- * more generous than it should be, which the fraction cap downstream still
- * catches — the failure mode this guards against is starving the choices,
- * never overshooting the frame.
+ * the trailing blank row. Approximate (a wrapping header costs one more),
+ * but an underestimate only makes `decisionContextBudget` more generous,
+ * which the fraction cap downstream catches — this guards against starving
+ * the choices, never overshooting the frame.
  */
 const DECISION_HEADER_AND_TRAILER_ROWS = 2;
 
@@ -301,14 +299,13 @@ const DECISION_CONTEXT_BLANK_ROWS = 1;
  * choice row, with the prompt box still seated at its floor below it. A
  * generous fixed budget reads fine on a tall terminal but can consume the
  * whole overlay host on a short one, leaving no room to paint a single
- * option — so the context shrinks first, down to dropping entirely on the
- * shortest terminals: the header (which tool, which question) and the
- * choices are the two things an approval cannot render without.
+ * option — so the context shrinks first, dropping entirely on the shortest
+ * terminals: an approval cannot render without the header (which tool,
+ * which question) and the choices.
  *
  * Below 10 rows this budget alone cannot save the frame: the resolver falls
  * back to best effort (`resolveGeometry` in geometry/resolve.ts) and may
- * take rows from below the prompt floor. This budget does not control that
- * fallback.
+ * take rows from below the prompt floor — this budget does not control that.
  */
 export function decisionContextBudget(input: {
   readonly terminalHeight: number;
@@ -341,12 +338,11 @@ export function decisionContextBudget(input: {
 
 /**
  * Plain-English echo of an accepted choice. A cycled settings field's label
- * carries every option with `‹ ›` around the active one (list-painting detail,
- * not something an operator asked for), so the caller passes the value that
- * actually won structurally via `itemValues` rather than leaving it to be
- * recovered from the rendered label — a marker or spacing change, or a label
- * that legitimately contains `‹`/`›`, would otherwise corrupt the echo
- * silently. A plain list item has no separate value, so it is quoted as-is.
+ * carries every option with `‹ ›` around the active one, so the caller
+ * passes the winning value via `itemValues` rather than recovering it from
+ * the rendered label — a marker or spacing change, or a label containing
+ * `‹`/`›`, would corrupt the echo. A plain list item has no separate value,
+ * so it is quoted as-is.
  */
 export function overlayChoiceText(
   label: string,
