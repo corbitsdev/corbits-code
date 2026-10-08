@@ -12,9 +12,8 @@ export interface NormalizeToolDefsContext {
 }
 
 /**
- * Shared primitives / view guidance for `present`. Used by both the canonical
- * `presentDefinition.description` and the acyclic wire `view.description` so the
- * two never drift.
+ * Shared by the canonical `presentDefinition.description` and the acyclic
+ * wire `view.description` so the two never drift.
  */
 export const PRESENT_VIEW_PRIMITIVES_GUIDANCE =
   "Primitives: text{text, tone?, bold?, dim?}; " +
@@ -35,7 +34,7 @@ const TONE_ENUM = [
 const ALIGN_ENUM = ["left", "right", "center"] as const;
 const GAP_ENUM = [0, 1] as const;
 
-/** Fully-specified leaf text node (no children). */
+/** Leaf text node (no children). */
 const TEXT_NODE = {
   type: "object",
   properties: {
@@ -49,7 +48,7 @@ const TEXT_NODE = {
   additionalProperties: false,
 } as const;
 
-/** Fully-specified leaf divider node. */
+/** Leaf divider node. */
 const DIVIDER_NODE = {
   type: "object",
   properties: { type: { type: "string", enum: ["divider"] } },
@@ -58,9 +57,8 @@ const DIVIDER_NODE = {
 } as const;
 
 /**
- * Nested child: leafs fully typed, plus a depth-capped open object for deeper
- * containers, so type/children/text/rows are documented without recursive
- * `$ref`.
+ * Leafs fully typed; deeper containers use a depth-capped open object so
+ * type/children/text/rows stay documented without recursive `$ref`.
  */
 const NESTED_CHILD = {
   oneOf: [
@@ -118,10 +116,10 @@ const COLUMNS_PROP = {
 } as const;
 
 /**
- * Non-recursive `present` parameters: Moonshot/Kimi and Muse Spark reject
- * JSON Schema `$ref` cycles on `tools.function.parameters` and fail the turn
- * before inference. Depth-capped oneOf primitives keep the model's view of
- * type/children/text fields; runtime still validates full nested trees via
+ * Non-recursive `present` schema. Moonshot/Kimi and Muse Spark reject
+ * `$ref` cycles on `tools.function.parameters` and fail the turn
+ * before inference. Depth-capped oneOf keeps type/children/text
+ * visible to the model; runtime still validates full nested trees via
  * `validateView`.
  */
 export const KIMI_PRESENT_INPUT_SCHEMA = {
@@ -187,7 +185,7 @@ export const KIMI_PRESENT_INPUT_SCHEMA = {
 function rewritePresentAcyclic(def: ToolDefinition): ToolDefinition {
   return {
     ...def,
-    // structuredClone so callers cannot mutate the shared const via the tool def.
+    // structuredClone so callers cannot mutate the shared const via the def.
     inputSchema: structuredClone(
       KIMI_PRESENT_INPUT_SCHEMA,
     ) as ToolDefinition["inputSchema"],
@@ -274,9 +272,9 @@ const SCHEMA_CHILD_KEYS = new Set([
 ]);
 
 /**
- * Grok's Responses proxy 400s the whole infer on one invalid tool schema.
+ * Grok's Responses proxy 400s the whole infer on one invalid schema.
  * Untyped properties and `$schema` are the shapes MCP tools and
- * submit_result historically advertised.
+ * submit_result advertise.
  */
 function sanitizeSchemaForGrok(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sanitizeSchemaForGrok);
@@ -301,8 +299,8 @@ function sanitizeSchemaForGrok(value: unknown): unknown {
       next[key] = props;
       continue;
     }
-    // Literal enum/const/default/example documents can themselves look like
-    // schemas; only schema-valued keywords may interpret their children.
+    // Literal enum/const/default/example values can look like schemas;
+    // only schema-valued keywords interpret their children.
     next[key] = SCHEMA_CHILD_KEYS.has(key)
       ? sanitizeSchemaForGrok(child)
       : child;
@@ -324,15 +322,13 @@ function needsAcyclicPresentSchema(ctx: NormalizeToolDefsContext): boolean {
 }
 
 /**
- * Family-gated wire rewrite of tool definitions before they reach the
+ * Family-gated wire rewrite of tool defs before they reach the
  * director / provider. Moonshot/kimi and Muse Spark get a non-recursive
- * `present` schema; Grok/xAI get schema sanitization so an untyped property
- * or `$schema` cannot 400 the infer; others pass through unchanged. Does not
- * alter runtime validation or the canonical `presentDefinition`.
+ * `present` schema; Grok/xAI get schema sanitization; others pass through.
+ * Does not alter runtime validation or the canonical `presentDefinition`.
  *
- * Call at every advertise path that may include `present` (main TUI/exec
- * sessions); sub-agent toolsets omit `present`, so rewriting is a no-op
- * unless one appears.
+ * Call at every advertise path that may include `present`; sub-agent
+ * toolsets omit it, so rewriting is a no-op unless one appears.
  */
 export function normalizeToolDefinitionsForProvider(
   defs: readonly ToolDefinition[],
