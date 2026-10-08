@@ -1,14 +1,12 @@
 /**
  * End-to-end scenario harness: full agent-loop runs against the production
- * stack — live tool dispatch, chat director, posix tools plus permission
- * middleware, git-backed context store, production compactor — with only
- * inference scripted by @intx/inference-testing. `e2e/integration-harness.ts` owns
- * the assembly; this layer adds fixture-repo seeding and small scenario
- * conveniences so e2e files stay declarative.
+ * stack (tools, director, permissions, context store, compactor) with only
+ * inference scripted by @intx/inference-testing.
  *
- * Deliberate boundary: no TUI and no process spawn here — a scenario drives
- * `agent.send` through the same seam the runners use. PTY-level coverage is
- * a separate layer and out of scope for this harness.
+ * Layer split: `integration-harness.ts` owns the assembly; this file adds
+ * fixture-repo seeding and scenario conveniences so e2e files stay
+ * declarative. No TUI or process spawn: scenarios drive `agent.send` through
+ * the seam the runners use.
  */
 
 import { cpSync, mkdirSync, writeFileSync } from "node:fs";
@@ -46,15 +44,14 @@ export type E2ESession = IntegrationSession;
 
 export interface OpenE2ESessionOpts extends OpenIntegrationSessionOpts {
   /**
-   * Name of a `fixtures/<name>` directory copied into the session cwd
-   * before the scenario runs. `node_modules` and `.git` are skipped: fixture
-   * deps install into the real repo, and the repo marker belongs to the
-   * `git` option, not to whatever the fixture happens to contain.
+   * Name of a `fixtures/<name>` directory copied into the session cwd.
+   * `node_modules` and `.git` are skipped: fixture deps install into the
+   * real repo, and the repo marker belongs to the `git` option.
    */
   fixture?: string;
   /**
-   * Initialize the session cwd as a git repository. Defaults to true — a
-   * "fixture-repo run" should look like one to worktree-aware permission
+   * Initialize the session cwd as a git repository; defaults to true.
+   * A fixture-repo run should look like one to worktree-aware permission
    * and trust checks. Pass false only when the scenario asserts on
    * non-repo behavior.
    */
@@ -85,7 +82,7 @@ export function e2ePermissionGate(): PermissionGate {
   });
 }
 
-/** Write (or overwrite) a file inside the session cwd mid-scenario. */
+/** Write a file inside the session cwd mid-scenario. */
 export function seedFile(
   session: E2ESession,
   relativePath: string,
@@ -100,16 +97,15 @@ export interface OperatorTurn {
   /** The exact message sent — recovery flows key on its identity. */
   message: InboundMessage;
   events: ReactorEmittedEvent[];
-  /** The raw send result — a terminally-failed turn is not asserted here. */
+  /** The raw send result; failures are returned, not thrown. */
   outcome: SendOutcome | unknown;
 }
 
 /**
  * Send one operator message and pump the harness until the send settles,
- * whatever the outcome. Unlike runUntilDone this never asserts a reply —
- * scenarios that script a terminal failure (credential recovery, provider
- * outage) need the failure's event stream plus the send outcome, not a
- * thrown expectation.
+ * whatever the outcome. Never asserts a reply (unlike `runUntilDone`):
+ * terminal-failure scenarios need the failure's event stream plus the send
+ * outcome.
  */
 export async function sendOperatorTurn(
   session: E2ESession,
@@ -160,9 +156,9 @@ export interface ScriptedReply {
 
 /**
  * Queue one model response per inference request, in order — the common
- * "model calls tools, then answers" scenario spine. Thin sugar over
- * `scenario.replyOnce`; reach for `whenRequestBodyMatches`/`createStream`
- * directly when a reply must key on request content or timing.
+ * "model calls tools, then answers" spine. Use
+ * `whenRequestBodyMatches`/`createStream` directly when a reply must key on
+ * request content or timing.
  */
 export function scriptReplies(
   session: E2ESession,
