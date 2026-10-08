@@ -209,7 +209,7 @@ export function execUserFailureMessage(
   providerError?: InferenceErrorLike,
 ): string {
   // A locked Codex refresh keeps its own lock message: the generic re-login
-  // hint would send the operator into a loop that never removes the lock file.
+  // hint would loop forever on the lock file.
   const lockFailure = codexRefreshLockFailure(err);
   if (lockFailure !== null) return lockFailure.message;
   if (err instanceof Error && err.name === SELECTED_PROVIDER_FAILURE) {
@@ -232,9 +232,9 @@ export function execUserFailureMessage(
 }
 
 /**
- * Exec director overlay. `dispatch`/omit keep the product default (session
- * chat prompt + advertised tools); any other director id uses the package
- * prompt and allowlist. Worker effort/nudge are not applied.
+ * Exec director overlay. `dispatch`/omit keeps the product default; any
+ * other director id uses the package prompt and allowlist. Worker
+ * effort/nudge are not applied.
  */
 export interface ExecDirectorOverlay {
   /** Package system prompt; omitted on the dispatch default path. */
@@ -254,9 +254,8 @@ export function resolveExecDirectorOverlay(
 }
 
 /**
- * Single gate for the exec allowlist — tool_search results, promoter
- * activation, onToolsActivate, and the call gate all flow through here, so
- * outside-allow tools stay uncallable.
+ * Single gate for the exec allowlist: tool_search, promoter activation,
+ * onToolsActivate, and the call gate; outside-allow tools stay uncallable.
  */
 export function isExecOverlayToolAllowed(
   overlay: ExecDirectorOverlay,
@@ -323,9 +322,8 @@ export function resolveExecDirectorOverlayForPackage(
 }
 
 /**
- * Inbound message for the task from the command line. Carries
- * OPERATOR_ORIGINATED_FLAG so director.ts's loop-protection backstop can
- * tell it apart from system-originated sends.
+ * Inbound message for the task. Carries OPERATOR_ORIGINATED_FLAG so the
+ * director's loop-protection backstop can tell it from system-originated sends.
  */
 function operatorTaskMessage(task: string): InboundMessage {
   return {
@@ -417,9 +415,9 @@ export function createExecToolPromoter(args: {
 }
 
 /**
- * Product non-TUI agent path (`corbits exec "prompt"`): the same director,
- * toolset, permission gate, session mode, and sub-agent surface as the TUI,
- * without Ink. Assembly lives in src/session/assemble-runtime.ts; see
+ * Non-TUI agent path (`corbits exec "prompt"`): the same director, toolset,
+ * permission gate, session mode, and sub-agent surface as the TUI, without
+ * Ink. Assembly lives in src/session/assemble-runtime.ts; see
  * docs/ARCHITECTURE.md "Exec Runner" for the intentional deltas.
  *
  * Prompts read stdin when a TTY is available; otherwise asks fail closed
@@ -448,8 +446,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
       provider: config.providerName,
       model: config.model,
     };
-    // A missing prompt never started a run, so there is no session to close;
-    // emitting a failed session_end would pollute failed counts.
+    // A missing prompt starts no run: no session to close, and a failed
+    // session_end would pollute failed counts.
     return result;
   }
 
@@ -457,9 +455,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
     config.sessionId.length > 0 ? config.sessionId : generateSessionId();
   const startedAt = Date.now();
   const workdir = sessionContextDir(config.cwd, sessionId);
-  // Setup hits disk before the try below has session_end coverage; emit a
-  // minimal failed session_end on this window so an EACCES/EROFS here does
-  // not orphan the cli_start funnel.
+  // Setup hits disk before session_end coverage; emit a minimal failed
+  // session_end so an EACCES/EROFS here does not orphan the cli_start funnel.
   let priorState: RunState | undefined;
   try {
     await initSessionDir(config.cwd, sessionId);
@@ -579,8 +576,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
           })
         : finalizeRunState(config.cwd, sessionId, snapshot);
     await write.catch((err: unknown) => {
-      // Persistence failure must not fail the run, but dropping it silently
-      // hides disk/permission problems that leave run.json stale.
+      // A persistence failure must not fail the run, but silent drops hide
+      // disk/permission problems that leave run.json stale.
       logger.warn(
         "saveState failed for session {sessionId} status={status}: {error}",
         {
@@ -607,8 +604,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     });
 
     // One-shot migration only when the path-trust file is absent. Headless
-    // exec has no frame to corrupt, so a skipped marketplace member writes
-    // straight to stderr here.
+    // exec has no frame to corrupt, so skipped members write straight to stderr.
     const sessionTrust = await assembleSessionTrust({
       cwd: config.cwd,
       pluginPaths: config.settings?.pluginPaths,
@@ -681,11 +677,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
         stderr.write(`${text}\n`);
       },
       interactive,
-      // Headless surface: the gate denies before ever reaching
-      // requestApproval, so the explicit denial lands here — action and
-      // remedy on stderr (never stdout: piped stdout may feed JSON
-      // consumers). The reason already omits the bypass remedy on sensitive
-      // paths; emit it verbatim.
+      // Headless surface: the gate denies before requestApproval, so the
+      // denial lands here — action and remedy on stderr (never stdout:
+      // piped stdout may feed JSON consumers). The reason already omits the
+      // bypass remedy on sensitive paths; emit it verbatim.
       onHeadlessDeny: (reason) => {
         stderr.write(`Permission denied: ${reason}\n`);
       },
@@ -772,9 +767,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
       ...(overlay.advertisedAllow !== undefined
         ? { toolSearchAllow: overlay.advertisedAllow }
         : {}),
-      // Exec-primary keeps wait_agents mounted (with an advertised allow):
-      // headless runs have no mailbox-mail flush, so wait_agents stays the
-      // collection path here. TUI primary and nested orchestrators omit it.
+      // Headless runs have no mailbox-mail flush, so wait_agents stays the
+      // collection path here; TUI primary and nested orchestrators omit it.
       mountWaitAgents: true,
       ...(config.mcpServers !== undefined
         ? { mcpServers: config.mcpServers }
@@ -1106,9 +1100,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
         peekSourceCredentialSecret(liveSource.credentialId),
       ]) as ReactorEmittedEvent;
       // Chat-director reactor events (replacing the former onTasksChange /
-      // onActivateTools closures). Exec has no live task panel or task stdout
-      // output, so debug logging matches how this mode surfaces other
-      // in-session state changes.
+      // onActivateTools closures). Exec has no live task panel or stdout, so
+      // debug logging matches how this mode surfaces other state changes.
       handleChatDirectorEvent(
         sanitizedEvent,
         {
@@ -1204,11 +1197,11 @@ export async function runExec(config: Config): Promise<ExecResult> {
     } finally {
       if (sendCompleted && runSink.getRunError() === undefined) {
         // Successful send: the final inference.done is queued on the stream
-        // but may not have reached the sink yet (send resolves on the
-        // connector reply). Drain BEFORE disposing: dispose snapshots the
-        // buffer at entry and would otherwise write the whole reply as a
-        // spurious partial. After the drain, dispose is a no-op on success
-        // and a real record only if a cycle died without a terminal event.
+        // but may not have reached the sink (send resolves on the connector
+        // reply). Drain BEFORE disposing: dispose snapshots the buffer at
+        // entry and would write the whole reply as a spurious partial.
+        // Dispose is a no-op on success and a real record only if a cycle
+        // died without a terminal event.
         await activeAgent.close().catch((err: unknown) => {
           logger.debug(
             "agent.close during successful-send teardown failed: {error}",
@@ -1407,9 +1400,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
  * Whether exec may prompt the operator. Prompts read stdin and write stderr,
  * so a piped stdout must not disable them: stdin TTY alone means an operator
  * can answer. Fully headless (stdin not a TTY) fails closed — the gate denies
- * headless asks before requestApproval is reached (onHeadlessDeny wiring
- * above, not the prompt seam). stdoutTTY rides along so the call site stays
- * explicit that a piped stdout is supported, not an oversight.
+ * headless asks before requestApproval (onHeadlessDeny wiring above, not the
+ * prompt seam). stdoutTTY rides along so the call site is explicit that a
+ * piped stdout is supported, not an oversight.
  */
 export function resolveExecInteractive(stdio: {
   stdinTTY: boolean | undefined;

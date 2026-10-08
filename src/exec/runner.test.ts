@@ -57,7 +57,7 @@ const OUTSIDE_ALLOW = "mcp__linear__create_issue";
 
 function bareConfig(task: string): Config {
   // Minimal unconfigured-shaped object is not enough — runExec only needs
-  // `task` for the empty-prompt early return before any bootstrap.
+  // `task` for the empty-prompt early return.
   return {
     command: "exec",
     task,
