@@ -102,16 +102,14 @@ export interface StreamMapContext {
   /** True between an `inference.start` and the event that settles its cycle.
  * The harness's pre-commit `inference.retry` (nothing streamed, nothing to
  * retract) arrives before the start; the reactor's retry comes after a
- * committed attempt failed and is about to re-stream. Only a retry arriving
- * while this is armed retracts. */
+ * committed attempt failed and is about to re-stream. */
   attemptArmed: boolean;
   /** Tool calls already known when the current attempt started. */
   attemptCallIds: Set<string>;
   /** A committed attempt can end in `inference.error` with no
  * `inference.done`, followed by a same-provider retry start. The boundary
  * must not stay armed across a terminal error, so the error hands it off
- * here: the next event retracts the failed attempt or expires the handoff
- * and keeps the error row. */
+ * to the next event. */
   errorRollbackArmed: boolean;
   /** Live catalog provider id (e.g. `xai/alice`). Harness `inference.error`
  * events omit it; the session stamps this so transcript formatting can
@@ -293,9 +291,8 @@ function toolCallEvent(
 
 /** Map one production reactor/stream event into zero or more bridge events.
  * `ctx` carries cross-event bookkeeping: callId→name resolution for
- * tool.done without result.name, retry boundaries, and suppressions that
- * keep one paint per thing (connector.reply after deltas, no double
- * tool_call). Stateless calls stay safe for fixtures and unit tests. */
+ * tool.done without result.name, retry boundaries, and one-paint-per-thing
+ * suppressions. Stateless calls stay safe for fixtures and unit tests. */
 export function mapProductionEvent(
   event: ReactorLikeEvent,
   ctx?: StreamMapContext,

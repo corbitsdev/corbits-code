@@ -1,7 +1,6 @@
 /**
  * Pure gate wiring: permission/operator events → overlay rows, selection →
- * settled outcomes. Hosts open overlays with the returned items and resolve
- * via these helpers.
+ * settled outcomes.
  */
 
 import type { EventEmitter } from "node:events";
@@ -41,7 +40,7 @@ export const PERMISSION_ONCE_ID = "__once__" as const;
 /**
  * Expand/collapse chord for collapsed payloads. Scoped to the modal overlay
  * rather than SHELL_SHORTCUTS: nothing else in the shell claims a bare letter
- * while it is open. Shared with transcript rows for one expand idiom.
+ * while it is open. Shared with transcript rows.
  */
 export const PERMISSION_EXPAND_KEY = EXPAND_KEY;
 
@@ -59,9 +58,9 @@ export interface GateSelection {
 }
 
 /**
- * Rows from a live PermissionRequest: Reject → Accept once → scopes. Labels
- * stay bare action names; scope hints paint in the body above the list (see
- * permissionBodyFromRequest) instead of truncating inside a choice row.
+ * Rows from a live PermissionRequest. Labels stay bare action names; scope
+ * hints paint in the body (permissionBodyFromRequest), not inside a choice
+ * row.
  */
 export function permissionChoicesFromRequest(
   request: PermissionRequest,
@@ -93,7 +92,6 @@ export function permissionChoicesFromRequest(
 }
 
 /**
- * Map overlay selection id → ApprovalOutcome.
  * Unknown or omitted id fail-closes as unavailable. No index fallback.
  */
 export function approvalOutcomeFromSelection(
@@ -123,11 +121,10 @@ export interface PermissionBodyOpts {
 }
 
 /**
- * Compact multi-line body for stream/overlay (no paint). Chained commands
- * show one numbered line per segment; bulk payloads collapse to a placeholder
- * the operator can expand before approving. Scope hints ride above the bare
- * choice list, and the expand key dumps this body whole when the overlay
- * clips it.
+ * Compact multi-line body for stream/overlay (no paint): one numbered line
+ * per chained segment, a collapsed placeholder the operator can expand
+ * before approving, scope hints above the bare choice list, and the expand
+ * key dumps the whole body when the overlay clips it.
  */
 export function permissionBodyFromRequest(
   request: PermissionRequest,
@@ -163,8 +160,8 @@ export interface OperatorGateChoices {
 }
 
 /**
- * Operator options → list rows. itemIds are `${askId}:${index}` so sequential
- * asks cannot collide on render-order index.
+ * itemIds are `${askId}:${index}` so sequential asks cannot collide on
+ * render-order index.
  */
 export function operatorChoicesFromOptions(
   options: readonly string[],
@@ -177,7 +174,6 @@ export function operatorChoicesFromOptions(
 }
 
 /**
- * Map selection → OperatorResult.
  * Unknown or omitted id → cancel. No index fallback.
  */
 export function operatorResultFromSelection(
@@ -203,10 +199,10 @@ export function operatorCustomResult(text: string): OperatorResult {
 }
 
 /**
- * Blocked-ness is domain state, not paint: the turn watchdog and the painter
- * both need to know a gate is outstanding before it reaches the screen. This
- * module sees the full lifecycle (raised, queued, resolved), so it reports
- * it; callers fold the pair into their own turn state.
+ * Blocked-ness is domain state, not paint: the watchdog and the painter both
+ * need to know a gate is outstanding before it reaches the screen. This
+ * module sees the full lifecycle (raised, queued, resolved) and reports it;
+ * callers fold the pair into their own turn state.
  */
 export interface GateLifecycleHooks {
   /** A gate was raised — queued or opened, whichever comes first. */
@@ -221,8 +217,8 @@ const NOOP_GATE_HOOKS: GateLifecycleHooks = {
 };
 
 /**
- * Wrap a gate's `resolve` so `onGateClosed` fires exactly once no matter
- * which of accept / cancel / auto-deny settles it first.
+ * Wrap `resolve` so `onGateClosed` fires exactly once, whichever settle
+ * path runs first.
  */
 function onceClosed<T>(
   onGateClosed: () => void,
@@ -240,7 +236,7 @@ function onceClosed<T>(
 
 /**
  * Subscribe the permission/operator gate events to the shell's overlays.
- * Returns a dispose function that removes exactly the listeners this call added.
+ * Returns a dispose that removes exactly the listeners this call added.
  */
 export function wireGates(
   emitter: EventEmitter,
@@ -297,8 +293,7 @@ export function wireGates(
 
   /**
    * Open the next queued gate, else restore a suspended command surface.
-   * Runs after every settle; skipped past teardown so a late settle cannot
-   * paint a dead shell.
+   * Skipped past teardown so a late settle cannot paint a dead shell.
    */
   function drainPendingOrResume(): void {
     if (disposed || shell.disposed) return;
@@ -342,9 +337,7 @@ export function wireGates(
     let openedGeneration: number | undefined;
 
     // The queue is the single settle guard: once an id leaves it, later
-    // calls no-op instead of double-resolving. Its callback resolves through
-    // the onceClosed wrapper so onGateClosed fires once regardless of which
-    // path drained.
+    // calls no-op. Its callback resolves through the onceClosed wrapper.
     const settle = (outcome: ApprovalOutcome): boolean =>
       permissionQueue.settle(id, outcome);
     const id = permissionQueue.enqueue(ev.request, (outcome) => {
