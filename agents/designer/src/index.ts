@@ -3,7 +3,7 @@
  * Owns DESIGN.md creation and updates, impeccable.style design laws,
  * design tokens, typography, spatial layout, and micro-interaction polish.
  *
- * Ships as the @corbits/agent-designer workspace package: the tool allowlist
+ * Ships as the @corbits/code-agent-designer workspace package: the tool allowlist
  * lives here so the package stays importable without the app. Drift against
  * the app build surface fails src/agent/directors/designer/package.test.ts.
  */

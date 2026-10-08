@@ -68,6 +68,10 @@
       "name": "@corbits/code-agent-warden",
       "version": "0.1.0",
     },
+    "agents/designer": {
+      "name": "@corbits/agent-designer",
+      "version": "0.1.0",
+    },
     "packages/first-class-providers": {
       "name": "@corbits/first-class-providers",
       "version": "0.1.0",
@@ -264,6 +268,7 @@
     "@corbits/code-agent-prober": ["@corbits/code-agent-prober@workspace:agents/prober"],
     "@corbits/code-agent-dispatch": ["@corbits/code-agent-dispatch@workspace:agents/dispatch"],
     "@corbits/code-agent-warden": ["@corbits/code-agent-warden@workspace:agents/warden"],
+    "@corbits/agent-designer": ["@corbits/agent-designer@workspace:agents/designer"],
 
     "@corbits/codex-provider": ["@corbits/codex-provider@0.1.1", "", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.2.0", "@corbits/openai-responses": "^0.2.0", "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-MiGA5djQNtRpHqLvJAGdFgHEbUl808AbveMPwt7krLjOH0i20DyElpitHPZF3ltCXkFMhcKIoyTAEpRDqeB/Rw=="],
 
