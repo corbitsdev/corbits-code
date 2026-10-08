@@ -297,8 +297,8 @@ export function resolveBottomMarginRows(terminalRows: number): number {
 }
 
 /**
- * How tall the prompt box is for what is being composed, in precedence order:
- * never below the resting size (an empty prompt still offers
+ * How tall the prompt box is for what is being composed, in precedence
+ * order: never below the resting size (an empty prompt still offers
  * PROMPT_IDLE_INPUT_ROWS lines to write into, and the first typed line must
  * not sit against the animated mark in the bottom rule); one row per visual
  * line of content so a longer prompt stays visible while being written; and
@@ -310,9 +310,8 @@ export function resolveBottomMarginRows(terminalRows: number): number {
  * when the transcript would breach its floor — reading the transcript
  * matters more than seeing the whole draft.
  *
- * Pure: line counts in, rows out; the caller measures wrapped lines (OpenTUI
- * already wraps, including surrogate pairs and wide glyphs) and applies the
- * result.
+ * Pure: line counts in, rows out; the caller measures wrapped lines and
+ * applies the result.
  */
 
 /** Tallest bordered box the prompt may ask for on a terminal of `rows` rows. */

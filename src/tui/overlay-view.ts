@@ -54,10 +54,11 @@ export interface OverlayListPresentation {
 }
 
 /**
- * Rows the overlay host spends on itself before any list row: the bordered box
- * costs a top and bottom rule, plus the title line and the wrapped body lines.
- * Omitting the border here hands the list two rows the host cannot render, and
- * flex then stacks the surplus rows onto cells the prompt border already owns.
+ * Rows the overlay host spends on itself before any list row: the bordered
+ * box costs a top and bottom rule, plus the title line and wrapped body
+ * lines. Omitting the border would hand the list two rows the host cannot
+ * render, and flex would stack the surplus onto cells the prompt border
+ * already owns.
  */
 export const OVERLAY_HOST_BORDER_ROWS = 2;
 
@@ -99,9 +100,9 @@ export function overlayRowsPerItem(kind: PrimaryOverlayKind | null): number {
 
 /**
  * Every other list overlay spends a row on a title rule (`─ permission ─...`);
- * the palette drops it — the box already reads as the palette, and the filter
- * row underneath says what's typed, so the rule was a second header for the
- * same fact.
+ * the palette drops it: the box already reads as the palette and the filter
+ * row says what's typed, so the rule would be a second header for the same
+ * fact.
  */
 export function overlayTitleRows(kind: PrimaryOverlayKind | null): number {
   return kind === "palette" ? 0 : 1;
@@ -124,10 +125,10 @@ export function overlayChromeRows(
 
 /**
  * Smallest host rows the open overlay can render into without spilling past
- * its own box: fixed chrome (border, title, body lines) plus one row of the
- * list when it has anything to show. Below this the resolver must give ground
- * elsewhere (transcript floor, then the prompt floor) rather than starve the
- * overlay itself.
+ * its own box: fixed chrome (border, title, body lines) plus one list row
+ * when it has anything to show. Below this the resolver must give ground
+ * elsewhere (transcript floor, then the prompt floor) rather than starve
+ * the overlay.
  */
 export function overlayMinHostRows(
   chromeRows: number,
@@ -138,9 +139,9 @@ export function overlayMinHostRows(
 }
 
 /**
- * Title row for the overlay host, fitted to the box interior. The title
- * renderable is one row in the host's chrome budget, so a line that wrapped at
- * a narrow width would spend a row nothing accounted for.
+ * Title row for the overlay host, fitted to the box interior. The title is
+ * one row in the host's chrome budget, so a line that wrapped at a narrow
+ * width would spend a row nothing accounted for.
  */
 function overlayTitleLine(
   title: string,
@@ -351,10 +352,10 @@ export function createOverlayView(ctx: RenderContext) {
   }
 
   /**
-   * Selection is a text colour, not a marker or a filled band: the highlighted
-   * row already stands out by sitting under the cursor, so a leading `>` and a
-   * grey block would both be saying the same thing twice. The palette keeps
-   * even the indicator glyph off — its rows are aligned columns.
+   * Selection is a text colour, not a marker or band: the highlighted row
+   * already stands out under the cursor, so a leading `>` and a grey block
+   * would both say the same thing twice. The palette keeps even the
+   * indicator glyph off — its rows are aligned columns.
    */
   function paintPaletteList(
     commands: OverlayListPresentation["paletteCommands"],

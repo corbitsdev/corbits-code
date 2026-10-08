@@ -918,16 +918,16 @@ describe("rebuild close helpers", () => {
     expect(defined(rebuildError, "rebuild error").message).toMatch(/restart/i);
   });
 
-  // reloadIfIdle is a closure with no seam to call in isolation. What can be
-  // driven directly is the real delivery-queue, the way every rebuild site
-  // uses it: `void enqueueOp(op)` where an uncaught rejection in `op` would
-  // escape through the returned promise — exactly how the reported unhandled
+  // reloadIfIdle is a closure with no seam to call in isolation, so the
+  // real delivery-queue is driven the way every rebuild site uses it:
+  // `void enqueueOp(op)`, where an uncaught rejection in `op` would escape
+  // through the returned promise — exactly how the reported unhandled
   // rejection escaped.
   //
-  // A true negative control was attempted and removed: bun:test installs its
-  // own unhandledRejection listener that fails the running test before any
-  // assertion, so a test proving an unhandled rejection *does* escape cannot
-  // pass here. The test below is the harness-compatible half of that pair:
+  // A true negative control cannot pass here: bun:test installs its own
+  // unhandledRejection listener that fails the running test before any
+  // assertion, so a test proving an unhandled rejection *does* escape is
+  // impossible. This test is the harness-compatible half of that pair:
   // same real queue and helpers, proving the fixed shape produces no such
   // failure.
   test("a rejecting reload op through the real delivery-queue never triggers an unhandled rejection", async () => {

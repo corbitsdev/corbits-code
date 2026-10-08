@@ -1,9 +1,8 @@
 /**
  * Density ramp — the activity primitive, replacing the braille spinner.
  *
- * The web build renders an ordered dither at a 4-pixel cell; a terminal has
- * that texture natively as block density, so the motif ports rather than
- * being approximated. Two surfaces draw from it.
+ * A terminal has block density natively, so the web build's ordered dither
+ * ports rather than being approximated. Two surfaces draw from it.
  *
  * The wide fill (`rampFor`) is the provider-setup status line:
  *
@@ -19,9 +18,8 @@
  *   blocked    ▌            orange, one static half block — stillness is the signal
  *   stalled    ! / █        orange, bangs alternating with a block, then static !
  *
- * `blocked` and `stalled` share a color — both wait on outside action — but
- * differ by glyph and motion, so all four states survive a monochrome
- * terminal.
+ * `blocked` and `stalled` share a color (both wait on outside action) but
+ * differ by glyph and motion, so all states survive a monochrome terminal.
  *
  * Pure and clock-injected: `nowMs` is the only time source.
  */

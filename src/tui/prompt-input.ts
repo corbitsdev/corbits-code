@@ -2,19 +2,18 @@
  * The shell's prompt input: a genuine multi-line composing area.
  *
  * OpenTUI's `InputRenderable` is hard-wired to one row, no wrapping, and
- * newlines stripped, so the prompt is built on `TextareaRenderable` — the
- * same widget minus those constraints. Two things have to be put back on
- * top of it:
+ * newlines stripped, so the prompt is built on `TextareaRenderable`. Two
+ * things have to be put back on top of it:
  *
  * - **Enter sends.** The textarea's default is Enter-inserts-newline, which
- *   would swallow the shell's primary action, so the bindings below flip it:
- *   Enter submits and a newline needs an explicit chord. Alt+Enter
+ *   would swallow the shell's primary action, so the bindings below flip
+ *   it: Enter submits, a newline needs an explicit chord, and Alt+Enter
  *   (follow-up) is claimed by the shell's key listener first.
- * - **`value`.** The textarea calls the buffer `plainText` and has no setter
- *   that parks the caret. The whole shell — kill ring, history recall, the
- *   `/` and `@` popups, attachments — reads and writes `value` as one
- *   logical string, so the accessor is defined here rather than rewritten at
- *   every call site.
+ * - **`value`.** The textarea calls the buffer `plainText` and has no
+ *   setter that parks the caret. The whole shell — kill ring, history
+ *   recall, the `/` and `@` popups, attachments — reads and writes `value`
+ *   as one logical string, so the accessor is defined here rather than
+ *   rewritten at every call site.
  */
 
 import {

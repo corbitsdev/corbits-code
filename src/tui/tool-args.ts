@@ -1,14 +1,13 @@
 /**
  * Human-readable tool arguments for the transcript.
  *
- * Raw JSON arguments are the single loudest thing a transcript can paint and
- * the least readable, so a call shows what it *is* — a path, a command, the
- * shape of a view — and keeps the structured form behind the expand key.
+ * Raw JSON is the loudest, least readable thing a transcript can paint, so
+ * a call shows what it *is* — a path, a command, the shape of a view — and
+ * keeps the structured form behind the expand key.
  *
- * The summary wording comes from `tui/tool-formatter`, which already knows how
- * every first-party tool is shaped; the expanded view tree comes from
- * `tui/view`, which already knows how to lay one out. Neither is re-derived
- * here: this module only maps them onto the OpenTUI palette and row model.
+ * The summary wording comes from `tui/tool-formatter` and the expanded view
+ * tree from `tui/view`; neither is re-derived here. This module only maps
+ * them onto the OpenTUI palette and row model.
  */
 
 import { isMcpToolName } from "../mcp/tool-name.js";
@@ -71,9 +70,9 @@ function parseObject(raw: string): Record<string, unknown> | null {
 }
 
 /**
- * The view tree a call carries, either as its whole argument object or under a
- * `view` key. Validated rather than duck-typed: an unvalidated tree would reach
- * a renderer that trusts its shape.
+ * The view tree a call carries, as its whole argument object or under a
+ * `view` key. Validated rather than duck-typed: an unvalidated tree would
+ * reach a renderer that trusts its shape.
  */
 function viewArgument(args: Record<string, unknown>): ViewNode | null {
   const candidate = "view" in args ? args.view : args;
@@ -126,12 +125,12 @@ function isScalar(value: unknown): boolean {
 }
 
 /**
- * Scalar (or scalar-array) arguments as `key  value` pairs with their newlines
- * intact — a shell command or a spawn prompt is written to be read as text, and
- * pretty-printed JSON would hand it back with its line breaks escaped.
+ * Scalar (or scalar-array) arguments as `key  value` pairs with their
+ * newlines intact — a shell command or a spawn prompt is written to be read
+ * as text, and pretty-printed JSON would escape its line breaks.
  *
- * Nested objects recurse one level so a task brief expands as fields rather than
- * a JSON dump; deeper nesting collapses to a compact token.
+ * Nested objects recurse one level so a task brief expands as fields rather
+ * than a JSON dump; deeper nesting collapses to a compact token.
  */
 function fieldDetail(
   args: Record<string, unknown>,
@@ -217,8 +216,8 @@ const INLINE_MAX = 60;
 /**
  * Argument a call is *about*, most-meaningful first. A row's subject is one
  * value — the query, the command, the URL — because a transcript is scanned,
- * and a serialised argument list spends the row's columns on a second argument
- * that is then cut off mid-word ("numR…"). Everything else is behind the arrow.
+ * and a serialised list would spend the row on a second argument cut off
+ * mid-word ("numR…"). Everything else is behind the arrow.
  */
 const SUBJECT_KEYS = [
   "command",
@@ -327,9 +326,9 @@ export function toolArgsView(
 }
 
 /**
- * Pair a summary with a body only when the body says something the summary does
- * not. An expansion that restates its own collapsed line earns an arrow that
- * leads nowhere, which is worse than showing nothing.
+ * Pair a summary with a body only when the body adds something. An expansion
+ * that restates its collapsed line earns an arrow that leads nowhere, worse
+ * than showing nothing.
  */
 function withDetail(
   summary: string,

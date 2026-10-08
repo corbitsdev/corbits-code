@@ -6,15 +6,14 @@ export interface RowRange {
 /**
  * East Asian Ambiguous characters count as one column, not two.
  *
- * This is a contract with the renderer, not a preference: the shell is built
- * from Ambiguous glyphs — the box borders (U+2502, U+256D…), the em dash,
- * the arrow, the ellipsis every truncation ends in — so a disagreement with
+ * A contract with the renderer, not a preference: the shell is built from
+ * Ambiguous glyphs — the box borders (U+2502, U+256D…), the em dash, the
+ * arrow, the ellipsis every truncation ends in — so a disagreement with
  * OpenTUI's table would throw off every border and truncation budget.
  *
- * OpenTUI resolves Ambiguous as narrow under both its width methods
- * (`wcwidth` and `unicode`), which is why this is `true`. It is passed
- * explicitly so the choice is visible and greppable, and
- * `src/tui/width-contract.ts` probes OpenTUI's own table at startup so a
+ * OpenTUI resolves Ambiguous as narrow under both width methods (`wcwidth`
+ * and `unicode`). Passed explicitly so the choice is greppable;
+ * `src/tui/width-contract.ts` probes OpenTUI's table at startup so a
  * divergence is caught rather than painted.
  */
 export const AMBIGUOUS_IS_NARROW = true;

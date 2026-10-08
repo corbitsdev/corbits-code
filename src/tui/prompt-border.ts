@@ -47,9 +47,9 @@ export interface RuleInput {
   /** Left-hand run (the lockup). Dropped first when the rule cannot seat everything. */
   readonly brand?: string;
   /**
-   * Cost/context run, richest form (percent + cost). Sits
-   * between the brand and the label. Dropped before the label but after the
-   * brand: it is a live gauge, not the operator's own workspace.
+   * Cost/context run, richest form (percent + cost). Sits between the brand
+   * and the label; dropped before the label but after the brand: a live
+   * gauge, not the operator's own workspace.
    */
   readonly meter?: string;
   /** `meter` with the cost suffix already stripped — tried once `meter` no longer fits. */

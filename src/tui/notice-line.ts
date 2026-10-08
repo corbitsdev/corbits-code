@@ -8,11 +8,10 @@
  * attachments — and only while it has something to say; at defaults it
  * composes to the empty string and the shell hides it.
  *
- * MCP authorization is not a notice-row concern (a standing condition with
- * a home on the prompt box's `mcp !` marker and a surface in /mcp), and a
- * live turn contributes nothing here — the border already carries the
- * running state, so a ramp would be a second animation saying the same
- * thing.
+ * MCP authorization is not a notice-row concern (it has the prompt box's
+ * `mcp !` marker and a surface in /mcp), and a live turn contributes
+ * nothing here — the border already carries the running state, so a ramp
+ * would be a second animation saying the same thing.
  *
  * Pure: no renderer access, so the wording is testable without a frame.
  */

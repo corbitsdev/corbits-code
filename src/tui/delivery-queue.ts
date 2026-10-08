@@ -6,11 +6,10 @@
  *
  * Pure data — no paint, no OpenTUI. Shell + demo own delivery and UI flash.
  *
- * Product chords:
- *   - Enter mid-run → kind "steer" (soft steer; drain at tool.boundary)
- *   - Alt+Enter mid-run → kind "queue" (follow-up; drain only when run goes idle)
- * Internal "reinject" is a separate bridge/shell submit kind, not a QueueKind,
- * and no product chord wires it anymore — leave the path for tests/API only.
+ * Product chords: Enter mid-run → "steer" (drain at tool.boundary);
+ * Alt+Enter mid-run → "queue" (drain only when the run goes idle). Internal
+ * "reinject" is a separate bridge/shell submit kind, not a QueueKind, and no
+ * product chord wires it anymore — tests/API only.
  */
 
 import { AgentClosedError } from "@intx/agent";

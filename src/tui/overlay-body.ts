@@ -2,16 +2,16 @@
  * Text shaping for the decision overlay — the permission approval and the
  * operator question.
  *
- * This is the one framed surface in the shell and the moment a human is
- * asked to authorize something, so its body is shaped rather than listed: a
- * dithered header carrying the subject, air between subject and context
- * rows, and a trailing blank row so the choices never abut the question.
- * Choices are bare single-line action names painted by the overlay list —
- * all consequence text lives in the body above them.
+ * It is the one framed surface in the shell, shown exactly when a human is
+ * asked to authorize something, so the body is shaped rather than listed: a
+ * dithered header carries the subject, air separates it from the context
+ * rows, and a trailing blank row keeps the choices off the question. All
+ * consequence text lives in the body; the choices are bare action names
+ * painted by the overlay list.
  *
- * Wrapping is on word boundaries. A token longer than the line (a path, a
- * URL) breaks deliberately — preferring a separator the reader already
- * parses as a boundary — rather than sliced blind at the column.
+ * Wrapping is on word boundaries. An over-long token (a path, a URL) breaks
+ * at a separator the reader already parses as a boundary, never blind at
+ * the column.
  */
 
 import { prefixIndexForWidth, stringWidth } from "./view/height.js";
@@ -143,23 +143,21 @@ export interface OverlayBodyRow {
  * Shape a decision body into rows.
  *
  * The first non-empty line of `text` is the subject — the tool being asked
- * about, or the operator's question — and is the one thing on screen wearing
- * the action color. Everything below it is context. A trailing blank row is
- * part of the body so the choice list never abuts the question.
+ * about, or the operator's question — and the only thing wearing the action
+ * color; everything below it is context. A trailing blank row keeps the
+ * choice list off the question.
  *
- * `contextLines` budgets the context rows only. The header and the two rows of
- * air are charged on top of it, so shaping never costs the operator a row of
- * the command they are being asked to approve.
+ * `contextLines` budgets the context rows only; the header and air rows are
+ * charged on top of it, so shaping never costs a row of the command being
+ * approved.
  */
 export function composeDecisionBody(
   text: string,
   width: number,
   contextLines: number,
 ): OverlayBodyRow[] {
-  // Zero is a valid budget: on a terminal too short to spare a row of air
-  // plus a line of context on top of the header, the context section is
-  // dropped entirely rather than forced to cost at least one row it cannot
-  // afford — the choices below it must win that row instead.
+  // Zero is a valid budget: on a terminal too short for air plus context
+  // above the header, the context drops entirely — the choices win the row.
   const budget = Math.max(0, Math.floor(contextLines));
   const lines = text.split("\n");
   const headIndex = lines.findIndex((l) => l.trim().length > 0);
@@ -193,18 +191,16 @@ export function composeDecisionBody(
       ),
     );
     const flat = wrapped.flat();
-    // The last source line carries the notice and the expand affordance. When
-    // the budget cannot hold everything, that line keeps a row rather than
-    // being the first thing dropped — losing it would hide from the operator
-    // that there is more to inspect before approving.
+    // The last source line carries the notice and the expand affordance, so
+    // when the budget cannot hold everything it keeps a row — dropping it
+    // would hide that there is more to inspect before approving.
     const truncated = flat.length > budget && rest.length > 1 && budget >= 3;
     const tail = truncated ? (wrapped[wrapped.length - 1]?.[0] ?? null) : null;
     const head = flat.slice(0, tail === null ? budget : budget - 2);
     for (const line of head) rows.push({ text: line, fg: UI.text });
     if (tail !== null) {
-      // Elided rows are announced, never silently dropped: a chain segment that
-      // fell off the bottom must still be visibly missing, and the transcript
-      // holds the whole subject untruncated.
+      // Elided rows are announced, never silent: a segment that fell off the
+      // bottom must stay visibly missing (the transcript holds it whole).
       const hidden = flat.length - head.length - 1;
       rows.push({
         text: `${DECISION_DITHER} ${hidden} more ${hidden === 1 ? "line" : "lines"} · full text in transcript`,
@@ -228,12 +224,11 @@ export const DESCRIPTION_ZONE_LINES = 2;
 /**
  * Shape a description into its fixed two content rows.
  *
- * `what`'s wrapped lines fill the budget first; `impact` gets whatever is
- * left, so a `what` that wraps to both lines quietly drops `impact` the same
- * way a narrow overlay does — one budget, one degrade path. `null` (no
- * description for this item, or width too narrow to say anything) renders
- * two blank rows rather than collapsing the zone: the reservation is fixed
- * whenever `describe` is set, whether or not this item has anything to say.
+ * `what` fills the budget first; `impact` gets whatever is left, so a `what`
+ * that wraps to both lines drops `impact` the same way a narrow overlay
+ * does — one budget, one degrade path. `null` (no description, or too
+ * narrow) still renders two blank rows: the reservation is fixed whenever
+ * `describe` is set, whether or not this item has anything to say.
  */
 export function describeZoneLines(
   desc: {
@@ -280,10 +275,9 @@ const DECISION_CONTEXT_ROWS = 8;
 
 /**
  * Rows the shaped body always spends, budget or not: one header line plus
- * the trailing blank row. Approximate (a wrapping header costs one more),
- * but an underestimate only makes `decisionContextBudget` more generous,
- * which the fraction cap downstream catches — this guards against starving
- * the choices, never overshooting the frame.
+ * the trailing blank row. Approximate (a wrapping header costs one more);
+ * an underestimate only makes `decisionContextBudget` more generous, and
+ * the fraction cap downstream catches overshoot.
  */
 const DECISION_HEADER_AND_TRAILER_ROWS = 2;
 
@@ -294,18 +288,17 @@ const DECISION_HEADER_AND_TRAILER_ROWS = 2;
 const DECISION_CONTEXT_BLANK_ROWS = 1;
 
 /**
- * Shrink the decision body's context budget so its own chrome never crowds
- * out the one thing this guarantees down to a 10-row terminal: at least one
- * choice row, with the prompt box still seated at its floor below it. A
- * generous fixed budget reads fine on a tall terminal but can consume the
- * whole overlay host on a short one, leaving no room to paint a single
- * option — so the context shrinks first, dropping entirely on the shortest
- * terminals: an approval cannot render without the header (which tool,
- * which question) and the choices.
+ * Shrink the decision body's context budget so its chrome never crowds out
+ * what this guarantees down to a 10-row terminal: at least one choice row,
+ * with the prompt box still seated at its floor. A generous fixed budget
+ * reads fine on a tall terminal but can consume the whole overlay host on a
+ * short one — so the context shrinks first, dropping entirely on the
+ * shortest terminals, since an approval cannot render without the header
+ * and the choices.
  *
- * Below 10 rows this budget alone cannot save the frame: the resolver falls
- * back to best effort (`resolveGeometry` in geometry/resolve.ts) and may
- * take rows from below the prompt floor — this budget does not control that.
+ * Below 10 rows this budget cannot save the frame: the resolver falls back
+ * to best effort (`resolveGeometry` in geometry/resolve.ts) and may take
+ * rows from below the prompt floor.
  */
 export function decisionContextBudget(input: {
   readonly terminalHeight: number;
@@ -339,10 +332,9 @@ export function decisionContextBudget(input: {
 /**
  * Plain-English echo of an accepted choice. A cycled settings field's label
  * carries every option with `‹ ›` around the active one, so the caller
- * passes the winning value via `itemValues` rather than recovering it from
- * the rendered label — a marker or spacing change, or a label containing
- * `‹`/`›`, would corrupt the echo. A plain list item has no separate value,
- * so it is quoted as-is.
+ * passes the winning value via `itemValues` rather than parsing the label —
+ * a marker or spacing change, or a label containing `‹`/`›`, would corrupt
+ * the echo. A plain list item has no separate value, so it is quoted as-is.
  */
 export function overlayChoiceText(
   label: string,

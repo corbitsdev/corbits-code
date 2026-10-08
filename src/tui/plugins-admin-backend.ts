@@ -289,10 +289,10 @@ export function createPluginsAdmin(args: {
       if (path.length === 0) return { ok: false, message: "Enter a path" };
       const abs = isAbsolute(path) ? path : resolvePath(state.cwd, path);
       // Explicit add-by-path is user consent to load that absolute path — but
-      // the grant below must resolve before any plugin code runs. Probe
+      // the grant must resolve before any plugin code runs. Probe
       // metadata-only first: this never import()s, so a hostile index.ts
-      // cannot execute pre-trust. The probe takes its own diagnostics because
-      // the full load below re-reads the same files.
+      // cannot execute pre-trust. The probe takes its own diagnostics
+      // because the full load below re-reads the same files.
       const probeDiag = createPluginLoadDiagnostics();
       const probe = await loadPluginEntryMetadata(abs, {
         cwd: state.cwd,

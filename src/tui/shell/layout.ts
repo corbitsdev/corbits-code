@@ -32,17 +32,16 @@ export function terminalOf(
 }
 
 /**
- * The version row is real chrome, not a float — it holds its own reserved
- * row at the foot of the shell rather than painting into the optical bottom
- * pad (`BOTTOM_MARGIN_ROWS`), which is blank breathing room, not a content
- * slot.
+ * The version row is real chrome, not a float: it holds a reserved row at
+ * the foot of the shell rather than painting into the optical bottom pad
+ * (`BOTTOM_MARGIN_ROWS`), which is blank breathing room, not a content slot.
  *
  * This costs the rest of the shell a row: the geometry resolver is handed
  * `terminal.rows - 1`, so every height it derives from that — including
  * `PROMPT_CAP_FRACTION * terminal.rows`, which runs before collapse and
- * outside `COLLAPSE_ORDER` — is computed one row short of the real
- * terminal. The badge does not sit in the collapse order and does not give
- * the row back under prompt-growth pressure.
+ * outside `COLLAPSE_ORDER` — is one row short of the real terminal. The
+ * badge is not in the collapse order and does not give the row back under
+ * prompt-growth pressure.
  */
 export function terminalForGeometry(terminal: {
   readonly columns: number;

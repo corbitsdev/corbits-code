@@ -8,13 +8,12 @@
  * cell with the same centered 92% fit the web boot screen uses
  * (`computeMapTransform`).
  *
- * Cells are assumed twice as tall as they are wide, so a grid of W x H cells
- * is fitted into W x 2H square units and the mark's 1.62 aspect ratio
- * survives.
+ * Cells are assumed twice as tall as they are wide, so a W x H grid fits
+ * into W x 2H square units and the mark's 1.62 aspect ratio survives.
  *
  * Three grids are baked because one size cannot serve every job: below the
  * largest, the ridgeline's crossings collapse into each other and the
- * silhouette drifts from mark toward noise, so the smaller grids are
+ * silhouette drifts from mark toward noise — the smaller grids are
  * fallbacks, not preferences.
  *
  *   `MARK_LARGE`  40x12 — the landing hero.

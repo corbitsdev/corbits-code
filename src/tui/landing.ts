@@ -9,11 +9,6 @@
  *   ────    the prompt box and its hint row (owned by the shell)
  *   below   the telemetry disclosure, then a few selectable starter prompts
  *
- * The mark is the screen. Beside it sit exactly two lines — `/` for commands
- * and `/yolo` so permission prompts are not required — because those two are
- * the only doors an operator needs on a screen where nothing has happened
- * yet.
- *
  * Layout math is pure (`splitLandingRows`, `resolveMarkGrid`, `wrapLanding`)
  * so the composition is testable without a renderer, and the mark repaints
  * off an injected clock.
@@ -60,9 +55,8 @@ export const LANDING_VERSION = `v${pkg.version}`;
 
 /**
  * Minimum terminal size the version badge needs before it hides. 16 rows is
- * above the transcript floor (12) and below the bottom-margin threshold (24),
- * so the badge is gone before the transcript would be squeezed, without
- * reserving a second chrome row.
+ * above the transcript floor (12) and below the bottom-margin threshold
+ * (24), so the badge is gone before the transcript would be squeezed.
  */
 export const VERSION_BADGE_MIN_COLUMNS = 60;
 export const VERSION_BADGE_MIN_ROWS = 16;
@@ -237,8 +231,7 @@ const SUGGESTION_HEADER = "try";
  *
  * `suggestionsVisible` is false once the operator has typed anything: the
  * starters are whole-prompt replacements, so a visible numbered list would
- * advertise keys that do nothing (and the digits would land in the prompt),
- * and different "complementary" text would compete with what is being typed.
+ * advertise keys that do nothing (and the digits would land in the prompt).
  * The rows stay, blank, so the layout does not jump on the first keystroke.
  */
 export function landingBelowRows(
@@ -287,12 +280,12 @@ export interface LandingAbove {
 }
 
 /**
- * The mark, bottom-anchored in its zone so it sits directly on the prompt box
- * rather than floating in the middle of the empty space above it, with the
- * hint block beside its shoulder.
+ * The mark, bottom-anchored in its zone so it sits on the prompt box rather
+ * than floating in the empty space above it, with the hint block beside its
+ * shoulder.
  *
- * Rows are allocated for the largest tier once and hidden from the top down as
- * smaller tiers are selected, so a resize never rebuilds the subtree.
+ * Rows are allocated for the largest tier once and hidden from the top down
+ * as smaller tiers are selected, so a resize never rebuilds the subtree.
  */
 export function createLandingAbove(
   ctx: CliRenderer,

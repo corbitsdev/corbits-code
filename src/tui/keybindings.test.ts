@@ -6,10 +6,10 @@
  * fails, change a chord and the probe presses the new one against the old
  * assertion. A catalog row with no probe fails the coverage test outright.
  *
- * What this does not check: which description sits on which row. Swapping
- * two descriptions between rows would pass. Everything else — the chord, its
- * modifiers, the stated condition, and whether the host shadows the prompt's
- * own binding — is asserted against a live shell.
+ * What this does not check: which description sits on which row — swapping
+ * two descriptions between rows would pass. Everything else (the chord, its
+ * modifiers, the stated condition, whether the host shadows the prompt's
+ * own binding) is asserted against a live shell.
  */
 
 import { EventEmitter } from "node:events";
