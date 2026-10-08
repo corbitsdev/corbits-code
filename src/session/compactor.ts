@@ -2,8 +2,8 @@
 //
 // Deterministic ConversationTurn[] -> ConversationTurn[] compactor: prunes
 // completed-task context while preserving the active task, recent turns, plan
-// state, file/tool references, and unresolved errors. The context store keeps
-// the full run history; only the inference-facing context is curated here.
+// state, file/tool references, and unresolved errors. Curates only the
+// inference-facing context; the store keeps the full run history.
 
 import type {
   ConversationTurn,
@@ -47,28 +47,27 @@ export interface CompactorConfig {
   /** Read at compaction time; passed to `summarize` with live workflow state. */
   summaryContext?: () => SummaryContext | undefined;
   /** Previous fat handoff body: the next fold unions its files/commands and
-   * full goal text instead of spine-truncated cuts. */
+   * full goal text rather than spine cuts. */
   readPriorHandoff?: () => Promise<string | undefined>;
-  // Recorded for compatibility; the live fold keeps spine + token-capped tail.
+  // Kept for compatibility; the live fold keeps spine + token-capped tail.
   maxAnchorTurns: number;
-  /** Budgeted-tail shape (token budget, not turn-count floor). Partial:
-   * missing fields resolve against DEFAULT_TAIL_COMPACTION_SHAPE. */
+  /** Budgeted-tail shape (token budget, not turn-count floor). Missing
+   * fields resolve against DEFAULT_TAIL_COMPACTION_SHAPE. */
   compactionShape?: Partial<CompactionShape>;
 }
 
 /**
- * Shape of the live tail the fold keeps: extract + summary + actions (thin
- * spine / fat handoff file) plus a token-capped raw tail (~2–3k tokens by
- * default).
+ * Live-tail shape the fold keeps: extract + summary + actions (thin spine /
+ * fat handoff file) plus a token-capped raw tail (~2–3k tokens by default).
  */
 export interface CompactionShape {
   /** Live-tail budget in tokens (chars/4 estimate). Default ~2500. */
   tailBudgetTokens: number;
-  /** Tool outputs in the tail longer than this are head+tail excerpted. */
+  /** Tail tool outputs longer than this are head+tail excerpted. */
   maxTailToolOutputChars: number;
-  /** Keep the head of a shortened tail tool output. */
+  /** Keep the head of a shortened tail output. */
   excerptHead: boolean;
-  /** Keep the tail of a shortened tail tool output. */
+  /** Keep the tail of a shortened tail output. */
   excerptTail: boolean;
   /** Newest user messages (plus attachments) stay whole up to the budget. */
   preserveWholeUserMessages: boolean;
@@ -91,14 +90,13 @@ export function resolveCompactionShape(
   return { ...DEFAULT_TAIL_COMPACTION_SHAPE, ...partial };
 }
 
-// Fold marker; the handoff format is owned by ./compaction-handoff.js;
-// re-exported here so existing importers keep working.
+// Fold marker (handoff format owned by ./compaction-handoff.js); re-exported
+// so existing importers keep working.
 export { COMPACTED_PREFIX };
 
-// Visible sentinel inserted between adjacent user turns so the history stays
-// role-alternating and adapters keep a non-empty assistant turn. Identity is
-// the reserved producer id on `compactSpacerTurn`, not this text or a missing
-// `model` field.
+// Sentinel between adjacent user turns so the history stays role-alternating
+// and adapters keep a non-empty assistant turn. Identity is the reserved
+// producer id on `compactSpacerTurn`, not this text or a missing `model`.
 export const COMPACT_SPACER_TEXT = "[compact]";
 export const LEGACY_COMPACT_SPACER_TEXT = "[compaction]";
 export const HARNESS_COMPACT_SPACER_MODEL = "harness";
@@ -116,16 +114,15 @@ function extraInstructionParameter(
   return { extraInstructions: extra };
 }
 
-// `apply` no-ops at or below this turn count: a single turn cannot shrink.
+// `apply` no-ops at or below this turn count: one turn cannot shrink.
 export function compactorNoOpFloor(): number {
   return 1;
 }
 
-// Query tools deduped by full-argument identity: a later identical
-// grep/search_files/list_dir call reflects newer workspace state, so older
-// results are stale. run_shell is excluded — the same command is not
-// idempotent, so an older result can be the only record of a distinct
-// outcome.
+// Query tools dedup by full-argument identity: a later identical call
+// reflects newer workspace state, so older results are stale. run_shell is
+// excluded — the same command is not idempotent, so an older result can be
+// the only record of a distinct outcome.
 const QUERY_TOOLS = new Set([...SEARCH_QUERY_TOOLS, "list_dir"]);
 
 function isReplayableResultTool(name: string): boolean {
@@ -135,7 +132,7 @@ function isReplayableResultTool(name: string): boolean {
 // Call-id index for stub rendering (name + path). Dedup keys live on `readKey`.
 interface ToolCallInfo {
   name: string;
-  /** Display path for stubs (always the raw path arg when present). */
+  /** Display path for stubs (the raw path arg when present). */
   pathArg?: string;
   /** Dedup identity for re-read stubbing. Full-file reads share the path;
    * ranged reads (offset/limit) get a distinct key so chunked reads of one
@@ -145,7 +142,7 @@ interface ToolCallInfo {
 
 interface PathRead {
   callId: string;
-  /** Monotonic order across the turn list; higher = later in the session. */
+  /** Monotonic order across turns; higher = later in the session. */
   order: number;
   isError: boolean;
 }
@@ -156,9 +153,9 @@ function scalarArg(value: unknown): string {
   return "";
 }
 
-/** Path + re-read identity from a tool_call's arguments: path alone for
- * full-file reads; path+offset+limit when either range arg is present so
- * partial reads don't supersede each other. */
+/** Path + re-read identity from tool_call arguments: path alone for
+ * full-file reads; path+offset+limit when a range arg is present so partial
+ * reads don't supersede each other. */
 function readIdentityFromArguments(
   raw: unknown,
 ): { path: string; readKey: string } | undefined {
@@ -184,7 +181,7 @@ function readIdentityFromArguments(
   return { path, readKey };
 }
 
-// Deterministic key for structurally equal arguments regardless of key order.
+// Stable key for structurally equal arguments regardless of key order.
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   if (value !== null && typeof value === "object") {
@@ -224,8 +221,8 @@ function buildCallIndex(
   for (const turn of turns) {
     for (const block of turn.content) {
       if (block.type !== "tool_call") continue;
-      // Persisted calls keep the name the model emitted on the wire
-      // (read/glob/…); the read/query classification sets are engine-keyed.
+      // Persisted calls keep the wire name (read/glob/…); the read/query
+      // classification sets are engine-keyed.
       const info: ToolCallInfo = { name: canonicalToolName(block.name) };
       const identity = readIdentityFromArguments(block.arguments);
       if (identity !== undefined) {
@@ -247,9 +244,8 @@ function buildCallIndex(
 
 /**
  * Read-identity → matching replayable read/query results in session order.
- *
- * Callers pass only surviving turns: supersession over the full transcript
- * would hollow a kept older read when its newer re-read was summarized away.
+ * Callers pass only surviving turns: full-transcript supersession would
+ * hollow a kept older read whose newer re-read was summarized away.
  */
 function buildPathToReads(
   turns: readonly ConversationTurn[],
@@ -282,7 +278,7 @@ function buildPathToReads(
 
 /**
  * Call ids of successful results superseded by a later successful call of the
- * same identity. Error results never appear — they stay verbatim so the model
+ * same identity. Errors stay verbatim — never superseded — so the model
  * still sees the failure.
  */
 function supersededReadCallIds(
@@ -292,7 +288,7 @@ function supersededReadCallIds(
   for (const reads of pathToReads.values()) {
     const successes = reads.filter((r) => !r.isError);
     if (successes.length < 2) continue;
-    // Newest success (highest order) stays whole; every earlier success stubs.
+    // Newest success stays whole; every earlier success stubs.
     for (const read of successes.slice(0, -1)) {
       superseded.add(read.callId);
     }
@@ -300,9 +296,9 @@ function supersededReadCallIds(
   return superseded;
 }
 
-// Turn index of each tool_call and its matching tool_result. A call lives on
-// one turn and its result on the next, so a pair can straddle a
-// keep/summarize boundary.
+// Turn index of each tool_call and its matching tool_result; a call lives on
+// one turn, its result on the next, so a pair can straddle a keep/summarize
+// boundary.
 interface PairLocation {
   callIdx?: number;
   resultIdx?: number;
@@ -325,10 +321,9 @@ function buildPairIndex(turns: ConversationTurn[]): Map<string, PairLocation> {
   return pairs;
 }
 
-// Whitespace-collapsed error-text prefix length for matching repeated
-// failures. Long enough to separate distinct errors, short enough that
-// trailing variable detail (line numbers, retry counters) does not defeat
-// the collapse.
+// Whitespace-collapsed error-text prefix for repeated-failure matching:
+// long enough to separate distinct errors, short enough that trailing
+// variable detail (line numbers, retry counters) does not defeat the collapse.
 const ERROR_SIGNATURE_PREFIX_CHARS = 120;
 
 type ToolResultBlock = Extract<
@@ -352,8 +347,8 @@ function erroredResultSignature(
 
 /**
  * Call ids of errored results whose (name, error-text prefix) signature
- * recurs on a later turn. Every occurrence but the last is returned,
- * collapsing a retry loop to its most recent failure.
+ * recurs later. Every occurrence but the last is returned, collapsing a
+ * retry loop to its most recent failure.
  */
 function repeatedErroredResultCallIds(
   turns: readonly ConversationTurn[],
@@ -427,7 +422,7 @@ function buildResultStub(
   return `[${name} — ${size} chars, omitted]`;
 }
 
-// Hollow out superseded successful read_file results; errors and the newest
+// Hollow superseded successful read_file results; errors and the newest
 // success per path stay whole.
 function stubSupersededReads(
   turn: ConversationTurn,
@@ -460,9 +455,9 @@ function isPlainTextTurn(turn: ConversationTurn): boolean {
 }
 
 /**
- * Age base64 images in every turn outside the budgeted tail into rehydratable
- * attachment:// markers + StrategyBlob spills. Tail turns keep live bytes so a
- * just-pasted screenshot still reaches the model.
+ * Age base64 images outside the budgeted tail into rehydratable
+ * attachment:// markers + StrategyBlob spills. Tail turns keep live bytes so
+ * a just-pasted screenshot still reaches the model.
  */
 async function ageImagesOutsidePicked(
   turns: ConversationTurn[],
@@ -511,11 +506,11 @@ async function ageImagesOutsidePicked(
 
 // Merge adjacent same-role turns whose later half is plain text: compaction
 // can leave same-role neighbors, which the Anthropic Messages API rejects.
-// A turn carrying a tool_result never fuses — result bodies are bulk the tail
-// budgets per turn, and a hybrid turn could not be budgeted independently.
-// Call headers stay fusible; a surviving result still lands right after its
-// tool_call, so no call/result sequence is disturbed. Result/text neighbors
-// that no longer fuse get a [compact] spacer from separateAdjacentUserTurns.
+// A tool_result turn never fuses — result bodies are bulk the tail budgets
+// per turn, so a hybrid turn could not be budgeted independently. Call
+// headers stay fusible; a surviving result still lands right after its
+// tool_call, so no call/result sequence is disturbed. Unfused result/text
+// neighbors get a [compact] spacer from separateAdjacentUserTurns.
 function carriesToolResult(turn: ConversationTurn): boolean {
   return turn.content.some((block) => block.type === "tool_result");
 }
@@ -599,8 +594,8 @@ function isCompactedSummaryTurn(turn: ConversationTurn): boolean {
 
 // Harness spacers stamp `model: "harness"`. Missing `model` is unattributed
 // (replay sanitizer), except persisted `[compaction]` spacers from before
-// producer-id stamping. Model-produced copies carry a real model id and must
-// not enter the frozen prefix.
+// producer-id stamping. Model copies carry a real model id and must not
+// enter the frozen prefix.
 export function isHarnessCompactSpacer(turn: ConversationTurn): boolean {
   if (turn.role !== "assistant") return false;
   const text = firstTextBlock(turn);
@@ -662,11 +657,11 @@ function excerptTailText(
 }
 
 // Excerpted live copy of a tail turn: thinking/redacted_thinking drop except
-// on the last assistant that still has a tool_call (Anthropic continuation
-// needs the unmodified thinking+signature on that tool_use). Whole blocks
-// drop so signatures never ship with truncated text. Large tool_result text
-// parts shrink to head+tail excerpts; user text, attachments, tool calls,
-// and error results pass whole (errors are resume state, not bulk).
+// on the last assistant with a tool_call (Anthropic continuation needs the
+// unmodified thinking+signature on that tool_use). Whole blocks drop so
+// signatures never ship truncated. Large tool_result text parts shrink to
+// head+tail excerpts; user text, attachments, tool calls, and errors pass
+// whole (they are resume state, not bulk).
 function excerptTailTurn(
   turn: ConversationTurn,
   shape: CompactionShape,
@@ -708,9 +703,9 @@ function excerptTailTurn(
 }
 
 interface TailSelection {
-  /** Indices actually selected for the live tail — not a contiguous slice. */
+  /** Indices selected for the live tail — not a contiguous slice. */
   picked: Set<number>;
-  /** Excerpted live copies for tail turns that needed shortening. */
+  /** Excerpted live copies of tail turns that needed shortening. */
   excerpted: Map<number, ConversationTurn>;
   shortenedToolOutputs: number;
   /** Token estimate over the emitted (excerpted) tail. */
@@ -893,7 +888,7 @@ export function createPruningCompactor(
       turns: ConversationTurn[],
       _ctx: StrategyContext,
     ): Promise<StrategyResult<ConversationTurn[]>> {
-      // Prior compacted summaries are folded into the next handoff, not frozen.
+      // Prior compacted summaries fold into the next handoff, not frozen.
       const shape = resolveCompactionShape(cfg.compactionShape);
 
       if (turns.length <= compactorNoOpFloor()) {
@@ -1101,10 +1096,10 @@ export function createPruningCompactor(
       // The fold writes a fat structured handoff file (goal, constraints,
       // decisions, evidence markers, files/commands, verification, dead ends,
       // next actions, verbatim exact-facts appendix) under one stable latest
-      // key, and keeps only a thin spine plus a pointer to that file in the
+      // key, keeping only a thin spine plus a pointer to that file in the
       // live prompt. The spine unions carried facts with new ones; dropped
-      // prior spines are adopted into the evidence archive so the completeness
-      // gate still certifies the fold.
+      // prior spines join the evidence archive so the completeness gate
+      // still certifies the fold.
       const priorFileText = await cfg.readPriorHandoff?.();
       const handoff = buildHandoffFold(summarizedTurns, summary, {
         ...(priorFileText !== undefined ? { priorFileText } : {}),
@@ -1121,8 +1116,8 @@ export function createPruningCompactor(
 
       // Tail turns stay contentful except for path-dedup: older successful
       // re-reads of the same file become one-line stubs, the newest stays
-      // whole, and error results are never stubbed. Tail turns keep live
-      // base64 so a just-pasted screenshot still reaches the model.
+      // whole, errors are never stubbed. Tail turns keep live base64 so a
+      // just-pasted screenshot still reaches the model.
       const process = (t: ConversationTurn): ConversationTurn =>
         stubSupersededReads(t, supersededReads, callIndex);
       const liveOutput = separateAdjacentUserTurns(

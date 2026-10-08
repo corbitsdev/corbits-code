@@ -10,8 +10,8 @@ import { defined } from "../../testkit/defined.js";
 
 // The runtime puts a tool_call on an assistant turn and its tool_result on the
 // following user turn, so a pair can straddle the compaction boundary. The
-// compactor must keep pairs together; otherwise the inference layer rejects
-// the compacted prompt (dangling call / orphan result).
+// compactor must keep pairs together or the inference layer rejects the
+// compacted prompt (dangling call / orphan result).
 function assistantCall(id: string, name = "read_file"): ConversationTurn {
   return {
     role: "assistant",
@@ -40,7 +40,7 @@ function userText(text: string): ConversationTurn {
 }
 
 // Large enough that a short fixture's whole transcript is the tail, so
-// stubSupersededReads still runs when there is no summarized region.
+// stubSupersededReads still runs with no summarized region.
 const TAIL_SWALLOWS_TRANSCRIPT = { tailBudgetTokens: 50_000 } as const;
 
 describe("pruning compactor preserves tool_call/tool_result pairing", () => {
@@ -217,7 +217,7 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
 
 // When the same path is read more than once and both results survive
 // compaction (recent window / anchors), older successful reads become
-// one-line stubs; the newest success and error results stay whole.
+// one-line stubs; newest success and error results stay whole.
 function assistantRead(id: string, path: string): ConversationTurn {
   return {
     role: "assistant",
@@ -451,7 +451,7 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
 
 // grep/search_files/list_dir are replayable the same way read_file is: an
 // identical later call reflects newer workspace state, so the older result is
-// stubbed the same way an older full-file read is.
+// stubbed like an older full-file read.
 function assistantQuery(
   id: string,
   name: string,
