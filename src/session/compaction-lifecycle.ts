@@ -1,12 +1,11 @@
-// Abort-aware compaction lifecycle.
-//
-// The post-compaction TUI wedge parks inside the vendored reactor's
-// `await compactor.apply(...)` (vendor/intx-inference/src/reactor.ts
-// executeCompact) — the abort hop queues behind it, unreachable. The reactor
-// offers no abort seam there, but the host owns the injected `Compactor`, so
-// the bound lives here instead of a vendor fork: `wrapCompactor` races the
-// inner apply against the session compact signal, and the summary call itself
-// is cancellable through the summarizer's existing `getSignal` seam.
+// Abort-aware compaction lifecycle. The post-compaction TUI wedge parks
+// inside the vendored reactor's `await compactor.apply(...)`
+// (vendor/intx-inference/src/reactor.ts executeCompact), where the abort hop
+// queues behind it, unreachable. The reactor offers no abort seam there, but
+// the host owns the injected `Compactor`, so the bound lives here instead of
+// a vendor fork: `wrapCompactor` races the inner apply against the session
+// compact signal, and the summary call is cancellable through the
+// summarizer's existing `getSignal` seam.
 //
 // On abort the wrapper returns a no-op result (input turns unchanged, no
 // blobs) so executeCompact still runs its local write/commit path and the
@@ -112,7 +111,7 @@ export function createCompactionLifecycle(
         const signal = controller.signal;
         // Aborted before start (e.g. interrupt landed ahead of a threshold
         // compact): skip the inner run entirely, without lifecycle events —
-        // the interrupting path already told the operator what happened.
+        // the interrupting path already told the operator.
         if (signal.aborted) return abortedResult(inner, turns);
         generation += 1;
         const settledGeneration = generation;
@@ -147,9 +146,8 @@ export function createCompactionLifecycle(
               signal.removeEventListener("abort", onAbort);
           }
         } finally {
-          // A stale settle (abort + reset + a newer compact started while
-          // this one was still in flight) must not clear the newer compact's
-          // flag or emit an end event for a compact that is already over.
+          // Guard against the stale settle described above: only a current
+          // generation clears the flag or emits the end event.
           if (settledGeneration === generation) {
             compacting = false;
             events.onCompactionEnd?.({ aborted });

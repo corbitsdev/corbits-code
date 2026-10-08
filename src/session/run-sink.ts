@@ -17,29 +17,28 @@ type TurnCollector = ReturnType<typeof createTurnContextCollector>;
 export interface RunSinkArgs {
   emitter: EventEmitter;
   hookManager: Pick<LifecycleHookManager, "dispatchPostTurn" | "getStatuses">;
-  // Fired alongside dispatchPostTurn for each completed turn. Separate from
-  // hookManager so telemetry can observe turn completion without run-sink
-  // knowing anything about telemetry. The TurnContext carries the source the
-  // turn actually ran against, so consumers report per-turn provider/model
-  // even if the live selection changed mid-run.
+  // Fired per completed turn, alongside dispatchPostTurn. Kept off
+  // hookManager so telemetry sees completion without run-sink knowing
+  // telemetry. TurnContext carries the source the turn ran against, so
+  // consumers report per-turn provider/model even if the live selection
+  // changed mid-run.
   onTurnComplete?:
     | ((ctx: import("./hooks.js").TurnContext) => void)
     | undefined;
-  // Fired at most once per turn, when that turn ends in an error instead of
-  // completing. onTurnComplete only ever sees turns that produced a full
-  // TurnContext, so a consumer relying on it alone goes silent exactly when a
-  // run goes wrong. The turn index is the collector's current count: the
-  // in-flight turn is the one that would have been recorded next.
+  // Fired once per turn that ends in error. onTurnComplete only sees turns
+  // that produced a full TurnContext, so a consumer relying on it alone goes
+  // silent exactly when a run goes wrong. Turn index is the collector's
+  // current count: the in-flight turn is the one recorded next.
   onTurnFailed?:
     | ((info: { turnIndex: number; error: string }) => void)
     | undefined;
-  // Fired for every inference attempt. The model comes from inference.start,
-  // while the turn index is the collector's current in-flight turn count.
+  // Fired per inference attempt. Model from inference.start; turn index is
+  // the collector's current in-flight turn count.
   onTurnStarted?:
     | ((info: { turnIndex: number; model: string }) => void)
     | undefined;
-  // inference.usage is the first attempt event carrying the runtime-resolved
-  // provider/model pair. It remains authoritative across retry attempts.
+  // inference.usage is the first attempt event carrying the resolved
+  // provider/model pair; authoritative across retries.
   onTurnSourceObserved?:
     | ((info: { turnIndex: number; source: LastCycleSource }) => void)
     | undefined;
@@ -48,16 +47,13 @@ export interface RunSinkArgs {
   initialTurnCount?: number | undefined;
 
   // Fired at every turn boundary so a caller can persist a mid-run run.json
-  // snapshot. `inference.done` is the turn boundary every reactor cycle
-  // guarantees; `reactor.done` fires once, at shutdown, and never between
-  // turns of a long-lived interactive session. Keying the mid-run snapshot
-  // off `reactor.done` left turnsUsed frozen at its resume-time value for
-  // the entire session. This cadence lives here, alongside the turn count it
-  // reports, rather than in a second subscription in a renderer — the
-  // renderer has already been swapped out from under this constraint three
-  // times. The event is the inference that just finished, so the snapshot
-  // can stamp an Anthropic cache write before the director's own
-  // bookkeeping runs.
+  // snapshot. `inference.done` is the boundary every reactor cycle
+  // guarantees; `reactor.done` fires once, at shutdown, never between turns.
+  // Keying the snapshot off `reactor.done` froze turnsUsed at its resume-time
+  // value for the whole session. Cadence lives here with the turn count, not
+  // in a second renderer subscription — that constraint already moved three
+  // times. The event is the finished inference, so the snapshot can stamp an
+  // Anthropic cache write before the director's own bookkeeping runs.
   onTurnBoundarySnapshot?: (
     event: Extract<ReactorEmittedEvent, { type: "inference.done" }>,
   ) => void;
@@ -71,9 +67,9 @@ export interface RunSink {
   getTokenUsage: () => TokenUsage;
   getLastTurnUsage: () => TokenUsage;
   getToolCallCount: () => number;
-  // The full turn history — including tool results — is retained only when a
-  // lifecycle hook is configured to consume it; null otherwise so a hookless
-  // run does not carry a second standing copy of recent history in memory.
+  // Full turn history (with tool results) is retained only when a hook
+  // consumes it; null otherwise so a hookless run carries no second standing
+  // copy of recent history.
   getTurnCollector: () => TurnCollector | null;
   // Resets accumulated run state (completed flag, error, turn history) so the
   // post-run hook for a new session reports only the turns from that session.
@@ -90,11 +86,10 @@ export function getTUIRunSummaryStatus(
 }
 
 /**
- * Map exec lifecycle signals to a run status.
- *
- * Chat sessions never emit `reactor.done` until close, so after an intentional
- * post-send close the sink alone often says "cancelled". A completed `send()`
- * is success unless the sink still holds a real run error.
+ * Map exec lifecycle signals to a run status. Chat sessions never emit
+ * `reactor.done` until close, so after a post-send close the sink alone
+ * often says "cancelled". A completed `send()` is success unless the sink
+ * still holds a real run error.
  */
 export function resolveExecRunStatus(args: {
   sendCompleted: boolean;
@@ -124,11 +119,9 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     return hookManager.getStatuses().length > 0;
   }
 
-  // One collector tracks turn/token/tool-call counts for the lifetime of the
-  // run, needed for run-state persistence regardless of hooks. It only
-  // retains full turn history — including tool results — when a hook is
-  // configured to consume it, so a hookless run never carries a second
-  // standing copy of recent history.
+  // One collector tracks turn/token/tool-call counts for the run's lifetime,
+  // needed for run-state persistence regardless of hooks. It retains full
+  // turn history only when a hook consumes it (see getTurnCollector).
   const handleTurn = (
     ctx: Parameters<NonNullable<typeof onTurnComplete>>[0],
   ): void => {
@@ -136,9 +129,8 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     onTurnComplete?.(ctx);
   };
 
-  // The initial seed only applies to the run's first collector (a resumed
-  // session's prior turnsUsed); a later reset() starts a fresh sub-session
-  // and should count from zero, not re-seed.
+  // Seed applies only to the first collector (a resumed session's prior
+  // turnsUsed); reset() starts a fresh sub-session counting from zero.
   function createCollector(seedTurnCount?: number): TurnCollector {
     return createTurnContextCollector(handleTurn, Date.now, {
       retainHistory: hasConfiguredHooks(),
@@ -151,8 +143,8 @@ export function createRunSink(args: RunSinkArgs): RunSink {
   let runCompleted = false;
   let runError: string | undefined;
   let turnCollector = createCollector(initialTurnCount);
-  // A provider failure is only an attempt failure until the enclosing message
-  // run settles. Retried attempts reuse the same turn index, so emitting at
+  // A provider failure is only an attempt failure until the message run
+  // settles. Retries reuse the same turn index, so emitting at
   // inference.error would create a terminal generation for a recoverable retry.
   let turnInFlight = false;
   let pendingInferenceError: string | undefined;
@@ -189,8 +181,8 @@ export function createRunSink(args: RunSinkArgs): RunSink {
       runError = undefined;
     }
     // A completed inference turn supersedes a prior recoverable inference.error
-    // (ChatDirector retries timeout/retryable/aborted). Leaving the sticky error
-    // would mark a recovered successful send as failed.
+    // (ChatDirector retries timeout/retryable/aborted); leaving it would mark
+    // a recovered send as failed.
     if (onTurnBoundary(event)) {
       turnInFlight = false;
       pendingInferenceError = undefined;
