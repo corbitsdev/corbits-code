@@ -1,13 +1,12 @@
 /**
  * URL click-through: Ctrl+click opens an http(s) URL in the default
- * browser; a plain click keeps today's row behavior. Armed plain/structured
- * rows open through their own node handlers (with hover
- * highlight); assistant markdown opens through the bubbling transcript
- * handler — click only, no hover highlight.
+ * browser; a plain click does not. Plain/structured rows open through their
+ * own armed handlers (with hover highlight); assistant markdown through the
+ * bubbling transcript handler (click only, no highlight).
  *
  * The opener is mocked (setUrlOpener) — no test spawns a real browser.
- * Whether a real terminal reports the Ctrl modifier is a harness blind
- * spot (docs/TUI.md); headless, the mock delivers it like any click.
+ * Whether a real terminal reports the Ctrl modifier is a harness blind spot
+ * (docs/TUI.md); headless, the mock delivers it like any click.
  */
 import { describe, expect, test } from "bun:test";
 import { TextRenderable } from "@opentui/core";
@@ -150,10 +149,9 @@ describe("Ctrl+clicking a transcript URL", () => {
           await h.renderOnce();
           expect(opened).toEqual(["https://example.com/x"]);
 
-          // Retext the URL away, exactly as the row retext path does. The
-          // handlers are setter-only (no getter to assert on), so pin the
-          // disarm behaviorally: the old columns open nothing and hover
-          // leaves the painted text intact.
+          // Retext the URL away as the row retext path does; handlers are
+          // setter-only, so pin the disarm behaviorally: old columns open
+          // nothing and hover leaves the paint intact.
           const retexted = "see nothing here";
           paintLinkLine(node, [
             splitLinkSpans([{ text: retexted, fg: "#fff" }]),
@@ -186,8 +184,8 @@ describe("Ctrl+clicking a transcript URL", () => {
 
   test("retexting a plain row's URL away through the row path disarms it", async () => {
     await withUrlShell(async (shell, h, opened) => {
-      // A user row paints literal text through paintPlainRowNode, so the
-      // arm and the later disarm both run on the production row path.
+      // User rows paint literal text through paintPlainRowNode, so arm and
+      // disarm both run the production row path.
       appendStreamRow(shell, {
         role: "user",
         text: "see https://example.com/x ok",
@@ -204,9 +202,9 @@ describe("Ctrl+clicking a transcript URL", () => {
       await h.renderOnce();
       expect(opened).toEqual(["https://example.com/x"]);
 
-      // Retext in place through replaceStreamRowAt -> retextStreamRow ->
-      // paintPlainRowNode's URL-free branch. Reverting that branch's
-      // disarm must fail this test (stale handlers survive on the node).
+      // Retext in place through the production row path's URL-free branch;
+      // reverting that branch's disarm must fail this test (stale handlers
+      // survive on the node).
       replaceStreamRowAt(shell, 0, {
         role: "user",
         text: "see nothing here",
@@ -234,9 +232,9 @@ describe("Ctrl+clicking a transcript URL", () => {
 
   test("a wrapped URL in a thinking row opens the full target", async () => {
     await withUrlShell(async (shell, h, opened) => {
-      // Agent thinking paints through the same plain-row path as user
-      // rows; the long URL wraps mid-run at this width. Before the fix
-      // the row armed the first fragment as its own truncated target.
+      // Agent thinking paints through the same plain-row path as user rows;
+      // the long URL wraps mid-run at this width, and every fragment must
+      // resolve to the full target, not its truncated text.
       const full = "https://example.com/abcdefghijklmnopqrstuvwxyz0123456789";
       appendStreamRow(shell, {
         role: "system",
@@ -260,8 +258,8 @@ describe("Ctrl+clicking a transcript URL", () => {
   test("a URL wrapped across bubble lines opens the full target", async () => {
     await withUrlShell(async (shell, h, opened) => {
       // The bubble body is narrower than the terminal, so the long URL
-      // wraps across continuation rows. Every fragment must resolve to
-      // the one target, not to its own truncated text.
+      // wraps across continuation rows; every fragment must resolve to the
+      // one target.
       const full = "https://example.com/abcdefghijklmnopqrstuvwxyz0123456789";
       appendStreamRow(shell, {
         role: "user",
@@ -355,9 +353,9 @@ describe("Ctrl+clicking a transcript URL", () => {
 
   test("Ctrl+click on an armed plain-row link opens exactly once", async () => {
     await withUrlShell(async (shell, h, opened) => {
-      // The armed row's own release handler opens and stops propagation;
-      // the transcript-root markdown handler must not see the same
-      // gesture and open the (resolver-resolved) target a second time.
+      // The armed row's release handler opens and stops propagation; the
+      // transcript-root markdown handler must not see the same gesture and
+      // open again.
       appendStreamRow(shell, {
         role: "user",
         text: "see https://example.com/x ok",
@@ -516,9 +514,8 @@ describe("transcript markdown resolver edges (CL-7955)", () => {
       for (let i = 0; i < 2; i += 1) {
         await h.mockMouse.scroll(before.x, before.y, "up");
       }
-      // Let in-flight scroll work land before clicking: a Ctrl+click
-      // whose down/up straddles a scroll re-render never arms, so the
-      // keeper settles first and tests the post-scroll position itself.
+      // Let in-flight scroll work land first: a Ctrl+click straddling a
+      // scroll re-render never arms, so the keeper settles before the click.
       await new Promise((r) => setTimeout(r, 100));
       await h.renderOnce();
       await h.renderOnce();
