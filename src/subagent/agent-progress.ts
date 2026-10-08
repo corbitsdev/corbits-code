@@ -1,17 +1,15 @@
 /**
- * Live progress for a dispatched sub-agent's pending row in the transcript,
- * and the fleet-level roll-up of those same lanes.
+ * Live progress for a dispatched sub-agent's pending transcript row, plus the
+ * fleet-level roll-up of those same lanes.
  *
- * A `spawn_agent` row is tracked for the worker's lifetime (see
- * `runtime-bridge.ts`'s `syncAgentProgress`), not just while the tool call is
- * in flight — the immediate `{status:running}` result must not drop live
- * clocks. While running this fills in what a bare pending mark cannot say:
- * how long the worker has run, what it is doing now, and whether it has been
- * quiet long enough to look hung rather than slow.
+ * The row is tracked for the worker's lifetime, not just while the tool call
+ * is in flight — the immediate `{status:running}` result must not drop live
+ * clocks — so a bare pending mark can show how long the worker has run, what
+ * it is doing now, and whether it has been quiet long enough to read as hung.
  *
- * Lane state and the fleet roll-up live together on purpose: "stalled" has
- * one definition (`laneState` below), consumed by the fleet summary instead
- * of re-deriving staleness from raw timestamps.
+ * Lane state and the fleet roll-up share one "stalled" definition
+ * (`laneState` below); the fleet summary never re-derives staleness from raw
+ * timestamps.
  */
 
 /** Minimal session shape this module reads — avoids a hard dep on the store. */
@@ -26,37 +24,28 @@ export interface AgentProgressSession {
     | "shutdown"
     | "not_found";
   readonly currentToolName: string | null;
-  /**
-   * Bounded subject of the oldest outstanding call (command, path, pattern…),
-   * or null when the args have nothing meaningful to show. Replaces the bare
-   * tool name in the row trailer so a fleet of shell commands is
-   * distinguishable.
-   */
+  /** Bounded subject of the oldest outstanding call, or null when the args
+   * have nothing to show. Replaces the bare tool name so a fleet of shell
+   * commands is distinguishable. */
   readonly currentToolPreview: string | null;
-  /**
-   * When the oldest outstanding tool call began, or null when none is in
-   * flight. Required, not optional: any hop from the store to a surface can
-   * drop it, silently reclassifying a busy lane as stalled — a compile error
-   * is a better guard than a test.
-   */
+  /** When the oldest outstanding tool call began, or null when none is in
+   * flight. Required: a dropped value silently reclassifies a busy lane as
+   * stalled, so a compile error is a better guard than a test. */
   readonly currentToolStartedAt: number | null;
   readonly startedAt: number;
   readonly lastActivityAt: number;
-  /**
-   * False while the worker is admission-queued (pending_init, run not started).
-   * Missing means unknown — treat as in-flight for stall purposes.
-   */
+  /** False while admission-queued (pending_init, run not started). Missing
+   * means unknown — treat as in-flight for stall. */
   readonly runInFlight?: boolean;
 }
 
 /**
- * What a lane is actually doing, as opposed to how long it has been alive.
+ * What a lane is doing, not how long it has been alive.
  *
- * `in_tool` is what makes the surface honest: a worker inside one long tool
- * call emits nothing for the whole execution, so silence alone cannot tell a
- * wedged reactor from a ten-minute test run. A lane reads `stalled` only when
- * it has gone quiet with no tool outstanding to explain it — the one case an
- * operator can act on.
+ * `in_tool` keeps the surface honest: a worker inside one long tool call
+ * emits nothing, so silence alone cannot tell a wedged reactor from a
+ * ten-minute test run. A lane reads `stalled` only when it is quiet with no
+ * outstanding tool to explain it — the one case an operator can act on.
  */
 export type LaneState = "queued" | "working" | "in_tool" | "stalled";
 
@@ -66,40 +55,39 @@ export interface AgentProgress {
   readonly state: LaneState;
   /** True while the worker is making visible progress. */
   readonly working: boolean;
-  /** True once silence has run longer than the stall window with nothing to explain it. */
+  /** True once silence outlasted the stall window with nothing to
+   * explain it. */
   readonly stalled: boolean;
 }
 
 /**
  * Silence after which a running worker reads as hung rather than thinking.
  *
- * Grok on the Responses path routinely sits 60–120s between tool cycles with
- * only sparse reasoning deltas — billing thinking tokens the whole time — so
- * a 2-minute bar painted those healthy gaps as stalled rows and drove
- * dig/cascade thrash. Align with the 5-minute sub-agent stall nudge so UI and
- * salvage agree on what "quiet too long" means.
+ * Grok on the Responses path routinely sits 60–120s between tool cycles
+ * (billing thinking tokens the whole time), so a 2-minute bar painted those
+ * healthy gaps as stalled rows and drove dig/cascade thrash. Aligns with the
+ * 5-minute sub-agent stall nudge so UI and salvage agree on "quiet too
+ * long".
  */
 export const DEFAULT_STALL_MS = 300_000;
 
 /**
- * Second, far longer bound: how long one tool call may stay outstanding
- * before the lane reads as stalled anyway.
+ * How long one tool call may stay outstanding before the lane reads as
+ * stalled anyway.
  *
- * Without it `in_tool` would be terminal — a wedged build, a shell blocked
- * on stdin, or a deadlocked child would read as busy forever and never reach
- * the fleet stall count. It is deliberately generous: real test suites and
- * builds run for minutes, and crying stall over those is the defect this
+ * Without it `in_tool` would be terminal — a wedged build or a shell blocked
+ * on stdin would read as busy forever. Generous on purpose: real test suites
+ * and builds run for minutes, and crying stall over those is the defect this
  * surface was fixed to remove.
  *
- * It also backstops calls that never report a result at all. The reactor's
- * approval-suspend path emits no completion, so a before-tool extension
- * returning suspend would leave a call outstanding permanently. Nothing
- * registers such an extension today, but this bound means it degrades to a
- * late stall rather than a lane that never stops looking busy.
+ * Also backstops calls that never report a result: the approval-suspend path
+ * emits no completion, so a before-tool extension returning suspend would
+ * leave a call outstanding permanently. This bound degrades that to a late
+ * stall rather than a lane that never stops looking busy.
  */
 export const IN_TOOL_STALL_MS = 600_000;
 
-/** "m:ss" — compact enough to sit in a row's dim trailer alongside a tool name. */
+/** "m:ss" — compact enough for a row's dim trailer. */
 export function clockLabel(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -107,18 +95,16 @@ export function clockLabel(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-/**
- * The single definition of what a lane is doing. Every other surface — the
- * transcript trailer, the agents panel, the top-level indicator — reads this
- * result rather than comparing timestamps itself.
- */
+/** The single definition of what a lane is doing; every other surface reads
+ * this result rather than comparing timestamps itself. */
 export function laneState(
   session: AgentProgressSession,
   nowMs: number,
   stallMs: number = DEFAULT_STALL_MS,
   inToolStallMs: number = IN_TOOL_STALL_MS,
 ): LaneState {
-  // Waiting on the director is work, not silence — never trip IN_TOOL_STALL_MS.
+  // Waiting on the director is work, not silence — never trip the
+  // in-tool stall.
   if (session.currentToolName === "ask_director") return "in_tool";
   if (
     session.lifecycleStatus === "pending_init" &&
@@ -138,11 +124,9 @@ export function laneState(
   return "stalled";
 }
 
-/**
- * Live on the agents strip: TUI status is still "running" and the reusable
- * lifecycle has not been interrupted. Missing lifecycleStatus stays live.
- * Interrupted leftovers may still have in-flight tools; they are not live lanes.
- */
+/** Live on the agents strip: TUI status is "running" and the lifecycle is
+ * not interrupted. Missing lifecycleStatus stays live; interrupted leftovers
+ * with in-flight tools are not live lanes. */
 export function agentLaneIsLive(session: {
   readonly status: AgentProgressSession["status"];
   readonly lifecycleStatus?:
@@ -155,13 +139,12 @@ export function agentLaneIsLive(session: {
 }
 
 /**
- * Progress for a running session's pending row, or null once it has finished —
- * a terminal session resolves its row through the tool-result path instead.
+ * Progress for a running session's pending row, or null once it has finished
+ * (a terminal session resolves its row through the tool-result path instead).
  *
- * The number beside the state word always explains that word: a healthy lane
- * shows its lifetime, a lane stuck in one tool shows how long that tool has
- * run, and a silent lane shows how long it has been silent — a lifetime clock
- * next to "stalled" tells an operator nothing.
+ * The number beside the state word always explains it: lifetime for a healthy
+ * lane, tool runtime for one stuck in a tool, silence length for a quiet one —
+ * a lifetime clock next to "stalled" tells an operator nothing.
  */
 export function agentProgress(
   session: AgentProgressSession,
@@ -181,8 +164,8 @@ export function agentProgress(
     };
   }
   const elapsed = clockLabel(nowMs - session.startedAt);
-  // Prefer the argument subject over the bare tool name — six shell commands
-  // on a fleet board are six different situations, not six identical labels.
+  // Prefer the argument subject over the bare tool name: six shell commands
+  // are six different situations, not six identical labels.
   const preview = session.currentToolPreview;
   const tool = session.currentToolName;
   const subject =
@@ -211,8 +194,8 @@ export function agentProgress(
     tool === "ask_director" ? "ask_director · waiting on director" : subject;
   const hasLiveSubject = liveSubject !== null;
   const base = hasLiveSubject ? `${elapsed} · ${liveSubject}` : elapsed;
-  // Never render "quiet" — operator chrome only shows motion (elapsed / tool).
-  // Internal `state` still carries stalled for recovery consumers.
+  // Operator chrome never renders "quiet"; state still carries stalled for
+  // recovery consumers.
   const stat =
     state === "in_tool" && session.currentToolStartedAt !== null
       ? `${base} ${clockLabel(nowMs - session.currentToolStartedAt)}`
@@ -227,12 +210,11 @@ export function agentProgress(
 }
 
 /**
- * What the whole fleet is doing, rolled up from the per-lane states above.
+ * What the whole fleet is doing, rolled up from the per-lane states.
  *
  * The top-level indicator otherwise reports the parent's own activity, and at
  * fleet scale the parent is almost always just awaiting children — so it
- * reads "working" permanently even while every lane is stuck. Counting lanes
- * here lets the indicator speak for the fleet instead.
+ * reads "working" even while every lane is stuck.
  */
 export interface FleetProgress {
   readonly running: number;
@@ -267,11 +249,8 @@ export function fleetProgress(
   return { running: working + inTool + stalled, working, inTool, stalled };
 }
 
-/**
- * Compact fleet summary for the status ticker, or null with no live lanes —
- * with no sub-agents running the indicator must behave exactly as it does for
- * a plain single-agent turn.
- */
+/** Compact fleet summary for the status ticker, or null with no live lanes —
+ * the indicator must then behave exactly as for a plain single-agent turn. */
 export function fleetLabel(fleet: FleetProgress): string | null {
   if (fleet.running === 0) return null;
   // Count only — never "stalled" / "quiet" for the operator.
