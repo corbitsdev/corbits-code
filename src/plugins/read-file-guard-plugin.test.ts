@@ -306,8 +306,8 @@ describe("readFileBounded", () => {
 
   test("a dead offset on a file larger than the scan ceiling reports beyond-EOF with path and valid range", async () => {
     // Skip bytes are not scanned, so an offset past true EOF on a >8MB file
-    // still reaches the end of the file. Report the real line count and valid
-    // range, not a scan-limit that would hide a reachable EOF.
+    // still reaches the end. Report the real line count and range, not a
+    // scan-limit that would hide a reachable EOF.
     const line = `${"y".repeat(80)}\n`;
     const count = Math.ceil(
       (READ_FILE_MAX_SCAN_BYTES + 1_000_000) / line.length,
