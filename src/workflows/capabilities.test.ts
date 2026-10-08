@@ -85,8 +85,7 @@ test("resolveStep returns the satisfying tools when runnable", () => {
 });
 
 test("substring-adjacent tool names do not produce false-positive capabilities", () => {
-  // git_fetch must not satisfy doc-search; a github gist tool must not satisfy
-  // code-host; an unrelated tool must not satisfy ticket-tracker.
+  // git_fetch, gist tools, and prefetch_cache must not satisfy any capability.
   const map = detectCapabilities([
     tool("git_fetch"),
     tool("mcp__github__create_github_gist"),

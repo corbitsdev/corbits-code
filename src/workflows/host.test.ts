@@ -40,8 +40,8 @@ async function withHost(
     home: string,
   ) => void | Promise<void>,
   onChange?: () => void,
-  // Overrides the director seam: tracking by default; pass () => undefined
-  // (not yet built) or () => ({}) (no workflow support) for degradation tests.
+  // Director seam override: tracking by default; () => undefined (not built)
+  // or () => ({}) (no workflow support) exercise the degradation paths.
   getDirector?: () =>
     | { setWorkflowCoordinator?: (c: WorkflowCoordinator | undefined) => void }
     | undefined,

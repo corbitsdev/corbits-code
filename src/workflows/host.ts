@@ -60,11 +60,10 @@ export interface WorkflowHostArgs {
   getSessionId: () => string;
   getToolDefinitions: () => ToolDefinition[];
   // The live chat director; the workflow coordinator attaches to it when a
-  // workflow starts. Optional so directors without workflow support stay
-  // valid — every attach point presence-checks before calling.
+  // workflow starts. Optional — every attach point presence-checks first.
   getDirector: () => { setWorkflowCoordinator?: SetCoordinator } | undefined;
-  // Overrides the state-tree home; tests pass a sandboxed dir so
-  // persist()/resume() never touch ~/.corbits.
+  // Overrides the state-tree home; tests pass a sandboxed dir so persistence
+  // never touches ~/.corbits.
   home?: string;
   onChange?: () => void;
 }
@@ -76,14 +75,14 @@ export class WorkflowHost {
   private overrides = new Set<CapabilityName>();
   private pendingReplace: string | undefined;
   private completedWorkflows: WorkflowStatus[] = [];
-  // Last active status snapshot, used to fill history once workflow-complete
-  // fires after isActive() is already false.
+  // Last active status snapshot; fills history when workflow-complete fires
+  // after isActive() is already false.
   private lastActiveStatus: WorkflowStatus | undefined;
 
   constructor(private readonly args: WorkflowHostArgs) {}
 
-  // Re-attach the active coordinator to a rebuilt director; with no active
-  // workflow this only clears stale state.
+  // Re-attach the active coordinator to a rebuilt director; with none active,
+  // this only clears stale state.
   reattach(): void {
     this.args.getDirector()?.setWorkflowCoordinator?.(this.coordinator);
   }
@@ -196,8 +195,7 @@ export class WorkflowHost {
     });
   }
 
-  // Start a workflow by name. An active workflow asks for confirmation; the
-  // same name again replaces it.
+  // Start a workflow by name. With one active, the same name again replaces it.
   start(name: string): string {
     const workflow = findWorkflow(name);
     if (workflow === undefined) {
@@ -232,8 +230,7 @@ export class WorkflowHost {
     this.notify();
   }
 
-  // Toggle a capability for this run. Affects not-yet-reached steps and the
-  // displayed status.
+  // Toggle a capability for this run; affects unreached steps and the status.
   toggleCapability(name: CapabilityName): string {
     if (this.overrides.has(name)) this.overrides.delete(name);
     else this.overrides.add(name);

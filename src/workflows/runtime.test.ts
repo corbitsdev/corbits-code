@@ -95,7 +95,7 @@ test("steps whose capability is unsatisfied are skipped, not injected", () => {
   rt.start(withGatedStep);
   expect(rt.currentStep()?.id).toBe("a");
   rt.advance();
-  // The ticket step is skipped because ticket-tracker is absent.
+  // Ticket step skipped: ticket-tracker absent.
   expect(rt.currentStep()?.id).toBe("c");
   expect(
     events.some((e) => e.type === "step-skip" && e.step.id === "needs-ticket"),

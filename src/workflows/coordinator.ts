@@ -1,24 +1,23 @@
 import type { WorkflowRuntime } from "./runtime.js";
 import type { WorkflowCompleteResult, WorkflowStep } from "./types.js";
 
-// Bridges the workflow runtime and a director. A director consults the
+// Bridges the workflow runtime and a director: the director consults the
 // coordinator for the directive to inject into each turn's system prompt and
-// hands it tool-completion events so it can advance the runtime. Keeping this
-// logic here means both the headless and interactive directors share one
-// implementation.
+// reports tool completions so the runtime can advance. One implementation
+// shared by the headless and interactive directors.
 export class WorkflowCoordinator {
   constructor(
     private readonly runtime: WorkflowRuntime,
     // Persist runtime state after every transition so a run can resume
-    // mid-recipe. Failures are swallowed — losing the workflow checkpoint must
-    // not crash the agent loop.
+    // mid-recipe. Failures are swallowed so a lost checkpoint never crashes
+    // the agent loop.
     private readonly persist: () => void = () => undefined,
-    // When true the workflow pauses after each step for user confirmation; the
-    // directive tells the agent to gate via ask_operator before advancing.
+    // When true, pause after each step for user confirmation; the directive
+    // tells the agent to gate via ask_operator before advancing.
     private readonly stepThrough = false,
     // True where the live tool surface mounted wait_agents (exec primary).
-    // Picks the collection-path copy: wait_agents vs mailbox mail. Defaults
-    // to the unmounted surface so the directive never advertises a missing tool.
+    // Picks the collection-path copy (wait_agents vs mailbox mail); defaults
+    // to unmounted so the directive never advertises a missing tool.
     private readonly waitAgentsMounted = false,
   ) {}
 
@@ -34,8 +33,8 @@ export class WorkflowCoordinator {
     return this.runtime.currentStep()?.id ?? null;
   }
 
-  // True when `stepId` belongs to the active frame and sits behind the cursor
-  // (completed or skipped). Unknown and future ids are not past.
+  // True when `stepId` is in the active frame behind the cursor (completed or
+  // skipped). Unknown and future ids are not past.
   isPastStep(stepId: string): boolean {
     const view = this.runtime.view();
     if (view === null) return false;
@@ -43,16 +42,15 @@ export class WorkflowCoordinator {
     return idx !== -1 && idx < view.stepIndex;
   }
 
-  // True when the current step is a gate — the agent must pause and wait for
-  // the operator. Used by the chat director to decide when to keep looping
-  // autonomously vs. when to hand back to the user.
+  // True when the current step is a gate — the agent pauses for the operator.
+  // The chat director uses this to decide when to stop looping and hand back.
   currentStepIsGate(): boolean {
     return this.runtime.currentStep()?.type === "gate";
   }
 
   // The instruction block to append to the next turn's system prompt, or null
-  // when no step is active. Includes the step ordinal, label, prompt, and the
-  // delegation / completion guidance the step's fields imply.
+  // when no step is active: step ordinal, label, prompt, and the delegation /
+  // completion guidance the step's fields imply.
   directive(): string | null {
     const step = this.runtime.currentStep();
     if (step === null) return null;
@@ -80,10 +78,9 @@ export class WorkflowCoordinator {
   }
 
   // Handle a completed tool call. Only a step-tagged submit_output can move
-  // the runtime, and only via compare-and-advance against the current step.
-  // Returns true when the runtime advanced (used by tests; the directors
-  // already reset their idle counters on any tool call, so a workflow
-  // advance is never seen as a stall).
+  // the runtime, via compare-and-advance against the current step. Returns
+  // true when the runtime advanced (tests check this; directors reset their
+  // idle counters on any tool call, so an advance is never a stall).
   handleToolDone(
     name: string | undefined,
     args: unknown,
@@ -96,9 +93,8 @@ export class WorkflowCoordinator {
     return this.complete(stepId) === "advanced";
   }
 
-  // Compare-and-advance, persist on a real move, and return the complete()
-  // result so callers (submit_output's handler) report it instead of
-  // reconstructing the cursor.
+  // Compare-and-advance, persist on a real move, and return the result so
+  // submit_output's handler reports it instead of rebuilding the cursor.
   complete(stepId: string): WorkflowCompleteResult {
     const result = this.runtime.complete(stepId);
     if (result === "advanced") this.persist();

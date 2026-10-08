@@ -36,11 +36,10 @@ export interface WorkflowView {
 
 type Resolver = (name: string) => Workflow | undefined;
 
-// Drives step-by-step execution on top of the existing agent loop. The runtime
-// owns the call stack and step statuses, deciding which step is current and
-// what runs next, while the director performs the actual work (prompt
+// Steps through a workflow on top of the agent loop. The runtime owns the
+// call stack and step statuses; the director performs the work (prompt
 // injection, sub-agent fan-out). Unsatisfied capabilities skip their steps;
-// steps naming a sub-workflow push a nested frame onto the stack.
+// sub-workflow steps push a nested frame onto the stack.
 export class WorkflowRuntime {
   private stack: WorkflowFrame[] = [];
   private done = false;
@@ -51,9 +50,9 @@ export class WorkflowRuntime {
     private readonly resolve: Resolver = findWorkflow,
   ) {}
 
-  // Replace the capability map mid-run. Steps already settled keep their status;
-  // not-yet-reached steps are resolved against the new map (so toggling a
-  // capability off in the TUI skips its remaining steps).
+  // Swap the capability map mid-run. Settled steps keep their status; the
+  // rest resolve against the new map (toggling a capability off in the TUI
+  // skips its remaining steps).
   setCapabilities(capabilities: CapabilityMap): void {
     this.capabilities = capabilities;
   }
@@ -103,9 +102,9 @@ export class WorkflowRuntime {
   }
 
   // Compare-and-advance against the current step. Matching `stepId` advances
-  // atomically (check and move happen in this call). A step behind the cursor
-  // is already-complete; a future, unknown, or inactive id is not-current.
-  // Neither acknowledged case moves the cursor, so a retry cannot skip ahead.
+  // atomically; a step behind the cursor is already-complete; a future,
+  // unknown, or inactive id is not-current. Neither acknowledged case moves
+  // the cursor, so a retry cannot skip ahead.
   complete(stepId: string): WorkflowCompleteResult {
     const current = this.currentStep();
     if (current !== null && current.id === stepId) {
@@ -120,9 +119,9 @@ export class WorkflowRuntime {
     return "not-current";
   }
 
-  // Mark the current step complete and move to the next runnable step. Pops
-  // finished sub-workflow frames and descends into sub-workflow references as
-  // needed. Emits step-complete for the step left behind.
+  // Mark the current step complete and move to the next runnable step: pop
+  // finished sub-workflow frames, descend into sub-workflow references, and
+  // emit step-complete for the step left behind.
   advance(): void {
     if (this.done) return;
     const frame = this.topFrame();
@@ -137,9 +136,9 @@ export class WorkflowRuntime {
     this.settle();
   }
 
-  // Advance the call stack until the top frame is sitting on an executable step,
-  // popping exhausted frames and descending into sub-workflows. Emits step-skip
-  // for skipped steps and step-start for the executable step it lands on.
+  // Move the call stack to the next executable step, popping exhausted frames
+  // and descending into sub-workflows. Emits step-skip for skipped steps and
+  // step-start for the step it lands on.
   private settle(): void {
     for (;;) {
       const frame = this.topFrame();
@@ -150,8 +149,8 @@ export class WorkflowRuntime {
       const workflow = this.workflowOf(frame);
 
       if (frame.stepIndex >= workflow.steps.length) {
-        // This frame is exhausted. Pop it; if it was a sub-workflow, the parent
-        // step that invoked it is now complete, so advance the parent.
+        // Frame exhausted. Pop it; if it was a sub-workflow, the parent step
+        // that invoked it is now complete, so advance the parent.
         this.stack.pop();
         const parent = this.topFrame();
         if (parent === undefined) {
@@ -244,7 +243,7 @@ export class WorkflowRuntime {
     };
   }
 
-  // Reconstruct the runtime from persisted state for resume. Does not re-emit
+  // Restore the runtime from persisted state for resume. Does not re-emit
   // events or re-settle — the stack is restored exactly as saved.
   restore(state: WorkflowState): void {
     this.stack = state.stack.map((frame) => ({

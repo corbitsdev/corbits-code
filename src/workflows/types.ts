@@ -7,27 +7,27 @@ export type {
 
 export type StepStatus = "pending" | "active" | "completed" | "skipped";
 
-// Result of compare-and-advance: the matching current step moves the cursor;
-// anything already behind it is already-complete; unknown and future ids are
-// not-current. Callers report this instead of reconstructing the cursor.
+// Compare-and-advance result: matching the current step advances; a step
+// behind the cursor is already-complete; unknown and future ids are
+// not-current.
 export type WorkflowCompleteResult =
   | "advanced"
   | "already-complete"
   | "not-current";
 
-// One entry on the runtime call stack. The active frame is the last element;
-// nested sub-workflows push new frames and pop on completion.
+// One entry on the runtime call stack. The active frame is last; nested
+// sub-workflows push new frames and pop on completion.
 export interface WorkflowFrame {
-  // Name of the workflow this frame is executing.
+  // Workflow this frame executes.
   workflow: string;
-  // Index of the active step within that workflow's `steps`.
+  // Active step index within that workflow's `steps`.
   stepIndex: number;
-  // Per-step status, parallel to the workflow's `steps` array.
+  // Per-step status, parallel to the workflow's `steps`.
   statuses: StepStatus[];
 }
 
 // Serializable runtime state, persisted after every step transition so a run
-// can resume mid-recipe (including mid sub-workflow chain).
+// can resume mid-recipe, including mid sub-workflow chain.
 export interface WorkflowState {
   stack: WorkflowFrame[];
   completed: boolean;
@@ -38,8 +38,7 @@ export interface WorkflowState {
 export const MAX_WORKFLOW_DEPTH = 3;
 
 // Valid slash-command / workflow name: lowercase alphanumerics separated by
-// single hyphens. Validated at load time so every workflow yields a usable
-// slash command.
+// single hyphens. Validated at load time so every workflow is usable.
 const WORKFLOW_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export function isValidWorkflowName(name: string): boolean {
