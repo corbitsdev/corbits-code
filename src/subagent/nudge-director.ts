@@ -172,9 +172,8 @@ export class SubAgentDirector extends DefaultDirector {
   // A quiet leaf (e.g. parked on a long-running background command) emits
   // no inbound events; directors are pure decide() functions, so the run
   // loop pings this continuation channel periodically. Only a ping with no
-  // real activity since the last one is silence. In-flight tool calls are
-  // activity, so their ids are tracked. Sits below the turn-boundary stop
-  // checks (evaluateSubAgentStop), which take priority.
+  // real activity since the last one is silence. Sits below the
+  // turn-boundary stop checks (evaluateSubAgentStop), which take priority.
   private readonly stallTimeoutMs: number | undefined;
   private readonly now: () => number;
   private lastActivityAt: number;
@@ -508,10 +507,10 @@ export class SubAgentDirector extends DefaultDirector {
    * silence clock and wait instead of nudging.
    *
    * First silence past the timeout: one continuation nudge, record
-   * stallNudgeAt. Pings inside the grace wait without stopping or
-   * restarting it; stop only when a ping arrives after the grace with
-   * still no activity. Returns null when not yet silence or stall timing
-   * is unconfigured, so decide waits without stamping the silence clock.
+   * stallNudgeAt. Pings inside the grace wait; stop only after grace
+   * with still no activity. Returns null when not yet silence or stall
+   * timing is unconfigured, so decide waits without stamping the silence
+   * clock.
    */
   private checkStallPing(
     event: ReactorInboundEvent,
@@ -549,8 +548,7 @@ export class SubAgentDirector extends DefaultDirector {
 
     const sinceNudge = this.now() - this.stallNudgeAt;
     if (sinceNudge < this.stallTimeoutMs) {
-      // Inside the post-nudge grace: wait without faking activity or
-      // restarting grace.
+      // Post-nudge grace: wait without faking activity or restarting it.
       return [capabilities.wait()];
     }
 

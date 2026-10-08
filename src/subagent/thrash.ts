@@ -123,9 +123,7 @@ export function nextThrashState(
       const key = searchKey(name, args);
       readCounts.set(key, (readCounts.get(key) ?? 0) + 1);
     } else if (name === SHELL_TOOL) {
-      // Shell reads are evidence too — the prompt prohibits shell file work,
-      // but a prompt violation deserves a correction, not a verdict that the
-      // work never happened.
+      // Shell reads are evidence too (see the module doc).
       const command = args.command;
       if (typeof command === "string" && command.length > 0) {
         const evidence = classifyShellFileEvidence(command);

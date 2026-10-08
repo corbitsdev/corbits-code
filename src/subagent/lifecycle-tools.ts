@@ -157,11 +157,10 @@ function clipLateSendSummary(text: string, unstructured: boolean): string {
 }
 
 /**
- * Late-send_input redirect per terminal status. Only `completed` delivered
- * a report (via mailbox mail); `interrupted` never did; `shutdown`
- * sessions are gone for good (resumeOne after closeOne fails). So only
- * `completed` names resume_agent; shutdown/evicted point at
- * read_agent_trace / a fresh spawn.
+ * Late-send_input redirect per terminal status: only `completed` delivered
+ * a report, so only it names resume_agent; `interrupted` never did;
+ * `shutdown`/evicted sessions are gone (resumeOne after closeOne fails),
+ * pointing at read_agent_trace / a fresh spawn.
  */
 function lateSendRedirect(
   target: string,
@@ -509,10 +508,7 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
       if (!outcome.ok) {
         // Name the teardown when one is recorded — after a stop the
         // session is gone, and a bare status would read as "never existed".
-        // Late-send redirect is scoped per terminal status: only `completed`
-        // delivered a report (summary + report_uri below, resume for more);
-        // `interrupted` never delivered one; `shutdown`/evicted sessions are
-        // gone for good, so they point at read_agent_trace / a fresh spawn.
+        // Redirect per terminal status (see lateSendRedirect).
         const session = deps.sessions.get(target);
         const redirect = lateSendRedirect(
           target,

@@ -98,7 +98,7 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
    * omitted = no filter (primary). No closed director sets one today.
    */
   spawnAllowlist?: readonly string[];
-  /** Same process admission queue as spawn. Tests inject. */
+  /** Same process admission queue as RunSubAgentParams.admission. */
   admission?: AdmissionQueue;
 };
 
@@ -148,8 +148,8 @@ export type RunSubAgentParams = {
   capabilities?: CapabilityFilter;
   /**
    * Canonical tool names this worker hard-requires. The dispatcher verifies
-   * pre-spawn; run.ts re-checks after the capability filter and fails the
-   * run as a stale snapshot when one is missing.
+   * pre-spawn; run.ts re-checks after the capability filter, failing the
+   * run as a stale snapshot on a miss.
    */
   requiresTools?: readonly string[];
   /**

@@ -25,8 +25,7 @@ export interface SubAgentWorktree {
   path: string;
   // The repo's `git stash list` at create time. Stash refs live on the
   // shared repo, not the worktree, so cleanup diffs against this baseline
-  // to notice stash entries the sub-agent created. `null` (read failed):
-  // cleanup preserves rather than risks removal.
+  // to notice stash entries the sub-agent created.
   stashBaseline: string[] | null;
   // `git rev-parse HEAD` at create time. Detached-HEAD commits leave a
   // clean porcelain status but move HEAD — cleanup preserves when HEAD
@@ -93,7 +92,7 @@ export type WorktreeCleanupResult =
   | { status: "preserved"; path: string; notice: string };
 
 export interface CleanupSubAgentWorktreeOpts {
-  // From createSubAgentWorktree.stashBaseline. `null` means unknown → preserve.
+  // From createSubAgentWorktree.stashBaseline (null → preserve).
   stashBaseline?: readonly string[] | null;
   // From createSubAgentWorktree.headAtCreate. When set, HEAD advance preserves.
   headAtCreate?: string;

@@ -1,16 +1,16 @@
 /**
  * Pre-spawn capability preflight for `spawn_agent(requires_tools=...)`.
  *
- * A `requires_tools` entry is a hard requirement: the named tool must be
- * mounted on the worker or the dispatch is rejected before any session,
- * telemetry, or worktree exists. Names are canonical engine ids on both
- * sides (aliases collapse via canonicalToolName), so `shell` and
- * `run_shell` are the same requirement. Fail-closed: unknown names and
- * allowlist/denylist misses reject.
+ * A `requires_tools` entry is a hard requirement: the tool must mount on
+ * the worker or the dispatch rejects before any session, telemetry, or
+ * worktree exists. Names are canonical engine ids on both sides (aliases
+ * collapse via canonicalToolName), so `shell` and `run_shell` are the
+ * same requirement. Fail-closed: unknown names and allowlist/denylist
+ * misses reject.
  *
  * `stale_snapshot` is never emitted here — it is the mount-time echo in
- * run.ts (a tool stamped at dispatch is missing from the live mount). It
- * lives in this union so both paths share one formatter.
+ * run.ts (a stamped tool missing from the live mount). It lives in this
+ * union so both paths share one formatter.
  */
 
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
@@ -34,9 +34,9 @@ export interface PreflightCapabilitiesInput {
   /** Resolved dispatch filter; undefined means full mount (everything passes). */
   resolvedFilter?: CapabilityFilter | undefined;
   /**
-   * Canonical engine ids verifiable in this dispatch. Production always
-   * passes the full catalog (DEFAULT_KNOWN_ENGINES); narrowed sets are a
-   * test-only seam for simulating an incomplete runtime.
+   * Canonical engine ids verifiable in this dispatch. Production passes the
+   * full catalog; narrowed sets are a test-only seam (see
+   * DEFAULT_KNOWN_ENGINES).
    */
   knownEngines: readonly string[];
   /**
@@ -245,8 +245,8 @@ export function preflightCapabilities(
     }
     const engine = canonicalToolName(trimmed);
     // A live inherited-MCP tool passes the catalog check — presence proves
-    // the worker mounts it on demand; shape alone proves nothing, so an
-    // `mcp__*` name outside the live set still rejects below.
+    // the mount (see availableMcpTools); an `mcp__*` name outside the live
+    // set still rejects below.
     const isLiveMcp = isMcpToolName(engine) && liveMcp.has(engine);
     if (!catalog.has(engine) && !isLiveMcp) {
       const suggestion = nearestToolName(trimmed);

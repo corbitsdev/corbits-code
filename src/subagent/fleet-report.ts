@@ -4,8 +4,8 @@
  * cancelled, and the moment the fleet runs dry. Per-lane "done" walls are
  * never printed — they restate the strip and the parent.
  *
- * Pure and stateless per call: the caller keeps the returned watch and
- * hands it back on the next observation.
+ * Pure and stateless per call: the caller hands the returned watch back on
+ * each observation.
  */
 
 import {

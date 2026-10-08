@@ -3,10 +3,9 @@
  * dispatch and rotates it on every followup steer, so a worker holding the
  * dispatched token cannot submit after its turn was superseded. The pure
  * evaluator half (old token rejected, budget reset) is covered in
- * submit-result.test.ts; this test drives the real runSubAgent wiring end
- * to end — the seam the pure tests cannot see is whether followup mints,
- * swaps, and re-states the token. Same stub-agent pattern as
- * followup-live-agent.test.ts.
+ * submit-result.test.ts; this test drives the real runSubAgent wiring — the
+ * seam the pure tests cannot see is whether followup mints, swaps, and
+ * re-states the token. Same stub-agent pattern as followup-live-agent.test.ts.
  */
 import { describe, expect, test } from "bun:test";
 

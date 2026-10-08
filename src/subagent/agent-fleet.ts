@@ -1,7 +1,7 @@
 /**
  * spawn_agent / wait_agents: the split fleet dispatch surface.
  *
- * spawn_agent starts workers and returns; wait_agents later blocks on this
+ * spawn_agent starts workers and returns; wait_agents blocks on this
  * caller's workers. Wait state is the session store's `WorkerLifecycle`;
  * wait blocks on the store's `subscribe` raced against a timer — never
  * polling. Wait JSON adds a per-install mailbox overlay (`FleetMailbox`):
@@ -508,7 +508,7 @@ class FleetMailbox {
 
 // One overlay per orchestrator install (shared by its spawn_agent and
 // wait_agents tool instances), not a module singleton — created in
-// createSpawnAgentTool and threaded to createWaitAgentsTool by the caller.
+// createSpawnAgentTool, threaded to createWaitAgentsTool.
 export type FleetMailboxHandle = FleetMailbox;
 export function createFleetMailbox(
   sessions: SubAgentSessionStore,
@@ -1069,11 +1069,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         );
       }
 
-      // Fail closed before any session, telemetry, or worktree exists — no
-      // re-dispatch, successor, or retry. The tier is the single derivation
-      // shared by the tier gate and the run mount: run.ts mounts the leaf
-      // reporting channel exactly when tier is "leaf", so gating on any
-      // other value lets a requirement die as a stale snapshot at mount.
+      // Fail closed pre-spawn — no re-dispatch, successor, or retry. The
+      // tier is the single derivation shared by the tier gate and the run
+      // mount: run.ts mounts the leaf reporting channel exactly when tier
+      // is "leaf", so gating on any other value lets a requirement die as a
+      // stale snapshot at mount.
       const dispatchTier: SubagentTier = resolved.orchestrator
         ? (resolved.orchestratorTier ?? resolved.pkg?.tier ?? "orchestrator")
         : "leaf";

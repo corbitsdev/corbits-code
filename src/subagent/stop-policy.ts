@@ -151,8 +151,7 @@ export function evaluateSubAgentStop(input: {
 // A worker is not a chat partner: it runs until it stops calling tools, and
 // its final text is the result handed to the dispatcher. No ask_operator (it
 // uses ask_director); consequential tools still pass the parent's permission
-// gate. Runs end only on a report envelope or an operator/deadline/stall
-// interrupt — no turn cap.
+// gate.
 
 export function lastText(content: readonly { type: string }[]): string {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -191,8 +190,8 @@ export interface ForcedStopReportOptions {
   paths?: string | readonly string[];
 }
 
-// Human-facing only — the parent classifies outcomes from the structured
-// ForcedStopReason value, never by parsing this text back out of the report.
+// Human-facing only — classify via the structured ForcedStopReason, never
+// by parsing this text back out of the report.
 const FORCED_STOP_SUMMARIES: Record<ForcedStopReason, string> = {
   cancelled: "Stopped: cancelled by operator before finishing.",
   deadline: "Stopped: wall-clock deadline reached before finishing.",
