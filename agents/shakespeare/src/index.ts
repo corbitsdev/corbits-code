@@ -3,7 +3,7 @@
  * Docs maintenance — PRODUCT / ARCHITECTURE / IMPLEMENTATION only; docs core baked in.
  * Package id/path stays `shakespeare` (global rename is out of scope).
  *
- * Ships as the @corbits/agent-shakespeare workspace package: the tool allowlist
+ * Ships as the @corbits/code-agent-shakespeare workspace package: the tool allowlist
  * lives here so the package stays importable without the app. Drift against
  * the app build surface fails src/agent/directors/shakespeare/package.test.ts.
  */

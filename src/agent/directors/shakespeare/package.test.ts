@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { shakespearePackage } from "@corbits/agent-shakespeare";
+import { shakespearePackage } from "@corbits/code-agent-shakespeare";
 import { DOCS_TOOLS } from "../tool-sets.js";
 import { DIRECTOR_REGISTRY } from "../registry.js";
 import type { DirectorPackage } from "../types.js";
