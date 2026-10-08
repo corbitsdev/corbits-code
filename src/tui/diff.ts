@@ -2,8 +2,7 @@
  * Edit-tool diff rendering for the transcript.
  *
  * An edit's before/after text lives only in the tool call's JSON arguments
- * (the tool result is just a confirmation string), so the diff is derived
- * from the arguments and carried on the tool row.
+ * (the tool result is just a confirmation string), carried on the tool row.
  *
  * Output is a plain segment model (text + colour) rather than the Ink
  * `StyledLine` shape so the module stays renderer-free and headlessly
@@ -467,11 +466,11 @@ export interface ToolCallRowInput {
  * Transcript row for a tool call: a diff view for file edits, otherwise a
  * human summary of the arguments (the structured form sits behind the expand
  * key). Raw argument JSON stays on the row as `text` for the clipboard and
- * unsummarisable calls, but is not what the transcript paints.
+ * unsummarisable calls.
  *
  * `verb` + `summary` read as a sentence ("Read path", "Shell command"): the
  * verb reuses `describeToolCall`'s display mapping and the subject is the
- * argument summary (the command for a shell call, the path for a file tool).
+ * argument summary.
  */
 export function toolCallRow(input: ToolCallRowInput): StreamRow {
   const args = input.arguments ?? "";
@@ -487,8 +486,7 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
   const summarised =
     diff === null && args.length > 0 ? toolArgsView(input.name, args) : null;
   // `summarised` (view/JSON-aware) wins when it has an opinion; `call.summary`
-  // fills the gap: a short literal call that toolArgsView leaves alone but
-  // which still needs a subject to pair with its verb.
+  // fills the gap: a short literal call that toolArgsView leaves alone.
   const summary =
     diff !== null
       ? (diff.path ?? summarised?.summary ?? call?.summary)
