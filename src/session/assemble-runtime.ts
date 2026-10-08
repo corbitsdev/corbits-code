@@ -129,7 +129,7 @@ import {
 
 /**
  * Resolve inference dependencies and re-read the pricing cache. The seed is
- * best-effort: onError logs and continues; without it a seed failure
+ * best-effort: onError logs and continues; without onError, a seed failure
  * rejects. Workers pass skipPricingSeed — the parent already boot-seeded.
  */
 export async function assembleInferenceBase(
@@ -222,8 +222,7 @@ export async function assembleSessionTrust(
 
 /**
  * Load repo-local settings for shell env (and exec's session-mode read).
- * ENOENT maps to null; other failures report to onError (when set) and
- * return null.
+ * ENOENT and other failures map to null; errors report to onError when set.
  */
 export async function loadSessionLocalSettings(args: {
   cwd: string;
@@ -254,8 +253,8 @@ export interface SessionGateArgs {
   onPersistNotice?: ((text: string) => void) | undefined;
   /**
    * First encounter with an unconfirmed project approvals file: surface what
-   * the file would grant (exec: stderr, TUI: persist notice). Entries stay
-   * gated regardless of delivery.
+   * it would grant (exec: stderr, TUI: persist notice). Entries stay gated
+   * regardless of delivery.
    */
   onPendingProjectGrants?: ((text: string) => void) | undefined;
   interactive: boolean;
@@ -362,12 +361,11 @@ export function resolveLiveSessionSources(
 export interface AdvertisedToolset {
   activated: ActivatedToolTracker;
   computeAdvertised: (all: readonly ToolDefinition[]) => ToolDefinition[];
-  // Whether a name is on the advertised wire set: built-in prefix,
-  // project-pinned, or execute-promoted. The dispatch gate keys off this so
-  // a registered-but-unadvertised call can intercept instead of failing
-  // closed.
+  // Whether a name is on the advertised wire set (built-in prefix,
+  // project-pinned, or execute-promoted). The dispatch gate keys off this so
+  // a registered-but-unadvertised call intercepts instead of failing closed.
   isAdvertised: (name: string) => boolean;
-  // Commit activated-but-unadvertised names onto the wire set, in activation
+  // Commit activated-but-unadvertised names onto the wire set in activation
   // order; returns whether it grew. Call on promote-on-execute so the next
   // infer declares that schema, and at cache-safe boundaries (session
   // start/resume, rotation) for anything still pending.
@@ -383,11 +381,11 @@ export interface AdvertisedToolset {
  * wire. The provider identity is read per call so a live model switch
  * re-gates without rebuilding the agent.
  *
- * Activation and advertisement are split on purpose: activating opens the
- * call gate at once; flushPromotions commits names onto the wire
- * (promote-on-execute flushes the one called name, tool_search only the top
- * ranked hits). Fold breaks the cache prefix — pruneIdlePromotions drops the
- * advertised tail back to it.
+ * Activation and advertisement are split: activating opens the call gate at
+ * once; flushPromotions commits names onto the wire (promote-on-execute
+ * flushes the one called name, tool_search only the top ranked hits). Fold
+ * breaks the cache prefix — pruneIdlePromotions drops the advertised tail
+ * back to it.
  *
  * `pinnedTools` (local settings) merge into the prefix — advertised from the
  * first turn and exempt from activation state, so resume needs no
@@ -619,10 +617,10 @@ async function stickyExtraInstructionsFromStore(
 export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
   const directorHolder = wiring.directorHolder ?? {};
   // Newest-commit-first compact records, refreshed each build so resume and
-  // /model rebuilds restore sticky /compact instructions.
+  // /model rebuilds restore sticky /compact instructions. /model rebuilds
+  // keep the same store (may miss extras); /clear and /new mint a new
+  // workdir, so fromPrev must not follow.
   let stickyFromStore: string | undefined;
-  // /model rebuilds keep the same store (may miss extras); /clear and /new
-  // mint a new workdir, so fromPrev must not follow.
   let inheritFromPrev = true;
   let lastWorkdir: string | undefined;
   let lastSessionId: string | undefined;
@@ -853,9 +851,8 @@ export interface SessionLifecycle {
 /**
  * Hook manager, turn observer, run sink, and in-flight cycle recorder. Pure
  * construction — every live value (session id, source, context dir) is read
- * through a getter at event time, so it can assemble before the agent
- * exists (the TUI builds it early, exec late; same call, different
- * position).
+ * through a getter at event time, so it can assemble before the agent exists
+ * (the TUI builds it early, exec late; same call, different position).
  */
 export async function assembleSessionLifecycle(
   wiring: SessionLifecycleWiring,

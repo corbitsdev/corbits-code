@@ -119,8 +119,7 @@ export interface LiveSubAgentSources {
  * Single owner of every session fact a sub-agent spawn reads. Each switch
  * path (model picker, /agent, post-connect refresh, favorite toggle)
  * reassigns the runner's config, so all three derive from a config getter
- * per spawn; hand-synced snapshots went stale when a switch path forgot to
- * update them.
+ * per spawn; hand-synced snapshots went stale when a switch path missed one.
  */
 export function createLiveSubAgentSources(
   getConfig: () => SubAgentSourcesConfig,
@@ -431,8 +430,8 @@ export interface SessionPruningCompactorArgs {
   ) => Promise<string>;
   summaryContext?: () => SummaryContext | undefined;
   /**
-   * Previous fat handoff file, so iterative folds union files/commands and
-   * full constraint/goal text instead of storing spine-truncated cuts.
+   * Previous fat handoff file: the next fold unions its files/commands and
+   * full goal text instead of spine-truncated cuts.
    */
   readPriorHandoff?: () => Promise<string | undefined>;
   telemetry?: Telemetry;
@@ -469,7 +468,7 @@ export interface SessionPruningCompactorArgs {
   /**
    * Budgeted-tail shape override. Absent = the shared production default
    * (DEFAULT_TAIL_COMPACTION_SHAPE); tests pin a tiny budget so small
-   * fixtures still fold the same region a keep-window used to cut.
+   * fixtures still fold the region a keep-window used to cut.
    */
   compactionShape?: Partial<CompactionShape>;
 }
@@ -510,8 +509,8 @@ export function createSessionPruningCompactor(
   const pruning = createPruningCompactor({
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
     // Budgeted-tail shape: the explicit defaults the record also carries
-    // under parameters.compactionShape. Recent turns stay whole because they
-    // are recent — the token budget is the only tail cap.
+    // under parameters.compactionShape. Recent turns stay whole — the token
+    // budget is the only tail cap.
     compactionShape: {
       ...DEFAULT_TAIL_COMPACTION_SHAPE,
       ...args.compactionShape,

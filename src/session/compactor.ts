@@ -2,10 +2,8 @@
 //
 // Deterministic ConversationTurn[] -> ConversationTurn[] compactor: prunes
 // completed-task context while preserving the active task, recent turns, plan
-// state, file/tool references, and unresolved errors.
-//
-// The context store keeps the full run history; only the inference-facing
-// context is curated here.
+// state, file/tool references, and unresolved errors. The context store keeps
+// the full run history; only the inference-facing context is curated here.
 
 import type {
   ConversationTurn,
@@ -48,8 +46,8 @@ export interface CompactorConfig {
   ) => Promise<string>;
   /** Read at compaction time; passed to `summarize` with live workflow state. */
   summaryContext?: () => SummaryContext | undefined;
-  /** Previous fat handoff body, so the next fold unions files/commands and
-   * full constraint/goal text instead of spine-truncated cuts. */
+  /** Previous fat handoff body: the next fold unions its files/commands and
+   * full goal text instead of spine-truncated cuts. */
   readPriorHandoff?: () => Promise<string | undefined>;
   // Recorded for compatibility; the live fold keeps spine + token-capped tail.
   maxAnchorTurns: number;
@@ -61,7 +59,7 @@ export interface CompactorConfig {
 /**
  * Shape of the live tail the fold keeps: extract + summary + actions (thin
  * spine / fat handoff file) plus a token-capped raw tail (~2–3k tokens by
- * default). The governor reads the resolved copy off record.parameters.
+ * default).
  */
 export interface CompactionShape {
   /** Live-tail budget in tokens (chars/4 estimate). Default ~2500. */
@@ -93,14 +91,14 @@ export function resolveCompactionShape(
   return { ...DEFAULT_TAIL_COMPACTION_SHAPE, ...partial };
 }
 
-// Fold marker; the handoff format is owned by ./compaction-handoff.js.
-// Re-exported here so existing importers keep working.
+// Fold marker; the handoff format is owned by ./compaction-handoff.js;
+// re-exported here so existing importers keep working.
 export { COMPACTED_PREFIX };
 
-// Visible, non-format sentinel inserted between adjacent user turns so the
-// history stays role-alternating and adapters keep a non-empty assistant
-// turn. Identity is the reserved producer id on `compactSpacerTurn`, not this
-// text or a missing `model` field.
+// Visible sentinel inserted between adjacent user turns so the history stays
+// role-alternating and adapters keep a non-empty assistant turn. Identity is
+// the reserved producer id on `compactSpacerTurn`, not this text or a missing
+// `model` field.
 export const COMPACT_SPACER_TEXT = "[compact]";
 export const LEGACY_COMPACT_SPACER_TEXT = "[compaction]";
 export const HARNESS_COMPACT_SPACER_MODEL = "harness";
@@ -125,9 +123,9 @@ export function compactorNoOpFloor(): number {
 
 // Query tools deduped by full-argument identity: a later identical
 // grep/search_files/list_dir call reflects newer workspace state, so older
-// identical results are stale. run_shell is excluded — the same command is
-// not idempotent, so an older result can be the only record of a genuinely
-// distinct outcome.
+// results are stale. run_shell is excluded — the same command is not
+// idempotent, so an older result can be the only record of a distinct
+// outcome.
 const QUERY_TOOLS = new Set([...SEARCH_QUERY_TOOLS, "list_dir"]);
 
 function isReplayableResultTool(name: string): boolean {
@@ -202,7 +200,7 @@ function stableStringify(value: unknown): string {
 
 /** Dedup identity for a query call: tool name + canonicalized arguments.
  * Only byte-identical (modulo key order) calls share a key, so differing
- * calls never supersede each other. */
+ * calls never supersede. */
 function queryIdentityFromArguments(
   name: string,
   raw: unknown,
@@ -250,9 +248,8 @@ function buildCallIndex(
 /**
  * Read-identity → matching replayable read/query results in session order.
  *
- * Callers pass only turns that survive compaction: supersession over the full
- * transcript would hollow a kept older read when the newer re-read was
- * summarized away.
+ * Callers pass only surviving turns: supersession over the full transcript
+ * would hollow a kept older read when its newer re-read was summarized away.
  */
 function buildPathToReads(
   turns: readonly ConversationTurn[],
@@ -328,10 +325,10 @@ function buildPairIndex(turns: ConversationTurn[]): Map<string, PairLocation> {
   return pairs;
 }
 
-// Whitespace-collapsed error-text prefix length compared when deciding two
-// errored results are the same failure repeating. Long enough to separate
-// distinct errors, short enough that trailing variable detail (line numbers,
-// retry counters) does not defeat the collapse.
+// Whitespace-collapsed error-text prefix length for matching repeated
+// failures. Long enough to separate distinct errors, short enough that
+// trailing variable detail (line numbers, retry counters) does not defeat
+// the collapse.
 const ERROR_SIGNATURE_PREFIX_CHARS = 120;
 
 type ToolResultBlock = Extract<
@@ -512,14 +509,13 @@ async function ageImagesOutsidePicked(
   return { turns: out, blobs, agedImageCount };
 }
 
-// Merge each adjacent same-role turn whose later half is plain text into the
-// turn before it: compaction can leave same-role neighbors, which the
-// Anthropic Messages API rejects. A turn carrying a tool_result never fuses —
-// result bodies are bulk the tail budgets per turn, and a hybrid turn could
-// not be budgeted independently. Call headers stay fusible; a surviving
-// result still lands right after its tool_call, so no call/result sequence
-// is disturbed. Result/text neighbors that no longer fuse get a [compact]
-// spacer from separateAdjacentUserTurns.
+// Merge adjacent same-role turns whose later half is plain text: compaction
+// can leave same-role neighbors, which the Anthropic Messages API rejects.
+// A turn carrying a tool_result never fuses — result bodies are bulk the tail
+// budgets per turn, and a hybrid turn could not be budgeted independently.
+// Call headers stay fusible; a surviving result still lands right after its
+// tool_call, so no call/result sequence is disturbed. Result/text neighbors
+// that no longer fuse get a [compact] spacer from separateAdjacentUserTurns.
 function carriesToolResult(turn: ConversationTurn): boolean {
   return turn.content.some((block) => block.type === "tool_result");
 }
@@ -631,8 +627,8 @@ function compactSpacerTurn(timestamp: number): ConversationTurn {
 // ---------------------------------------------------------------------------
 
 // Marker stamped by excerptTailText. Excerpting is idempotent: a live excerpt
-// rides unchanged into the next fold. Matching the stamped marker, not a raw
-// prefix, keeps a body that happens to mention the substring excerpted.
+// rides unchanged into the next fold. Match the stamped marker, not a raw
+// prefix, so a body merely mentioning the substring is not re-shortened.
 const TAIL_EXCERPT_SENTINEL = "[tail-shortened ";
 const TAIL_EXCERPT_MARKER = /\[tail-shortened \d+→/;
 
@@ -770,10 +766,10 @@ function isUserAskTurn(turn: ConversationTurn): boolean {
 }
 
 // Newest→oldest budgeted tail: take whole call/result pairs until the token
-// budget, excerpt oversized tool outputs, then stop. Unpicked gap turns
-// between a dragged pair partner and the newest pick stay out. The newest
-// pair is kept even over budget so the live prompt never lacks resume state.
-// With preserveWholeUserMessages, the newest operator ask is paid first.
+// budget, excerpt oversized tool outputs, then stop. Unpicked gaps between a
+// dragged pair partner and the newest pick stay out. The newest pair is kept
+// even over budget so the live prompt never lacks resume state. With
+// preserveWholeUserMessages, the newest operator ask is paid first.
 function selectTail(
   turns: readonly ConversationTurn[],
   shape: CompactionShape,

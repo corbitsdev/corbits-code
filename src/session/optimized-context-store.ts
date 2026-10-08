@@ -90,10 +90,9 @@ function sanitizeCallId(callId: string): string {
  * instead of aborting resume. Null padding from a stale keepBytes write is
  * stripped. `skipMalformed` drops (or partially recovers) a bad line
  * anywhere and keeps surrounding history — used by `loadRecentTurns` and
- * the reactor's `load()` recovery path, since killing the session on one
- * bad line was worse than a hole in history. A truncated stub glued to the
- * next append still yields a trailing complete turn via
- * `recoverTurnFromGluedLine`.
+ * the reactor's `load()` recovery path, since a bad line should not kill
+ * the session. A truncated stub glued to the next append still yields a
+ * trailing complete turn via `recoverTurnFromGluedLine`.
  */
 function recoverTurnFromGluedLine(line: string): ConversationTurn | null {
   // Walk every `{` start: a truncated prefix glued onto a complete record
@@ -215,7 +214,7 @@ async function loadMetadataSoft(
   }
 }
 
-// Non-throwing mirror of assertWellFormedToolSequence, used to pick the
+// Non-throwing mirror of assertWellFormedToolSequence for picking the
 // longest loadable segment prefix. Unpaired trailing tool_calls pass; dups
 // and orphan results fail.
 function toolSequenceIsWellFormed(turns: readonly ConversationTurn[]): boolean {
