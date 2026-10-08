@@ -93,8 +93,8 @@ afterEach(() => {
 
 // Rejects immediately instead of touching the network. loadConfig's pricing
 // refresh is fire-and-forget, so a resolved run proves only that the injected
-// impl was reached — exactly the regression this guards against: the default
-// impl performs a real fetch of models.dev from inside the suite.
+// impl was reached — guarding the suite against the default impl's real
+// models.dev fetch.
 function offlineFetch(): { impl: typeof fetch; calls: () => number } {
   let count = 0;
   const impl = (() => {
@@ -580,14 +580,10 @@ test("loadConfig ignores a persisted OAuth entry whose auth profile is gone", as
   }
 });
 
-// Regression: OAuth credentials for an xai/<profile> provider are never read
-// from settings.json — home-level auth stores are the source of truth, and
+// Regression: OAuth credentials for an xai/<profile> provider never come from
+// settings.json — home-level auth stores are the source of truth, and
 // loadConfig merges them into the catalog it hands to resolveProvider (see
 // "OAuth profiles live in home-level auth stores" in src/config/index.ts).
-// --config only overrides provider *definitions*; it must still merge in the
-// OAuth catalog, or every codex/xai OAuth run through --config reaches the
-// provider unauthenticated. Only the programmatic `globalSettingsPath` test
-// override opts out.
 test("loadConfig resolves an OAuth-profile provider absent from any settings file", async () => {
   const fakeHome = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-home-"));
   const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-cwd-"));
@@ -610,12 +606,10 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
   }
 });
 
-// --config <path> overrides provider *definitions* only; credentials for
-// OAuth-profile providers (codex/<name>, xai/<name>) live in separate
-// home-level auth stores that --config never touches (same rule as the
-// regression test above). Before this fix, an explicit --config suppressed
-// the OAuth catalog merge, so any codex/xai run through --config resolved to
-// an unauthenticated provider. Proves --config composes with auth.
+// --config overrides provider *definitions* only; OAuth credentials live in
+// home-level auth stores --config never touches (same rule as the regression
+// test above). An explicit --config must still merge the OAuth catalog, or
+// any codex/xai run through --config resolves unauthenticated.
 test("--config composes with OAuth profile auth instead of suppressing it", async () => {
   const fakeHome = await mkdtemp(
     join(tmpdir(), "ic-unit-config-oauth-compose-home-"),

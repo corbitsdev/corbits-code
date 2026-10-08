@@ -303,14 +303,14 @@ export function buildOpenAISource(fields: {
   };
 }
 
-// One configured provider the /agent modal can switch to. Carries credentials
-// (live switching builds an InferenceSource from it; the modal never sees the
-// key). Derived from ProviderSettings so a new required field forces every
-// catalog literal to supply it; `name` is required (a concrete provider id);
-// `contextWindow` is dropped (settings-only, never surfaced). OAuth-profile
-// markers have no ProviderSettings counterpart and are never written to
-// settings.json. Optional fields still need the config.test.ts round-trip:
-// TS misses a missing optional property on an explicitly-typed literal.
+// One configured provider the /agent modal can switch to. Derived from
+// ProviderSettings so a new required field forces every catalog literal to
+// supply it; `name` is required (a concrete provider id), `contextWindow` is
+// dropped (settings-only, never surfaced). Carries credentials the modal
+// never shows. OAuth-profile markers have no ProviderSettings counterpart
+// and are never written to settings.json. Optional fields still need the
+// config.test.ts round-trip: TS misses a missing optional property on an
+// explicitly-typed literal.
 export type ProviderCatalogEntry = Omit<
   ProviderSettings,
   "name" | "contextWindow"
@@ -665,15 +665,14 @@ export interface Config {
   // Deprecated no-op retained for CLI compatibility.
   noWorkflow: boolean;
   /**
-   * Runtime settings view for provider resolution. Includes OAuth provider
-   * projections from the live catalog that are never written to settings.json.
-   * Do not pass this object to saveGlobalSettings — rebuild with
-   * providerCatalogToSettings (or re-read disk) before any persist.
+   * Runtime settings view for provider resolution, including OAuth
+   * projections never written to settings.json. Not for saveGlobalSettings —
+   * rebuild with providerCatalogToSettings (or re-read disk) first.
    */
   settings?: Settings;
   /**
-   * Fail-open diagnostics from local settings load (unknown keys, invalid JSON,
-   * stripped credentials). Shown on the main TUI so startup never hard-crashes.
+   * Fail-open diagnostics from local settings load (unknown keys, invalid
+   * JSON, stripped credentials); shown so startup never hard-crashes.
    */
   settingsDiagnostics?: SettingsLoadDiagnostic[];
 }
@@ -702,9 +701,8 @@ export interface UnconfiguredConfig {
   // The original error message, used for non-TUI (exec) error output.
   providerError: string;
   /**
-   * Fail-open diagnostics from local settings load. Still threaded on the
-   * unconfigured path so junk local files surface via stderr/banner rather
-   * than disappearing when provider setup fails early.
+   * Fail-open diagnostics from local settings load, still threaded when
+   * provider setup fails early so junk local files surface via stderr/banner.
    */
   settingsDiagnostics?: SettingsLoadDiagnostic[];
 }
@@ -1127,8 +1125,8 @@ export async function loadConfig(
       ...(configPath !== undefined ? { cliConfigPath: configPath } : {}),
       programmaticSettingsPath: options.globalSettingsPath !== undefined,
       providerError: err instanceof Error ? err.message : String(err),
-      // Keep diagnostics even when provider setup fails early so junk local
-      // files still reach stderr (exec) / banner (TUI after onboarding).
+      // Keep diagnostics when provider setup fails early so junk local files
+      // reach stderr (exec) / banner (TUI after onboarding).
       ...(settingsDiagnostics.length > 0 ? { settingsDiagnostics } : {}),
     };
   }
@@ -1272,8 +1270,8 @@ export async function loadConfig(
             mcpServerEntries: [],
           }),
     // Runtime view includes OAuth projections so inference resolution can see
-    // Codex/xAI providers that are never written to settings.json. Not safe
-    // to persist as-is — use providerCatalogToSettings or re-read disk.
+    // providers never written to settings.json; not safe to persist as-is
+    // (use providerCatalogToSettings or re-read disk).
     ...(settingsForResolution !== null
       ? { settings: settingsForResolution }
       : {}),
@@ -1286,16 +1284,16 @@ export async function loadConfig(
 // connect (mid-session, no restart) can rebuild the picker's catalog after
 // writing new credentials.
 //
-// Credential-removal convergence is rebuild-only: every rebuild derives rows
-// from the current settings file plus the live Codex/xAI stores, so a
-// provider without a credential is rebuilt without one and re-auth restores
-// it on the next rebuild. Settings-file rows pass through verbatim and are
-// never deleted — one exception: the legacy bare `codex`/`xai` row dedupe
-// (below). A dedicated disabled flag was rejected (no removal event drives a
-// refresh — there is no logout/disconnect surface or auth-store watcher).
+// Rebuild-only convergence: every rebuild derives rows from the current
+// settings file plus the live stores, so a provider without a credential is
+// rebuilt without one and re-auth restores it on the next rebuild. Settings
+// rows pass through verbatim and are never deleted — except the legacy bare
+// `codex`/`xai` dedupe below. A dedicated disabled flag was rejected: no
+// removal event drives a refresh (no logout/disconnect surface or auth-store
+// watcher).
 //
-// Compare a settings-row baseURL against the OAuth endpoint so a proxy/mirror
-// row is never mistaken for the legacy bare-row duplicate; normalization
+// Bare-row dedupe compares the settings baseURL with the OAuth endpoint so a
+// proxy/mirror row is never mistaken for the legacy duplicate; normalization
 // failures fall back to a trailing-slash-insensitive compare.
 function sameEndpoint(raw: string | undefined, oauthBaseURL: string): boolean {
   if (raw === undefined) return false;
@@ -1316,13 +1314,12 @@ export function mergeOAuthCatalog(
 ): ProviderCatalogEntry[] {
   const codexEntries = codexProfilesToCatalogEntries(codexProfiles);
   const xaiEntries = xaiProfilesToCatalogEntries(xaiProfiles);
-  // A legacy bare `codex`/`xai` settings row (the original single-instance
-  // connect key) reads as a second, separately-added provider next to the
-  // credential-backed `<kind>/<profile>` entries. Drop it once that family
-  // has a live profile; when nothing is connected the bare row is the only
-  // ChatGPT/Grok access and stays. A bare row at a different endpoint
-  // (proxy/mirror) is a distinct provider, not the legacy duplicate, so it
-  // stays too.
+  // Legacy bare `codex`/`xai` row (the original single-instance connect key)
+  // next to live credential-backed `<kind>/<profile>` entries reads as a
+  // second provider. Drop it once that family has a live profile; when
+  // nothing is connected the bare row is the only ChatGPT/Grok access and
+  // stays. A bare row at a different endpoint is a distinct provider (see
+  // sameEndpoint), so it stays too.
   const dropBare = new Set([
     ...(codexEntries.length > 0 &&
     sameEndpoint(settings?.providers["codex"]?.baseURL, CODEX_BASE_URL)
@@ -1334,10 +1331,10 @@ export function mergeOAuthCatalog(
       : []),
   ]);
   const settingsRows = buildProviderCatalog(settings, resolved);
-  // A hand-named codex/<slug> or xai/<slug> API-key row is the operator's
-  // explicit config, not an OAuth placeholder (see isHandNamedProviderEntry):
-  // keep it and skip the colliding live profile projection instead of
-  // overwriting it. Read the raw settings rows only: buildProviderCatalog
+  // A hand-named codex/<slug> or xai/<slug> API-key row is explicit config,
+  // not an OAuth placeholder (see isHandNamedProviderEntry): keep it and skip
+  // the colliding live profile projection. Read the raw settings rows only:
+  // buildProviderCatalog
   // synthesizes a [resolved] row when settings is null/empty, and when
   // resolved is itself codex/<slug> that row carries the live apiKey with no
   // profile marker — treating it as hand-named would eject the real marked
@@ -1470,8 +1467,7 @@ export function catalogEntryAsProviderSettings(
 // Overlay the full live catalog (including OAuth profiles) onto settings for
 // runtime provider resolution. OAuth credentials live in home auth stores,
 // stripped from settings.json; the catalog is the source of truth for which
-// OAuth providers are available now. Never pass the result to a disk write
-// path — use providerCatalogToSettings for persistence.
+// OAuth providers are available now. Persist via providerCatalogToSettings.
 export function runtimeSettingsWithCatalog(
   settings: Settings | undefined,
   catalog: readonly ProviderCatalogEntry[],
@@ -1513,8 +1509,7 @@ export function buildProviderCatalog(
   if (settings !== null && Object.keys(settings.providers).length > 0) {
     return Object.entries(settings.providers).map(
       ([name, p]): ProviderCatalogEntry => {
-        // Heal mis-seeded Go rows on load: known id/label, flag, or Go baseURL →
-        // pin baseURL + flag.
+        // Heal mis-seeded Go rows on load (rule in healOpenCodeGoProviders).
         const go = isOpenCodeGoProvider({
           name,
           ...(p.opencodeGo === true ? { opencodeGo: true as const } : {}),
@@ -1586,8 +1581,7 @@ export function providerCatalogToSettings(
   );
   // Spread the full existing settings so provider saves never drop plugins,
   // pluginPaths, shell, tools, or other unknown keys — only the catalog and
-  // defaultProvider are replaced. A hand-picked allowlist previously wiped
-  // unrelated settings after a /model save.
+  // defaultProvider are replaced.
   if (existing === undefined) {
     return {
       ...(defaultProvider !== undefined ? { defaultProvider } : {}),

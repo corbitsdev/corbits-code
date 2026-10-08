@@ -410,7 +410,7 @@ export function toolWatchdogFromSettings(settings?: Settings | null):
 
 // Maps settings.env (per-project) to the extra env vars the shell-guard plugin
 // merges into the run_shell spawn environment. Returns undefined when unset so
-// callers can skip the override and inherit process.env unmodified.
+// callers inherit process.env unmodified.
 export function shellEnvFromSettings(
   local?: LocalSettings | null,
 ): Record<string, string> | undefined {
@@ -426,11 +426,10 @@ export interface PluginConfig {
   credentials?: Record<string, string>;
 }
 
-// An MCP server is reached one of two ways: a stdio server is launched as a
-// subprocess (`command` + `args`); an http server is a remote Streamable-HTTP
-// endpoint (`url`) corbits connects to directly and authorizes via OAuth.
-// `type` defaults to "stdio" when `command` is set and "http" when only
-// `url` is.
+// An MCP server is reached one of two ways: stdio launches a subprocess
+// (`command` + `args`); http is a remote Streamable-HTTP endpoint (`url`)
+// corbits connects to directly and authorizes via OAuth. `type` defaults to
+// "stdio" with `command`, "http" with only `url`.
 export interface MCPServerConfig {
   name: string;
   type?: "stdio" | "http";
@@ -823,7 +822,6 @@ export function isLocalSettings(value: unknown): value is LocalSettings {
     normalizeMcpServers(s.mcpServers) === undefined
   )
     return false;
-  // Legacy "single" | "orchestrator" still load; product resolve ignores them.
   if (
     s.sessionMode !== undefined &&
     s.sessionMode !== "single" &&
@@ -1438,8 +1436,8 @@ export async function persistSkipPermissionsDefault(
 
 // Stamp the global `onboarded` flag. Reads on-disk settings fresh (never an
 // in-memory Settings that may carry injected OAuth entries with short-lived
-// access tokens) and re-saves with onboarded set. Absent file → minimal valid
-// Settings; no provider or credential is ever invented here.
+// tokens) and re-saves with onboarded set. Absent file → minimal valid
+// Settings; no provider or credential is invented here.
 export async function markOnboarded(path: string): Promise<void> {
   const onDisk = await loadSettings(path);
   const base: Settings = onDisk ?? { providers: {} };
@@ -1764,8 +1762,8 @@ export function resolveInferenceWithPolicy(
   const resolved = resolveInferenceSpec(spec, settings);
   if (resolved !== null) return { kind: "resolved", value: resolved };
 
-  // No viable leg. `mode: "pin"` and `agentModelFallback: "none"` both mean
-  // "do not silently fall through"; any other combination permits fallback.
+  // No viable leg: `mode: "pin"` or `agentModelFallback: "none"` forbids
+  // fallback; any other combination permits it.
   const forbidFallback =
     spec.mode === "pin" || settings.agentModelFallback === "none";
   if (forbidFallback) {
