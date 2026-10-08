@@ -198,13 +198,12 @@ describe("landing screen", () => {
       async (_shell, h) => {
         await settle(h);
         const painted = rows(h);
-        // Either corner set: the prompt border's glyphs are the box owner's
-        // business, the box's position is what this asserts.
+        // Either corner set: the prompt border's glyphs are the box's
+        // business; only its position is asserted.
         const top = painted.findIndex((row) => /[┌╭]/.test(row));
         const bottom = painted.findIndex((row) => /[└╰]/.test(row));
         expect(top).toBeGreaterThan(0);
-        // The box straddles the terminal's middle row (within the half row an
-        // odd-height box on an even-height terminal cannot avoid).
+        // The box straddles the terminal's middle row.
         expect(
           Math.abs((top + bottom) / 2 - (SIZE.height - 1) / 2),
         ).toBeLessThanOrEqual(1);
@@ -217,9 +216,8 @@ describe("landing screen", () => {
           mark.length,
         );
         expect(painted.indexOf(mark.at(-1) as string)).toBeLessThan(top);
-        // The two doors sit beside the mark, not under it, and their
-        // descriptions share one column — ragged, the pair reads as two
-        // unrelated lines rather than as a set.
+        // The doors sit beside the mark, and their descriptions share one
+        // column.
         const descriptionColumns = new Set<number>();
         for (const hint of LANDING_HINTS) {
           const row = painted.find((line) => line.includes(hint.rest));
@@ -270,9 +268,7 @@ describe("landing screen", () => {
         await settle(h);
         const still = markRows(h).join("\n");
 
-        // Idle re-entry holds the mountain's filled frame at any clock, but
-        // the snow drifting over it still animates — the idle landing screen
-        // is exactly where it needs to.
+        // Idle holds the filled frame at any clock; the snow still drifts.
         paintLanding(shell, 1_700, false);
         await settle(h);
         expect(stripSnow(markRows(h).join("\n"))).toBe(stripSnow(still));
@@ -294,24 +290,18 @@ describe("landing screen", () => {
   });
 
   test("an idle mount keeps the snow drifting on its own, with nothing pumping frames by hand", async () => {
-    // Regression: the other tests drive the mark via `paintLanding` with a
-    // hand-picked clock, which is how frozen snow shipped — none of them go
-    // through the real driver a running session uses. This one mounts the
-    // shell for real and lets it repaint itself: no `paintLanding`/
-    // `renderMark` calls and, critically, no `renderOnce` loop while
-    // waiting — a test that pumps frames by hand can stay green when the
-    // production self-driver is dead.
+    // Regression: the other tests drive the mark by hand via `paintLanding` —
+    // how frozen snow shipped. This one mounts the shell for real: no
+    // `paintLanding`/`renderMark` calls and no `renderOnce` pumping, so a
+    // hand-pumped test cannot stay green when the self-driver is dead.
     await withAppShell(
       async (_shell, h) => {
         await settle(h);
         const before = markRows(h).join("\n");
 
-        // Poll until the product's idle-repaint timer moves the snow or a
-        // deadline passes. A single fixed sleep-then-check races the timer
-        // under CI load: when the interval is delayed past the sleep, the
-        // capture is still the mount frame. Polling keeps the property intact
-        // (nothing here pumps frames, so a frozen timer still fails) while
-        // early exit drops the suite cost below the old fixed 3s wait.
+        // Poll until the idle timer moves the snow or a deadline passes: a
+        // fixed sleep races the timer under CI load, while polling keeps the
+        // frozen-timer failure and drops the old fixed 3s wait.
         const deadline = performance.now() + 5_000;
         let after = before;
         while (performance.now() < deadline) {
@@ -504,13 +494,12 @@ describe("landing screen", () => {
           before.findIndex((row) => row.includes(text)),
         );
         expect(was.every((index) => index > 0)).toBe(true);
-        // The anchors are listed top to bottom, so their positions climb
-        // together before the overlay opens.
+        // Anchors listed top to bottom: their positions climb together
+        // before the overlay opens.
         expect(was).toEqual([...was].sort((a, b) => a - b));
 
-        // Heavy inset permission overlay: many choices plus a multi-line body
-        // so the float must take real headroom from the landing split. A
-        // three-item body would pass even if the split never slid.
+        // Heavy inset overlay: many choices plus a multi-line body, so the
+        // float must take real headroom from the landing split.
         const heavyBody = [
           "run_shell",
           "Run shell command",
@@ -528,10 +517,9 @@ describe("landing screen", () => {
         expect(shell.layout.overlayMode).toBe("inset");
         await settle(h);
         const after = rows(h);
-        // Every landing anchor stays on screen in the same relative order:
-        // the overlay lets neither spill, overlap, nor reshuffle. It may
-        // still slide the composition (the mark re-grids for its new tier)
-        // when its content needs more room than the even split leaves it.
+        // Every anchor stays on screen in the same relative order; the
+        // overlay may still slide the composition (mark re-grid) for its
+        // content height.
         const nowAt = anchors.map((text) =>
           after.findIndex((row) => row.includes(text)),
         );
@@ -539,7 +527,7 @@ describe("landing screen", () => {
         expect(nowAt).toEqual([...nowAt].sort((a, b) => a - b));
         expect(new Set(nowAt).size).toBe(nowAt.length);
         // Real geometry pressure: the prompt field moves so the inset can
-        // claim rows the even split would not have given it.
+        // claim rows.
         expect(nowAt[0]).not.toBe(was[0]);
         expect(h.captureCharFrame()).toContain("Esc cancel");
       },
@@ -554,10 +542,9 @@ describe("landing screen", () => {
     );
   });
 
-  // An inset permission list with more choices than the even split leaves
-  // room for used to get starved to one or two rows — the float only asked
-  // the split for one choice row of headroom. It now asks for the overlay's
-  // real content height, so a tall-enough terminal shows every choice.
+  // Regression: an inset list taller than the even split used to starve to a
+  // row or two — the float asked the split for one row. It now asks for the
+  // overlay's real height, so a tall-enough terminal shows every choice.
   test("a landing overlay with many choices shows them all when there is room", async () => {
     await withAppShell(
       async (shell, h) => {
@@ -618,14 +605,14 @@ describe("landing screen", () => {
     await withAppShell(
       async (shell, h) => {
         await settle(h);
-        // A bare landing seats exactly two zones: the transcript canvas above
-        // the prompt box. Resurrected chrome would arrive as a new region.
+        // A bare landing seats exactly two zones; resurrected chrome would be
+        // a new region.
         expect(Object.keys(shell.layout.regions).sort()).toEqual([
           "prompt",
           "transcript",
         ]);
-        // The old header blue and status green were fills; no chrome fill
-        // survives when every painted span shares one background.
+        // Every painted span shares one background, so no chrome fill
+        // survives.
         expect(new Set(backgrounds(h)).size).toBe(1);
       },
       {
@@ -665,9 +652,8 @@ describe("landing screen", () => {
   });
 
   test("startup MCP/load errors keep the mountain and ride the notice strip", async () => {
-    // Load-time system notices used to appendStreamRow → clearLandingMark,
-    // wiping the brand hero. They must surface as secondary chrome while
-    // geometry still seats MARK_SMALL or larger.
+    // Load-time notices used to wipe the brand hero via appendStreamRow →
+    // clearLandingMark; they must surface as secondary chrome instead.
     await withAppShell(
       async (shell, h) => {
         await settle(h);
@@ -694,7 +680,7 @@ describe("landing screen", () => {
         );
 
         // A real session row still ends the landing; deferred notices become
-        // durable transcript rows rather than vanishing with the flash.
+        // durable transcript rows.
         appendStreamRow(shell, { role: "user", text: "first prompt" });
         await settle(h);
         expect(isLanding(shell)).toBe(false);
@@ -712,9 +698,8 @@ describe("landing screen", () => {
   });
 
   test("startup plugin diagnostics keep the mountain and ride plugin !", async () => {
-    // Plugin load warnings drive the standing `plugin !` attention mark
-    // instead of surfaceSystemNotice; the mountain must stay up while that
-    // mark is painted.
+    // Plugin warnings drive the standing `plugin !` mark, not
+    // surfaceSystemNotice; the mountain stays up while it is painted.
     await withAppShell(
       async (shell, h) => {
         await settle(h);
@@ -745,9 +730,8 @@ describe("landing screen", () => {
 
   test("a flushed startup notice never carries a plumbing gutter label", async () => {
     // The transcript must never label a row "command": the row text already
-    // says what it is, and the meta column is the operator's, not the
-    // wiring's. (MCP notices still use the notice strip; plugin skill-miss
-    // summaries do not.)
+    // says what it is, and the meta column is the operator's. (MCP notices
+    // still use the notice strip; plugin skill-miss summaries do not.)
     await withAppShell(
       async (shell, h) => {
         await settle(h);
@@ -759,9 +743,8 @@ describe("landing screen", () => {
         await settle(h);
 
         expect(isLanding(shell)).toBe(false);
-        // Assert on the flushed notice row(s), not the full char frame: the
-        // footer can echo the process cwd, and a worktree path containing
-        // "overlay" or "command" would false-positive the label invariant.
+        // Assert on the flushed notice rows, not the full frame: a cwd or
+        // worktree path containing "overlay"/"command" would false-positive.
         const noticeNeedle = "mcp github did not connect";
         const noticeRows = shell.streamLog.filter((row) =>
           row.text.includes(noticeNeedle),
@@ -787,8 +770,8 @@ describe("landing screen", () => {
   });
 
   test("the version is chrome, not the hero: it hides before actionable chrome does on a narrow terminal", async () => {
-    // Above the badge's thresholds but below nothing else — proves the badge
-    // is what degrades, and degrades first.
+    // Above the badge's thresholds, below nothing else: the badge degrades
+    // first.
     const roomy = {
       width: VERSION_BADGE_MIN_COLUMNS + 20,
       height: VERSION_BADGE_MIN_ROWS + 8,
@@ -806,8 +789,8 @@ describe("landing screen", () => {
       },
     );
 
-    // Just under the badge's column floor: the badge is gone, but the prompt
-    // field — genuinely actionable chrome — is still on screen.
+    // Just under the badge's column floor: the badge is gone, the prompt
+    // field stays.
     const narrowColumns = {
       width: VERSION_BADGE_MIN_COLUMNS - 1,
       height: VERSION_BADGE_MIN_ROWS + 8,
@@ -853,18 +836,16 @@ describe("landing screen", () => {
   });
 
   test("the task panel and the version badge both paint while landing is still mounted, without clipping the prompt", async () => {
-    // A resumed session can land with tasks already visible before the
-    // landing screen is torn down (no transcript content sent) — restored
-    // chrome and the version badge's reserved row compete for the same short
-    // terminal at once. This is the regression case for that interaction.
+    // A resumed session can land with tasks visible before teardown:
+    // restored chrome and the badge's reserved row compete on the same short
+    // terminal.
     const size = { width: 100, height: 17 };
     await withAppShell(
       async (shell, h) => {
         setChromeZones(shell, {
           task: [{ label: "wire the version badge", status: "doing" }],
         });
-        // Hidden by default — opt in so the regression case still exercises
-        // task row and version badge painting at once.
+        // Hidden by default; opt in so the regression exercises both at once.
         toggleTasksPanel(shell);
         await settle(h);
 
@@ -874,8 +855,7 @@ describe("landing screen", () => {
         const painted = rows(h);
         // captureCharFrame's trailing newline yields one extra split entry.
         expect(painted.length).toBe(size.height + 1);
-        // Nothing is clipped off past the terminal's own row count — the
-        // frame is exactly as tall as the terminal, not taller.
+        // The frame is exactly as tall as the terminal, not taller.
         expect(painted.slice(size.height).every((row) => row === "")).toBe(
           true,
         );
@@ -883,8 +863,8 @@ describe("landing screen", () => {
         const frame = painted.join("\n");
         expect(frame).toContain("wire the version badge");
         expect(frame).toContain(LANDING_VERSION);
-        // The prompt field itself stays on screen, not pushed off by the
-        // task row and version row combined.
+        // The prompt field stays on screen, not pushed off by the task and
+        // version rows.
         const promptRow = painted.findIndex((row) => row.includes("message"));
         expect(promptRow).toBeGreaterThan(0);
         const box = defined(shell.layout.regions.prompt);
