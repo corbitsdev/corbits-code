@@ -12,9 +12,9 @@ function taskResult(): ToolResult {
 
 describe("isIdempotentTaskBatch", () => {
   test("manage_tasks batch is exempt", () => {
-    expect(
-      isIdempotentTaskBatch([call("manage_tasks")], [taskResult()]),
-    ).toBe(true);
+    expect(isIdempotentTaskBatch([call("manage_tasks")], [taskResult()])).toBe(
+      true,
+    );
   });
 
   test("todowrite alias is exempt", () => {
@@ -48,9 +48,9 @@ describe("isIdempotentTaskBatch", () => {
   });
 
   test("non-task tools are never exempt", () => {
-    expect(
-      isIdempotentTaskBatch([call("run_shell")], [taskResult()]),
-    ).toBe(false);
+    expect(isIdempotentTaskBatch([call("run_shell")], [taskResult()])).toBe(
+      false,
+    );
   });
 
   test("empty batches are never exempt", () => {
