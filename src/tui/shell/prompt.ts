@@ -192,9 +192,8 @@ onThemeChange(() => {
 });
 
 /**
- * Highlight style registry plus the one style id this feature uses. Lazy
- * like `transcriptSyntaxStyle`: construction reaches into the native render
- * lib.
+ * Lazy like `transcriptSyntaxStyle`: construction reaches into the native
+ * render lib.
  */
 function promptRecognizedStyleId(): number {
   if (cachedPromptSyntaxStyle === null) {
@@ -212,9 +211,8 @@ function promptRecognizedStyleId(): number {
 const promptHighlightedValue = new WeakMap<AppShell, string>();
 
 /**
- * Re-mark leading slash commands and @mentions. Runs once per frame (see
- * `onFrame`) and no-ops unless the text changed since the last frame — a
- * miss is just a plain string compare.
+ * Re-mark leading slash commands and @mentions. No-op unless the text
+ * changed since the last frame — a miss is just a plain string compare.
  */
 export function syncPromptHighlights(shell: AppShell): void {
   const source = shellRecognitionSource.get(shell);
@@ -243,8 +241,8 @@ export function syncPromptHighlights(shell: AppShell): void {
 
 /**
  * Suspend/resume shell key/paste/submit handling. A full-screen surface
- * borrowing this renderer (the inline provider connect) owns the keyboard
- * for its lifetime, so Ctrl+C during a sign-in can't interrupt the agent.
+ * borrowing this renderer (the inline provider connect) owns the keyboard,
+ * so Ctrl+C during a sign-in can't interrupt the agent.
  */
 export function setShellInputSuspended(
   shell: AppShell,
@@ -256,9 +254,9 @@ export function setShellInputSuspended(
 
 /**
  * Surface a runtime/load notice without stealing the landing hero: while the
- * landing is mounted the wording rides the notice strip and is flushed when
- * a real session row ends the landing; afterwards it is a normal system row.
- * System-class rows belong here, not at `appendStreamRow`.
+ * landing is mounted the wording rides the notice strip, flushed when a real
+ * session row ends the landing. System-class rows belong here, not at
+ * `appendStreamRow`.
  */
 export function surfaceSystemNotice(shell: AppShell, text: string): void {
   if (isLanding(shell)) {
@@ -280,17 +278,17 @@ export function surfaceSystemNotice(shell: AppShell, text: string): void {
  *  - "reinject": hard-stop and restart from this message. No product chord
  *    wires it; for tests / direct API callers. No-op unless the run is busy
  *    and the prompt non-empty.
- *  - Idle Enter (either kind) sends directly; "kind" only matters while a
- *    run is in flight.
+ *  - Idle Enter sends directly; "kind" only matters while a run is in
+ *    flight.
  */
 export function submitPrompt(
   shell: AppShell,
   kind: "queue" | "steer" | "reinject" = "queue",
 ): void {
-  // A Tab-accepted free-form hint is placeholder text; bare Enter must
-  // dispatch the command, not submit the literal. The strip is shape-only —
-  // the untouched selection is lost to an arrow key — so only the exact
-  // `/id <hint>` match strips; real arguments never equal the hint.
+  // A Tab-accepted hint is placeholder text; bare Enter must dispatch the
+  // command, not the literal. The strip is shape-only — the untouched
+  // selection is lost to an arrow key — so only the exact `/id <hint>`
+  // match strips.
   const hintBase = stripUneditedSlashHint(
     resolvePaletteCatalog(shell),
     shell.prompt.value,
@@ -388,9 +386,9 @@ export function submitPrompt(
 
 /**
  * Pop the most recently queued or steered message back into the composer
- * (last-only, see `cancelLast`). An empty prompt gets the item's text and
- * attachments back for editing and resend; mid-compose it is dropped so a
- * merge into an in-progress draft cannot send two messages as one.
+ * (last-only, see `cancelLast`). An empty prompt gets the item back for
+ * editing and resend; mid-compose it is dropped so a merge into an
+ * in-progress draft cannot send two messages as one.
  */
 export function applyShellCancelLast(shell: AppShell): void {
   const { state, item } = cancelLast(shell.session);
@@ -432,9 +430,8 @@ export function clearPendingSelection(shell: AppShell): boolean {
 
 /**
  * ↑/↓ on the pending column. ↑ from the prompt's top edge selects the newest
- * held item (nearest the box); ↑/↓ walk the column; ↓ past the last row
- * hands the key back to the prompt's motion. Only rows the column paints can
- * be selected. Returns whether the key was claimed.
+ * held item (nearest the box); ↓ past the last row hands the key back to the
+ * prompt's motion. Only rows the column paints can be selected.
  */
 export function applyPendingNav(shell: AppShell, delta: -1 | 1): boolean {
   const bag = shellInternals(shell);
@@ -463,8 +460,7 @@ export function applyPendingNav(shell: AppShell, delta: -1 | 1): boolean {
 
 /**
  * No-runtime leave through the selected row: kill the selected item out of
- * the queue. Same contract as `applyShellCancelLast`: an empty prompt gets
- * the item back for editing; mid-draft it is dropped, not merged.
+ * the queue. Same contract as `applyShellCancelLast`.
  */
 function popSelectedToPrompt(shell: AppShell): void {
   const bag = shellInternals(shell);
@@ -489,9 +485,8 @@ function popSelectedToPrompt(shell: AppShell): void {
 
 /**
  * Enter on a selected pending item: kill it out of the queue and deliver now
- * through the runtime, skipping its boundary/idle wait. With no runtime
- * attached there is nothing to deliver to, so it falls back to
- * `popSelectedToPrompt`.
+ * through the runtime, skipping its boundary/idle wait. No runtime attached
+ * falls back to `popSelectedToPrompt`.
  */
 export function applyPendingForcePush(shell: AppShell): void {
   const bag = shellInternals(shell);
@@ -511,15 +506,15 @@ export function applyPendingForcePush(shell: AppShell): void {
 }
 
 /**
- * Ctrl+G on a selected pending item: cancel that row, not the newest. It
- * only cancels, never delivers.
+ * Ctrl+G on a selected pending item: cancel that row, not the newest. Only
+ * cancels, never delivers.
  */
 export function applyPendingCancelSelected(shell: AppShell): void {
   popSelectedToPrompt(shell);
 }
 
 /**
- * ^X on a selected pending item: kill it outright, keeping the selection on
+ * ^X on a selected pending item: kill it outright; the selection stays on
  * whatever slides into the freed slot so a second ^X walks down without
  * re-entering the column.
  */
