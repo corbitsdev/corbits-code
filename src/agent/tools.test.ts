@@ -40,10 +40,8 @@ const mockPosixTools = {
   dispose: mockDispose,
 };
 
-// withMockedModule captures each real module and registers its own afterAll
-// restore, so none of these mocks can outlive this file (Bun runs every test
-// file in one process, and an un-restored mock.module silently replaces the
-// real module for every file that runs after this one).
+// withMockedModule restores each mock in afterAll, so none can outlive this
+// file (see testkit/mock-module.ts).
 const mockConnectMCPServer = mock(
   async (
     config: { name: string },
@@ -60,8 +58,8 @@ interface ModuleStub {
   impl: (real: never) => object;
 }
 
-// The sequential stub registrations, table-driven: one entry per mocked
-// module, installed in order through withMockedModule.
+// Table-driven stub registrations: one entry per mocked module, installed in
+// order through withMockedModule.
 const MODULE_STUBS: readonly ModuleStub[] = [
   {
     path: import.meta.resolve("@intx/tools-posix"),

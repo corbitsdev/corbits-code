@@ -617,9 +617,8 @@ export async function createAgentToolset(
         createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),
         createSendInputTool({ sessions: fleetSessions, fleetRecords }),
       );
-      // Exec-primary opt-in only; TUI primary and nested orchestrators collect
-      // via mailbox mail, so wait_agents stays unmounted there. See
-      // mountWaitAgents.
+      // Exec-primary opt-in only; TUI primary and nested orchestrators
+      // collect via mailbox mail, so wait_agents stays unmounted there.
       if (args.mountWaitAgents === true) {
         orchestratorTools.push(
           createWaitAgentsTool({
@@ -736,8 +735,8 @@ export async function createAgentToolset(
     stringTool({
       definition: submitOutputDefinition,
       // The director also observes this call on tool.done; complete() is
-      // compare-and-advance so a second pass is a no-op. The handler reports
-      // complete()'s result so parallel calls cannot both claim an advance;
+      // compare-and-advance, so a second pass is a no-op. The handler
+      // reports its result so parallel calls cannot both claim an advance;
       // already-complete and not-current ids succeed without claiming one.
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
         const parsed = SubmitOutputArgs(rawArgs);
@@ -801,8 +800,8 @@ export async function createAgentToolset(
           awaitPendingMcpConnections(timeoutMs),
         // Tier-2 extension: true when a reconnecting server's retained tools
         // score against the query, so the search waits once more for the
-        // redial to remount them. Needs-auth servers never populate the map —
-        // only transport-death reconnects do — so this stays false for them.
+        // redial to remount them. Only transport-death reconnects populate
+        // the map, so needs-auth stays false here.
         hasReconnectingMatch: (query: string): boolean => {
           const rawQuery = query.toLowerCase().trim();
           const queryTokens = tokenizeLexical(query);
@@ -837,8 +836,7 @@ export async function createAgentToolset(
   const connectedClients = new Map<string, MCPClient>();
   const inFlightConnections = new Map<string, Promise<void>>();
   const inFlightEpochs = new Map<string, number>();
-  // Bounded wait for in-flight handshakes; resolves to the remaining count,
-  // capped by `timeoutMs` so a hung authorization never hangs the caller.
+  // Bounded wait for in-flight handshakes; resolves to the remaining count.
   const awaitPendingMcpConnections = async (
     timeoutMs = TOOL_SEARCH_PENDING_WAIT_MS,
   ): Promise<number> => {

@@ -19,20 +19,15 @@ import {
 import { canonicalToolName } from "./canonical-tool-name.js";
 import { ORCHESTRATOR_TOOLS, READ_TOOLS } from "./directors/tool-sets.js";
 
-// Always advertised with full schema. Everything else is registered but
-// discovered via tool_search: top ranked cards join the next infer's
-// advertised tail; the rest stay name + description until called
-// (promote-on-execute). Shared by the system prompt and the advertised-set
-// gate so the two never drift.
-//
-// `present` stays off: most sessions never render a view, and at 2,793 chars
-// it is the second-largest schema on the wire — tool_search finds it on
-// demand.
-//
-// Write/edit/delete sit in CORE so the primary dispatch session can do
-// tiny/bounded edits without a tool_search round-trip; substantial work still
-// spawns build / docs directors. Codex natives (apply_patch / shell /
-// update_plan) are not advertised.
+// Always advertised with full schema; everything else is discovered via
+// tool_search (top cards join the next infer's advertised tail; the rest
+// stay name + description until called — promote-on-execute). Shared by the
+// system prompt and the advertised-set gate so the two never drift.
+// `present` stays off: rarely rendered and the second-largest wire schema,
+// so tool_search finds it on demand. Write/edit/delete stay in CORE so the
+// primary dispatch can do tiny/bounded edits without a search round-trip;
+// substantial work spawns build / docs directors. Codex natives
+// (apply_patch / shell / update_plan) are not advertised.
 export const CORE_TOOL_NAMES: readonly string[] = [
   "read",
   "write",
@@ -45,9 +40,8 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "tool_search",
   "use_skill",
   "search_agents",
-  // Fleet verbs (non-blocking spawn + lifecycle): mounted on primary when
-  // subAgent is wired; always advertised so the model skips a tool_search
-  // round-trip for them.
+  // Fleet verbs: mounted on primary when subAgent is wired; advertised so
+  // the model skips a tool_search round-trip.
   "spawn_agent",
   "wait_agents",
   "list_agents",
@@ -68,21 +62,19 @@ const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = [
   "send_input",
 ];
 
-// Session-start facts gating a core tool's advertisement. Each is knowable
-// once, before the first inference call, and fixed for the session — the
-// tools array is a provider cache prefix, so a value that could flip
-// mid-session would force a re-prefill worse than the schema bytes it saves.
+// Session-start facts gating a core tool's advertisement, fixed for the
+// session: the tools array is a provider cache prefix, so a value that
+// could flip mid-session forces a re-prefill worse than the bytes it saves.
 export interface ToolAvailability {
   // Whether a language server was resolvable for this project at startup.
   languageServerAvailable: boolean;
   // Headless/non-TTY exec has no operator to answer. False drops
-  // ask_operator from the advertised prefix instead of leaving a cancel stub
-  // on the wire; omit to keep the TUI default (mounted).
+  // ask_operator from the advertised prefix instead of leaving a cancel
+  // stub on the wire; omit keeps the TUI default.
   operatorAvailable?: boolean;
-  // Whether createAgentToolset mounted the wait_agents verb. True only on
-  // exec primary; TUI primary and nested orchestrators collect via mailbox
-  // mail instead. False/omitted filters wait_agents out of the core/advertised
-  // name sets.
+  // Whether createAgentToolset mounted wait_agents: true only on exec
+  // primary; TUI primary and nested orchestrators collect via mailbox mail.
+  // False/omitted filters it out of the core and advertised name sets.
   waitAgentsMounted?: boolean;
 }
 
@@ -121,8 +113,7 @@ const WORKER_WIRE_ALWAYS: readonly string[] = [
 /**
  * Advertised wire prefix for a spawned worker: the director's tool allowlist
  * plus `tool_search` and the leaf reporting channel. No shared preset across
- * roles; MCP stays off until tool_search / promote-on-execute. Model-specific
- * names (apply_patch) fold later via tool profile.
+ * roles; MCP stays off until tool_search / promote-on-execute.
  */
 export function advertisedToolNamesForWorker(opts: {
   allow?: readonly string[];
@@ -152,9 +143,9 @@ export function advertisedToolNamesForWorker(opts: {
 // Built-in file/search/web tools advertised with full schema alongside the
 // core set; MCP tools are absent — discovered blind via tool_search. list_dir
 // stays mounted but unadvertised and excluded from tool_search (use glob).
-// web_fetch / web_search are catalog, not deferred: URL reads and search are
-// first-class primary work; gating web_fetch behind tool_search caused
-// thrash on web-bait.
+// web_fetch/web_search are catalog, not deferred: URL reads and search are
+// first-class primary work; gating them behind tool_search thrashed on
+// web-bait.
 export const CATALOG_TOOL_NAMES: readonly string[] = [
   "glob",
   "grep",
@@ -164,13 +155,12 @@ export const CATALOG_TOOL_NAMES: readonly string[] = [
 
 // Maximal built-in tool set — every gate open — in a deterministic order:
 // the tool_search exclusion list and the fallback prefix for callers with no
-// session-start availability facts. Provider prompt caches are prefix caches
-// keyed on the tools array, so this order must never shift between turns — a
+// session-start availability facts. Provider caches are prefix caches keyed
+// on the tools array, so this order must never shift between turns — a
 // reordered or grown array re-prefills the whole request.
 //
-// Primary sessions should pass
-// `advertisedToolNamesForSessionMode(sessionMode, toolAvailability)` as the
-// `builtInPrefix` to `advertisedTools` — not this constant alone.
+// Primary sessions pass `advertisedToolNamesForSessionMode(...)` as the
+// `builtInPrefix` to `advertisedTools`, not this constant alone.
 export const ADVERTISED_TOOL_NAMES: readonly string[] = [
   ...CORE_TOOL_NAMES,
   ...CATALOG_TOOL_NAMES,
@@ -189,21 +179,21 @@ function isAlreadyAdvertised(
   );
 }
 
-// Mounted built-ins that stay off the advertised prefix, off tool_search, and
-// out of promote-on-execute flushes — dispatch without advertising. glob is
-// the advertised replacement for list_dir.
+// Mounted built-ins kept off the advertised prefix, tool_search, and
+// promote-on-execute flushes — dispatch without advertising. glob is the
+// advertised replacement for list_dir.
 export const UNADVERTISED_MOUNTED_BUILTINS = new Set([
   "list_dir",
   "apply_patch",
 ]);
 
 // Project the live tool registry onto the advertised set: the fixed built-in
-// prefix (its order never changes, keeping the provider cache prefix stable
-// across no-discovery turns) followed by wire-committed tools in
-// first-commit order. Callers pass names committed via flushPromotions (on
-// promote and at cache-safe boundaries), never the live activation list, so
-// a mid-handler discovery cannot append until the promoter commits it. Names
-// are deduped again so raw matches cannot reorder or duplicate an entry.
+// prefix (order never changes, keeping the provider cache prefix stable)
+// followed by wire-committed tools in first-commit order. Callers pass names
+// committed via flushPromotions (on promote and at cache-safe boundaries),
+// never the live activation list, so a mid-handler discovery cannot append
+// until the promoter commits it. Names are deduped so raw matches cannot
+// reorder or duplicate an entry.
 export function advertisedTools(
   all: readonly ToolDefinition[],
   activated: readonly string[] = [],
@@ -360,14 +350,14 @@ export interface ToolSearchDeps {
   // Load the top ranked names onto the next infer's advertised tail. Omitted
   // in unit tests that only assert card text.
   promote?: (names: string[]) => void;
-  // Resolves to the remaining in-flight MCP handshake count after a bounded
-  // wait. The handler re-races this below so a stuck dependency (hung OAuth)
-  // cannot hang the call. Omitted callers have no pending handshakes.
+  // Remaining in-flight MCP handshake count after a bounded wait. The
+  // handler re-races this so a stuck dependency (hung OAuth) cannot hang the
+  // call. Omitted callers have no pending handshakes.
   awaitPendingConnections?: (timeoutMs?: number) => Promise<number>;
-  // True when a reconnecting MCP server holds retained tools that could match
+  // True when a reconnecting MCP server holds tools that could match
   // `query`, justifying one short extra wait for the redial to remount them.
-  // Only transport-death reconnects qualify — needs-auth servers settle via
-  // out-of-band authorization, so waiting for one never helps.
+  // Only transport-death reconnects qualify; needs-auth settles
+  // out-of-band, so waiting never helps.
   hasReconnectingMatch?: (query: string) => boolean;
   // Bounded wait before answering a miss with late-mounting tools, in ms.
   // Defaults to TOOL_SEARCH_PENDING_WAIT_MS; tests override it to exercise
@@ -375,15 +365,15 @@ export interface ToolSearchDeps {
   pendingWaitMs?: number;
 }
 
-// Bound a tool_search miss waits for in-flight MCP handshakes before
-// answering. A hung authorization must never hang the call, so the toolset
-// wait and the handler race below are both capped by this.
+// Cap on a tool_search miss's wait for in-flight MCP handshakes: a hung
+// authorization must never hang the call, so the toolset wait and the
+// handler race below both use this bound.
 export const TOOL_SEARCH_PENDING_WAIT_MS = 1_000;
 
 // Short extension past the tier-1 wait, at most once, and only when a
-// reconnecting server holds tools that could match the query — it covers the
-// redial window where stubs are dropped and the live set is not yet
-// remounted. Never taken for needs-auth: those settle out-of-band.
+// reconnecting server holds tools that could match the query — the redial
+// window where stubs are dropped and the live set is not yet remounted.
+// Never taken for needs-auth: those settle out-of-band.
 export const TOOL_SEARCH_RECONNECT_WAIT_MS = 500;
 
 const ToolSearchArgs = type({
@@ -470,8 +460,8 @@ function renderToolCard(
 }
 
 // Race the dependency's pending-count wait against a bound so a stuck
-// dependency (hung OAuth that never settles) cannot hang the call. Resolves
-// undefined when the race itself times out.
+// dependency (hung OAuth) cannot hang the call. Undefined when the race
+// itself times out.
 async function racePendingCount(
   awaitPending: (timeoutMs?: number) => Promise<number>,
   timeoutMs: number,
@@ -504,8 +494,8 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
           : "";
       if (names.length === 0 && deps.awaitPendingConnections !== undefined) {
         // Tier 1 — miss while connectors start up: wait briefly, then
-        // re-search so late-mounting tools land. The race bounds even a stuck
-        // dependency; undefined means the wait itself timed out.
+        // re-search so late-mounting tools land. Undefined means the wait
+        // itself timed out.
         let stillPending = await racePendingCount(
           deps.awaitPendingConnections,
           deps.pendingWaitMs ?? TOOL_SEARCH_PENDING_WAIT_MS,

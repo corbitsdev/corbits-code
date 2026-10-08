@@ -4,8 +4,8 @@
  * was trained on. Incoming calls accept every name any profile advertises, so
  * dispatch, grants, and history replay never depend on the active profile.
  *
- * default (industry-common): read write edit delete bash glob todowrite skill
- *   webfetch websearch question
+ * default: read write edit delete bash glob todowrite skill webfetch
+ *   websearch question
  * gpt (Codex): default, except shell, update_plan, wait
  */
 
@@ -137,8 +137,8 @@ export function advertisedToolName(
 }
 
 /**
- * True when `name` (wire, engine, or hidden alias) is covered by an advertised
- * or activated listing that may itself be stored as either wire or engine ids.
+ * True when `name` (wire, engine, or hidden alias) is covered by an
+ * advertised or activated listing, which may store wire or engine ids.
  */
 export function nameMatchesAdvertisedListing(
   name: string,
@@ -205,8 +205,8 @@ export function projectToolDefinitions(
  * def's canonical name. The reactor authz snapshot is keyed by parked wire
  * name, so without these copies an ask-tier `bash`/`shell` call throws a
  * wiring-defect error instead of suspending. `update_plan` is never
- * snapshotted: its grant is create-only narrow. Non-aliased defs (MCP,
- * leaf-only) pass through unchanged. Output is deduplicated by name.
+ * snapshotted (its grant is create-only narrow); non-aliased defs (MCP,
+ * leaf-only) pass through unchanged. Deduplicated by name.
  */
 export function authzParityDefinitions(
   defs: readonly ToolDefinition[],
@@ -231,11 +231,11 @@ export function authzParityDefinitions(
 }
 
 /**
- * Thin wrapper over a tool bundle (e.g. DynamicToolRunner): identical except
- * the `definitions` getter returns `authzParityDefinitions` over the live
- * set. Run/dispatch and mutation entry points delegate verbatim — only the
- * authz-facing definition set gains parity copies; the advertised wire set
- * is untouched.
+ * Tool bundle wrapper (e.g. DynamicToolRunner): identical except the
+ * `definitions` getter returns `authzParityDefinitions` over the live set.
+ * Run/dispatch and mutation entry points delegate verbatim; only the
+ * authz-facing set gains parity copies, the advertised wire set is
+ * untouched.
  */
 export function withAuthzParityDefinitions<
   T extends { readonly definitions: readonly ToolDefinition[] },

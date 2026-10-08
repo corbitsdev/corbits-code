@@ -96,11 +96,10 @@ describe("grant aliases", () => {
 
   // update_plan hidden-dispatches onto manage_tasks but is not
   // capability-identical: it only translates to action:"create" with
-  // todo/doing/done statuses; manage_tasks spans the full lifecycle
-  // (create/update, including cancelled). A stored update_plan grant never
-  // covers a manage_tasks request; live requests are coerced before matching
-  // and seeders drop stored update_plan keys, so no same-alias replay test
-  // exists — that path is unreachable in production.
+  // todo/doing/done statuses, while manage_tasks spans the full lifecycle.
+  // A stored update_plan grant never covers a manage_tasks request; live
+  // requests are coerced before matching and seeders drop stored
+  // update_plan keys, so that replay path is unreachable in production.
   test("a stored update_plan grant does not cover manage_tasks", async () => {
     expect(
       await evaluateApprovals({
