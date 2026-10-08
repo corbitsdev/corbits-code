@@ -87,14 +87,13 @@ function hasKnownCommand(known: KnownCommandNames, name: string): boolean {
 
 /**
  * What a submitted composer line is. A leading `/` is a slash command only
- * when its first token (to whitespace, lowercased) exactly matches a
+ * when its first token (lowercased, to whitespace) exactly matches a
  * registered command id; anything else — paths like `/Users/you/notes`,
  * typos like `/cler` — is a model prompt and reaches it verbatim. Bare `/`
  * stays empty. Callers that omit `knownCommands` keep the legacy
- * any-leading-slash-is-a-command rule; every product call site passes the
- * registry set. The returned name is the canonical lowercase registry id so
- * the exact `getCommand` lookup hits for mixed-case input like `/CLEAR`;
- * matching stays case-insensitive via `hasKnownCommand`.
+ * any-leading-slash-is-a-command rule; product call sites pass the registry
+ * set. The returned name is the canonical lowercase registry id, so the
+ * exact `getCommand` lookup hits mixed-case input like `/CLEAR`.
  */
 export function routeSubmission(
   raw: string,
@@ -267,9 +266,8 @@ export function userInboundMessage(
  * Present at most one recovery surface when a send settles. The reconnect
  * offer re-auths the exact scope that failed, so it wins whenever it arms
  * and its presenter is wired; otherwise fall through to the credential
- * picker's provider switch. An armed reconnect with no presenter must not
- * swallow the credential fallback; dismissing it never cascades — one offer
- * per failure.
+ * picker. An armed reconnect with no presenter must not swallow the
+ * credential fallback; dismissing it never cascades — one offer per failure.
  */
 export function presentSendRecoveryOffer(args: {
   credential: PendingCredentialRecovery | null;
@@ -304,11 +302,9 @@ export function createSubmitPath(
     attachments?: readonly PendingImageAttachment[],
   ) => SubmitOutcome;
 } {
-  // Routed through the shell's notice path, not into the transcript:
-  // anything the runner says before the first turn arrives while the landing
-  // hero still owns the screen, and a transcript row there wipes the whole
-  // composition. Once a session row has ended the landing this is an
-  // ordinary system row.
+  // Routed through the shell's notice path, not the transcript: anything
+  // said before the first turn arrives while the landing still owns the
+  // screen, and a transcript row there wipes the whole composition.
   const systemNotice = (text: string): void => {
     surfaceSystemNotice(hostOf(state).shell, text);
   };
@@ -381,9 +377,8 @@ export function createSubmitPath(
       await runWhileAgentBusy(state, async () => {
         const result = await send(message);
         // An ask-tier call parked on the reactor's approval gate settles the
-        // send early; resolve the operator surface here and deliver the
-        // decision on the correlationId signal channel so the parked run
-        // resumes.
+        // send early; deliver the decision on the correlationId signal
+        // channel so the parked run resumes.
         if (result.type === "suspended") {
           services.suspendedApprovalRecovery.capture(
             result,

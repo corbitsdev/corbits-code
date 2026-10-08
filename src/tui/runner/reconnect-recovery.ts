@@ -4,9 +4,7 @@
  * failed `kind/profile` scope, then replay the turn once when nothing was
  * committed. Mirrors credential-recovery's begin/observe/settle/accept shape
  * — the two offers share one submit/exit seat and one continuation slot, so
- * they must speak the same state language.
- *
- * Idle-only, no bare keys, single action: Enter re-keys via a pre-scoped
+ * they must speak the same state language. Enter re-keys via a pre-scoped
  * /connect; Esc returns to the composer.
  */
 
@@ -233,13 +231,12 @@ export function applyReconnectRecoverySelection(args: {
 
 /**
  * Idle-offer presentation for a settled reconnect recovery: opens the
- * one-action dialog and routes Enter into a pre-scoped /connect with
+ * one-action dialog, routes Enter into a pre-scoped /connect with
  * replay-once when nothing committed, Esc into a clean cancel with no
  * cascade to the credential picker. Mirrors the inline
- * presentCredentialRecovery wiring in runner/index.ts on purpose — the two
- * offers share one submit/exit seat, so the dismiss/accept shapes must stay
- * identical. Factored (rather than inline like its sibling) so the wiring
- * itself is unit-testable.
+ * presentCredentialRecovery wiring in runner/index.ts — the two offers
+ * share one submit/exit seat, so the dismiss/accept shapes must stay
+ * identical. Factored (rather than inline) so the wiring is unit-testable.
  */
 export function createReconnectRecoveryPresenter(args: {
   recovery: ReturnType<typeof createReconnectRecoveryState>;

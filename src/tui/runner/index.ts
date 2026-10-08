@@ -98,11 +98,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // Mount OpenTUI before the initial task is sent so gate and stream
     // listeners are registered first. Ctrl+C stays with the shell (interrupt
     // the run); OpenTUI owns the alternate screen and mouse reporting.
-    // Alt+A add-provider selector rows: every first-class provider kind,
-    // including Custom (full manual form). No already-connected filtering —
-    // OAuth and multi-instance accounts are per-name, so dropping a kind
-    // once it has one account would hide the path to a second. Read fresh
-    // on each open against the live catalog.
+    // Alt+A add-provider rows: every first-class provider kind, including
+    // Custom (full manual form). No already-connected filtering — OAuth and
+    // multi-instance accounts are per-name, so dropping a kind with one
+    // account would hide the path to a second. Read fresh on each open.
     const computeAddProviderChoices = () =>
       addProviderSelectorChoices(providerChoices(), state.config.providers);
 
@@ -121,9 +120,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         }),
       interrupt: lifecycle.interrupt,
       deliver: createDeliverRouting(state, services, live),
-      // Consent by proceeding requires the disclosure to be on screen before the
-      // first prompt activates the held telemetry instance: the landing shows it,
-      // and the shell re-files it into the transcript when the landing clears.
+      // Consent by proceeding: the disclosure must be on screen before the
+      // first prompt activates the held telemetry instance — the landing
+      // shows it, and the shell re-files it when the landing clears.
       ...(settings.telemetryNotice !== undefined
         ? { telemetryNotice: settings.telemetryNotice }
         : {}),

@@ -252,10 +252,9 @@ describe("mountRunnerHost chrome wiring", () => {
     );
   });
 
-  // subscribeChrome must stay wired end-to-end. formatChromeZones now parks
+  // subscribeChrome must stay wired end-to-end: formatChromeZones now parks
   // both chrome strips (always null), so a tasks push must not paint the
-  // checklist — this test asserts the notify path still runs and leaves the
-  // task panel empty (rebuild later; live work is spawn_agent rows).
+  // checklist. The notify path still runs and the panel stays empty.
   test("a live chrome push (subscribeChrome notify) does not auto-paint the task panel", async () => {
     let liveTasks: readonly {
       title: string;
@@ -299,8 +298,8 @@ describe("mountRunnerHost command surfaces", () => {
         expect(host.openSurface("settings")).toBe(true);
         expect(host.shell.overlayKind).toBe("settings");
         closeInsetOverlay(host.shell);
-        // onModelSelect being wired is enough to open the picker, even with
-        // an empty catalog (nothing to pick yet, but the surface opens).
+        // onModelSelect wired is enough to open the picker, even with an
+        // empty catalog.
         expect(host.openSurface("models")).toBe(true);
       },
       {
@@ -340,9 +339,9 @@ describe("mountRunnerHost model picker", () => {
   });
 
   test("refreshModels swaps in a freshly connected provider's models without a remount", async () => {
-    // Mount-time deps are a snapshot; a live provider connect must be able
-    // to replace them without remounting the host, or the newly connected
-    // provider's models never appear.
+    // Mount-time deps are a snapshot; a live provider connect must replace
+    // them without remounting the host, or the new provider's models never
+    // appear.
     await withRunnerHost(
       async (host) => {
         host.refreshModels([], [], {

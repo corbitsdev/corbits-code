@@ -579,8 +579,7 @@ export function wirePostStartup(
   // Connect MCP after the TUI is up so auth surfaces as a copyable link, not
   // a browser pop; tools land on the live runner and stay unadvertised until
   // tool_search promotes them. On settle, reload-if-idle so construction-time
-  // maps match, then resume any persisted workflow. Aborted on exit so an
-  // unfinished auth wait does not keep the process alive.
+  // maps match, then resume any persisted workflow. Aborted on exit.
   void services.toolset
     .connectMCP(mcpConnectCallbacks, services.mcpConnectController.signal)
     .then(async () => {
