@@ -21,8 +21,8 @@ function storePath(cwd: string, sessionId: string, home?: string): string {
 }
 
 // Persistent project grants live next to the project's settings. The file is
-// gitignored (machine-local), so a teammate who pulls the repo never silently
-// inherits another machine's auto-approvals.
+// gitignored (machine-local), so a pull never inherits another machine's
+// auto-approvals.
 function projectStorePath(cwd: string): string {
   return join(cwd, SETTINGS_DIR_NAME, "permissions.json");
 }
@@ -33,16 +33,14 @@ function globalStorePath(home: string = homedir()): string {
   return join(home, SETTINGS_DIR_NAME, "permissions.json");
 }
 
-// Tool calls dispatch concurrently, so two approvals can resolve at nearly the
+// Tool calls dispatch concurrently, so approvals can resolve at nearly the
 // same time. Chain writes per path so they never interleave, and write via a
 // temp file + rename so a reader never observes a torn file.
 const writeChains = new Map<string, Promise<void>>();
 
-// A persisted pattern with no literal characters (e.g. "*", "**", "?") would
-// auto-allow every call for its tool. The interactive classifier never produces
-// such a pattern, so a file containing one was hand-edited or injected via a
-// pulled/committed permissions file — reject it at the load boundary rather than
-// trust it.
+// A wildcard-only pattern ("*", "**", "?") would auto-allow every call.
+// The classifier never mints one, so reject such files at the load boundary:
+// they were hand-edited or pulled from a committed permissions file.
 function hasLiteralFloor(pattern: string): boolean {
   return pattern.replace(/[*?\s]/g, "").length > 0;
 }
@@ -68,10 +66,10 @@ function parseApprovalList(raw: unknown): Approval[] {
 }
 
 function sameApproval(a: Approval, b: Approval): boolean {
-  // Removal equality deliberately ignores cwd: revocation targets arrive
-  // cwd-less (see admin.ts toApproval), so a strict comparison would silently
-  // keep a confined twin live. Removing the file entry is the revocation;
-  // the next load's reconcile prunes the cwd-bound fingerprint with it.
+  // Removal equality ignores cwd: revocation targets arrive cwd-less (see
+  // admin.ts toApproval), so a strict comparison would keep a confined twin
+  // live. Removing the file entry is the revocation; the next load's
+  // reconcile prunes the cwd-bound fingerprint with it.
   return (
     a.tool === b.tool &&
     a.pattern === b.pattern &&
@@ -80,8 +78,7 @@ function sameApproval(a: Approval, b: Approval): boolean {
 }
 
 // Equality on every confirmed dimension except cwd: a planted file entry and
-// the gate's minted confirmation of it differ only in cwd. One implementation;
-// sameGrantModuloCwd keeps its call-site name.
+// the gate's minted confirmation of it differ only in cwd.
 const sameGrantModuloCwd = sameApproval;
 
 async function readApprovalsField(
@@ -102,11 +99,11 @@ async function readObjectFile(path: string): Promise<Record<string, unknown>> {
   }
 }
 
-// Serialize the full read-modify-write per path so concurrent grants to the same
-// file (a global and a provider-model grant resolving together both touch the
-// global file) never lose an update, and rename atomically so a reader never
-// observes a torn file. Returning undefined from mutate skips the write, which
-// keeps migrations that find nothing to purge byte-identical no-ops.
+// Serialize read-modify-write per path so concurrent grants to one file (a
+// global and a provider-model grant resolving together both touch the global
+// file) never lose an update; rename atomically so no reader sees a torn
+// file. Returning undefined from mutate skips the write, keeping migrations
+// that find nothing to purge byte-identical no-ops.
 export function chainObjectWrite(
   path: string,
   mutate: (
@@ -142,18 +139,15 @@ export async function loadApprovals(
 
 // The project approvals file is repo content — committable, copyable,
 // plantable — so its entries are NOT approvals until the operator confirms
-// each one (see trustedGrantFingerprints in ../trust/project-trust). An
-// untrusted directory therefore contributes zero approvals here; entries still
-// awaiting confirmation are visible via loadPendingProjectApprovals so the
-// first encounter shows what the file would grant instead of silently dropping
-// it. DECISION: project trust does not imply grant trust — plugins and MCP
-// servers trusted for a directory confer no approval coverage; grants require
-// their own confirmation (a grant auto-allows future calls with no prompt,
-// while plugin/MCP trust only permits code to load or a server to connect).
-// REVOCATION: trust follows the file. Each load reconciles the trust record
-// against the entries currently on disk and drops fingerprints with no
-// corresponding entry, so hand-removing an entry revokes its confirmation — a
-// byte-identical replant re-surfaces as pending instead of applying silently.
+// each one (see trustedGrantFingerprints). An untrusted directory therefore
+// contributes zero approvals here; unconfirmed entries surface via
+// loadPendingProjectApprovals so the first encounter shows what the file
+// would grant instead of dropping it silently. Project trust never implies
+// grant trust: plugin/MCP trust only loads code or connects a server, while
+// a grant auto-allows future calls and needs its own confirmation. Trust
+// follows the file: each load drops fingerprints with no on-disk entry, so
+// removing an entry revokes its confirmation — a byte-identical replant
+// re-surfaces as pending.
 export async function loadProjectApprovals(
   cwd: string,
   home?: string,
@@ -164,10 +158,11 @@ export async function loadProjectApprovals(
 }
 
 /**
- * Project-file entries the operator has not confirmed yet: the first-encounter
- * surfacing source. Non-empty means "this directory ships a permissions file
- * you have not reviewed" — callers should show formatPendingProjectApprovals
- * output to the operator rather than apply or silently ignore the file.
+ * Project-file entries the operator has not confirmed yet: the first
+ * encounter surfaces them. Non-empty means "this directory ships a
+ * permissions file you have not reviewed" — show
+ * formatPendingProjectApprovals output instead of applying or silently
+ * ignoring the file.
  */
 export async function loadPendingProjectApprovals(
   cwd: string,
@@ -201,11 +196,11 @@ export async function saveProjectApproval(
   await chainObjectWrite(projectStorePath(cwd), (current) => ({
     ...current,
     approvals: [
-      // A planted entry carries no cwd; confirming it through the pending flow
-      // mints {tool, pattern, cwd} and writes that shape back here. Displace
-      // its twin instead of stacking a duplicate that would linger as pending
-      // forever — the dropped twin never applied, so nothing confirmed is
-      // lost. A save without cwd keeps the plain append path and never
+      // A planted entry carries no cwd; confirming it through the pending
+      // flow mints {tool, pattern, cwd} and writes that shape back here.
+      // Displace its twin instead of stacking a duplicate that would linger
+      // pending forever — the dropped twin never applied, so nothing
+      // confirmed is lost. A save without cwd appends plainly and never
       // displaces a confined entry.
       ...parseApprovalList(current.approvals).filter(
         (entry) =>
@@ -214,8 +209,7 @@ export async function saveProjectApproval(
       approval,
     ],
   }));
-  // The only production writer is the interactive grant path (an operator
-  // answering a prompt with a project-scope persist), so writing an entry is
+  // Only the interactive grant path writes here, so writing an entry is
   // itself the confirmation its fingerprint needs.
   await trustProjectGrants(cwd, [approval], home);
 }
@@ -240,8 +234,9 @@ export async function loadGlobalApprovals(
   return readApprovalsField(globalStorePath(home), "approvals");
 }
 
-// Provider-model grants are stored under one keyed map in the global file. Each
-// returned approval carries its `providerModel` key so the matcher can scope it.
+// Provider-model grants are stored under one keyed map in the global file.
+// Each returned approval carries its `providerModel` key so the matcher can
+// scope it.
 export async function loadProviderModelApprovals(
   home: string = homedir(),
 ): Promise<Approval[]> {
