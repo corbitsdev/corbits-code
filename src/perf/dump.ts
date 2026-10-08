@@ -1,7 +1,7 @@
 /**
- * Privacy-strict local dump of a PerfSpan snapshot. Writes compact JSON
- * beside session artifacts. Re-sanitizes tags and strips any non-allowlisted
- * shape so the file is safe to share offline. No network.
+ * Privacy-strict local dump of a PerfSpan snapshot: compact JSON beside
+ * session artifacts, re-sanitized so the file is safe to share offline.
+ * No network.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -84,8 +84,8 @@ function assertSafeSessionId(sessionId: string): void {
 }
 
 /**
- * Project a live PerfSpan onto the dump allowlist.
- * Bigints become decimal strings; tags are re-sanitized.
+ * Project a live PerfSpan onto the dump allowlist: bigints become decimal
+ * strings, tags re-sanitized.
  */
 export function serializeSpan(span: PerfSpan): DumpSpan {
   const out: DumpSpan = {
@@ -101,8 +101,7 @@ export function serializeSpan(span: PerfSpan): DumpSpan {
   } else {
     out.endNs = span.endNs.toString();
   }
-  // Defense in depth: re-run the privacy fence even if the in-memory span
-  // somehow carried extra keys (e.g. test fixtures or future sinks).
+  // Re-run the privacy fence even if the in-memory span carried extra keys.
   const tags = sanitizeTags(span.tags as Record<string, unknown> | undefined);
   if (tags !== undefined) {
     out.tags = tags;

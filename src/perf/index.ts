@@ -1,11 +1,9 @@
 /**
- * Always-on local performance tracing.
- *
- * Fixed-size ring buffer, monotonic high-res clocks, privacy-sanitized tags.
- * No network, no PostHog, no export side effects.
- * Memory policy is fixed: completed spans cap at RING_CAPACITY (oldest
- * dropped on overflow), open spans at OPEN_SPAN_CAPACITY; snapshot() returns
- * shallow copies so consumers cannot poison internal state.
+ * Always-on local performance tracing: fixed-size ring, monotonic clocks,
+ * privacy-sanitized tags, no network or export side effects. Memory is fixed:
+ * completed spans cap at RING_CAPACITY (oldest dropped), open at
+ * OPEN_SPAN_CAPACITY; snapshot() returns shallow copies so consumers cannot
+ * poison internal state.
  */
 
 import { isOpaqueId, sanitizeTags, type PerfTags } from "./sanitize.js";
@@ -28,11 +26,11 @@ import {
 
 /**
  * Snapshot the process-wide ring and POST to the operator OTLP collector when
- * export is enabled. Zero network when disabled. Never throws.
- * Call on session/process exit (wired from main).
+ * export is enabled; zero network when disabled, never throws. Call on
+ * session/process exit (wired from main).
  *
- * Span source: explicit `spans` first, then caller-supplied `getSpans`, then
- * the process-wide snapshot.
+ * Span source: `options.spans`, then `options.getSpans`, then the ring
+ * snapshot.
  */
 export async function flushPerfToOtel(
   settings?: Settings | null,
@@ -84,12 +82,12 @@ export interface StartOptions {
   tags?: Record<string, unknown>;
 }
 
-/** Fixed ring capacity for completed spans — constant, not a settings UI. */
+/** Ring capacity for completed spans (constant, not a settings UI). */
 export const RING_CAPACITY = 4096;
 
 /**
- * Max concurrent open (un-ended) spans. Fixed memory: when exceeded, the
- * oldest open span is dropped so a leaked start() cannot grow without bound.
+ * Max concurrent open spans. When exceeded, the oldest is dropped so a
+ * leaked start() cannot grow memory without bound.
  */
 export const OPEN_SPAN_CAPACITY = 1024;
 
@@ -132,10 +130,7 @@ function ringHasId(id: string): boolean {
   return false;
 }
 
-/**
- * Privacy fence for parentId: only opaque span ids (known open/ring ids, or
- * OPAQUE_ID_RE). Free text, paths, and long strings are stripped.
- */
+/** Privacy fence for parentId: known open/ring ids or OPAQUE_ID_RE only. */
 function sanitizeParentId(parentId: string | undefined): string | undefined {
   if (parentId === undefined || parentId.length === 0) return undefined;
   if (openSpans.has(parentId) || ringHasId(parentId)) return parentId;
@@ -164,9 +159,9 @@ function evictOldestOpenIfFull(): void {
 }
 
 /**
- * Open a timed span. Returns an opaque id for `end`.
- * Unknown span names are ignored (returns empty string; end is a no-op).
- * When open capacity is full, the oldest open span is dropped first.
+ * Open a timed span; returns an opaque id for `end`. Unknown names are
+ * ignored (returns ""; end no-ops). Drops the oldest open span first when
+ * at capacity.
  */
 export function start(name: SpanName | string, opts?: StartOptions): string {
   if (!isSpanName(name)) return "";
@@ -191,8 +186,8 @@ export function start(name: SpanName | string, opts?: StartOptions): string {
 }
 
 /**
- * Close a span opened by `start`. Merges optional end tags (sanitized).
- * Unknown or already-ended ids are ignored (double-end is a no-op).
+ * Close a span opened by `start`; merges optional end tags (sanitized).
+ * Unknown or already-ended ids are ignored.
  */
 export function end(id: string, tags?: Record<string, unknown>): void {
   if (id.length === 0) return;
@@ -212,9 +207,8 @@ export function end(id: string, tags?: Record<string, unknown>): void {
 }
 
 /**
- * Point-in-time event: recorded as a completed span with startNs === endNs.
- * Unknown span names are ignored. Accepts the same options shape as `start`
- * (optional parentId + tags).
+ * Point-in-time event: a completed span with startNs === endNs. Unknown
+ * names are ignored; same options shape as `start`.
  */
 export function mark(name: SpanName | string, opts?: StartOptions): string {
   if (!isSpanName(name)) return "";
@@ -240,11 +234,8 @@ export function mark(name: SpanName | string, opts?: StartOptions): string {
 }
 
 /**
- * Snapshot of completed spans in chronological order (oldest first),
- * plus any still-open spans (endNs unset) appended after completed ones.
- *
- * Returns shallow copies of each span (and of tags) so callers cannot
- * mutate the ring buffer or open-span map through the returned objects.
+ * Completed spans oldest-first, then still-open spans (endNs unset).
+ * Shallow copies of spans and tags so callers cannot mutate internal state.
  */
 export function snapshot(): PerfSpan[] {
   const completed: PerfSpan[] = [];

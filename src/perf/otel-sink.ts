@@ -1,10 +1,8 @@
 /**
- * Opt-in OTLP/HTTP JSON export for PerfTrace.
- *
- * Maps the in-process PerfSpan tree to OTEL spans and POSTs to the operator's
- * collector. Disabled config paths do no network. Network/config failures are
- * logged and swallowed — never thrown to callers. Hand-rolled OTLP HTTP JSON;
- * no @opentelemetry/sdk dependency.
+ * Opt-in OTLP/HTTP JSON export for PerfTrace. Maps PerfSpans to OTEL spans
+ * and POSTs to the operator's collector. Disabled paths do no network;
+ * failures are logged, never thrown. Hand-rolled OTLP JSON, no
+ * @opentelemetry/sdk.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -99,8 +97,8 @@ export function monoToUnixNano(
 }
 
 /**
- * Stable 16-hex-char OTEL span id from an opaque PerfSpan id.
- * Must be non-all-zero; hash guarantees a full 64-bit space.
+ * Stable 16-hex OTEL span id from an opaque PerfSpan id (hash guarantees
+ * non-zero).
  */
 export function otelSpanId(perfId: string): string {
   return createHash("sha256")
@@ -114,8 +112,8 @@ export function newOtelTraceId(): string {
 }
 
 /**
- * Resolve the OTLP traces URL. Appends `/v1/traces` unless the endpoint already
- * ends with that path (operators sometimes paste full collector URLs).
+ * OTLP traces URL: append `/v1/traces` unless the endpoint already ends with
+ * it (operators sometimes paste full collector URLs).
  */
 export function otlpTracesUrl(endpoint: string): string {
   const base = endpoint.replace(/\/+$/, "");
@@ -168,8 +166,8 @@ function resourceAttributes(config: EnabledOtelExportConfig): OtlpKeyValue[] {
 }
 
 /**
- * Map PerfSpan[] → OTLP HTTP JSON payload (one resource, one scope, one trace).
- * Open spans (no endNs) use `nowMonoNs` as end so partial trees still export.
+ * Map PerfSpan[] → OTLP JSON payload (one resource, one scope, one trace).
+ * Open spans use `nowMonoNs` as end so partial trees still export.
  */
 export function buildOtlpPayload(
   spans: readonly PerfSpan[],
@@ -221,10 +219,7 @@ export function buildOtlpPayload(
   };
 }
 
-/**
- * POST spans to the operator's OTLP HTTP/JSON collector.
- * Never throws. No-op when spans is empty.
- */
+/** POST spans to the OTLP collector; never throws; no-op for empty spans. */
 export async function flushToOtel(
   spans: readonly PerfSpan[],
   config: EnabledOtelExportConfig,
@@ -262,12 +257,9 @@ export async function flushToOtel(
 }
 
 /**
- * Resolve settings/env and flush when export is enabled.
- * Zero network when disabled or config is invalid (invalid is logged once).
- * Never throws.
- *
- * Provide spans via `options.spans` or `options.getSpans`. When neither is set,
- * this is a no-op (perf/index `flushPerfToOtel` wires snapshot()).
+ * Resolve settings/env and flush when export is enabled; zero network
+ * otherwise, never throws. Spans come from `options.spans` or
+ * `options.getSpans`; neither → no-op (perf/index wires snapshot()).
  */
 export async function flushPerfToOtel(
   settings?: Settings | null,

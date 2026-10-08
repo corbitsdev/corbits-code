@@ -1,15 +1,12 @@
 /**
  * Offline attribution report over PerfSpan snapshots or PerfDump JSON.
+ * Pure: no I/O, no module state, no OTEL. Exclusive buckets partition turn
+ * wall so shares sum to ~1 (remainder → other); a nested exclusive child
+ * (tool under subagent) counts only toward the parent bucket.
  *
- * Pure functions: no I/O, no module state, no OTEL. Categories partition turn
- * wall time into exclusive buckets so shares sum to ~1 (remainder → other).
- * Exclusive buckets do not double-count nested exclusive children (e.g. tools
- * under a subagent count only toward `subagent`, not also toward `tools`).
- *
- * Open (still-running) turns use an estimated wall: max completed-descendant
- * endNs − turn.startNs. That keeps mid-stall dumps usable for share %, but
- * open phase names are reported so completed-only shares are not mistaken for
- * a complete stall diagnosis.
+ * Open turns use max completed-descendant endNs − turn.startNs as wall, so
+ * mid-stall dumps stay usable; openPhases marks them as incomplete so shares
+ * of completed children are not read as a full stall diagnosis.
  */
 
 import type { PerfSpan, SpanName } from "./index.js";
@@ -71,9 +68,8 @@ export interface TurnAttribution {
   turnNs: number;
   open: boolean;
   /**
-   * Distinct phase names still open under this turn (and the turn itself when
-   * open). Empty for completed turns. Surfaces mid-stall hangs so exclusive
-   * shares of completed children are not read as a full diagnosis.
+   * Still-open phase names (and the turn when open); empty for completed
+   * turns. Marks mid-stall shares as incomplete.
    */
   openPhases: SpanName[];
   categories: CategoryShare[];
@@ -93,16 +89,13 @@ export interface TurnAttribution {
 export interface AttributionReport {
   session: {
     /**
-     * Denominator for shares: sum of turn walls (completed turns use end−start;
-     * open turns use estimated wall from max completed-descendant end).
+     * Share denominator: sum of turn walls (open turns use the estimated
+     * wall, see turnWallNs).
      */
     wallNs: number;
     /** True when any turn is still open (stall / mid-dump). */
     open: boolean;
-    /**
-     * Distinct open phase names across the session (union of per-turn openPhases).
-     * Empty when every turn is completed.
-     */
+    /** Union of per-turn openPhases; empty when every turn is completed. */
     openPhases: SpanName[];
     categories: CategoryShare[];
     inference: InferenceSplit;
@@ -149,9 +142,9 @@ function spanById(spans: readonly PerfSpan[]): Map<string, PerfSpan> {
 }
 
 /**
- * True when any ancestor of `span` is an exclusive-category span.
- * Nested exclusive children (e.g. tool under subagent) must not also fill the
- * exclusive tools bucket — their wall is already inside the parent exclusive.
+ * True when any ancestor of `span` is an exclusive-category span — nested
+ * exclusive children must not double-fill buckets (their wall is already in
+ * the parent).
  */
 function hasExclusiveAncestor(
   span: PerfSpan,
@@ -168,8 +161,8 @@ function hasExclusiveAncestor(
 }
 
 /**
- * Wall for a turn span. Completed → end−start. Open → max completed-descendant
- * end − turn.start (stall-dump estimate so shares stay meaningful mid-turn).
+ * Wall for a turn span: end−start when completed, else max completed-
+ * descendant end − start.
  */
 export function turnWallNs(
   turn: PerfSpan,
@@ -193,8 +186,8 @@ export function turnWallNs(
 }
 
 /**
- * Distinct open phase names under `rootId` (descendants only). Stable SPAN_NAMES
- * order when known, then any remaining by name.
+ * Distinct open phase names under `rootId` (descendants only), sorted by
+ * name.
  */
 function openPhasesUnder(
   rootId: string,
@@ -213,12 +206,9 @@ function openPhasesUnder(
 }
 
 /**
- * Accumulate metrics from a descendant span.
- *
- * Exclusive categories (inference / tool / permission.wait / subagent) only
- * contribute ns when the span is not under another exclusive parent — so a
- * nested tool under subagent does not double-count against turn wall.
- * Nested diagnostics (ttft / stream / transport) and counts always accumulate.
+ * Accumulate metrics from a descendant span. Exclusive categories skip ns
+ * when nested under another exclusive parent (no double-count); diagnostics
+ * (ttft/stream/transport) and counts always accumulate.
  */
 function accumulate(
   bucket: ExclusiveBucket,
@@ -281,11 +271,9 @@ function shareOf(ns: number, wallNs: number): number {
 }
 
 /**
- * Build exclusive category shares. `other` absorbs gaps and un-instrumented wall
- * (scheduling, TUI, etc.) so shares sum to 1 when wallNs > 0 and attributed ≤ wall.
- *
- * When attributed exceeds wall (rare parallel overlap), other is 0 and category
- * shares still use wall as denominator (sum may exceed 1 — caller can detect).
+ * Build exclusive category shares; `other` absorbs gaps and un-instrumented
+ * wall so shares sum to 1. When attributed exceeds wall (parallel overlap),
+ * other is 0 and shares may sum > 1.
  */
 function categorySharesFromBucket(
   bucket: ExclusiveBucket,
@@ -335,8 +323,8 @@ function categorySharesFromBucket(
 }
 
 /**
- * Count exclusive-category spans under root that are not nested under another
- * exclusive parent (top-level exclusive only — matches exclusive ns accounting).
+ * Count top-level exclusive spans under root (not nested under another
+ * exclusive parent).
  */
 function countTopExclusiveUnder(
   rootId: string,
@@ -354,12 +342,10 @@ function countTopExclusiveUnder(
 }
 
 /**
- * Attribute a PerfSpan snapshot into exclusive phase shares per turn and session.
- * Exclusive categories (inference | tools | permission.wait | subagent | other)
- * never nest-double-count: children under an exclusive parent (e.g. inference/tool
- * under subagent) contribute only to the parent bucket. Nested diagnostics
- * (ttft/stream, transport) roll up separately. Open turns: wall estimated from
- * max completed-descendant end; openPhases lists still-running phases.
+ * Attribute a PerfSpan snapshot into exclusive phase shares per turn and
+ * session. Exclusive children never double-count (they land in the parent
+ * bucket); diagnostics roll up separately. Open turns use the estimated wall
+ * and report openPhases.
  */
 export function attributionFromSpans(
   spans: readonly PerfSpan[],
@@ -410,8 +396,8 @@ export function attributionFromSpans(
     };
   });
 
-  // Session wall includes open-turn estimates so stall dumps keep shares ~1.
-  // Category ns use exclusive (non-nested) accounting; open children contribute 0 duration.
+  // Session wall includes open-turn estimates so stall-dump shares keep
+  // summing to ~1; open children contribute 0 ns.
   const sessionBucket = emptyBucket();
   let wallNs = 0;
   let completedTurnCount = 0;
@@ -444,9 +430,8 @@ export function attributionFromSpans(
     );
   }
 
-  // No turn roots (partial / orphan snapshot): fall back to flat exclusive sums
-  // (still skip exclusive ns under exclusive ancestors) and use attributed total
-  // as the wall denominator.
+  // No turn roots (orphan snapshot): flat exclusive sums, attributed total
+  // as wall.
   if (turnSpans.length === 0) {
     for (const span of spans) {
       accumulate(sessionBucket, span, hasExclusiveAncestor(span, byId));

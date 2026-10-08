@@ -1,7 +1,7 @@
 /**
- * Privacy fence for PerfTrace tags. Allowed: phase enums, provider/model ids,
- * numeric durations/bytes/counts, transport enum, short opaque ids. Everything
- * else (prompts, completions, tool args, paths, errors, stack traces) is stripped.
+ * Privacy fence for PerfTrace tags: allowlisted enums, ids, and numeric values
+ * pass; prompts, completions, tool args, paths, errors, and stacks are
+ * stripped.
  */
 
 export type TransportKind = "http_sse" | "ws";

@@ -1,8 +1,7 @@
 /**
- * Eval / test harness assertions over PerfTrace snapshots and rollups.
- *
- * Pure helpers: throw Error with a clear message on failure (no bun:test import).
- * Use from unit tests, capability evals, or ad-hoc scripts after snapshot()/rollup.
+ * Eval/test harness assertions over PerfTrace snapshots and rollups. Pure
+ * helpers that throw Error with a clear message on failure (no bun:test
+ * import).
  */
 
 import type { PerfSpan, SpanName } from "./index.js";
@@ -24,11 +23,8 @@ export function assertPhasePresent(
 }
 
 /**
- * Verify at least one span named `childName` is nested under a span named
- * `parentName` (via parentId → id). Arg order: (spans, child, parent) — the
- * nested phase first, then its expected parent. Example:
- * `assertNesting(spans, "inference", "turn")` means an inference span has
- * parentId pointing at a turn span.
+ * Verify a span named `childName` has parentId pointing at a span named
+ * `parentName`. Arg order: (spans, child, parent).
  */
 export function assertNesting(
   spans: readonly PerfSpan[],
@@ -53,10 +49,7 @@ export interface TurnInferenceToolsOpts {
   minToolCount?: number;
 }
 
-/**
- * Regression: a turn that ran tools must report positive inference and tool cost.
- * Accepts a single TurnSummary (from rollupByTurn).
- */
+/** A turn that ran tools must report positive inference and tool cost. */
 export function assertTurnHasInferenceAndTools(
   turn: TurnSummary,
   opts?: TurnInferenceToolsOpts,
@@ -79,10 +72,7 @@ export function assertTurnHasInferenceAndTools(
   }
 }
 
-/**
- * Assert a < b for relative magnitude checks (e.g. TTFT < stream wall).
- * Values are plain numbers (typically nanoseconds from rollup).
- */
+/** Assert a < b for magnitude checks (e.g. TTFT < stream wall). */
 export function assertLessThan(
   left: number,
   right: number,
@@ -94,7 +84,8 @@ export function assertLessThan(
 }
 
 /**
- * Assert a phase summary exists in a rollupByPhase result and has count >= minCount.
+ * Assert a phase summary exists with count >= minCount (and totalNs when
+ * given).
  */
 export function assertPhaseSummary(
   phases: readonly PhaseSummary[],

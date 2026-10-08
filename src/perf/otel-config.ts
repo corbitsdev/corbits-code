@@ -1,11 +1,8 @@
 /**
- * Settings/env surface for opt-in OTEL export.
- *
- * Local PerfTrace stays always-on and independent. This module only resolves
- * whether an OTLP exporter may be enabled later — no SDK, no network.
- *
- * Fail closed: any invalid endpoint/headers/attrs yields a stable error; never
- * half-enable export. Secrets (headers) must never enter privacy-strict dumps.
+ * Settings/env surface for opt-in OTEL export. Resolves whether an OTLP
+ * exporter may be enabled — no SDK, no network; PerfTrace stays independent.
+ * Fail closed: invalid endpoint/headers/attrs yield a stable error, never a
+ * half-enabled export. Secrets never enter privacy-strict dumps.
  */
 
 import type { Settings } from "../config/settings.js";
@@ -31,16 +28,14 @@ export interface OtelSettings {
   /** OTLP base URL (http/https). Env OTEL_EXPORTER_OTLP_ENDPOINT overrides. */
   endpoint?: string;
   /**
-   * Extra OTLP headers (auth). Prefer OTEL_EXPORTER_OTLP_HEADERS env so secrets
-   * stay out of settings files when possible. Env fully replaces settings headers
-   * when the env var is set.
+   * Extra OTLP headers (auth). Prefer the env var so secrets stay out of
+   * settings files; env fully replaces settings headers when set.
    */
   headers?: Record<string, string>;
   /** Resource service.name. Env OTEL_SERVICE_NAME overrides. */
   serviceName?: string;
   /**
-   * Extra resource attributes (merged; env keys win on conflict).
-   * Prefer non-secret labels only in settings.
+   * Extra resource attributes (merged; env keys win). Non-secret labels only.
    */
   resourceAttributes?: Record<string, string>;
 }
@@ -216,14 +211,12 @@ function validateStringMap(
  *
  * Precedence:
  * - endpoint: env > settings
- * - headers: env list fully replaces settings when env is set; else settings
- * - serviceName: env OTEL_SERVICE_NAME > settings.serviceName >
- *   resourceAttributes["service.name"] > default
- * - resourceAttributes: settings then env (env wins on key conflict); after
- *   merge, resourceAttributes["service.name"] is always set to the resolved
- *   serviceName so the two never diverge
+ * - headers: env list fully replaces settings when set; else settings
+ * - serviceName: env > settings.serviceName > attrs["service.name"] > default
+ * - resourceAttributes: settings then env (env wins on conflict); after merge,
+ *   attrs["service.name"] is always synced to the resolved serviceName
  *
- * No endpoint → disabled (ok). Invalid partial/malformed config → not ok.
+ * No endpoint → disabled (ok). Invalid or malformed config → not ok.
  */
 export function resolveOtelExportConfig(
   settings?: Settings | null,
@@ -326,8 +319,8 @@ export function resolveOtelExportConfig(
     resourceAttributes = { ...resourceAttributes, ...parsed.value };
   }
 
-  // serviceName: env > settings > attrs["service.name"] > default, then always
-  // write resourceAttributes["service.name"] so config.serviceName and attrs stay consistent.
+  // serviceName: env > settings > attrs["service.name"] > default; then sync
+  // attrs["service.name"] to it so the two never diverge.
   const attrServiceName = trimOrEmpty(resourceAttributes["service.name"]);
   const serviceName =
     envServiceNameRaw.length > 0
@@ -379,8 +372,8 @@ export function requireOtelExportConfig(
 const SENSITIVE_ATTR_KEY = /secret|token|key|password|auth/i;
 
 /**
- * Redact high-risk resource attribute values for dump/log views.
- * Does not mutate the live export config.
+ * Redact secret-bearing resource attribute values for dump/log views
+ * (no mutation).
  */
 export function redactResourceAttributesForDump(
   attrs: Readonly<Record<string, string>>,
@@ -393,8 +386,8 @@ export function redactResourceAttributesForDump(
 }
 
 /**
- * Strip secrets for local dumps and logs.
- * Never pass EnabledOtelExportConfig.headers into dump writers — use this.
+ * Dump-safe view of an export config: header values stripped. Use this,
+ * never raw headers.
  */
 export function otelConfigForDump(
   config: OtelExportConfig,

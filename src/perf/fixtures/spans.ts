@@ -1,8 +1,4 @@
-/**
- * Shared span builders and reactor-event fixtures for perf tests: `span`
- * builds a PerfSpan with fixed nanosecond times (no live clock);
- * `event`/`inferenceDone` feed `createPerfReactorObserver`.
- */
+/** Shared builders and reactor-event fixtures for perf tests. */
 
 import { afterEach, beforeEach } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
