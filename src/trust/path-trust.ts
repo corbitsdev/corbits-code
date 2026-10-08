@@ -29,7 +29,7 @@ export function pathTrustPath(home: string = homedir()): string {
 /**
  * Read the store and report why it is empty: missing means migration has not
  * run yet; invalid must not read as "already migrated", or every path plugin
- * stays metadata-only forever.
+ * stays metadata-only.
  */
 export async function readPathTrustStore(
   home: string = homedir(),
@@ -57,8 +57,8 @@ export async function readPathTrustStore(
     logger.warn`path trust store has an invalid shape at ${path}: ${validated.summary}`;
     return { state: "invalid", store: emptyStore() };
   }
-  // Grants are recorded as absolute paths; a relative entry would resolve
-  // against whatever process.cwd() happens to be, so drop it here.
+  // Grants are recorded absolute (see requireAbsolute); a relative entry
+  // would bind to process.cwd(), so drop it here.
   const paths: string[] = [];
   for (const p of validated.trustedPluginPaths) {
     if (!isAbsolute(p)) {
@@ -77,7 +77,7 @@ export async function loadPathTrust(
 }
 
 // Temp-file + rename (as saveGlobalSettings) so a concurrent reader never
-// sees a torn store — that would disable every path plugin for the session.
+// sees a torn store — that would disable every path plugin.
 async function savePathTrust(
   store: PathTrustStore,
   home: string = homedir(),
@@ -172,17 +172,17 @@ export async function revokePathPlugin(
  * One-shot migration: seed the global store from `settings.pluginPaths` when
  * the store file is missing (first launch). Entries are consent — they live
  * in the user's global settings — so every registered path that resolves to
- * a plugin on disk is granted, UI confirmation or not. After the file exists,
- * grants come only from add-by-path / enable; project stores are never
- * consulted, as they gate repo dirs, which never appear in pluginPaths.
+ * a plugin on disk is granted, UI confirmation or not. Once the file exists,
+ * grants come only from add-by-path / enable; project stores gate repo dirs,
+ * which never appear in pluginPaths.
  *
- * `resolveMembers` maps each registered path to existing absolute plugin
- * dirs; callers supply expansion so this module stays free of the plugin
- * loader. `onMigrated` fires only on the seeding run.
+ * `resolveMembers` expands each registered path to its existing plugin dirs
+ * (callers supply it, so this module stays free of the plugin loader);
+ * `onMigrated` fires only on the seeding run.
  *
- * A corrupt store refuses to seed: re-granting would undo an explicit revoke.
- * The file is left untouched — plugins stay metadata-only — until the user
- * repairs it (deleting restores first-launch seeding) or re-consents.
+ * A corrupt store refuses to seed — re-granting would undo an explicit
+ * revoke; the file stays untouched (plugins stay metadata-only) until the
+ * user deletes it to re-seed or re-consents.
  */
 export async function migratePathTrustFromPluginPaths(
   pluginPaths: string[],
@@ -203,9 +203,8 @@ export async function migratePathTrustFromPluginPaths(
   if (pluginPaths.length === 0) {
     return emptyStore();
   }
-  // A relative pluginPaths entry has no fixed meaning until resolved against
-  // some cwd; granting it here would trust the launch cwd permanently. Drop
-  // it, matching readPathTrustStore on load.
+  // A relative pluginPaths entry would bind to the launch cwd permanently;
+  // drop it, matching readPathTrustStore on load.
   const absolutePaths: string[] = [];
   for (const p of pluginPaths) {
     if (!isAbsolute(p)) {

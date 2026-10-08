@@ -12,9 +12,9 @@ import { LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "trust"]);
 
-// Array fields are "unknown[]", not "string[]": a mixed-type array must keep
-// its string entries (filtered post-validation) instead of failing the whole
-// record like path-trust.ts's strict schema.
+// Array fields are "unknown[]" so a mixed-type array keeps its string entries
+// (filtered after validation) instead of failing the whole record like
+// path-trust.ts's strict schema.
 const ProjectTrustRecordSchema = type({
   "trustedPluginPaths?": "unknown[]",
   "trustedMcpFingerprints?": "unknown[]",
@@ -25,7 +25,8 @@ const ProjectTrustRecordSchema = type({
 /** Where a plugin was discovered from. */
 export type PluginOrigin = "repo" | "user" | "project" | "path";
 
-/** Origins that must not execute code until a trust gate passes (project or path store). */
+/** Origins that must not execute code until a trust gate passes
+ * (project or path store). */
 export function originRequiresTrust(origin: PluginOrigin): boolean {
   return origin === "project" || origin === "path";
 }
@@ -93,8 +94,8 @@ function canonicalizeCwd(cwd: string): string {
 // SECURITY: trust records must not live inside the repo they authorize — a
 // hostile repo could ship its own `.corbits/trust.json` and pre-grant consent.
 // Store them under the user's home keyed by resolved repo path, so only prior
-// interactive consent on this machine populates them. Path-origin plugins use
-// a separate global store (path-trust.ts); do not OR the two lists.
+// interactive consent populates them. Path-origin plugins use a separate
+// global store (path-trust.ts); do not OR the two lists.
 export function projectTrustPath(
   cwd: string,
   home: string = homedir(),
@@ -106,7 +107,7 @@ export function projectTrustPath(
 
 /**
  * Read the store and report why it is empty: a missing file is normal, but an
- * unreadable, malformed, wrong-shape, or repo-mismatched file must be logged as
+ * unreadable, malformed, wrong-shape, or repo-mismatched file must be logged
  * invalid — mistaking it for "no grants" would silently reset consent.
  */
 export async function readProjectTrustStore(
@@ -145,8 +146,6 @@ export async function readProjectTrustStore(
     logger.warn`project trust store has an invalid shape at ${path}: ${validated.summary}`;
     return { state: "invalid", store: emptyStore() };
   }
-  // Coerce array fields instead of hard-rejecting: hand-edited partial or
-  // mixed-type files must keep their valid string grants.
   const trustedPluginPaths = extractStringArrayField(
     validated.trustedPluginPaths,
     "trustedPluginPaths",
@@ -162,10 +161,10 @@ export async function readProjectTrustStore(
     "trustedGrantFingerprints",
     path,
   );
-  // Reject a stale/copied record keyed to another repo: the file records the
-  // repo it was written for and must match this cwd. A missing or non-string
-  // `repo` is invalid too, or a stripped store would apply its grants to
-  // whatever cwd hashes to this filename.
+  // Reject a record keyed to another repo: the file stores its repo and it
+  // must match this cwd. A missing or non-string `repo` is invalid too, or a
+  // stripped store would apply its grants to whatever cwd hashes to this
+  // filename.
   if (typeof validated.repo !== "string") {
     logger.warn`project trust store missing repo field at ${path}`;
     return { state: "invalid", store: emptyStore() };
@@ -174,9 +173,9 @@ export async function readProjectTrustStore(
     logger.warn`project trust store repo mismatch at ${path}: recorded ${validated.repo}, expected ${canonicalizeCwd(cwd)}`;
     return { state: "invalid", store: emptyStore() };
   }
-  // Grants are recorded absolute (see requireAbsolute below); a relative entry
-  // has no fixed meaning on load, and resolving it here would bind to
-  // process.cwd() — the confused-cwd bug path-trust.ts guards against. Drop it.
+  // Grants are recorded absolute (see resolveAgainstProjectCwd); a relative
+  // entry would bind to process.cwd() — the confused-cwd bug path-trust.ts
+  // guards against. Drop it.
   const absolutePluginPaths: string[] = [];
   for (const p of trustedPluginPaths) {
     if (!isAbsolute(p)) {
@@ -202,8 +201,8 @@ export async function loadProjectTrust(
   return (await readProjectTrustStore(cwd, home)).store;
 }
 
-// Temp-file + rename (as path-trust.ts / saveGlobalSettings) so a concurrent
-// reader never sees a torn store, which would read as corrupt and wipe consent.
+// Temp-file + rename (as path-trust.ts) so a reader never sees a torn store,
+// which would read as corrupt and wipe consent.
 async function saveProjectTrust(
   cwd: string,
   store: ProjectTrustStore,
@@ -217,10 +216,10 @@ async function saveProjectTrust(
   await rename(tmp, path);
 }
 
-// Grant helpers re-read the store right before writing, so two in-process
-// mutations interleaving there would drop grants. Chain per trust-store path
-// so each mutation sees the previous one's result. (Cross-process writers
-// stay last-writer-wins of a complete file, same as path-trust.ts.)
+// Grant helpers re-read the store right before writing, so interleaved
+// in-process mutations would drop grants. Chain per store path so each
+// mutation sees the previous one's result; cross-process writers stay
+// last-writer-wins of a complete file, same as path-trust.ts.
 const mutationQueues = new Map<string, Promise<unknown>>();
 
 function enqueueMutation<T>(key: string, run: () => Promise<T>): Promise<T> {
@@ -233,11 +232,11 @@ function enqueueMutation<T>(key: string, run: () => Promise<T>): Promise<T> {
   return next;
 }
 
-// A relative pluginPath is meaningless until resolved against a cwd; resolving
+// A relative pluginPath has no meaning until resolved against a cwd; resolving
 // against process.cwd() (path.resolve's default) would trust a different
-// directory than the caller's project. Project trust callers pass relative
-// paths, so resolve against the project cwd — path.resolve(cwd, pluginPath)
-// leaves absolute paths untouched.
+// directory than the caller's project. Callers pass relative paths, so
+// resolve against the project cwd — path.resolve(cwd, pluginPath) leaves
+// absolute paths untouched.
 function resolveAgainstProjectCwd(cwd: string, pluginPath: string): string {
   return resolve(canonicalizeCwd(cwd), pluginPath);
 }
@@ -283,11 +282,11 @@ export function mcpServerFingerprint(server: MCPServerConfig): string {
   return createHash("sha256").update(payload).digest("hex");
 }
 
-// Display-only quoting for the MCP trust prompt: argv, name, and url share one
-// escape so newlines, quotes, and Unicode/C1 breaks cannot spoof extra prompt
-// lines. Whitespace/quote/empty args render double-quoted so ["a b"] and
-// ["a", "b"] never look alike. Approval identity comes from
-// mcpServerFingerprint, never from this rendering.
+// Display-only quoting for the MCP trust prompt: one escape for argv, name,
+// and url so newlines, quotes, and Unicode/C1 breaks cannot spoof extra
+// prompt lines. Whitespace/quote/empty args render double-quoted so ["a b"]
+// and ["a", "b"] never look alike. Approval identity comes from
+// mcpServerFingerprint, never this rendering.
 function isTrustPromptControlChar(code: number): boolean {
   return (
     code <= 0x1f ||
@@ -373,12 +372,12 @@ export async function trustMcpServer(
 }
 
 /**
- * Stable fingerprint for one project-approval entry: tool + pattern, with the
- * provider-model binding folded in when set, so switching models invalidates
- * a prior confirmation like the gate's providerModel check. Cwd is folded in
- * too (absent → ""): a cwd-less grant matches any request cwd
- * (cwdMatchesGrant), so ignoring cwd would let a hand-edit that drops `cwd`
- * keep its confirmation and silently widen a repo-confined grant to cross-repo.
+ * Stable fingerprint for one project-approval entry: tool + pattern, plus the
+ * provider-model binding when set, so switching models invalidates a prior
+ * confirmation like the gate's providerModel check. Cwd is folded in too
+ * (absent → ""): a cwd-less grant matches any request cwd (cwdMatchesGrant),
+ * so ignoring cwd would let a hand-edit that drops `cwd` keep its
+ * confirmation and silently widen a repo-confined grant to cross-repo.
  */
 export function projectGrantFingerprint(approval: {
   tool: string;
@@ -410,10 +409,10 @@ export function isProjectGrantTrusted(
 }
 
 /**
- * Record the operator's confirmation of project-approval entries. Trusting the
- * project never implies trusting its grants: fingerprints are written only when
- * the operator persists a grant to project scope (the saveProjectApproval write
- * is the confirmation), never by the file's mere existence.
+ * Record the operator's confirmation of project-approval entries. Fingerprints
+ * are written only when the operator persists a grant to project scope (the
+ * saveProjectApproval write is the confirmation), never by the file's mere
+ * existence.
  */
 export async function trustProjectGrants(
   cwd: string,
@@ -468,9 +467,9 @@ export async function untrustProjectGrants(
 /**
  * Revocation by absence: drop trusted fingerprints with no on-disk entry.
  * untrustProjectGrants only runs on the removeProjectApproval path, so a
- * hand-edit that deletes an entry would otherwise leave its fingerprint
- * trusted and a byte-identical replant would apply silently. Trust follows the
- * file: removal revokes confirmation; replanting re-surfaces as pending.
+ * hand-edit that deletes an entry would leave its fingerprint trusted and a
+ * byte-identical replant would apply silently. Trust follows the file: removal
+ * revokes confirmation; replanting re-surfaces as pending.
  */
 export async function reconcileProjectGrants(
   cwd: string,
@@ -495,8 +494,9 @@ export async function reconcileProjectGrants(
 }
 
 /**
- * Filter MCP servers that may connect. Global-source servers are always allowed.
- * Local-source servers require a trust fingerprint (or an interactive grant callback).
+ * Filter MCP servers that may connect. Global-source servers are always
+ * allowed; local-source servers require a trust fingerprint (or an
+ * interactive grant callback).
  */
 export async function filterMcpServersForConnect(
   servers: MCPServerConfig[],
@@ -506,7 +506,8 @@ export async function filterMcpServersForConnect(
     cwd: string;
     /** Home dir for the trust store; defaults to the real home in production. */
     home?: string;
-    /** Interactive TOFU. Return true to trust+connect. Headless should omit (fail closed). */
+    /** Interactive TOFU: return true to trust+connect. Headless should omit
+     * (fail closed). */
     requestTrust?: (server: MCPServerConfig) => Promise<boolean>;
   },
 ): Promise<MCPServerConfig[]> {
