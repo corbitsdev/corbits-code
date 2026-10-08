@@ -37,8 +37,8 @@ describe("dedupePluginModules", () => {
     expect(result).toMatchObject({ origin: "user", source: "claude" });
   });
 
-  // A later non-repo install with the same id as a repo defaultEnabled
-  // plugin must not silently turn the bundled default off.
+  // A later non-repo install with a repo defaultEnabled id must not
+  // silently turn the bundled default off.
   test("stamps shadowedRepoDefaultEnabled when a non-repo module shadows a repo defaultEnabled id", () => {
     const repo = repoDefaultEnabled("scout");
     const user = userInstall("scout");
