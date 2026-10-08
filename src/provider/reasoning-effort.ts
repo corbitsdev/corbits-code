@@ -1,9 +1,9 @@
-// OpenAI reasoning-effort is a provider-native request knob carried through
+// Provider-native request knob carried via
 // InferenceSource.defaults.providerOptions.reasoning_effort: same model,
-// different latency/cost vs reasoning depth — not a variant or separate model.
+// different latency/cost vs reasoning depth, not a variant or separate model.
 
 // Canonical literal set lives in the agent profile contract so schema and
-// runtime cannot drift; re-exported for callers that already import from here.
+// runtime cannot drift; re-exported for existing callers.
 import { REASONING_EFFORTS as CANONICAL_EFFORTS } from "../agent/profile-types.js";
 import {
   DEEPSEEK_V4_EFFORTS,
@@ -39,7 +39,7 @@ export function normalizeProviderEfforts(
   return out;
 }
 
-// Levels common OpenAI reasoning models (gpt-5, o-series) accept; none/xhigh
+// Levels OpenAI reasoning models (gpt-5, o-series) accept; none/xhigh
 // are gpt-5.1-family-only (see below).
 const DEFAULT_EFFORTS: readonly ReasoningEffort[] = [
   "minimal",
@@ -49,7 +49,7 @@ const DEFAULT_EFFORTS: readonly ReasoningEffort[] = [
 ];
 
 // gpt-5.1 family adds `none` (disable reasoning) and `xhigh`; neither is
-// universal, so an unknown model must not be assumed to take them.
+// universal; unknown models are not assumed to take them.
 const FULL_EFFORT_MODELS: readonly string[] = [
   "gpt-5.1",
   "gpt-5.1-codex",
@@ -81,12 +81,12 @@ const UNKNOWN_MODEL_EFFORTS: readonly ReasoningEffort[] = [
 ];
 
 // Muse Spark (Responses protocol) takes minimal–high — DEFAULT_EFFORTS without
-// `none` (the gateway rejects `reasoning.effort: none` with HTTP 400).
+// `none` (the gateway 400s `reasoning.effort: none`).
 const MUSE_SPARK_EFFORTS: readonly ReasoningEffort[] = DEFAULT_EFFORTS;
 
 // Prefix match, not an id list: the family ships under ids across two catalogs
-// and nothing normalizes the model string first. Mirrors the grok/kimi prefix
-// checks in src/subagent/provider-family.ts.
+// and nothing normalizes the model string first. Mirrors the grok/kimi checks
+// in src/subagent/provider-family.ts.
 function isMuseSparkModel(model: string): boolean {
   return /^muse-spark/i.test(model.trim());
 }
@@ -210,9 +210,9 @@ export function validateEffort(
 
 /**
  * Next effort on the model's ladder (wraps around); undefined when the model
- * supports none. Walks from resolveSessionEffort: unset or unsupported current
- * sits on the family default, then the next rung; no default with a non-empty
- * ladder starts at supported[0].
+ * supports none. Current effort resolves via resolveSessionEffort (configured
+ * when accepted, else family default), then advances one rung; unresolvable
+ * starts at supported[0].
  */
 export function cycleReasoningEffort(
   model: string,
@@ -246,9 +246,7 @@ export function cycleReasoningEffort(
  * Product default effort for a live session model — what the prompt shows and
  * Shift+Tab advances from. Distinct from role defaults.
  *
- * Family table: grok* → high; glm-5.3* → max; muse-spark* → low; Codex →
- * medium; gpt-5.1 chat → none; gpt-5/gpt-6/o1/o3/o4 → medium. Unknown models
- * stay undefined so we do not invent a family default.
+ * Unknown models stay undefined so we do not invent a family default.
  */
 export function defaultEffortForModel(
   model: string,
@@ -281,7 +279,7 @@ export function defaultEffortForModel(
 
 /**
  * Effort the session is on: the configured level when accepted, else the
- * family default. Read-only — display and request wiring read this.
+ * family default. Read-only; display and request wiring read it.
  */
 export function resolveSessionEffort(
   model: string,
@@ -351,7 +349,9 @@ export interface ResolveEffortForRoleOpts {
   orchestrator: boolean;
   /** Explicit profile inference leg or task-tier pin — highest precedence. */
   pin?: ReasoningEffort;
-  /** Package modelRole default: replaces the binary orchestrator/leaf default. */
+  /**
+   * Package modelRole default: replaces the binary orchestrator/leaf default.
+   */
   roleDefault?: ReasoningEffort;
   /** Parent session effort, used only when the role default is unsupported. */
   parentEffort?: ReasoningEffort;
@@ -363,7 +363,7 @@ export interface ResolveEffortForRoleOpts {
 }
 
 /**
- * Pure cascade used by `resolveEffortForRole`; exported so tests can pin the
+ * Pure cascade behind `resolveEffortForRole`; exported so tests can pin the
  * precedence without per-model supported sets.
  *
  * Precedence (first match wins):
