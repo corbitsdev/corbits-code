@@ -81,8 +81,8 @@ async function paintOverlay(
 }
 
 /**
- * Every interior row must be either blank or exactly one expected overlay row;
- * two renderables sharing cells produces a hybrid string that matches nothing.
+ * Every interior row must be blank or exactly one expected overlay row; two
+ * renderables sharing cells produces a hybrid string that matches nothing.
  */
 function expectCleanInterior(
   interior: readonly string[],
@@ -121,8 +121,8 @@ describe("overlay host never shares cells with the prompt border", () => {
         ` ▶ ${ITEMS[0]}`,
         ...ITEMS.slice(1).map((i) => `   ${i}`),
       ];
-      // Row 0 is the title/how-to line: the supplied title must show, but
-      // its exact hint wording is not part of this contract.
+      // Row 0 is the title/how-to line: the supplied title must show; its
+      // exact hint wording is not part of this contract.
       expect(interior[0]).toContain("model");
       expectCleanInterior(interior.slice(1), expected);
 
@@ -170,7 +170,7 @@ describe("overlay host never shares cells with the prompt border", () => {
         size,
       );
 
-      // Every border rule stays a border rule: no list text glued onto it, and
+      // Every border rule stays a border rule: no list text glued onto it;
       // the overlay host's own rules never share a row with the prompt box's.
       const promptRuleRows = frameLine(
         frame,

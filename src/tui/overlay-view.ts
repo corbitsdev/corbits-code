@@ -54,10 +54,10 @@ export interface OverlayListPresentation {
 }
 
 /**
- * The bordered box costs the host this many rows before any list row: top
- * and bottom rules, the title line, wrapped body lines. Dropping the border
- * would hand the list two rows the host cannot render, and flex would stack
- * the surplus onto cells the prompt border already owns.
+ * Rows the bordered box costs the host before any list row: top/bottom
+ * rules, the title line, wrapped body lines. Dropping the border would hand
+ * the list two rows the host cannot render; flex would stack the surplus
+ * onto cells the prompt border already owns.
  */
 export const OVERLAY_HOST_BORDER_ROWS = 2;
 
@@ -97,8 +97,7 @@ export function overlayRowsPerItem(kind: PrimaryOverlayKind | null): number {
 
 /**
  * The palette drops the title rule other overlays spend a row on: the box
- * already reads as the palette and the filter row says what's typed — a
- * second header for the same fact.
+ * reads as the palette and the filter row says what's typed.
  */
 export function overlayTitleRows(kind: PrimaryOverlayKind | null): number {
   return kind === "palette" ? 0 : 1;
@@ -122,8 +121,8 @@ export function overlayChromeRows(
 /**
  * Fewest host rows the overlay can render without spilling past its own box:
  * fixed chrome plus one list row when it has items. Below this the resolver
- * gives ground elsewhere (transcript floor, then the prompt floor) rather
- * than starve the overlay.
+ * gives ground elsewhere (transcript floor, then prompt floor) rather than
+ * starve the overlay.
  */
 export function overlayMinHostRows(
   chromeRows: number,
@@ -134,8 +133,8 @@ export function overlayMinHostRows(
 }
 
 /**
- * Title fitted to the box interior: it is one row in the host's chrome
- * budget, so a wrapped line would spend a row nothing accounted for.
+ * Title fitted to the box interior: one row in the host's chrome budget, so
+ * a wrapped line would spend a row nothing accounted for.
  */
 function overlayTitleLine(
   title: string,
@@ -344,9 +343,9 @@ export function createOverlayView(ctx: RenderContext) {
 
   /**
    * Selection is a text colour, not a marker or band: the highlighted row
-   * already stands out under the cursor, so a leading `>` and a grey block
-   * would say the same thing twice. The palette even drops the indicator
-   * glyph — its rows are aligned columns.
+   * stands out under the cursor, so a leading `>` and a grey block would say
+   * the same thing twice. The palette even drops the indicator glyph — its
+   * rows are aligned columns.
    */
   function paintPaletteList(
     commands: OverlayListPresentation["paletteCommands"],
@@ -355,7 +354,7 @@ export function createOverlayView(ctx: RenderContext) {
   ): void {
     // Hint suffixes paint as plain row text: the select widget takes unstyled
     // string options, so a dimmed suffix would need a custom row renderer.
-    // Unselected rows already paint dim, carrying the "greyed hint" read.
+    // Unselected rows already paint dim.
     const interior = overlayInteriorWidth(contentWidth);
     const lines = formatPaletteRows(
       paletteLabels(commands),
@@ -409,7 +408,7 @@ export function createOverlayView(ctx: RenderContext) {
 
   /**
    * Detach the select before `clearBody` destroys the body's children — the
-   * list owns it across paints, it only re-homes.
+   * list owns it across paints.
    */
   function detachList(list: OverlayList): void {
     if (list.select.parent === body) body.remove(list.select);
