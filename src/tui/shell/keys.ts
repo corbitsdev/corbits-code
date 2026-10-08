@@ -15,6 +15,7 @@ import {
   effortCycleHandlers,
   isSlashPopupOpen,
   type PrimaryOverlayKind,
+  getShellStopAffordance,
   shellExitHandlers,
   shellInternals,
 } from "./internals.js";
@@ -162,6 +163,13 @@ function isDecisionGate(shell: AppShell): boolean {
 /** Window in which a second Ctrl+C is read as "yes, quit". */
 export const CTRL_C_EXIT_WINDOW_MS = 2000;
 
+/**
+ * Prefix of the count-aware 1st-press note (Phase 5) shown when sub-agents are
+ * live, inserted after the resolved live-worker count. Imported from keys.ts
+ * by callers that build the flash so the wording has exactly one home.
+ */
+export const N_SUBAGENT_RUNNING_NOTE_PREFIX = "sub-agent(s) running — ";
+
 const ctrlCArmedAt = new WeakMap<AppShell, number>();
 
 /**
@@ -214,6 +222,30 @@ export function handleCtrlC(
     ttlMs: CTRL_C_EXIT_WINDOW_MS,
     ...(options?.schedule !== undefined ? { schedule: options.schedule } : {}),
   });
+}
+
+/**
+ * Pure read of the registered stop affordance scalars for the second-press
+ * branch (Phase 2). The shell stays service-free: it never constructs a
+ * worker-count itself, only mirrors what the runner registered. Defaults keep
+ * an unregistered shell on today's two-press contract (count 0, no-op stop) so
+ * the armed branch stays safe before Phase 4 wires the runner.
+ *
+ * Phase 1 establishes this seam only; it is NOT yet consulted by `handleCtrlC`.
+ * It is exported so Phase 1 consumes it honestly (pinned by the stop-affordance
+ * test) instead of leaving it dead until Phase 2 wires the second-press branch.
+ */
+export function readStopAffordance(shell: AppShell): {
+  count: number;
+  onStop: () => void | Promise<void>;
+} {
+  const affordance = getShellStopAffordance(shell);
+  return {
+    count: affordance?.liveWorkerCount() ?? 0,
+    // Expression-bodied no-op (not an empty block) so oxlint's
+    // no-empty-function rule stays satisfied; still a pure identity no-op.
+    onStop: affordance?.onStopWorkers ?? (() => undefined),
+  };
 }
 
 /**

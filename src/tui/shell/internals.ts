@@ -98,6 +98,36 @@ export function getShellBridgeHooks(
 }
 
 /**
+ * Second-press stop affordance for CL-10149 follow-up. The shell key layer
+ * stays service-free; the runner registers a live-worker-count getter and a
+ * stop-workers callback so `handleCtrlC` can distinguish "stop the active
+ * sub-agents, app keeps running" from a real quit without touching the service
+ * layer (see SOLUTION_SCOPE D1/D2).
+ */
+export interface ShellStopAffordance {
+  /** Live, faithful fleet count (liveFleetCount over session-store list). */
+  liveWorkerCount: () => number;
+  /** Stop all active sub-agents; app stays running. Idempotent. */
+  onStopWorkers: () => void | Promise<void>;
+}
+
+const shellStopAffordances = new WeakMap<AppShell, ShellStopAffordance>();
+
+export function setShellStopAffordance(
+  shell: AppShell,
+  affordance: ShellStopAffordance | undefined,
+): void {
+  if (affordance) shellStopAffordances.set(shell, affordance);
+  else shellStopAffordances.delete(shell);
+}
+
+export function getShellStopAffordance(
+  shell: AppShell,
+): ShellStopAffordance | undefined {
+  return shellStopAffordances.get(shell);
+}
+
+/**
  * What the focused overlay row is, and what choosing it costs. Painted in the
  * fixed description zone under every overlay list that opts in via `describe`.
  */
