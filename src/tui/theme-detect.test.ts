@@ -1,9 +1,9 @@
 /**
  * Theme detection contract: pin beats terminal sniff beats OS appearance
  * beats the dark default; the COLORFGBG table and the OS probe map their
- * edges the documented way. Everything here feeds injected inputs — no
+ * edges the documented way. Everything feeds injected inputs — no
  * `process.env`, no `process.platform`, no spawned commands — so the matrix
- * stays deterministic. Values asserted are resolved palette names and
+ * stays deterministic. Asserted values are resolved palette names and
  * precedence outcomes, never internals.
  */
 

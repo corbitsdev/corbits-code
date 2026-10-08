@@ -1,18 +1,15 @@
 /**
  * Corbits terminal palette — the single source of truth for every color the
- * shell paints. Three rules the rest of the TUI depends on:
+ * shell paints. Three rules the TUI depends on:
  *
- * 1. No neutral gray: dimmed text is a dimmed cream, so the warm bias holds
- *    at every emphasis level.
+ * 1. No neutral gray: dimmed text is a dimmed cream.
  * 2. Orange is spent once per screen — the session mark and pending human
- *    decisions only. Diff removals are the exception (content, not chrome);
- *    ongoing status stays on the bronze ramp / `done` green.
- * 3. The chrome ramp is warm but never saturated: every bronze sits at or
- *    below 54% HSL saturation against Breakthrough Orange's 81%, so full
- *    orange arrives as an event, not another shade of furniture.
+ *    decisions only (diff removals excepted).
+ * 3. The chrome ramp is warm but never saturated: every bronze stays below
+ *    the action orange's saturation, so full orange reads as an event.
  *
- * Summit Blue is deliberately absent — cool reads foreign against cream,
- * black and orange chrome.
+ * Summit Blue is absent on purpose: cool reads foreign against cream, black
+ * and orange chrome.
  */
 
 /** Palette values a theme supplies. Call sites paint through `UI`, never a
@@ -48,8 +45,8 @@ export interface Theme {
  * renderer normalizes hex that way and tests compare a painted span's `fg`
  * against these constants directly. */
 export const BRAND = {
-  // Charcoal, not pure black: lifts the interface off the host terminal's
-  // background and keeps `textFaint` readable against the cream.
+  // Charcoal, not pure black: lifts the interface off the host terminal
+  // and keeps `textFaint` readable against the cream.
   ground: "#191614",
   canvasCream: "#f7ead5",
   breakthroughOrange: "#e98428",
@@ -89,15 +86,12 @@ export const corbitsDark: Theme = {
  * Light companion to `corbitsDark`: the same roles on a warm light ground.
  * Data-only — no interface change, no new roles, no per-theme branches.
  *
- * Values were picked by relative luminance against the cream ground, not by
- * eye: body text holds ~14:1 (near the dark theme's ~15:1) and every
- * essential role >=4.5:1. The dark rules carry over: action stays a
- * one-per-screen decision marker (darkened — Breakthrough Orange is ~2.3:1
- * on cream), dimmed text is dimmed ink, and the bronze ramp is darkened.
- * Caution moves to a muted plum: a bronze warning collapses into the machine
- * ramp on cream. Warm roles separate by lightness first, hue and saturation
- * second, so the decision marker never shares a step with chrome and each
- * ramp still reads as a ramp.
+ * Values follow relative luminance against the cream ground, not eye: body
+ * text ~14:1 (dark ~15:1), every essential role >=4.5:1. The dark rules
+ * carry over: action stays a one-per-screen decision marker (darkened;
+ * Breakthrough Orange is ~2.3:1 on cream), dimmed text is dimmed ink, and
+ * the bronze ramp is darkened. Caution moves to a muted plum so a bronze
+ * warning does not collapse into the machine ramp on cream.
  */
 export const corbitsLight: Theme = {
   name: "corbits-light",
@@ -129,10 +123,9 @@ export function resolveThemeName(name: string): Theme {
 
 let activeTheme: Theme = corbitsDark;
 
-/** Paint state derived from the palette (a SyntaxStyle) registers a reset
- * here; `setTheme` runs every hook after swapping `UI`, so no stale palette
- * survives a pin change. The choke point stays here — call sites never reset
- * caches themselves. */
+/** Paint state derived from the palette registers a reset here; `setTheme`
+ * runs every hook after swapping `UI`, so no stale palette survives a pin
+ * change and call sites never reset caches themselves. */
 type ThemeCacheReset = () => void;
 
 const themeCacheResets = new Set<ThemeCacheReset>();
@@ -154,7 +147,7 @@ export function setTheme(name: ThemeName | string): Theme {
   return activeTheme;
 }
 
-/** Semantic roles everything outside this file paints through. A live
- * binding `setTheme` copies onto; default dark, startup detection picks the
- * final theme before renderables are built. */
+/** Semantic roles everything outside this file paints through. `setTheme`
+ * copies the active palette onto this live binding; default dark, startup
+ * detection picks the final theme before renderables are built. */
 export const UI: Theme = { ...corbitsDark };
