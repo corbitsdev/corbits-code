@@ -620,7 +620,7 @@ describe("tool execution watchdog", () => {
 
   test("pause ceiling resumes a frozen budget with no prompt on screen", async () => {
     // A gate queued behind an overlay (or emitted with no listener) never
-    // resumes the budget; the ceiling bounds how long the clock stays frozen.
+    // resumes the budget; the ceiling bounds the freeze.
     const parent = new AbortController();
     const budget = withPauseableTimeout(parent.signal, 40, 30);
     budget.pause();
@@ -670,9 +670,8 @@ describe("tool execution watchdog", () => {
   });
 
   test("nested watchdog pause freezes the enclosing budget too", async () => {
-    // wait_agents: outer watchdog wraps the parent collect; each child call
-    // opens a nested watchdog. A permission prompt in the child captures the
-    // innermost budget — pausing it must freeze the parent too.
+    // Outer watchdog wraps the parent collect; a prompt in a child captures
+    // the innermost budget, so pausing it must freeze the parent too.
     const result = await runWithToolExecutionWatchdog(
       { id: "outer", name: "wait_agents", arguments: {} },
       new AbortController().signal,
