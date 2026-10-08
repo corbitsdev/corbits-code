@@ -4,12 +4,8 @@
  * The overlay host is a single slot: before the fix, accepting the first
  * card let a deferred surface (slash help, settings, MCP) take the host
  * while a second permission card stayed queued forever — its overlay never
- * opened and its evaluation never settled. These tests pin the fixed
- * contract: decision cards win the host over deferred surfaces, a visible
- * replaceable surface yields to a gate and returns after it settles, a
- * slash behind a live gate still waits, off-screen auto-deny and elapsed
- * clocks do not run, and Allow Once persists nothing while Allow Always /
- * Reject drain like Accept once.
+ * opened and its evaluation never settled. Each test below comments the
+ * specific contract it pins.
  */
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
