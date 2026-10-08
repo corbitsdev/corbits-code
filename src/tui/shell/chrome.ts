@@ -167,8 +167,8 @@ export function setPluginNeedsAttention(shell: AppShell, needs: boolean): void {
 }
 
 /**
- * One comparable key over every input chrome paint reads; missing one
- * leaves stale chrome — keep the list exhaustive. Landing and zone paints
+ * Comparable key over every input chrome paint reads; a missed input
+ * leaves stale chrome. Keep the list exhaustive; landing and zone paints
  * read their own state.
  */
 function chromeComposeKey(shell: AppShell, notice: string): string {
@@ -208,8 +208,8 @@ export function chromeComposeCount(shell: AppShell): number {
 }
 
 /**
- * Repaint chrome only when the composed key changed; `force` bypasses the
- * gate when a layout moved the render tree under identical text.
+ * Repaint chrome only when the composed key changed; `force` bypasses
+ * the gate when a relayout moved the tree under identical text.
  */
 export function paintChrome(
   shell: AppShell,
@@ -217,7 +217,7 @@ export function paintChrome(
 ): void {
   if (shell.disposed) return;
   // Headless tests destroy the renderer without dispose; a TTL flash armed
-  // before that teardown must not write a buffer the harness already freed.
+  // before that teardown must not write a buffer the harness freed.
   if (shell.renderer.isDestroyed || shell.notice.isDestroyed) return;
   syncPending(shell);
   const notice = noticeText(shell);
@@ -305,8 +305,8 @@ function syncPendingColumn(shell: AppShell): void {
 }
 
 /**
- * Give the notice row a row only while it has something to say; relayout
- * re-enters paintChrome with the visibility already correct.
+ * Keep the notice row only while it has text; relayout re-enters
+ * paintChrome with the visibility already correct.
  */
 function syncNoticeRow(shell: AppShell, notice: string): void {
   paintedNotice.set(shell, notice);
@@ -319,8 +319,8 @@ function syncNoticeRow(shell: AppShell, notice: string): void {
 
 /**
  * Re-read the notice after layout: `pinned` reflects the last completed
- * layout, so a mid-paint read can misread a tail-following transcript as
- * pinned for one frame.
+ * layout, so a mid-paint read can misread a following transcript as
+ * pinned for a frame.
  */
 export function syncNoticeAfterLayout(shell: AppShell): void {
   if (noticeText(shell) !== paintedNotice.get(shell)) paintChrome(shell);
@@ -343,9 +343,9 @@ function syncLandingSuggestions(shell: AppShell): void {
 }
 
 /**
- * Callers own the tick; the shell repaints only when the frame differs.
- * A phase change stamps the fade's origin; settling snaps to idle — no
- * frames left is worse than none.
+ * Callers own the tick; repaint only when the frame differs. A phase
+ * change stamps the fade's origin; settling snaps to idle — a stuck
+ * frame is worse than none.
  */
 export interface LockupFrame {
   readonly nowMs: number;
@@ -387,9 +387,9 @@ const defaultFlashSchedule: FlashSchedule = (fn, ms) => {
 };
 
 /**
- * Set a non-destructive flash and repaint (does not touch streamLog).
- * A `ttlMs` flash self-clears when its window lapses; omit it for
- * conditions that stay until replaced.
+ * Set a non-destructive flash and repaint (no streamLog touch). A
+ * `ttlMs` flash self-clears when its window lapses; omit it for
+ * conditions that persist until replaced.
  */
 export function setStatusFlash(
   shell: AppShell,
@@ -462,7 +462,7 @@ export function overlayAnswerState(shell: AppShell): OverlayAnswerState | null {
 const OVERLAY_FLOAT_Z = 10;
 
 /**
- * Float the overlay host over the root's column, or back in. On the landing
+ * Float the overlay host over the root column, or back in. On the landing
  * it floats as a modal so the mark stays beneath; with a transcript,
  * pushing rows beats covering them.
  */
@@ -543,8 +543,8 @@ function paintOverlayListContents(shell: AppShell): void {
 }
 
 /**
- * Faint frame so labels read brighter; the brand run swaps in the lockup's
- * cells — the only animating part of the border.
+ * Faint frame so labels read brighter; the brand run swaps in the
+ * lockup's cells — the border's only animating part.
  */
 function ruleChunks(shell: AppShell, parts: readonly RulePart[]): TextChunk[] {
   const chunks: TextChunk[] = [];
@@ -610,7 +610,7 @@ function lockupFrameInput(shell: AppShell): LockupInput {
 
 /**
  * Repaint both border rules. A resize moves the column budget; the lockup
- * changes every frame without moving geometry — both move the compose key.
+ * animates in place — both shift the compose key.
  */
 export function paintPromptBorder(shell: AppShell): void {
   const width = shell.layout.contentWidth;
@@ -666,8 +666,8 @@ export function paintPromptBorder(shell: AppShell): void {
   shell.promptBottomRule.content = new StyledText(ruleChunks(shell, bottom));
 }
 
-/** Shrink overlay body and list to fit the host; on a short terminal drop
- * context first so one choice row stays answerable. */
+/** Shrink overlay body and list to fit the host; on a short terminal,
+ * drop context first so one choice stays answerable. */
 function fitOverlayListToHost(shell: AppShell, hostH: number): void {
   const list = shell.overlayList;
   if (!list || hostH <= 0) return;
@@ -875,10 +875,10 @@ export function syncPromptRows(shell: AppShell): void {
 }
 
 /**
- * Resize the transcript's leading filler to soak up leftover viewport
- * space, reading `scrollHeight` minus the filler.
+ * Resize the leading filler to soak up leftover viewport space, reading
+ * `scrollHeight` minus the filler.
  *
- * Not at row-mutation time: a mid-layout row reads short for one frame, and
+ * Not at row-mutation time: a mid-layout row reads short for a frame, and
  * growing the filler on that stale reading would bury it. The render-frame
  * hook calls this after that pass.
  */
@@ -936,7 +936,7 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
     ...(promptContentRows !== undefined ? { promptContentRows } : {}),
     // The landing owns the screen until the first row lands; a transcript
     // floor would only clip overlays. An open overlay is the exception —
-    // without the floor a long list claims the whole screen.
+    // otherwise a long list claims the whole screen.
     ...(isLanding(shell) && overlayMode === "closed"
       ? { transcriptFloor: 0 }
       : fleetTranscriptFloor(shell)),
@@ -967,8 +967,7 @@ export function appendTranscript(
 
 /**
  * Append a role-styled stream row to the parent transcript. While observing,
- * rows go to the parent snapshot only (not painted); leave restores them
- * with the parent lease.
+ * rows go to the parent snapshot only (not painted); leave restores them.
  */
 export function appendStreamRow(shell: AppShell, row: StreamRow): void {
   if (shell.observe !== null && shell.parentStreamLog !== null) {
@@ -983,10 +982,9 @@ export function appendStreamRow(shell: AppShell, row: StreamRow): void {
 }
 
 /**
- * Paint the dropped-rows notice when history exists on disk but the loaded
- * window hit the retention cap, so trim never ran. Does not bump
- * `streamLogBase`: faking the splice offset would leave the first retained
- * row unreachable.
+ * Paint the dropped-rows notice when on-disk history hit the retention
+ * cap before trim ran. Does not bump `streamLogBase`: faking the splice
+ * offset would orphan the first retained row.
  */
 export function noteUnloadedHistory(shell: AppShell): void {
   if (shell.observe !== null && shell.parentStreamLog !== null) {
@@ -1024,7 +1022,7 @@ function paintDroppedHistoryMarker(shell: AppShell): void {
 /**
  * Append a child stream row while observing a subagent (host-pushed live
  * events, not only seed lines). No-op when not observing.
- * @returns true when the row was applied to the observe view
+ * @returns true when the row reached the observe view
  */
 export function appendObserveStreamRow(
   shell: AppShell,
@@ -1037,8 +1035,8 @@ export function appendObserveStreamRow(
 }
 
 /**
- * Collapse a system row identical to the one on top (startup echoes read as
- * stutter), but only when nothing painted since. Observe rows paint without
+ * Collapse a system row identical to the one on top (startup echoes read
+ * as stutter) only when nothing painted since. Observe rows paint without
  * touching the parent log, so adjacency alone would swallow a "left
  * observe" farewell; the sequence check restores it.
  */
@@ -1064,10 +1062,9 @@ function isDuplicateSystemEcho(shell: AppShell, row: StreamRow): boolean {
 }
 
 /**
- * Paint + push onto the visible streamLog (child while observing, parent
- * otherwise). The paint tree stays 1:1 with the retention-capped log —
- * fully scrollable; a trim past the cap costs one node removal, not a
- * rebuild.
+ * Paint and push onto the visible streamLog (child while observing,
+ * parent otherwise). The paint tree stays 1:1 with the retention-capped
+ * log, so a trim past the cap costs one node removal, not a rebuild.
  */
 function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
   clearLandingMark(shell);
@@ -1114,8 +1111,8 @@ function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
 
 /**
  * Drop every row from absolute `length` onward. A failed attempt re-streams
- * from scratch, so the transcript retracts what it painted rather than
- * piling the replay under it. A cap-evicted boundary is a no-op.
+ * from scratch, so retract what was painted rather than piling the replay
+ * under it. A cap-evicted boundary is a no-op.
  */
 export function truncateStreamRows(shell: AppShell, length: number): void {
   const parentLog = shell.parentStreamLog;
@@ -1135,9 +1132,9 @@ export function truncateStreamRows(shell: AppShell, length: number): void {
 
 /**
  * Empty the visible transcript for a fresh session (/clear, /new). Backend
- * rotation lives in the runner — the on-screen wipe only. Observe drops
- * first so a child view cannot paint into a cleared parent; the retention
- * base resets so no stale marker lingers.
+ * rotation lives in the runner — on-screen wipe only. Observe drops first
+ * so a child view cannot paint into a cleared parent; the retention base
+ * resets so no stale marker lingers.
  */
 export function clearTranscript(shell: AppShell): void {
   if (shell.observe !== null) {
@@ -1172,8 +1169,8 @@ export function clearTranscript(shell: AppShell): void {
 /**
  * Rewrite an appended transcript row in place. Streaming bodies grow token
  * by token, so the bridge replaces one open row per delta, not a row per
- * token. `index` is absolute (see `streamLogBase`); a cap-evicted row is a
- * no-op, not a write into an unrelated slot.
+ * token. `index` is absolute (see `streamLogBase`); a cap-evicted row is
+ * a no-op, not an unrelated-slot write.
  */
 export function replaceStreamRowAt(
   shell: AppShell,
@@ -1225,7 +1222,7 @@ export function replaceStreamRowAt(
 
 /**
  * Rebuild the transcript paint tree from `streamLog` — every retained row,
- * not a window. The log is capped at `MAX_RETAINED_STREAM_ROWS`, so this is
+ * not a window. The log caps at `MAX_RETAINED_STREAM_ROWS`, so this is
  * O(cap); painting all keeps history scrollable.
  */
 export function repaintTranscriptWindow(shell: AppShell): void {
@@ -1238,10 +1235,10 @@ export function repaintTranscriptWindow(shell: AppShell): void {
     destroySubtree(child);
   }
 
-  // Evicted rows are gone for good, not just scrolled past — say so, or the
-  // boundary reads as the true start of history. A truncated resume can
-  // leave older history on disk without a painted splice; that path must
-  // not fake `streamLogBase`.
+  // Evicted rows are gone, not scrolled past — say so, or the boundary
+  // reads as the true start of history. A truncated resume may leave older
+  // history on disk without a painted splice; that path must not fake
+  // `streamLogBase`.
   if (shell.streamLogBase > 0 || shell.unloadedHistory) {
     const marker = new TextRenderable(shell.renderer as CliRenderer, {
       content: droppedHistoryNotice(shell),
@@ -1266,9 +1263,9 @@ export function repaintTranscriptWindow(shell: AppShell): void {
 
 /**
  * Tear the landing down on the first transcript row. The prompt box jumps
- * from mid-screen to the bottom on the same frame, reading as the screen
- * answering, not the layout twitching. Deferred notices flush into the
- * transcript, staying durable.
+ * from mid-screen to the bottom on the same frame — the screen answering,
+ * not a layout twitch. Deferred notices flush into the transcript and
+ * stay durable.
  */
 function clearLandingMark(shell: AppShell): void {
   const bag = shellInternals(shell);
@@ -1304,12 +1301,12 @@ function clearLandingMark(shell: AppShell): void {
 export const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
 
 /**
- * Repaint the landing mark for `nowMs`. `animating` runs the mountain's
- * draw/fill/fade timeline; otherwise it holds its filled frame. No-op once
- * the landing is gone, so callers can always drive it.
+ * Repaint the landing mark for `nowMs`. `animating` runs the draw/fill/fade
+ * timeline; otherwise it holds its filled frame. No-op once the landing is
+ * gone, so callers can always drive it.
  *
- * Still repaints when idle — snow drifts across a frozen mountain. Reduced
- * motion (a mount-time flag) freezes the mountain and drops snow even under
+ * Idle still repaints — snow drifts across a frozen mountain. Reduced motion
+ * (a mount-time flag) freezes the mountain and drops snow even under
  * `animating`.
  */
 export function paintLanding(
@@ -1327,7 +1324,7 @@ export function paintLanding(
 }
 
 /** Fill the prompt from a landing starter; false when the key selects
- * nothing, the landing is gone, or the operator has already typed. */
+ * nothing, the landing is gone, or the operator already typed. */
 export function applyLandingSuggestion(shell: AppShell, key: string): boolean {
   if (!isLanding(shell) || shell.prompt.value.length > 0) return false;
   const suggestion = landingSuggestionFor(key);
@@ -1338,9 +1335,9 @@ export function applyLandingSuggestion(shell: AppShell, key: string): boolean {
 
 /**
  * Paint node for one transcript row, plus its writer label when the row
- * opens a new block. The label stacks above the node in a column wrapper —
- * never a separate transcript child — keeping the 1:1 log-index-to-child
- * mapping.
+ * opens a new block. The label stacks above the node in a column wrapper,
+ * never a separate transcript child, so the log-index-to-child mapping
+ * stays 1:1.
  */
 export function createStreamRowRenderable(
   shell: AppShell,
@@ -1403,7 +1400,7 @@ export function setShellRunState(shell: AppShell, run: RunState): void {
 /**
  * Expand or collapse one transcript row — a click on its arrow; a key with
  * nothing under it means all (see `toggleCollapsedRow`). `index` is
- * absolute (see `streamLogBase`), matching `createStreamRowRenderable`'s
+ * absolute (`streamLogBase`), matching `createStreamRowRenderable`'s
  * closures.
  */
 export function toggleRowExpandedAt(shell: AppShell, index: number): boolean {
@@ -1415,7 +1412,7 @@ export function toggleRowExpandedAt(shell: AppShell, index: number): boolean {
 
 /** Expand or collapse every collapsed row — same key as overlay payloads,
  * one expand idiom. All-or-nothing: opening just the newest of several
- * reads as a miss. Any still-collapsed row opens the whole set; only once
+ * reads as a miss. Any still-collapsed row opens the set; only once
  * nothing is left does the key close them again. */
 export function toggleCollapsedRow(shell: AppShell): boolean {
   const collapsible = shell.streamLog.flatMap((row, local) =>
@@ -1450,9 +1447,9 @@ function taskStatusMarker(status: TaskPanelRow["status"]): string {
 
 /**
  * Fit a row's label + tail into `maxWidth`, ellipsizing the label
- * (routinely long, free-form) before the tail, what the operator glances at.
- * Measured via `stringWidth`/`sliceToWidth`, not `.length`: UTF-16 units
- * undercount wide glyphs.
+ * (routinely long, free-form) before the tail the operator glances at.
+ * Measured via `stringWidth`/`sliceToWidth`, not `.length` — UTF-16
+ * units undercount wide glyphs.
  */
 function fitAgentRow(row: AgentPanelRow, maxWidth: number): string {
   const full = ` ${row.label}${row.tail}`;
@@ -1478,9 +1475,8 @@ function fitAgentRow(row: AgentPanelRow, maxWidth: number): string {
 }
 
 /**
- * Fit a task row's status marker + label into `maxWidth`, same ellipsis
- * discipline as `fitAgentRow`: keep the marker whole, give the free-form
- * title way.
+ * Fit a task row's marker + label into `maxWidth`, like `fitAgentRow`:
+ * keep the marker whole, give the free-form title the space.
  */
 function fitTaskRow(row: TaskPanelRow, maxWidth: number): string {
   const marker = taskStatusMarker(row.status);
@@ -1645,9 +1641,9 @@ export function setChromeZones(
 const PANEL_TOGGLE_FLASH_MS = 3000;
 
 /**
- * Toggle the task-list panel without touching the live task data — un-hiding
- * shows whatever manage_tasks last wrote. The flag is shell-memory, not
- * persisted.
+ * Toggle the task-list panel without touching the live task data;
+ * un-hiding shows whatever manage_tasks last wrote. The flag is
+ * shell-memory, not persisted.
  */
 export function toggleTasksPanel(shell: AppShell): void {
   const bag = shellInternals(shell);
