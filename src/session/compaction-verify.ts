@@ -1,9 +1,9 @@
 // Verify pass for compaction folds: score the new spine against the
 // continuation facts the dropped turns carried (goal, next action,
 // constraints, verification, blockers, exact names). A fold that drops or
-// contradicts those facts would leave the next agent without steam, so the
-// pass repairs the handoff deterministically or aborts the fold. Fail
-// closed: never ship a lying spine.
+// contradicts those facts leaves the next agent without steam, so the pass
+// repairs the handoff deterministically or aborts the fold. Fail closed:
+// never ship a lying spine.
 
 import { type } from "arktype";
 import type { ConversationTurn } from "@intx/types/runtime";
@@ -321,10 +321,9 @@ export function extractContinuationFacts(
 }
 
 // Basename for paths (a summary moving `src/auth.ts` to "auth.ts" still
-// names it); hostname for URLs (query strings get reworded freely). Match on
-// token/path boundaries so "oauth.ts" does not cover "auth.ts",
-// "vite.config.ts" does not cover "config.ts", and "www.api.com" does not
-// cover hostname "api.com".
+// names it); hostname for URLs (query strings get reworded freely). Match
+// on token/path boundaries so "oauth.ts" does not cover "auth.ts" and
+// "www.api.com" does not cover hostname "api.com".
 function exactNameSupported(name: string, summary: string): boolean {
   const lowered = summary.toLowerCase();
   const loweredName = name.toLowerCase();

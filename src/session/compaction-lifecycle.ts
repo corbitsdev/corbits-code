@@ -1,16 +1,13 @@
 // Abort-aware compaction lifecycle. The post-compaction TUI wedge parks
-// inside the vendored reactor's `await compactor.apply(...)`
-// (vendor/intx-inference/src/reactor.ts executeCompact), where the abort hop
-// queues behind it, unreachable. The reactor offers no abort seam there, but
-// the host owns the injected `Compactor`, so the bound lives here instead of
-// a vendor fork: `wrapCompactor` races the inner apply against the session
-// compact signal, and the summary call is cancellable through the
-// summarizer's existing `getSignal` seam.
+// inside the vendored reactor's `await compactor.apply(...)`, where the
+// abort hop queues behind it, unreachable. The reactor offers no abort seam
+// there, so the bound lives here instead of a vendor fork: `wrapCompactor`
+// races the inner apply against the session compact signal, and the summary
+// call is cancellable via the summarizer's existing `getSignal` seam.
 //
-// On abort the wrapper returns a no-op result (input turns unchanged, no
-// blobs) so executeCompact still runs its local write/commit path and the
-// reactor returns to dequeue — no continuation hop is dropped, the loop just
-// resumes from the pre-compact context.
+// On abort the wrapper returns a no-op result (turns unchanged, no blobs),
+// so executeCompact still runs its local write/commit path and the reactor
+// returns to dequeue — no continuation hop is dropped.
 
 import type {
   Compactor,

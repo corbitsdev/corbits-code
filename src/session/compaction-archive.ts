@@ -1,9 +1,9 @@
 // Authorized evidence archive for primary-session compaction: captures the
 // exact post-policy representation that enters durable history — never raw
 // secrets, never a divergent scrubbed copy while history stays raw. Storage
-// lives in the session context directory (ContextStore blobs + an
-// append-only occurrence index). Completeness is a certificate over an
-// expected occurrence range and verified blobs; readAt salvage is not.
+// lives in the session context dir (blobs + an append-only occurrence
+// index). Completeness is a certificate over an expected occurrence range
+// and verified blobs; readAt salvage is not.
 
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -172,10 +172,10 @@ export function isControlOrEmptyInbound(message: InboundMessage): boolean {
 }
 
 /**
- * Primary admission hook: scrubs inbound content before it enters the
+ * Primary admission hook: scrub inbound content before it enters the
  * reactor. History envelopes the admitted content via `createInboundTurn`,
- * so the archive records that history text, not the pre-envelope inbound
- * string. Workers omit this hook.
+ * so the archive records that history text, not the raw inbound string.
+ * Workers omit this hook.
  */
 export function admitPrimaryInboundMessage(
   message: InboundMessage,
@@ -911,10 +911,10 @@ function isSyntheticHandoffText(text: string): boolean {
 }
 
 /**
- * Persist new user text in the proposed output (the new spine) as archive
- * occurrences so a later fold can drop them. Output units already present
- * verbatim in the input need no recording; the spine never passed through
- * inbound admission. Best effort: callers treat adoption as certified.
+ * Record new user text in the proposed output (the new spine) as archive
+ * occurrences so a later fold can drop it. Units already verbatim in the
+ * input need no recording; the spine never passed through inbound
+ * admission. Best effort: callers treat adoption as certified.
  */
 async function recordFreshHandoffOutput(
   archive: CompactionArchive,
@@ -943,14 +943,14 @@ async function recordFreshHandoffOutput(
 
 /**
  * Refuse a destructive compact when the archive cannot certify the dropped
- * prefix; historical gap:true rows are not part of the expected set.
- * Synthetic handoff spines are adopted as user_message so a later fold can
- * drop them, and after a fold certifies the new spine is recorded so the
- * next fold can drop it even when the summarizer does not echo it verbatim.
- * `isAborted` skips that record: a stub the TUI wrapCompactor race discarded,
- * or a handoff for a fold that never landed, is a phantom. `getSignal` is
- * captured at apply start so onBuilt `reset()` cannot un-abort an in-flight
- * fold that wrapCompactor already discarded.
+ * prefix; explicit gap rows are not part of the expected set.
+ *
+ * Handoff text and new user text in the proposed spine are recorded as
+ * user_message so a later fold can drop them even when the summarizer does
+ * not echo them verbatim. `isAborted` skips that record for a phantom fold
+ * (a stub the TUI wrapCompactor race discarded, or a handoff that never
+ * landed). `getSignal` is captured at apply start so a later `reset()`
+ * cannot un-abort an in-flight fold that wrapCompactor already discarded.
  */
 export function wrapCompactorWithCompletenessGate(
   inner: Compactor,
