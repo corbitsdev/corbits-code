@@ -1,11 +1,11 @@
 /**
  * URL click-through: Ctrl+click opens an http(s) URL in the default
- * browser; a plain click does not. Plain/structured rows open through their
- * own armed handlers (with hover highlight); assistant markdown through the
- * bubbling transcript handler (click only, no highlight).
+ * browser; a plain click does not. Plain/structured rows open through
+ * their own armed handlers (with hover highlight); assistant markdown
+ * through the bubbling transcript handler (click only, no highlight).
  *
  * The opener is mocked (setUrlOpener) — no test spawns a real browser.
- * Whether a real terminal reports the Ctrl modifier is a harness blind spot
+ * Whether a real terminal reports Ctrl is a harness blind spot
  * (docs/TUI.md); headless, the mock delivers it like any click.
  */
 import { describe, expect, test } from "bun:test";
@@ -281,9 +281,8 @@ describe("Ctrl+clicking a transcript URL", () => {
 
   test("assistant markdown bare URL and link label open on Ctrl+click", async () => {
     await withUrlShell(async (shell, h, opened) => {
-      // Markdown blocks paint through childless library renderers, so
-      // their clicks are only visible through the bubbling transcript
-      // handler armed by createAppShell.
+      // Markdown blocks paint through childless library renderers, so only
+      // the bubbling transcript handler armed by createAppShell sees clicks.
       appendStreamRow(shell, {
         role: "assistant",
         text: "see https://example.com/docs and [guide](https://example.com/guide) ok",
@@ -353,9 +352,8 @@ describe("Ctrl+clicking a transcript URL", () => {
 
   test("Ctrl+click on an armed plain-row link opens exactly once", async () => {
     await withUrlShell(async (shell, h, opened) => {
-      // The armed row's release handler opens and stops propagation; the
-      // transcript-root markdown handler must not see the same gesture and
-      // open again.
+      // The armed row's release handler opens and stops propagation, so the
+      // transcript-root markdown handler must not open again.
       appendStreamRow(shell, {
         role: "user",
         text: "see https://example.com/x ok",
