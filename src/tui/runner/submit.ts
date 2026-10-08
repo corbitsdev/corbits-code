@@ -366,6 +366,9 @@ export function createSubmitPath(
       live.agentProxy.send(next),
     presentFailureNotice = true,
   ): Promise<AgentDeliveryResult> => {
+    hostOf(state).bridge.setSuspendedApprovalRecovery(
+      services.suspendedApprovalRecovery.tryResumeOnce,
+    );
     const attempt = live.attemptIdentity();
     const providerFailure = services.providerFailureAttempts.begin(attempt);
     const recoveryAttempt = state.credentialRecovery.begin(
@@ -385,7 +388,15 @@ export function createSubmitPath(
         // send early; resolve the operator surface here and deliver the
         // decision on the correlationId signal channel so the parked run
         // resumes.
+        if (result.type === "suspended") {
+          services.suspendedApprovalRecovery.capture(
+            result,
+            services.deliveryGeneration.capture(),
+          );
+        }
         await services.approvalResume.handle(result);
+        // Settled: nothing is left for the stall watchdog to re-present.
+        services.suspendedApprovalRecovery.clear();
       });
       return { status: "accepted" };
     } catch (error) {

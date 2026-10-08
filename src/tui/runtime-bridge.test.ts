@@ -11,6 +11,7 @@ import {
   mapReactorLike,
   type TaskProgressSession,
   type TurnMonitorOptions,
+  PARKED_CALL_NOT_RUN,
 } from "./runtime-bridge";
 import { DEFAULT_STALL_MS } from "./agent-progress";
 import { appendStreamRow, paintChrome } from "./shell/chrome";
@@ -23,10 +24,10 @@ import { streamRowCount } from "./shell/transcript";
 import { STEER_WAIT_NOTICE_MS } from "./notice-line";
 import type { Harness } from "./harness";
 import { withAppShell } from "./test-helpers";
-import { wireGates } from "./gate-wire.js";
+import { operatorCancelResult, wireGates } from "./gate-wire.js";
 import { acceptOverlaySelection } from "./shell/overlay-host.js";
 import { moveOverlaySelection } from "./shell/overlay-list.js";
-import { badgeCount } from "./delivery-queue";
+import { badgeCount, SESSION_IDENTITY_ABORT_REASON } from "./delivery-queue";
 import { LIVE_ACTIVITY_WORDS } from "./chrome-state";
 
 type RecordingPort = ReturnType<typeof createRecordingPort>;
@@ -1041,6 +1042,257 @@ describe("parallel sub-agent dispatch on the live session bridge", () => {
         "done c2",
         "done c3",
       ]);
+    });
+  });
+});
+
+describe("Ctrl+C on a decision gate", () => {
+  const shellRequest = (subject: string): PermissionRequest => ({
+    tool: "run_shell",
+    action: "Run shell command",
+    subject,
+    scopes: [],
+  });
+
+  function emitPermissionGate(
+    emitter: EventEmitter,
+    id: string,
+    signal?: AbortSignal,
+  ) {
+    let outcome: unknown;
+    emitter.emit("permission.gate", {
+      id,
+      request: shellRequest(`touch ${id}`),
+      resolve: (value: unknown) => {
+        outcome = value;
+      },
+      ...(signal !== undefined ? { signal } : {}),
+    });
+    return () => outcome;
+  }
+
+  test("declines the open permission gate and interrupts the turn", async () => {
+    await withBridge(
+      { run: "busy", wireKeys: true, gates: true },
+      async ({ h, shell, port, emitter }) => {
+        const outcome = emitPermissionGate(emitter, "req-1");
+        expect(shell.overlayKind).toBe("permissions");
+        port.clear();
+
+        h.pressKey("c", { ctrl: true });
+        await h.renderOnce();
+
+        expect(outcome()).toEqual({ allow: false });
+        expect(port.calls.some((c) => c.op === "interrupt")).toBe(true);
+        expect(shell.overlayList).toBeNull();
+      },
+    );
+  });
+
+  test("interrupts even when the shell does not read as busy", async () => {
+    // A turn started by a delivered message (a background shell exit, a
+    // worker wake) can park on a gate without a composer send marking busy.
+    await withBridge(
+      { run: "idle", wireKeys: true, gates: true },
+      async ({ h, port, emitter }) => {
+        const outcome = emitPermissionGate(emitter, "req-1");
+        port.clear();
+
+        h.pressKey("c", { ctrl: true });
+        await h.renderOnce();
+
+        expect(outcome()).toEqual({ allow: false });
+        expect(port.calls.some((c) => c.op === "interrupt")).toBe(true);
+      },
+    );
+  });
+
+  test("queued gates drop with the interrupt instead of taking over the prompt", async () => {
+    await withBridge(
+      { run: "busy", wireKeys: true, gates: true },
+      async ({ h, shell, port, emitter }) => {
+        // Production gates share the session identity signal, which the
+        // interrupt's delivery-generation bump aborts.
+        const identity = new AbortController();
+        const first = emitPermissionGate(emitter, "req-1", identity.signal);
+        const queued = emitPermissionGate(emitter, "req-2", identity.signal);
+        port.clear();
+
+        h.pressKey("c", { ctrl: true });
+        await h.renderOnce();
+        expect(first()).toEqual({ allow: false });
+        expect(port.calls.some((c) => c.op === "interrupt")).toBe(true);
+
+        identity.abort(SESSION_IDENTITY_ABORT_REASON);
+        await h.renderOnce();
+        expect(queued()).toEqual({
+          allow: false,
+          message: SESSION_IDENTITY_ABORT_REASON,
+        });
+        expect(shell.overlayList).toBeNull();
+      },
+    );
+  });
+
+  test("declines an open operator question and interrupts the turn", async () => {
+    await withBridge(
+      { run: "busy", wireKeys: true, gates: true },
+      async ({ h, port, emitter }) => {
+        let outcome: unknown;
+        emitter.emit("operator.gate", {
+          id: "ask-1",
+          question: "Proceed?",
+          options: ["Cancel", "Continue"],
+          resolve: (value: unknown) => {
+            outcome = value;
+          },
+        });
+        port.clear();
+
+        h.pressKey("c", { ctrl: true });
+        await h.renderOnce();
+
+        expect(outcome).toEqual(operatorCancelResult());
+        expect(port.calls.some((c) => c.op === "interrupt")).toBe(true);
+      },
+    );
+  });
+
+  test("Esc still declines only the open gate and leaves the turn running", async () => {
+    await withBridge(
+      { run: "busy", wireKeys: true, gates: true },
+      async ({ h, port, emitter }) => {
+        const outcome = emitPermissionGate(emitter, "req-1");
+        port.clear();
+
+        // ESC needs a disambiguation delay on the mock stdin path.
+        h.pressKey("Escape");
+        await new Promise((r) => setTimeout(r, 60));
+        await h.renderOnce();
+
+        expect(outcome()).toEqual({ allow: false });
+        expect(port.calls.some((c) => c.op === "interrupt")).toBe(false);
+      },
+    );
+  });
+});
+
+describe("calls parked on an approval gate", () => {
+  type Event = { type: string; data?: unknown };
+
+  const toolCall = (id: string): Event[] => [
+    {
+      type: "inference.tool_call.start",
+      data: { callId: id, name: "run_shell" },
+    },
+    {
+      type: "inference.tool_call.end",
+      data: {
+        name: "run_shell",
+        callId: id,
+        arguments: JSON.stringify({ command: `touch ${id}` }),
+      },
+    },
+  ];
+  const gateBlocked = (reason = "approval"): Event => ({
+    type: "reactor.gate.blocked",
+    data: { reason, gateId: "gate-1", correlationId: "corr-1" },
+  });
+  // The reactor re-infers once the parked call is answered.
+  const followUpReply: Event[] = [
+    { type: "inference.start", data: {} },
+    { type: "inference.text.delta", data: { token: "It was not run." } },
+    { type: "inference.done", data: {} },
+    { type: "connector.reply", data: { content: "It was not run." } },
+  ];
+  const toolRow = (shell: { streamLog: readonly { role: string }[] }) =>
+    shell.streamLog.filter((r) => r.role === "tool") as unknown as {
+      text: string;
+      pending?: boolean;
+      failed?: boolean;
+    }[];
+
+  test("a call answered without running is closed as not run and the turn settles", async () => {
+    await withBridge({ run: "busy" }, async ({ shell, bridge }) => {
+      const events: Event[] = [
+        { type: "inference.start", data: {} },
+        ...toolCall("c1"),
+        { type: "inference.done", data: {} },
+        gateBlocked(),
+      ];
+      for (const event of events) bridge.handle(event);
+      expect(shell.session.run).toBe("busy");
+
+      // Rejected, timed out or dropped: no tool.done, just the re-inference.
+      for (const event of followUpReply) bridge.handle(event);
+
+      expect(bridge.turn.activeToolCalls).toEqual([]);
+      expect(shell.session.run).toBe("idle");
+      expect(shell.lockupPhase).toBeNull();
+      const rows = toolRow(shell);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.pending).not.toBe(true);
+      expect(rows[0]?.failed).toBe(true);
+      expect(rows[0]?.text).toBe(PARKED_CALL_NOT_RUN);
+    });
+  });
+
+  test("an approved call reports through its own events and is never closed early", async () => {
+    await withBridge({ run: "busy" }, async ({ shell, bridge }) => {
+      const events: Event[] = [
+        { type: "inference.start", data: {} },
+        ...toolCall("c1"),
+        { type: "inference.done", data: {} },
+        gateBlocked(),
+        // Approved: the reactor re-dispatches the exact parked call.
+        { type: "tool.start", data: { call: { id: "c1", name: "run_shell" } } },
+        {
+          type: "tool.done",
+          data: { result: { callId: "c1", name: "run_shell", content: "ok" } },
+        },
+        ...followUpReply,
+      ];
+      for (const event of events) bridge.handle(event);
+
+      expect(shell.session.run).toBe("idle");
+      const rows = toolRow(shell);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.failed).not.toBe(true);
+      expect(rows[0]?.text).toBe("ok");
+    });
+  });
+
+  test("a sibling already executing when the gate blocked stays open", async () => {
+    await withBridge({ run: "busy" }, async ({ shell, bridge }) => {
+      const events: Event[] = [
+        { type: "inference.start", data: {} },
+        ...toolCall("c1"),
+        ...toolCall("c2"),
+        { type: "inference.done", data: {} },
+        // c1 was auto-allowed and is running; c2 parked on the gate.
+        { type: "tool.start", data: { call: { id: "c1", name: "run_shell" } } },
+        gateBlocked(),
+        { type: "inference.start", data: {} },
+      ];
+      for (const event of events) bridge.handle(event);
+
+      expect(bridge.turn.activeToolCalls).toEqual(["c1"]);
+      expect(shell.session.run).toBe("busy");
+    });
+  });
+
+  test("a gate that is not an approval does not close anything", async () => {
+    await withBridge({ run: "busy" }, async ({ bridge }) => {
+      const events: Event[] = [
+        { type: "inference.start", data: {} },
+        ...toolCall("c1"),
+        { type: "inference.done", data: {} },
+        gateBlocked("input"),
+        { type: "inference.start", data: {} },
+      ];
+      for (const event of events) bridge.handle(event);
+
+      expect(bridge.turn.activeToolCalls).toEqual(["c1"]);
     });
   });
 });

@@ -43,6 +43,7 @@ import {
   resolveTurnLabel,
   sendFailureText,
 } from "./chrome-state.js";
+import type { StallResumeResult } from "../session/approval-resume.js";
 import { shouldAutoRetryQuota } from "./quota-retry.js";
 import { RUNTIME_FLASH_MS } from "./runtime-notices.js";
 import {
@@ -51,6 +52,7 @@ import {
   isStalledForDisplay,
   shouldAbortForStall,
   stallLevel,
+  STALL_APPROVAL_RESUME_MESSAGE,
   STALL_NOTICE_MESSAGE,
   STALL_NOTICE_MS,
   STALL_RECOVERY_MESSAGE,
@@ -180,6 +182,11 @@ export interface TurnMonitorOptions {
   readonly schedule?: (tick: () => void, intervalMs: number) => () => void;
 }
 
+/** Outcome of a watchdog attempt to re-present a parked approval. */
+export type SuspendedApprovalResume = (
+  onPresenting: () => void,
+) => Promise<StallResumeResult>;
+
 const DEFAULT_TICK_MS = 250;
 
 /**
@@ -235,6 +242,16 @@ export interface SessionBridge {
   gateOpened: () => void;
   /** A previously raised gate resolved. */
   gateClosed: () => void;
+  /**
+   * Registers the attempt to re-present one already persisted approval
+   * suspension when the stall watchdog fires. It receives no agent, storage,
+   * grant, or tool capability: a true result means the correlated approval
+   * path owns the continuation, false falls back to the interrupt. It calls
+   * `onPresenting` only once it is actually about to re-present the approval.
+   */
+  setSuspendedApprovalRecovery: (
+    recovery: SuspendedApprovalResume | undefined,
+  ) => void;
   dispose: () => void;
   /** Current derived turn phase (progress label, stall clock, quota window). */
   readonly turn: TurnState;
@@ -510,6 +527,7 @@ export interface BridgeBag {
   /** callId→name / delta bookkeeping for production-shaped events. */
   mapCtx: StreamMapContext;
   disposed: boolean;
+  suspendedApprovalRecovery: SuspendedApprovalResume | undefined;
   turn: TurnState;
   /**
    * Live fleet-lane count from the last `fleet` event (idle-with-fleet).
@@ -608,6 +626,13 @@ export interface BridgeBag {
    * leak.
    */
   gatedToolCalls: Set<string>;
+  /** Calls the reactor reported with `tool.start`, until their `tool.done`. */
+  executingToolCalls: Set<string>;
+  /**
+   * Calls that had not started executing when an approval gate blocked. See
+   * `closeParkedCalls` for how they end.
+   */
+  parkedToolCalls: Set<string>;
   /**
    * Last live shell tail painted per in-flight call, so an unchanged feed
    * snapshot applies no row update.
@@ -1396,6 +1421,30 @@ function releaseRunToIdle(shell: AppShell, bag: BridgeBag): void {
  * release the hold. A dry fleet takes one occupancy shot here per dry episode
  * instead of idling, even if the live 1→0 edge was never observed.
  */
+/** Row text for a parked call answered without running. Names no cause. */
+export const PARKED_CALL_NOT_RUN = "not run: no approval was granted";
+
+function recordOf(data: unknown): Record<string, unknown> | undefined {
+  return data !== null && typeof data === "object"
+    ? (data as Record<string, unknown>)
+    : undefined;
+}
+
+function startedCallId(data: unknown): string | undefined {
+  const call = recordOf(recordOf(data)?.call);
+  const id = call?.id ?? call?.callId;
+  return typeof id === "string" ? id : undefined;
+}
+
+function doneCallId(data: unknown): string | undefined {
+  const id = recordOf(recordOf(data)?.result)?.callId;
+  return typeof id === "string" ? id : undefined;
+}
+
+function isApprovalGate(data: unknown): boolean {
+  return recordOf(data)?.reason === "approval";
+}
+
 function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
   if (shell.session.run !== "busy") return;
   // The turn is settling: whatever the open row accumulated must be on it
@@ -1581,6 +1630,7 @@ export function attachSessionBridge(
     pendingPromptRecoveries: [],
     mapCtx: createStreamMapContext(),
     disposed: false,
+    suspendedApprovalRecovery: undefined,
     turn: initialTurnState(now()),
     liveFleet: 0,
     pendingAskWake: new Map(),
@@ -1604,6 +1654,8 @@ export function attachSessionBridge(
     toolRows: new Map(),
     toolCallStartedAt: new Map(),
     gatedToolCalls: new Set(),
+    executingToolCalls: new Set(),
+    parkedToolCalls: new Set(),
     shellSnapshots: new Map(),
     lastToolRow: -1,
     taskCallIds: new Set(),
@@ -1776,8 +1828,72 @@ export function attachSessionBridge(
     settleRunToIdle(shell, bag);
   };
 
+  /**
+   * A call parked on an approval gate ends one of two ways. Approved, it is
+   * re-dispatched and reports through its own `tool.start` and `tool.done`.
+   * Rejected, timed out or dropped, the reactor answers it with a synthetic
+   * error result and emits nothing naming it, so it would stay active and the
+   * turn could never settle. The reactor cannot infer while a call is parked,
+   * so an `inference.start` that finds a parked call still unstarted means it
+   * was answered without running: close it the way a `tool.done` would.
+   */
+  const trackParkedCalls = (event: BridgeInboundEvent | ReactorLikeEvent) => {
+    switch (event.type) {
+      case "tool.start": {
+        const id = startedCallId(event.data);
+        if (id === undefined) return;
+        bag.executingToolCalls.add(id);
+        bag.parkedToolCalls.delete(id);
+        return;
+      }
+      case "tool.done": {
+        const id = doneCallId(event.data);
+        if (id === undefined) return;
+        bag.executingToolCalls.delete(id);
+        bag.parkedToolCalls.delete(id);
+        return;
+      }
+      case "reactor.gate.blocked": {
+        if (!isApprovalGate(event.data)) return;
+        bag.parkedToolCalls = new Set(
+          bag.turn.activeToolCalls.filter(
+            (id) =>
+              bag.turn.callNameById[id] !== undefined &&
+              !bag.executingToolCalls.has(id),
+          ),
+        );
+        return;
+      }
+      case "inference.start":
+        closeParkedCalls();
+        return;
+    }
+  };
+
+  const closeParkedCalls = (): void => {
+    const parked = [...bag.parkedToolCalls];
+    bag.parkedToolCalls.clear();
+    for (const id of parked) {
+      // An interrupt or reset may already have cleared it.
+      if (!bag.turn.activeToolCalls.includes(id)) continue;
+      const name = bag.turn.callNameById[id];
+      handle({
+        type: "tool.done",
+        data: {
+          result: {
+            callId: id,
+            ...(name !== undefined ? { name } : {}),
+            content: PARKED_CALL_NOT_RUN,
+            isError: true,
+          },
+        },
+      });
+    }
+  };
+
   const handle = (event: BridgeInboundEvent | ReactorLikeEvent): void => {
     if (bag.disposed) return;
+    trackParkedCalls(event);
     if (event.type === "inference.start") {
       // Infer-start stamp (CL-8016): separates "inference never started"
       // from "stream went quiet" when a turn later stalls past the bound.
@@ -2143,6 +2259,9 @@ export function attachSessionBridge(
     flushOccupancyThenWake();
   };
 
+  // When the in-flight approval resume began; at most one runs at a time.
+  let stallResumeStartedAt: number | undefined;
+
   const tick = (): void => {
     if (bag.disposed) return;
     const nowMs = now();
@@ -2201,19 +2320,58 @@ export function attachSessionBridge(
     const stallArgs = stallArgsFor(nowMs);
 
     if (shouldAbortForStall(stallArgs)) {
-      applyStallRecovery(
-        {
-          abort: () => {
-            if (abortStalledWakeTurn()) return;
-            doInterrupt();
+      const recover = (): void =>
+        applyStallRecovery(
+          {
+            abort: () => {
+              if (abortStalledWakeTurn()) return;
+              doInterrupt();
+            },
+            notify: (message) =>
+              setStatusFlash(shell, message, { ttlMs: RUNTIME_FLASH_MS }),
           },
-          notify: (message) =>
-            setStatusFlash(shell, message, { ttlMs: RUNTIME_FLASH_MS }),
-        },
-        STALL_RECOVERY_MESSAGE,
+          STALL_RECOVERY_MESSAGE,
+        );
+      if (stallResumeStartedAt !== undefined) {
+        // One resume attempt is already out. Give it a single stall budget,
+        // then take the abort so a wedged attempt cannot hold the turn open.
+        if (nowMs - stallResumeStartedAt < stallArgs.stallTimeoutMs) return;
+        stallResumeStartedAt = undefined;
+        recordTurnMarker(bag, "stall-resume:timeout");
+        recover();
+        return;
+      }
+      const resume = bag.suspendedApprovalRecovery;
+      if (resume === undefined) {
+        recover();
+        return;
+      }
+      const startedAt = nowMs;
+      stallResumeStartedAt = startedAt;
+      const settle = (handled: boolean, code: string): void => {
+        // A timed-out, superseded or no-longer-stalled attempt already took
+        // its own outcome.
+        if (bag.disposed || stallResumeStartedAt !== startedAt) return;
+        stallResumeStartedAt = undefined;
+        recordTurnMarker(bag, `stall-resume:${code}`);
+        if (handled) return;
+        // Re-evaluate: the turn may have moved on while the attempt ran.
+        if (shouldAbortForStall(stallArgsFor(now()))) recover();
+      };
+      void resume(() =>
+        setStatusFlash(shell, STALL_APPROVAL_RESUME_MESSAGE, {
+          ttlMs: RUNTIME_FLASH_MS,
+        }),
+      ).then(
+        (outcome) => settle(outcome.handled, outcome.code),
+        () => settle(false, "error"),
       );
       return;
     }
+
+    // Not stalled: any earlier resume attempt belongs to a stall that ended,
+    // so a later stall starts clean instead of waiting out its budget.
+    stallResumeStartedAt = undefined;
 
     // Same "is this stalled at all" question `paintPhase` asks above — call
     // the one definition (`isStalledForDisplay`) rather than re-deriving it
@@ -2258,6 +2416,9 @@ export function attachSessionBridge(
     submit,
     interrupt: doInterrupt,
     clearQueuedDelivery,
+    setSuspendedApprovalRecovery: (recovery) => {
+      bag.suspendedApprovalRecovery = recovery;
+    },
     get parentCycleLive() {
       return bag.liveSteerInject;
     },

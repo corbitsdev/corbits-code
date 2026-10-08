@@ -61,7 +61,9 @@ import type { CompactionArchive } from "../../session/compaction-archive.js";
 import { tryReadPriorHandoffFile } from "../../session/compaction-handoff.js";
 import {
   createApprovalResume,
+  createSuspendedApprovalRecovery,
   resolveParkedCallIdFromStore,
+  type SuspendedApprovalRecovery,
 } from "../../session/approval-resume.js";
 import { createReactorAuthorize } from "../../permission/reactor-authorize.js";
 import {
@@ -185,7 +187,9 @@ export async function assembleTUISession(
   const correlationAcceptance = createCorrelationAcceptance();
   const parkedApprovalCancel = { fn: undefined as (() => void) | undefined };
   const parkedOverlay = createParkedOverlayAbortBinding();
+  let suspendedApprovalRecovery: SuspendedApprovalRecovery | undefined;
   const deliveryGeneration = createDeliveryGeneration(() => {
+    suspendedApprovalRecovery?.clear();
     parkedApprovalCancel.fn?.();
     correlationAcceptance.settleAll();
   });
@@ -550,6 +554,10 @@ export async function assembleTUISession(
     cwd: config.cwd,
     extraDeniedPaths: [config.globalSettingsPath],
   });
+  suspendedApprovalRecovery = createSuspendedApprovalRecovery({
+    storage: () => state.currentStorage ?? undefined,
+    resume: approvalResume,
+  });
   state.enqueueAgentDeliver = (
     deliverToLiveAgent: () => void,
     onSettle?: (result: AgentDeliveryResult) => void,
@@ -788,6 +796,7 @@ export async function assembleTUISession(
     inferenceDeps: start.inferenceDeps,
     permissionGate,
     approvalResume,
+    suspendedApprovalRecovery,
     permissionsAdmin,
     liveSubAgent,
     subAgentSessions,

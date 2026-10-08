@@ -152,6 +152,13 @@ function toggleCloseOpenSurface(shell: AppShell, key: KeyEvent): boolean {
   return true;
 }
 
+/** Permission and operator gates: the overlays that hold every key. */
+function isDecisionGate(shell: AppShell): boolean {
+  return (
+    shell.overlayKind === "permissions" || shell.overlayKind === "operator"
+  );
+}
+
 /** Window in which a second Ctrl+C is read as "yes, quit". */
 export const CTRL_C_EXIT_WINDOW_MS = 2000;
 
@@ -343,6 +350,17 @@ export function createShellKeyHandlers(
     }
 
     if (shell.overlayList) {
+      // A decision gate keeps every key until it is answered, and a run that
+      // keeps raising gates (each rejection re-infers into more calls) would
+      // then leave the stop key unreachable. Ctrl+C declines the open gate the
+      // way Esc does, then interrupts the turn, which drops queued gates too.
+      if (key.ctrl && key.name === "c" && isDecisionGate(shell)) {
+        key.preventDefault();
+        abortOverlayHostReservations(shell);
+        closeInsetOverlay(shell);
+        interruptShell(shell);
+        return;
+      }
       // Checked ahead of the filter handlers: an opener chord pressed again is
       // a request to close, not a character to narrow the list with.
       if (toggleCloseOpenSurface(shell, key)) {
