@@ -151,10 +151,10 @@ describe("block elements", () => {
   });
 
   test("closing fence streamed one character at a time never shrinks the block", () => {
-    // The newline after the body starts a fresh, still-empty line that could
-    // become the closing fence. Streaming ` then `` then ``` across it must
-    // never remove a line that was already visible (visible shrink reads as
-    // flicker) — only hold steady or grow as the fence completes.
+    // The newline after the body starts a fresh, empty line that could become
+    // the closing fence. Streaming ` then `` then ``` across it must never
+    // remove an already-visible line (shrink reads as flicker) — only hold
+    // steady or grow as the fence completes.
     const base = "```js\nconst x = 1;\n";
     const steps = [base, `${base}\``, `${base}\`\``, `${base}\`\`\``];
     const lineCounts = steps.map((content) => parseMarkdown(content).length);
@@ -165,8 +165,8 @@ describe("block elements", () => {
 
   test("blank lines inside a fenced block keep a continuous gutter", () => {
     const lines = parseMarkdown("```ts\nconst a = 1;\n\nconst b = 2;\n```");
-    // Cap, body, blank, body, foot — every non-cap/foot body row (incl. blank)
-    // carries the gutter so the frame does not fragment.
+    // Cap, body, blank, body, foot — every body row carries the gutter so the
+    // frame does not fragment.
     const gutterLines = lines.filter((line) =>
       line.some((s) => s.text.includes("▏")),
     );
@@ -313,7 +313,7 @@ describe("F3: GFM table relaxation", () => {
   test("trailing empty cell is preserved to match header column count", () => {
     const lines = parseMarkdown("| a | b | c |\n|---|---|---|\n| x | y | |");
     expect(lines).toHaveLength(3);
-    // 3 columns render two unicode column separators in the header and data row.
+    // 3 columns render two unicode column separators in header and data row.
     const header = allText(lines[0] ?? []);
     const dataRow = allText(lines[2] ?? []);
     expect((header.match(/│/g) ?? []).length).toBe(2);
@@ -524,12 +524,12 @@ describe("createMemoizedParseMarkdown", () => {
     const b = memoized("b", 80);
     // Touch "a" again so "b" becomes the least recently used entry.
     expect(memoized("a", 80)).toBe(a);
-    const c = memoized("c", 80); // pushes cache over capacity, evicting "b"
+    const c = memoized("c", 80); // over capacity: evicts "b"
 
-    // "b" was evicted: same content, but a freshly parsed (non-identical) array.
+    // "b" was evicted: same content, but freshly parsed (not identical).
     expect(memoized("b", 80)).not.toBe(b);
-    // "c" is still warm — it was inserted more recently than "a", which the
-    // re-fetch of "b" above evicted to make room.
+    // "c" is still warm — inserted more recently than "a", which the re-fetch
+    // of "b" evicted.
     expect(memoized("c", 80)).toBe(c);
   });
 

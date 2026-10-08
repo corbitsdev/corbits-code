@@ -17,8 +17,8 @@ export interface StyledSegment {
   backgroundColor?: string;
   linkUrl?: string;
   codeFence?: boolean;
-  // Wall-clock start of a still-running tool call, on the first segment of a
-  // pending tool row; the event log animates those rows with a live spinner.
+  // Start of a still-running tool call on the first segment of a pending tool
+  // row; the event log animates those rows with a live spinner.
   toolRunningSince?: number;
 }
 
@@ -69,7 +69,7 @@ function parseSegments(text: string): StyledSegment[] {
       continue;
     }
 
-    // `_` only opens italic after a non-word char or at the start of the string.
+    // `_` opens italic only after a non-word char or at string start.
     if (remaining[0] === "_" && remaining[1] !== "_") {
       const prevChar = offset > 0 ? text[offset - 1] : null;
       const isPrecededByNonWord = !prevChar || !WORD_CHAR_RE.test(prevChar);
@@ -122,7 +122,7 @@ function parseSegments(text: string): StyledSegment[] {
       continue;
     }
 
-    // A marker that did not start a token (e.g. a lone `[`): emit it as plain text.
+    // A marker that started no token (e.g. a lone `[`): emit it as plain text.
     const ch = remaining[0];
     if (ch == null) break;
     segments.push({ text: ch });
@@ -157,7 +157,7 @@ function parseLine(line: string): StyledSegment[] {
     return applyFlag(parseSegments(headingMatch[2] || ""), { heading: level });
   }
 
-  // Blockquote: > text. Rendered with a bar glyph; inline markdown still applies.
+  // Blockquote: > text, rendered with a bar glyph; inline markdown applies.
   const quoteMatch = line.match(/^\s*>\s?(.*)$/);
   if (quoteMatch) {
     const marker: StyledSegment = { text: "│ ", blockquote: true };
@@ -200,9 +200,9 @@ function parseLine(line: string): StyledSegment[] {
 
 const FENCE_OPEN_RE = /^\s*(```+|~~~+)/;
 const FENCE_CLOSE_RE = /^\s*(```+|~~~+)\s*$/;
-// A partially-typed closing fence: zero, one, or two lone fence chars on a
-// line (zero covers the empty line right after the body). Stripped from the
-// streaming tail so the block does not flicker as the fence is typed.
+// A partially-typed closing fence: zero to two lone fence chars on a line
+// (zero = the empty line right after the body). Stripped from the streaming
+// tail so the block does not flicker while the fence is typed.
 const PARTIAL_FENCE_RE = /^\s*[`~]{0,2}\s*$/;
 const INDENTED_CODE_RE = /^(?: {4}|\t)(.*)$/;
 const CODE_GUTTER = "▏ ";
@@ -212,8 +212,8 @@ interface FencedBlock {
   consumed: number;
 }
 
-// Always paint the gutter, including on blank body lines — skipping them left
-// disconnected bar fragments instead of one continuous container.
+// Always paint the gutter, blank body lines included; skipping them split
+// the bar into disconnected fragments.
 function codeGutterPrefix(line: StyledSegment[]): StyledSegment[] {
   return [
     { text: CODE_GUTTER, code: true, dim: true, codeFence: true },
@@ -232,8 +232,8 @@ function fencedFoot(): StyledSegment[] {
   return [{ text: "╰", dim: true, codeFence: true }];
 }
 
-// Collect a fenced block from `start`: highlight its body by the fence's
-// language token, frame it with cap/gutter glyphs. An unclosed streaming
+// Collect a fenced block from `start`: highlight the body by the fence's
+// language token and frame it with cap/gutter glyphs. An unclosed streaming
 // block drops a partial closing fence so the tail re-highlights cleanly.
 function parseFencedBlock(
   input: string[],
@@ -307,10 +307,10 @@ export type MemoizedParseMarkdown = ((
 
 const DEFAULT_MARKDOWN_CACHE_ENTRIES = 32;
 
-// Parsed segments never change for a fixed (text, width) pair, and resize-free
-// re-renders re-ask for the same pair; a small bounded LRU makes those hits.
-// Callers clear() it with the per-block line cache (event-log.tsx / app.tsx)
-// so it does not grow across a session.
+// Segments never change for a fixed (text, width) pair and resize-free
+// re-renders re-ask for the same pair, so a small bounded LRU makes those
+// hits. Callers clear() it with the per-block line cache (event-log.tsx /
+// app.tsx) so it does not grow across a session.
 export function createMemoizedParseMarkdown(
   maxEntries = DEFAULT_MARKDOWN_CACHE_ENTRIES,
 ): MemoizedParseMarkdown {
@@ -394,16 +394,15 @@ interface ParsedTable {
 }
 
 // Internal separators only, matching opencode/Glamour: a unicode bar between
-// columns and a header rule of box dashes. No outer frame — it adds width
-// overhead and neither reference TUI draws one.
+// columns and a dash header rule. No outer frame — width overhead, and
+// neither reference TUI draws one.
 const COL_SEP = "│";
 const HEADER_RULE = "─";
 const HEADER_CROSS = "┼";
 const MIN_COL_WIDTH = 6;
 
-// Each slot is content padded to column width plus one leading/trailing space;
-// columns join by a single bar, so overhead is one bar per gap plus two spaces
-// per column.
+// Each slot pads content to column width with one leading/trailing space;
+// columns join by one bar, so overhead is a bar per gap plus two spaces.
 function tableRowOverhead(cols: number): number {
   return cols - 1 + cols * 2;
 }
@@ -666,9 +665,9 @@ function renderKeyValue(cells: StyledSegment[][][]): StyledSegment[][] {
   return out;
 }
 
-// A table row is a bordered GFM row (leading pipe) or a borderless one split
-// by a spaced pipe. Escaped pipes (\|) are literal and `||` is a logical-or,
-// so neither counts as a separator.
+// A table row is bordered (leading pipe) or borderless (split by a spaced
+// pipe). Escaped pipes (\|) are literal and `||` is a logical-or, so neither
+// counts as a separator.
 function looksLikeTableRow(line: string): boolean {
   const stripped = line.replace(/\\\|/g, "");
   if (/\|\|/.test(stripped)) return false;
@@ -707,41 +706,35 @@ function extractTableCells(line: string): string[] {
 }
 
 /**
- * Markdown source with a half-arrived heading marker withheld: a trailing
- * `####` with no title yet is literal text, and holding the line back until
- * it has content keeps its classification from flipping under on-screen text.
+ * Withhold a trailing bare heading marker (`####` with no title yet) so its
+ * classification cannot flip under text already on screen.
  */
 export function withholdIncompleteHeading(text: string): string {
   return text.replace(/(^|\n)#{1,6}[ \t]*$/, "$1");
 }
 
 /**
- * An ATX heading line (`#`–`######`) with a title. CommonMark allows up to 3
- * leading spaces; a 4th makes it indented code, which this must reject.
+ * ATX heading (`#`–`######`) with a title. CommonMark allows up to 3 leading
+ * spaces; a 4th is indented code, which this must reject.
  */
 const ATX_HEADING_LINE_RE = /^ {0,3}#{1,6}[ \t]+\S.*$/;
 
 /**
- * A fenced code block's opening delimiter: three or more backticks/tildes,
- * up to three leading spaces (CommonMark's indented-code limit), then
- * anything (an info string, e.g. "bash" in ` ```bash `).
- *
- * Distinct from `FENCE_OPEN_RE` (the streaming highlighter's looser `\s*`
- * matcher) — do not unify the two.
+ * Opening fence: three or more backticks/tildes, up to three leading spaces
+ * (CommonMark's indented-code limit), then an info string. Distinct from
+ * `FENCE_OPEN_RE`'s looser `\s*` matcher — do not unify.
  */
 const COMMONMARK_FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/;
 
 /**
- * A fenced code block's closing delimiter: nothing but the fence run and
- * trailing whitespace ("```stillcode" is fence content, not a close), so
- * deliberately not `COMMONMARK_FENCE_OPEN_RE` again.
+ * Closing fence: the fence run and trailing whitespace only, so not the
+ * opener regex again ("```stillcode" stays fence content).
  */
 const COMMONMARK_FENCE_CLOSE_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 
 /**
- * Lines inside a fenced code block, where a leading `#` is a shell comment,
- * never a heading. A closer needs the opener's character and a run at least
- * as long — anything else is fence content, per CommonMark.
+ * Lines inside a fenced block: a leading `#` is a shell comment, never a
+ * heading. A closer needs the opener's char and a run at least as long.
  */
 function fencedLineMask(lines: readonly string[]): boolean[] {
   const inside = new Array<boolean>(lines.length).fill(false);
@@ -777,15 +770,10 @@ function fencedLineMask(lines: readonly string[]): boolean[] {
 }
 
 /**
- * A markdown body split at the last heading that already has content behind
- * it.
- *
- * The renderer's incremental parser reuses a block only while its raw text is
- * unchanged, and default block mode merges a heading into the paragraph that
- * follows it — so every keystroke re-highlights the heading's settled markup
- * (visible flicker). Rendering the halves as separate `MarkdownRenderable`s
- * keeps the heading's renderer untouched once it stops growing, with both
- * halves still using the library's default block mode.
+ * A body split at the last heading that already has content behind it.
+ * Default block mode merges a heading into the paragraph after it, so every
+ * keystroke there re-highlights the settled heading (flicker); giving the
+ * heading its own non-streaming `MarkdownRenderable` stops that.
  */
 export interface MarkdownSplit {
   readonly frozen: string;
@@ -817,17 +805,10 @@ export function splitAtSettledHeading(text: string): MarkdownSplit | null {
 }
 
 /**
- * A markdown body split at the last settled block boundary: a settled ATX
- * heading, a completed fence's closer, or a table row the renderer would
- * consume. Null when no boundary has settled (or the only one is the last
- * line, leaving no live tail).
- *
- * The walk mirrors parseMarkdown's dispatch order — loose fence pairing,
- * indented-code runs, then `parseTableBlock`'s start/consume/shape rules —
- * so every recorded boundary is a block boundary in the one-shot parse, and
- * the halves render the same apart as together. An unclosed fence consumes
- * to the end, so nothing after its opener settles. Blank lines between a
- * boundary and the live tail collapse to one gap row.
+ * Split at the last settled block boundary: heading, fence closer, or table
+ * row. Null when none has content behind it. The walk mirrors parseMarkdown's
+ * dispatch order, so halves render the same apart as together. An unclosed
+ * fence consumes to the end; blank lines before the tail collapse to one.
  */
 export function splitAtSettledBlock(withheld: string): MarkdownSplit | null {
   const lines = withheld.split("\n");
@@ -907,9 +888,8 @@ export interface StreamMarkdownSnapshot {
 }
 
 /**
- * Whether a streaming markdown repaint must repaint the frozen node: only a
- * moved boundary, a resize, a streaming-flag flip, or a non-append edit
- * (rollback, rewrite) does.
+ * Repaint the frozen node only on a moved boundary, resize, streaming-flag
+ * flip, or non-append edit (rollback/rewrite).
  */
 export function nextStreamMarkdownState(
   prev: StreamMarkdownSnapshot | null,
