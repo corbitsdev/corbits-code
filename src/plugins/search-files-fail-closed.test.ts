@@ -195,6 +195,27 @@ describe("CL-9469 search_files fails closed on unbounded root walks", () => {
       }
     });
   });
+
+  test("root dot-relative recursive glob is refused, not walked", async () => {
+    await withFixture(async ({ cwd }) => {
+      const spawnCalls: string[][] = [];
+      const tools = createPosixTools({
+        cwd,
+        plugins: [ripgrepPlugin(cwd, {}, throwingSpawn(spawnCalls))],
+      });
+      const started = Date.now();
+      const result = await tools.run(
+        { id: "1", name: "search_files", arguments: { pattern: "./**/*.ts" } },
+        new AbortController().signal,
+      );
+      expect(Date.now() - started).toBeLessThan(5_000);
+      expect(spawnCalls.length).toBe(0);
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toContain("narrow `path`");
+      expect(String(result.content)).toContain("glob");
+      expect(String(result.content)).not.toContain(TIMEOUT_PREFIX);
+    });
+  });
 });
 
 describe("CL-9469 unbounded-root predicate", () => {
@@ -238,6 +259,8 @@ describe("CL-9469 unbounded-root predicate", () => {
       "src/**/*.ts",
       "packages/a/src/**/*.ts",
       "docs/**",
+      "sub/**",
+      "src.v2/**",
     ]) {
       expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
         false,
@@ -246,6 +269,21 @@ describe("CL-9469 unbounded-root predicate", () => {
   });
   test("recursive descent with no leading literal dir stays unbounded", () => {
     for (const pattern of ["**", "**/*.ts", "**/*", "/**/*.ts"]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        true,
+      );
+    }
+  });
+  // F1 soundness hole: `.`/`..` are relative-notation, not literal pins, so a
+  // leading dot segment must not whitelist a root walk (`./**`, `./**/*.ts`)
+  // and `..` must not be readable as an anchored workspace-escape.
+  test("leading dot or dotdot is not a literal pin", () => {
+    for (const pattern of [
+      "./**",
+      "./**/*.ts",
+      "./src/**",
+      "../**",
+    ]) {
       expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
         true,
       );

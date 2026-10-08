@@ -42,14 +42,22 @@ export function isUnboundedSearchGlob(pattern: string): boolean {
   return !hasLiteralBefore(pattern.slice(0, firstRecursive));
 }
 
-// True when the given glob prefix names any concrete path text (a character
-// that is neither a `*` wildcard nor a `/` separator), i.e. a segment that
-// anchors the walk to a real location.
+// True when the leading path component of the glob is a literal pin: a real,
+// name-bearing directory segment that anchors the walk away from the workspace
+// root. A `.`/`..` step or a separator-only prefix is relative-notation that
+// does not pin to a concrete boundary (``./src/**`` is still an unbounded
+// root-relative walk), and a bare wildcard run is never a literal name.
 function hasLiteralBefore(prefix: string): boolean {
-  for (const char of prefix) {
-    if (char !== "*" && char !== "/") return true;
+  for (const segment of prefix.split("/")) {
+    if (segment.length === 0) continue; // leading/trailing/duplicate separator
+    if (segment === "." || segment === "..") return false; // relative step
+    for (const char of segment) {
+      if (char !== "*") return true; // genuine name character anchors
+    }
+    // The segment is all wildcards; a later segment may still name a real
+    // directory (`*/src/**`), so keep scanning.
   }
-  return false;
+  return false; // nothing but separators and/or wildcard runs
 }
 
 // The raw path argument resolved against the session root: omitted, empty,
