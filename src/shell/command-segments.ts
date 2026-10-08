@@ -1,11 +1,10 @@
 // Split a command into the commands it chains (&& || | ; newline) so each can
-// be classified for security. The operator still approves the whole command as
-// one block. Splitting is quote-aware — operators inside '...', "..." or `...`
-// are part of an argument. Heredoc bodies are atomic. A segment that is exactly
-// one `( ... )` group is unwrapped and its inner chain split recursively
-// (`(cd a && b)` → `cd a`, `b`). `<<` inside `(( ... ))` arithmetic is the
-// left-shift operator and a top-level `#` starts a comment — neither opens a
-// heredoc.
+// be classified for security; the operator still approves the whole command.
+// Quote-aware (operators inside '...', "..." or `...` are arguments); heredoc
+// bodies are atomic; a segment that is exactly one `( ... )` group is unwrapped
+// and its inner chain split recursively (`(cd a && b)` → `cd a`, `b`). `<<`
+// inside `(( ... ))` arithmetic is left-shift, and a top-level `#` starts a
+// comment — neither opens a heredoc.
 export function splitChainedCommand(command: string): string[] {
   const segments: string[] = [];
   let current = "";
@@ -15,8 +14,8 @@ export function splitChainedCommand(command: string): string[] {
   let parenDepth = 0;
   let arithDepth = 0;
   let commentToEOL = false;
-  // A top-level `#`-to-EOL comment suppresses only the `<<` opener; chain
-  // operators after `#` still split (`# note && rm -rf /` → `rm -rf /`).
+  // A `#`-to-EOL comment suppresses only the `<<` opener; chain operators
+  // after it still split (`# note && rm -rf /` → `rm -rf /`).
 
   const push = (): void => {
     const trimmed = current.trim();
@@ -33,8 +32,8 @@ export function splitChainedCommand(command: string): string[] {
   for (let i = 0; i < command.length; i++) {
     const ch = command[i] as string;
 
-    // Inside a heredoc body: scan for the terminating marker on its own line;
-    // a second `<<` here is payload, never a nested opener.
+    // Heredoc body: scan for the terminating marker on its own line; a second
+    // `<<` here is payload, never a nested opener.
     if (heredocMarker !== null) {
       current += ch;
       if (ch === "\n") {
@@ -60,9 +59,8 @@ export function splitChainedCommand(command: string): string[] {
       continue;
     }
 
-    // Shell line continuation: backslash before a newline elides the newline.
-    // Do not append the \ or split the segment, so fragments like "\" never
-    // become approval subjects.
+    // Backslash-newline is line continuation: elide both so a trailing `\`
+    // never becomes a fragment, let alone an approval subject.
     if (ch === "\\") {
       const after = command[i + 1];
       if (after === "\n" || after === "\r") {
@@ -72,8 +70,8 @@ export function splitChainedCommand(command: string): string[] {
       }
     }
 
-    // Detect heredoc redirect: << or <<-. A `<<` inside a top-level `#`
-    // comment (e.g. `# example: cat <<EOF`) documents rather than opens.
+    // Heredoc redirect: << or <<-. A `<<` inside a `#` comment (e.g.
+    // `# example: cat <<EOF`) documents rather than opens.
     if (ch === "\n") commentToEOL = false;
     if (!commentToEOL && arithDepth === 0 && isCommentStart(command, i)) {
       commentToEOL = true;
@@ -96,7 +94,7 @@ export function splitChainedCommand(command: string): string[] {
 
     if (ch === "(" && !commentToEOL) {
       // `((` / `$((` opens arithmetic, where `<<` shifts instead of opening a
-      // heredoc. Bare `(` subshells still detect heredocs — `(cat <<EOF ...)`.
+      // heredoc; bare `(` subshells still detect heredocs (`(cat <<EOF ...)`).
       if (isArithmeticOpener(command, i)) arithDepth++;
       parenDepth++;
       current += ch;
@@ -114,10 +112,10 @@ export function splitChainedCommand(command: string): string[] {
     }
 
     const next = command[i + 1];
-    // A chain operator after a dangling redirect (`>`, `<`, `>&`, `<&` with no
-    // target yet) does not start a new command — the target got separated from
-    // its redirect (e.g. "cmd 2>& ; 1" meaning "cmd 2>&1"). Treat the operator
-    // as whitespace so the target rejoins its command.
+    // A chain operator after a dangling redirect (`>`, `<`, `>&`, `<&` with
+    // no target yet) does not start a new command — the target was separated
+    // from its redirect ("cmd 2>& ; 1" = "cmd 2>&1"). Treat the operator as
+    // whitespace so the target rejoins its command.
     if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
       if (endsWithDanglingRedirect(current)) {
         current = `${current.trimEnd()} `;
@@ -129,16 +127,15 @@ export function splitChainedCommand(command: string): string[] {
       continue;
     }
     // `&` is redirect-bound only next to `>`/`<` (fd duplication `2>&1`,
-    // combined redirect `&>file`). Any other `&` — including `a &b` — is the
+    // combined redirect `&>file`). Any other `&` — even `a &b` — is the
     // background operator and splits the chain; otherwise `bun run build 2>&1`
     // fragments into a command and a stray `1` approval.
     if (ch === "&" && isRedirectAmpersand(previousNonSpace(current), next)) {
       current += ch;
       continue;
     }
-    // A lone "&" backgrounds the preceding command and starts a new one; without
-    // this, "ls & rm -rf foo" is one segment and the approval scope comes from
-    // the benign head.
+    // A lone `&` backgrounds the preceding command and starts a new one;
+    // otherwise "ls & rm -rf foo" is one segment scoped by the benign head.
     if (ch === "|" || ch === ";" || ch === "\n" || ch === "&") {
       if (endsWithDanglingRedirect(current)) {
         current = `${current.trimEnd()} `;
@@ -154,8 +151,8 @@ export function splitChainedCommand(command: string): string[] {
 }
 
 // Whether text[i] opens arithmetic (`((` / `$((`), where `<<` is left-shift,
-// never a heredoc opener. Bare `( ... )` subshells can still hold a heredoc.
-// Not a full evaluator — callers only track depth.
+// never a heredoc opener. Bare `( ... )` subshells can still hold a heredoc;
+// callers only track depth.
 export function isArithmeticOpener(text: string, i: number): boolean {
   return text[i] === "(" && text[i + 1] === "(";
 }
@@ -184,8 +181,8 @@ export function isCommentStart(text: string, i: number): boolean {
   );
 }
 
-// Parse a heredoc opener (`<<` / `<<-`) at command[i]. Returns the marker, the
-// exclusive end of the opening line, and whether `<<-` strips tabs — so the
+// Parse a heredoc opener (`<<` / `<<-`) at command[i]: the marker, the
+// exclusive end of the opening line, and whether `<<-` strips tabs, so the
 // caller copies the line verbatim and resumes scanning the body. Shared with
 // stripCommentLines so both agree on heredoc syntax.
 export function parseHeredocOpener(
@@ -196,7 +193,7 @@ export function parseHeredocOpener(
   // `<<<` is a here-string: its word is an inline argument, no marker line.
   if (command[i + 2] === "<") return null;
   // A `<<` opener cannot start mid-`<` run: at the second `<` of a `<<<` the
-  // forward guard would pass, so this backward guard stops the here-string word
+  // forward guard passes, so this backward guard stops the here-string word
   // from being parsed as a marker.
   if (command[i - 1] === "<") return null;
   let j = i + 2;
@@ -232,7 +229,7 @@ export function parseHeredocOpener(
 
 // Whether a completed body line closes a heredoc: exact marker match, ignoring
 // one trailing CR and (for `<<-`) leading tabs. A space-indented close never
-// terminates a plain `<<` heredoc — it stays body, like a real shell.
+// terminates a plain `<<` heredoc — it stays body.
 export function isHeredocTerminator(
   line: string,
   marker: string,
@@ -244,8 +241,8 @@ export function isHeredocTerminator(
 }
 
 // Whether `text` ends (ignoring trailing whitespace) in a redirect operator
-// that has not yet received its target: a bare `>`/`<`, or a fd-duplication
-// opener `>&`/`<&` awaiting the fd number.
+// still awaiting its target: a bare `>`/`<`, or a fd-duplication opener
+// `>&`/`<&` awaiting the fd number.
 const DANGLING_REDIRECT = /(?:>&|<&|>|<)$/;
 
 function endsWithDanglingRedirect(text: string): boolean {
@@ -279,15 +276,15 @@ function unwrapGroup(segment: string): string | null {
   return null;
 }
 
-// Closest non-space character in the current segment, or undefined at segment
-// start. `&` consults this to decide whether it is redirect-bound.
+// Closest non-space character in the current segment, or undefined at start.
+// `&` consults this to decide whether it is redirect-bound.
 function previousNonSpace(current: string): string | undefined {
   const trimmed = current.trimEnd();
   return trimmed.length > 0 ? trimmed[trimmed.length - 1] : undefined;
 }
 
 // `&` is redirect-bound when preceded by `>`/`<` (fd duplication: `2>&1`,
-// `<&-`) or followed by `>` (combined redirect: `&>file`). Everything else is
+// `<&-`) or followed by `>` (combined redirect: `&>file`); otherwise it is
 // the background operator — a chain boundary.
 function isRedirectAmpersand(
   prev: string | undefined,
