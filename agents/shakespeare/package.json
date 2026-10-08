@@ -1,5 +1,5 @@
 {
-  "name": "@corbits/agent-shakespeare",
+  "name": "@corbits/code-agent-shakespeare",
   "version": "0.1.0",
   "private": true,
   "type": "module",
