@@ -216,6 +216,31 @@ describe("CL-9469 search_files fails closed on unbounded root walks", () => {
       expect(String(result.content)).not.toContain(TIMEOUT_PREFIX);
     });
   });
+
+  test("interior-dotdot collapse to the root is refused, not walked", async () => {
+    await withFixture(async ({ cwd }) => {
+      const spawnCalls: string[][] = [];
+      const tools = createPosixTools({
+        cwd,
+        plugins: [ripgrepPlugin(cwd, {}, throwingSpawn(spawnCalls))],
+      });
+      const started = Date.now();
+      const result = await tools.run(
+        {
+          id: "1",
+          name: "search_files",
+          arguments: { pattern: "a/../**/*.ts" },
+        },
+        new AbortController().signal,
+      );
+      expect(Date.now() - started).toBeLessThan(5_000);
+      expect(spawnCalls.length).toBe(0);
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toContain("narrow `path`");
+      expect(String(result.content)).toContain("glob");
+      expect(String(result.content)).not.toContain(TIMEOUT_PREFIX);
+    });
+  });
 });
 
 describe("CL-9469 unbounded-root predicate", () => {
@@ -283,9 +308,37 @@ describe("CL-9469 unbounded-root predicate", () => {
       "./**/*.ts",
       "./src/**",
       "../**",
+      "../src/**",
     ]) {
       expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
         true,
+      );
+    }
+  });
+  // F3 soundness hole: interior `..` collapse must be normalized, not read
+  // verbatim. `a/../**` collapses to `./**` (root-wide walk), `src/../../**`
+  // pops above the workspace root (escape), and `./a/../**` is still root
+  // relative. Only a prefix that collapses to a surviving name-bearing pin
+  // (`src/../packages/**` -> `packages/**`) stays bounded.
+  test("interior dotdot collapse is normalized, so the pin must survive", () => {
+    for (const pattern of [
+      "a/../**",
+      "src/../../**",
+      "./a/../**",
+      "a/../**/*.ts",
+    ]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        true,
+      );
+    }
+    for (const pattern of [
+      "a/./**",
+      "a//**",
+      "src/../packages/**",
+      "*/src/**",
+    ]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        false,
       );
     }
   });
