@@ -18,13 +18,13 @@ import {
  *
  * `wrapWidth` is the painted width the row was wrapped at. A chain starts
  * only on a full line ending in a URL run and continues only through full
- * lines — a short line ends the chain unless nothing textual follows it,
- * because a short line with text after it is a natural break, not a wrap.
- * A chain is accepted when its fragments reassemble to one of `sourceUrls`,
- * the links the row's pre-wrap text actually holds: word wrap can orphan a
- * short fragment line with wrapped text after it, indistinguishable from a
- * natural break by geometry alone. Without known source URLs the joined
- * candidate still has to scan as exactly one clean http(s) URL, so an
+ * lines; a short line ends it unless nothing textual follows — a short
+ * line with text after it is a natural break, not a wrap. A chain is
+ * accepted when its fragments reassemble to one of `sourceUrls`, the
+ * links the row's pre-wrap text actually holds: word wrap can orphan a
+ * short fragment line with wrapped text after it, indistinguishable from
+ * a natural break by geometry alone. Without known source URLs the joined
+ * candidate must still scan as exactly one clean http(s) URL, so an
  * unfortunate break cannot fuse two unrelated runs.
  */
 export function splitWrappedLinkSpans(
@@ -95,9 +95,9 @@ function wrapSeed(
   if (stringWidth(text) !== wrapWidth) return null;
   const run = text.match(/[^\s]+$/)?.[0] ?? "";
   // The :// marks the run as URL-shaped even when a hard split inside the
-  // scheme or host leaves no detectable hit; the joined candidate still has
-  // to scan as one clean URL before anything merges. Prose punctuation at
-  // the wrap edge is not part of the seed, same as for a hit.
+  // scheme or host leaves no detectable hit; the joined candidate still
+  // has to scan as one clean URL before anything merges. Prose punctuation
+  // at the wrap edge is not part of the seed.
   if (!run.includes("://")) return null;
   const start = text.length - run.length;
   const end = trimUrlEnd(text, start, text.length);
@@ -118,13 +118,9 @@ interface WrapChain {
 
 /**
  * Walk continuation lines past their indent, fusing leading runs onto the
- * seed under the module's chain rules: a run reaching its line's end
- * continues only through a full line; a short line ends the chain unless
- * nothing textual follows it; and a hitless seed continues only through a
- * full first line (a short line behind a bare scheme reads as prose).
- * Against known source URLs the chain also ends the moment its fragments
- * reassemble to one of them — what resolves a wrap geometry alone cannot
- * see.
+ * seed under the module's chain rules. A hitless seed continues only
+ * through a full first line — a short line behind a bare scheme reads as
+ * prose.
  */
 function followWrapChain(
   lines: readonly { text: string; fg: string }[],
@@ -171,8 +167,8 @@ function followWrapChain(
 
 /**
  * A line nothing textual follows on: the end of the text, or a user-bubble
- * pad row (the bare bar with no body). A blank source line is a natural
- * break, not one. Paint trims trailing space, so the pad compares exactly.
+ * pad row (a bare `▍`). A blank source line is a natural break, not one.
+ * Paint trims trailing space, so the pad compares exactly.
  */
 function isWrapEndLine(text: string | undefined): boolean {
   if (text === undefined) return true;
