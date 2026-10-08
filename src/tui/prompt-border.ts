@@ -1,14 +1,13 @@
 /**
- * The prompt box's border, and the metadata it carries.
+ * The prompt box's border and the metadata it carries.
  *
- * The box has no bars above or below it: the model name rides the top rule
- * and the workspace (directory + git branch) rides the bottom one, so both
- * cost zero rows. The rule breaks around each label and resumes on the far
- * side, so the label reads as part of the frame, not text on it.
+ * The box has no bars above or below: the model name rides the top rule,
+ * the workspace (directory + branch) the bottom one. The rule breaks
+ * around each label and resumes, so labels read as part of the frame.
  *
  * Pure: text in, ordered parts out. The shell colours the parts and swaps
- * the `brand` part for the animated lockup cells, so a placeholder of the
- * lockup's exact width is passed in rather than the cells themselves.
+ * the `brand` part for animated lockup cells, so a placeholder of the
+ * lockup's exact width is passed in.
  */
 
 import { stringWidth } from "./view/height.js";
@@ -29,8 +28,7 @@ export const BORDER = {
 } as const;
 
 /**
- * `rule` is frame, `label` is metadata, `brand` is the lockup's reserved run,
- * `meter` is the cost/context run. The shell paints each role differently;
+ * Roles are purely presentational: the shell paints each differently;
  * nothing else distinguishes them.
  */
 export type RuleRole = "rule" | "label" | "brand" | "meter" | "attention";
@@ -43,20 +41,18 @@ export interface RulePart {
 export interface RuleInput {
   readonly width: number;
   readonly corners: readonly [string, string];
-  /** Left-hand run (the lockup). Dropped first when the rule cannot seat everything. */
+  /** Left-hand lockup run. Dropped first when the rule can't seat everything. */
   readonly brand?: string;
   /**
-   * Cost/context run, richest form (percent + cost). Sits between the brand
-   * and the label; dropped before the label but after the brand: a live
-   * gauge, not the operator's own workspace.
+   * Cost/context run, richest form (percent + cost). Between brand and label;
+   * dropped before the label but after the brand — a live gauge, not workspace.
    */
   readonly meter?: string;
-  /** `meter` with the cost suffix already stripped — tried once `meter` no longer fits. */
+  /** `meter` without the cost suffix, tried once `meter` no longer fits. */
   readonly meterCompact?: string;
   /**
-   * Compact call-to-action immediately left of the label (e.g. `mcp !`).
-   * Dropped after the meter and before the label: it is a standing ask, not
-   * the operator's own workspace or model identity.
+   * Compact call-to-action left of the label (e.g. `mcp !`). Dropped after
+   * the meter and before the label — a standing ask, not workspace.
    */
   readonly attention?: string;
   /** Right-aligned label. Dropped last: it is information, the mark is not. */
@@ -95,8 +91,8 @@ export const MCP_ATTENTION_LABEL = "mcp !";
 export const PLUGIN_ATTENTION_LABEL = "plugin !";
 
 /**
- * Build the single attention slot. MCP and plugin marks share one run so the
- * border never grows a second attention cell — operator-chosen combined form.
+ * Single attention slot: MCP and plugin marks share one run, so the border
+ * never grows a second attention cell.
  */
 export function composeAttentionLabel(opts: {
   readonly mcp?: boolean;
@@ -199,11 +195,9 @@ function plainRule(open: string, close: string, inner: number): RulePart[] {
 }
 
 /**
- * Runs are dropped whole, never truncated mid-glyph: a half-written label
- * corrupts the frame. Drop order, most to least expendable: brand, the
- * meter's cost suffix, the meter's context reading, the attention mark,
- * then the label — the operator's own workspace path survives everything
- * else.
+ * Runs drop whole, never truncated mid-glyph. Drop order, most to least
+ * expendable: brand, meter cost suffix, meter context, attention, label —
+ * the workspace path survives everything else.
  */
 export function composeRule(input: RuleInput): readonly RulePart[] {
   const width = Math.max(0, Math.floor(input.width));
@@ -265,8 +259,7 @@ export interface CostContextInput {
   readonly contextPercentUsed: number | null;
   /** Already formatted (e.g. `$0.42`); omitted or empty hides the cost suffix. */
   readonly costLabel?: string | null;
-  /** True when `contextPercentUsed` came from the local estimate because the
-   * provider omitted or zeroed usage, rather than from reported usage. */
+  /** True when the percent is a local estimate, not provider-reported usage. */
   readonly contextIsEstimate: boolean;
 }
 
@@ -278,9 +271,8 @@ export interface CostContextMeter {
 }
 
 /**
- * Resolve the border meter's content from live cost/context state. Null when
- * there is nothing to show — an unknown context window is worse than useless
- * as a percentage, so the run is omitted rather than showing `--%`.
+ * Resolve the border meter from live cost/context state. Null when there is
+ * nothing to show: an unknown context window shows no percentage at all.
  */
 export function composeCostContextMeter(
   input: CostContextInput,
@@ -299,9 +291,8 @@ export function composeCostContextMeter(
 }
 
 /**
- * `percent%`, or `percent% · cost` with cost included. A plain reading, not a
- * ramp: a second animated run competing with it made the rule read as two
- * indicators rather than one.
+ * `percent%`, or `percent% · cost` with cost included. A plain reading, not
+ * an animated ramp.
  */
 export function costContextText(
   meter: CostContextMeter,
@@ -337,8 +328,8 @@ export interface WorkspaceLabelInput {
 }
 
 /**
- * `~/acme/corbits-code (main)`, shortened from the left so the branch — the
- * part that changes and the part a mistake is expensive in — always survives.
+ * `~/acme/corbits-code (main)`, shortened from the left so the branch
+ * always survives.
  */
 export function composeWorkspaceLabel(input: WorkspaceLabelInput): string {
   const max = Math.max(0, Math.floor(input.maxWidth));
