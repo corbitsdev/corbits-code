@@ -116,8 +116,7 @@ export interface SubAgentSession {
   provider?: string;
   /** True while an admitted run or followup has not settled. */
   runInFlight?: boolean;
-  /** Projection of `lifecycle` for close/resume/interrupt JSON: cancelled →
-   * interrupted, failed → shutdown. */
+  /** Projection of `lifecycle` for close/resume/interrupt JSON. */
   lifecycleStatus: AgentLifecycleStatus;
   // True when the agent survives a clean completion (spawn_agent opts in).
   // Capped by `maxRetained`, not `maxCompleted`; close_agent flips it back.
@@ -559,8 +558,7 @@ export function createSubAgentSessionStore(
       lifecycleStatus: projectLifecycleStatus(session.lifecycle),
       hint: EVICTED_RETENTION_HINT,
     });
-    // An evicted session's denied-call envelopes fail closed — a later
-    // replay names the eviction instead of riding a lingering grant.
+    // Denied-call envelopes fail closed with the eviction named.
     try {
       getProcessWorkerGrantStore().invalidateSession(
         session.id,
@@ -719,7 +717,6 @@ export function createSubAgentSessionStore(
 
   const cancelSession = (id: string, reason: string): boolean => {
     settleCancelsAsks(id, reason);
-    // Cancelled steers are superseded — surface which were dropped.
     dropStashedFollowups(id, "session cancelled");
     const session = sessions.get(id);
     if (session === undefined || !isLiveStrip(session.lifecycle)) return false;
@@ -786,10 +783,8 @@ export function createSubAgentSessionStore(
 
   // `maxCompleted` bounds every ordinary finished session — never retained,
   // or retained and already closed via close_agent (retained flips back to
-  // false there). A TUI display cap, not retention policy: open retained
-  // sessions are bounded by pruneRetained instead. Excluded: resumed active
-  // sessions (live caller, not an idle leak) and pinned ids (uncollected
-  // wait results).
+  // false there). Excluded: resumed active sessions (live caller, not an
+  // idle leak) and pinned ids (uncollected wait results).
   const pruneCompleted = (): void => {
     if (maxCompleted <= 0) {
       for (const [id, s] of sessions) {
@@ -816,12 +811,11 @@ export function createSubAgentSessionStore(
     }
   };
 
-  // Bounds open retained sessions (dozens-of-workers fan-out), the
-  // resource-safety bound lost when retained sessions were folded into
-  // pruneCompleted's TUI cap. Evicts least-recently-used first (by
-  // lastActivityAt); a re-running session is never a candidate. Handles
-  // release like pruneCompleted's eviction; a tombstone is kept so
-  // resume_agent reports an actionable status instead of "not_found".
+  // Bounds open retained sessions (dozens-of-workers fan-out), beyond
+  // maxCompleted's TUI display cap. Evicts by lastActivityAt, LRU first; a
+  // re-running session is never a candidate. Handles release like
+  // pruneCompleted's eviction; a tombstone is kept so resume_agent reports
+  // an actionable status instead of "not_found".
   const pruneRetained = (): void => {
     const openRetained = [...sessions.values()]
       .filter((s) => isOpenRetained(s) && !isPinned(s.id))
@@ -934,7 +928,6 @@ export function createSubAgentSessionStore(
   const failClosedSession = (id: string, error: string): void => {
     endFollowupTurn(id, "interrupted");
     settleCancelsAsks(id, "session failed");
-    // The failed turn supersedes steers still queued behind it.
     dropStashedFollowups(id, "session failed");
     mutate(id, (session) => {
       if (
@@ -968,7 +961,6 @@ export function createSubAgentSessionStore(
     const still = sessions.get(id);
     if (still === undefined) {
       runInFlight.delete(id);
-      // The session vanished with steers still queued — surface them.
       dropStashedFollowups(id, "session ended");
       return;
     }
@@ -979,7 +971,6 @@ export function createSubAgentSessionStore(
       still.lifecycle.state === "interrupted"
     ) {
       runInFlight.delete(id);
-      // The lane died with steers still queued — surface them.
       dropStashedFollowups(id, "session settled");
       return;
     }
@@ -1213,7 +1204,6 @@ export function createSubAgentSessionStore(
       interruptHandles.delete(id);
       followupHandles.delete(id);
       deliverHandles.delete(id);
-      // The old session's queued steers are superseded — surface them.
       dropStashedFollowups(id, "session replaced");
       pinCounts.delete(id);
       runInFlight.delete(id);
@@ -1450,10 +1440,8 @@ export function createSubAgentSessionStore(
       opts?: { agentRetained?: boolean; stopReason?: ForcedStopReason },
     ): void {
       settleCancelsAsks(id, "session completed");
-      // run.ts disposes on a salvage return (deadline/cancel) even though it
-      // resolves through this same success path — trust "still open,
-      // resumable" only when the caller says the agent survived. Defaults
-      // true.
+      // Defaults true; run.ts disposes on a salvage return (deadline/cancel)
+      // even though it resolves through this same success path.
       const agentRetained = opts?.agentRetained ?? true;
       // When the original run wins the race against a stashed steer and the
       // session stays open and resumable, deliver the queue as a fresh
@@ -1506,8 +1494,8 @@ export function createSubAgentSessionStore(
         pruneCompleted();
         pruneRetained();
       });
-      // A completed turn supersedes any steer still queued — surface it,
-      // after the mutate so the completion lands first.
+      // Surface superseded steers after the mutate so the completion lands
+      // first.
       if (deliverStash && sessions.has(id)) {
         launchNextStashedFollowup(id);
       } else {
@@ -1537,7 +1525,6 @@ export function createSubAgentSessionStore(
           content: capText(`Error: ${error}`, maxEntryChars),
         });
         runInFlight.delete(id);
-        // The failure supersedes steers queued behind the failed turn.
         dropStashedFollowups(id, "session failed");
         releaseHandles(id);
         pruneCompleted();
@@ -1570,10 +1557,7 @@ export function createSubAgentSessionStore(
     ): void {
       if (!sessions.has(id)) return;
       closeHandles.set(id, close);
-      // Wake anything blocked in closeOne's waitForCloseHandle below — a
-      // close_agent call that arrived during the agent-setup window waits on
-      // this notification instead of reporting false success over an
-      // unreleasable session.
+      // Wake anything blocked in closeOne's setup-window wait below.
       notify();
     },
 
@@ -1620,7 +1604,6 @@ export function createSubAgentSessionStore(
           interruptHandles.delete(id);
           followupHandles.delete(id);
           deliverHandles.delete(id);
-          // Closing supersedes queued steers — surface them.
           dropStashedFollowups(id, "session closed");
           runInFlight.delete(id);
           pruneCompleted();
@@ -1628,8 +1611,7 @@ export function createSubAgentSessionStore(
         }
         // close_agent landed in the setup window — the session exists but
         // registerClose hasn't fired yet. Wait for it (bounded) instead of
-        // returning "shutdown" immediately: that used to report false success
-        // while leaving the eventual agent unreleasable forever.
+        // reporting false success over an unreleasable session.
         close = await waitForCloseHandle(id, deadlineMs);
         const stillHere = sessions.get(id);
         if (stillHere === undefined) return "not_found";
@@ -1660,7 +1642,6 @@ export function createSubAgentSessionStore(
         interruptHandles.delete(id);
         followupHandles.delete(id);
         deliverHandles.delete(id);
-        // Closing supersedes queued steers — surface them.
         dropStashedFollowups(id, "session closed");
         runInFlight.delete(id);
         pruneCompleted();
@@ -1689,7 +1670,6 @@ export function createSubAgentSessionStore(
       interruptHandles.delete(id);
       followupHandles.delete(id);
       deliverHandles.delete(id);
-      // Closing supersedes queued steers — surface them.
       dropStashedFollowups(id, "session closed");
       runInFlight.delete(id);
       pruneCompleted();
@@ -2062,7 +2042,6 @@ export function createSubAgentSessionStore(
         interruptHandles.delete(id);
         followupHandles.delete(id);
         deliverHandles.delete(id);
-        // Releasing supersedes queued steers — surface them.
         dropStashedFollowups(id, "session handles released");
         mutate(id, (s) => {
           s.lifecycle = {
@@ -2163,7 +2142,7 @@ export function createSubAgentSessionStore(
         launchNextStashedFollowup(id);
       } else {
         // Terminal outcome (or a session that vanished mid-handoff): nothing
-        // launches, so the queued steers are superseded — surface them.
+        // launches.
         dropStashedFollowups(id, "session settled");
       }
     },
@@ -2176,7 +2155,6 @@ export function createSubAgentSessionStore(
       // Retained run-settle keeps denied-call envelopes (keepGrants): the
       // retained resume_agent retry is the retry path.
       cancelAskInternal(id, "run settled", false, true);
-      // The run settled with steers still queued — surface them.
       dropStashedFollowups(id, "run settled");
       if (!runInFlight.delete(id)) return;
       notify();
@@ -2195,8 +2173,8 @@ export function createSubAgentSessionStore(
 
     clear(): void {
       // Invoke every registered close (best-effort, fire-and-forget) before
-      // dropping the maps — this used to drop closeHandles without calling
-      // them, leaking every retained session's agent permanently.
+      // dropping the maps — dropping them without calling leaks every
+      // retained agent.
       for (const id of pendingAsks.keys())
         cancelAskInternal(id, "store cleared");
       for (const id of closeHandles.keys()) releaseHandles(id);
@@ -2224,9 +2202,8 @@ export function createSubAgentSessionStore(
     },
 
     teardown(reason = "Session closed"): void {
-      // Stop teardown: cancel asks with the teardown named, release handles
-      // like `clear`, then leave a tombstone per session so a late
-      // `sendInputOne` fails closed naming the teardown, not `not_found`.
+      // Cancel asks with the teardown named, release handles like `clear`,
+      // then tombstone each session.
       for (const id of pendingAsks.keys())
         cancelAskInternal(id, `ask_director cancelled: ${reason}`);
       for (const id of closeHandles.keys()) releaseHandles(id);

@@ -659,8 +659,7 @@ describe("CL-6943 reusable worker sessions", () => {
       status: "interrupted",
     });
     // The interrupt stashes the follow-up until the original run settles;
-    // the salvage handoff launches it, it rejects, and the session restamps
-    // interrupted.
+    // the salvage handoff launches it; it rejects and restamps interrupted.
     store.attachReport(session.id, "interrupted salvage", {
       stopReason: "interrupted",
     });
