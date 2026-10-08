@@ -1,6 +1,6 @@
 /**
- * Production OpenTUI product host — mounts the shell with live session bridges.
- * Replaces Ink `render(<App />)` on the interactive path.
+ * Production OpenTUI host — mounts the shell with live session bridges,
+ * replacing Ink `render(<App />)` on the interactive path.
  */
 
 import { EventEmitter } from "node:events";
@@ -86,8 +86,8 @@ function annotateCurrent(
 }
 
 /**
- * Alt+R armed-confirm window. Expiry is checked lazily at the second press
- * (no timer): the arm flash carries the same TTL and is gone by then.
+ * Alt+R armed-confirm window; expiry is checked lazily at the second press
+ * (no timer — the arm flash shares the TTL).
  */
 export const REMOVE_ARM_MS = 5000;
 
@@ -101,7 +101,7 @@ export type RemoveKeyDecision = "inert" | "armed" | "confirmed";
 /**
  * Pure Alt+R transition for one focused picker row. Ghost rows and the empty
  * filter sentinel are inert; a second press on the same row inside the window
- * confirms; anything else re-arms (only the latest arm can confirm).
+ * confirms; anything else re-arms.
  */
 export function decideRemoveKey(
   armed: RemoveArmed | null,
@@ -139,7 +139,7 @@ export type ProductHostDeliver = (
 
 /**
  * Catalog grouping for `buildModelsFirstCatalog` (recent/favorites first,
- * then provider models). The live picker is flat — it does not nest.
+ * then provider models); the live picker is flat.
  */
 export interface ProductHostModelOption {
   readonly id: string;
@@ -158,8 +158,8 @@ export interface ProductHostAddProviderChoice {
 
 /**
  * Pre-scoped reconnect context (`/connect <kind> [profile]`, or the idle
- * one-action reconnect offer). `profile` is the existing slug being re-keyed:
- * the flow prefills it, never skips the confirm-to-re-key.
+ * one-action reconnect offer). `profile` is the slug being re-keyed: the flow
+ * prefills it, never skips the confirm-to-re-key.
  */
 export interface ProductHostConnectRequest {
   readonly kind?: string;
@@ -181,19 +181,18 @@ export interface ProductHostConfig {
   readonly deliver: ProductHostDeliver;
   /** Model/provider rows for the picker (id applied on select). */
   readonly models?: readonly ProductHostModelOption[];
-  /** Opaque model option id of the model the session actually runs, read
-   * live on every picker open so it tracks selections made outside the
-   * picker (e.g. `defaultProvider` at startup). Marks that row "(current)"
-   * instead of guessing from the recents list. */
+  /** Opaque model option id of the running model, read live on every picker
+   * open so selections made outside the picker (e.g. `defaultProvider` at
+   * startup) mark that row "(current)" instead of guessing from recents. */
   readonly activeModelId?: () => string | undefined;
   readonly onModelSelect?: (id: string) => void;
   /** Description-zone source for the model picker, keyed by row id. */
   readonly describeModel?: (itemId: string) => ItemDescription | null;
   /** Picking a provider in the Alt+A selector calls this. Caller runs the
    * connect flow and, on success, updates `models`/`describeModel` via
-   * `setModels` and reopens the picker. `req.profile` pre-scopes a reconnect
-   * (`/connect <kind> <profile>`): the flow prefills the account-name step
-   * with the existing slug; the confirm-to-re-key runs unchanged. */
+   * `setModels` and reopens the picker. `req.profile` pre-scopes a reconnect:
+   * the flow prefills the account-name step with the existing slug, and the
+   * confirm-to-re-key runs unchanged. */
   readonly onConnectProvider?: (
     providerName: string,
     req?: ProductHostConnectRequest,
@@ -203,16 +202,15 @@ export interface ProductHostConfig {
   /** Alt+D on a focused model row. Bare `d` is claimed by type-to-filter. */
   readonly onSetDefault?: (itemId: string) => void;
   /** Alt+R on a focused model row (bare `r` is type-to-filter text).
-   * Two-press armed confirm owned by the picker: the first press arms the
-   * row and flashes the `describeRemoveProvider` line; the second press on
-   * the same armed row calls this. Esc, focus moves, and the arm timeout
-   * disarm with no call. Without `describeRemoveProvider` the chord is inert
-   * so the hint never names a dead action. */
+   * Two-press armed confirm: the first press arms the row and flashes the
+   * `describeRemoveProvider` line; the second press on the same armed row
+   * calls this. Esc, focus moves, and the arm timeout disarm with no call;
+   * without `describeRemoveProvider` the chord stays inert so the hint never
+   * names a dead action. */
   readonly onRemoveProvider?: (itemId: string) => void;
-  /** Blast-radius line for the Alt+R arm step, keyed by row id. Null means
-   * the row is not removable (ghost/residual rows, the "(no matches)"
-   * sentinel) and Alt+R stays inert. Only read when `onRemoveProvider` is
-   * wired. */
+  /** Blast-radius line for the Alt+R arm step. Null means the row is not
+   * removable (ghost/residual rows, the "(no matches)" sentinel) and Alt+R
+   * stays inert; only read when `onRemoveProvider` is wired. */
   readonly describeRemoveProvider?: (itemId: string) => string | null;
   /** Every first-class provider kind, read fresh on each Alt+A open so a
    * just-connected account's count is current. Omitted hosts get no hint. */
@@ -226,15 +224,15 @@ export interface ProductHostConfig {
   readonly chrome?: ChromeLiveState | null;
   /** Agents-strip post-finish linger window. Production keeps the 4s default;
    * tests set it short so the sticky-poll linger test doesn't pay the full
-   * window in wall clock (same pattern as the watchdog's salvageGraceMs). */
+   * window in wall clock (pattern: the watchdog's salvageGraceMs). */
   readonly agentsPanelLingerMs?: number;
-  /** Resolves the live subagent session for the palette "observe" action.
-   * Unset falls back to the shell's demo fixture; production must supply
-   * this to view real sessions. */
+  /** Resolves the live subagent session for the palette "observe" action;
+   * unset falls back to the shell's demo fixture (production must supply
+   * this to view real sessions). */
   readonly onObserveRequest?: PaletteOnObserveRequest;
   /** Live sub-agent sessions read on the chrome poll cadence to refresh
-   * outstanding `spawn_agent` rows with elapsed time, tool, and stall state.
-   * Omitted hosts (tests, demo shell) paint bare pending rows. */
+   * outstanding `spawn_agent` rows (elapsed time, tool, stall state);
+   * omitted hosts (tests, demo shell) paint bare pending rows. */
   readonly subAgentSessions?: () => readonly TaskProgressSession[];
   /** Per-call bounded shell-output feeds, polled on the same sticky tick to
    * paint a running command's live output tail onto the pending row that owns
@@ -252,9 +250,9 @@ export interface ProductHostConfig {
    * idle timer is never armed. */
   readonly reducedMotion?: boolean;
   /** Take DEC mouse reporting. Default true: without it, alternate-scroll
-   * mode resends wheel input as arrow keys. With it, drag-select is
-   * OpenTUI-owned and auto-copies on mouse-up; Alt+M hands the mouse back
-   * for native selection. */
+   * resends wheel input as arrow keys; with it, drag-select is OpenTUI-owned
+   * and auto-copies on mouse-up (Alt+M hands the mouse back for native
+   * selection). */
   readonly useMouse?: boolean;
 }
 
@@ -271,15 +269,14 @@ export interface ProductHost {
   /**
    * Opens the model/provider picker; absent when no models were supplied.
    * `focusId` selects an initial row (e.g. a just-connected account's
-   * default model) instead of the top of the list.
+   * default model) instead of the top.
    */
   readonly openModels?: (focusId?: string) => void;
   /** Opens the add-provider selector; absent when connect choices are not
    * wired. `returnToModels: true` (opening from the model picker, Alt+A)
    * makes Esc return there; `/connect` and closed-prompt callers omit it so
-   * Esc dismisses. `initialKind`/`initialProfile` pre-scope a reconnect:
-   * the kind row is focused and the profile rides to the connect flow via
-   * ProductHostConnectRequest. */
+   * Esc dismisses. `initialKind`/`initialProfile` pre-scope a reconnect
+   * (see ProductHostConnectRequest). */
   readonly openAddProvider?: (opts?: {
     returnToModels?: boolean;
     initialKind?: string;
@@ -303,19 +300,18 @@ export async function mountProductHost(
   const renderer = config.createRenderer
     ? await config.createRenderer()
     : await createCliRenderer({
-        // Ctrl+C stays entirely with shell.ts's double-tap-to-quit
-        // (CTRL_C_EXIT_WINDOW_MS): the SIGINT handler depends on this, since
-        // Ctrl+C only reaches it as a real OS signal when nothing consumed it.
+        // Ctrl+C stays with shell.ts's double-tap-to-quit
+        // (CTRL_C_EXIT_WINDOW_MS): the SIGINT handler only receives it as a
+        // real OS signal when nothing consumed it.
         exitOnCtrlC: false,
         targetFps: 30,
-        // Mouse reporting on by default: without it, alternate-scroll mode
-        // resends wheel input as arrow keys, which the prompt reads as history
-        // navigation instead of transcript scrolling. Cost: native drag-select
-        // is suppressed (OpenTUI select still auto-copies; Alt+M hands the
-        // mouse back when native select is wanted).
+        // Mouse reporting on by default (see `useMouse`): without it,
+        // alternate-scroll resends wheel input as arrow keys, which the prompt
+        // reads as history navigation instead of transcript scrolling. Cost:
+        // native drag-select is suppressed.
         // enableMouseMovement stays on (?1003): URL hover needs pointer
         // motion with the modifier held — clicks and wheel never report an
-        // unpressed pointer. Same cost; Alt+M still hands the mouse back.
+        // unpressed pointer.
         useMouse: config.useMouse ?? true,
         enableMouseMovement: true,
         // A plain terminal sends bare CR for Enter and Shift+Enter alike; the
