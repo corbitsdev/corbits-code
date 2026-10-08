@@ -674,8 +674,8 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const { state, services } = stubSendLifecycle(agent);
     wireRebuildServices(services, directorHolder, agent);
     await createRunLifecycle(state, services);
-    // A fold is mid-flight on the reactor when the operator interrupts: the
-    // wrapped compact hangs on its summary call.
+    // A fold is mid-flight when the operator interrupts; the wrapped
+    // compact hangs on its summary call.
     const lifecycle = createCompactionLifecycle();
     state.compactionLifecycle = lifecycle;
     const notices: string[] = [];
@@ -717,8 +717,8 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const dirs = stubRotationDirs();
     try {
       await createRunLifecycle(state, services);
-      // A fold is mid-flight on the reactor when the operator rotates: the
-      // wrapped compact hangs on its summary call.
+      // A fold is mid-flight when the operator rotates; the wrapped compact
+      // hangs on its summary call.
       const lifecycle = createCompactionLifecycle();
       state.compactionLifecycle = lifecycle;
       const { pending } = hangCompact(lifecycle);
@@ -820,7 +820,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const agent = recordingAgent([]);
     const { state, services } = stubSendLifecycle(agent);
     // Every rebuild mints a fresh director from the static true seed (fleet
-    // lanes may appear mid-session), exactly like the TUI session assembly.
+    // lanes may appear mid-session).
     wireRebuildServices(services, directorHolder, agent, store);
     const fleetEvents: unknown[] = [];
     services.emitter.on("event", (event: { type: string }) => {

@@ -1,8 +1,8 @@
 /**
- * Exit and rebuild paths for the TUI runner: the exit-code contract, the
- * close/rebuild failure helpers, the run.json snapshot writers, the agent
- * lifecycle (reload-if-idle, interrupt, session rotation, the stable agent
- * proxy), the stream sink, and the quit-time finalization tail.
+ * Exit and rebuild paths for the TUI runner: exit-code contract,
+ * close/rebuild failure helpers, run.json snapshot writers, agent lifecycle
+ * (reload-if-idle, interrupt, session rotation, stable agent proxy), stream
+ * sink, and quit-time finalization.
  */
 
 import {
@@ -122,13 +122,12 @@ export function resumeTranscriptLoadErrorBlock(err: unknown): {
 
 // agent.close() releases its workdir lock last, after abort/drain and the
 // shutdown-complete race. If any of that throws (likely under an interrupt
-// mid-inference), the lock leaks — and the agent is already marked closed,
-// so retrying close() cannot free it. Every rebuild site reusing the *same*
+// mid-inference), the lock leaks — the agent is already marked closed, so
+// retrying close() cannot free it. Every rebuild site reusing the *same*
 // workdir (interrupt, reloadIfIdle) must treat that as fatal: a second
-// createAgent() for it then throws AgentContextLockError for a lock nothing
-// will ever free. Rotation is exempt — it mints a fresh workdir before
-// rebuilding, so the leaked lock is never re-acquired (see the comment at
-// its close() call).
+// createAgent() then throws AgentContextLockError for a lock nothing will
+// ever free. Rotation is exempt — it mints a fresh workdir before
+// rebuilding, so the leaked lock is never re-acquired (see its close()).
 export async function closeAgentForRebuild(
   agent: Agent,
   context: string,
@@ -235,8 +234,8 @@ function createRunPersistence(state: RunnerState, services: RunnerServices) {
 
   // Progress snapshots fire unsequenced (model switch, MCP connect, turn
   // completion), so a straggler could land after the terminal write and
-  // resurrect "running" — atomicWrite is last-rename-wins. Once the run is
-  // finalized, drop them; the run-ending path writes directly.
+  // resurrect "running" — atomicWrite is last-rename-wins. Once finalized,
+  // drop them; the run-ending path writes directly.
   //
   // Never a "run-end" write: everything here happens while the process is
   // alive and must stay crash-coverable, including the rotation "done" that
@@ -256,8 +255,8 @@ function createRunPersistence(state: RunnerState, services: RunnerServices) {
 /**
  * Fan one sink event out to whichever recovery attempts track the current
  * provider-failure attempt. The credential picker and the reconnect offer
- * share the submit/exit seat, so both observe the same retry/error stream
- * and settle independently when the send ends.
+ * share the submit/exit seat, so both see the same retry/error stream and
+ * settle independently when the send ends.
  */
 export function observeRecoveryAttempts(
   state: Pick<
@@ -315,9 +314,9 @@ export async function createRunLifecycle(
   });
   state.stopRunHeartbeat = stopHeartbeat;
 
-  // Cycles persist to the context store only on inference.done; the assembled
-  // recorder keeps the in-flight cycle's text so an errored or interrupted
-  // turn leaves its partial output in partial.jsonl instead of vanishing.
+  // Cycles persist only on inference.done; the recorder keeps the in-flight
+  // cycle's text so an errored or interrupted turn leaves its partial output
+  // in partial.jsonl instead of vanishing.
   const providerFailureAttempts = services.providerFailureAttempts;
   services.crashGuard.setPartialFlush(() =>
     services.cycleRecorder.dispose("crashed").then(() => undefined),
@@ -569,10 +568,10 @@ export async function createRunLifecycle(
   const interrupt = (): void => {
     state.credentialRecovery?.clear();
     // An in-flight compact runs inline on the vendored reactor with no abort
-    // hop of its own, so an interrupt that queues behind it parks on the
-    // summary call. Abort the compact first — the wrapper no-ops and the
-    // reactor reaches dequeue — then rebuild. The bumped generation retires
-    // the compaction continuation onto the replacement agent; no hop drops.
+    // hop of its own, so an interrupt queued behind it parks on the summary
+    // call. Abort the compact first — the wrapper no-ops and the reactor
+    // reaches dequeue — then rebuild. The bumped generation retires the
+    // compaction continuation onto the replacement agent; no hop drops.
     if (state.compactionLifecycle?.isCompacting() === true) {
       state.systemNotice?.("Compaction in progress — interrupting…");
     }
@@ -654,8 +653,7 @@ export async function createRunLifecycle(
         // (unlike interrupt and reloadIfIdle): rotation mints a fresh
         // sessionId/workdir below before buildAgent(), so a leaked lock on
         // the old workdir can never be re-acquired — buildAgent() always
-        // targets the new, unlocked directory (see closeAgentForRebuild's
-        // doc comment).
+        // targets the new, unlocked directory (see closeAgentForRebuild).
         await liveAgent(state)
           .close()
           .catch((err: unknown) => {
@@ -785,16 +783,15 @@ export async function finalizeTUIRun(
   const sinkError = services.runSink.getRunError();
   const summaryStatus = services.runSink.getStatus();
   // RunSummary's status ("done" | "failed" | "cancelled") maps directly onto
-  // RunState's terminal statuses — no fallback to "running" here, otherwise a
-  // finished run (finishedAt set) can be left reading as still in progress.
+  // RunState's terminal statuses — no fallback to "running", otherwise a
+  // finished run (finishedAt set) reads as still in progress.
   const persistedStatus: RunState["status"] = summaryStatus;
   services.crashGuard.markFinalized();
   // The run is over here, so the terminal write clears the active-run handle
-  // (via finalizeRunState in state.ts) in the same call rather than pairing
-  // the on-disk write with a separate in-memory statement. The dispose host
-  // has no on-disk counterpart to piggyback on, so it clears its own handle,
-  // mirroring finalizeOnCrash — otherwise a late signal finds a handle
-  // pointing at a torn-down closure.
+  // (via finalizeRunState in state.ts) in the same call, not a separate
+  // in-memory statement. The dispose host has no on-disk counterpart to
+  // piggyback on, so it clears its own handle, mirroring finalizeOnCrash —
+  // otherwise a late signal finds a handle pointing at a torn-down closure.
   clearActiveDisposeHost();
   const { writeRunSnapshot } = createRunPersistence(state, services);
   await writeRunSnapshot(

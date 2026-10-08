@@ -1,10 +1,10 @@
 /**
  * Session assembly for the TUI runner: everything the old runTUI closure
- * built once before the first agent build — the session lifecycle (hooks
- * sink, run sink, cycle recorder), the permission gate, plugin/tool
- * resolution, the agent toolset, the workflow host, and the chat agent
- * factory. Returns the const `RunnerServices` bag index.ts threads through
- * the other runner modules; mutable bindings live on RunnerState.
+ * built once before the first agent build — session lifecycle (hooks sink,
+ * run sink, cycle recorder), permission gate, plugin/tool resolution,
+ * agent toolset, workflow host, chat agent factory. Returns the const
+ * `RunnerServices` bag index.ts threads through the runner modules; mutable
+ * bindings live on RunnerState.
  */
 
 import { join } from "node:path";
@@ -175,8 +175,8 @@ export async function assembleTUISession(
   // Auto-continue runs must not park on any gate forever. No caller arms
   // this today — the goal subsystem, its only former source, has been
   // removed. The timeout plumbing (gate-events.ts / request-approval.ts, and
-  // every gate emission site below) stays for a future generalized
-  // auto-continue mechanism to re-arm by giving this a body.
+  // every gate emission site below) stays for a future auto-continue
+  // mechanism to re-arm by giving this a body.
   const approvalTimeout = ():
     | { timeoutMs: number; timeoutMessage: string }
     | undefined => undefined;
@@ -240,7 +240,8 @@ export async function assembleTUISession(
   pluginState.webCandidates = collectWebPlugins(executablePlugins());
   // Tool plugins are wired in only when enabled AND consented.
   pluginState.toolCandidates = collectToolPlugins(executablePlugins());
-  // Web and tool plugin resolution are independent, so resolve them concurrently.
+  // Web and tool plugin resolution are independent, so resolve them
+  // concurrently.
   const toolPluginDiag = createPluginLoadDiagnostics();
   const [activeWeb, extraToolPlugins] = await Promise.all([
     resolveWebProviderFromPlugins({
@@ -312,7 +313,8 @@ export async function assembleTUISession(
   );
 
   // Skill directories from enabled plugins, in addition to project-local
-  // `.agents`/`.claude`/`.codex/skills` that discoverSkills/resolveSkillBody check.
+  // `.agents`/`.claude`/`.codex/skills` that discoverSkills/resolveSkillBody
+  // check.
   const skillDirs = skillDirsFromEnabledPlugins(
     executablePlugins(),
     pluginState.pluginConfig,
@@ -334,7 +336,8 @@ export async function assembleTUISession(
   const toolAvailability: ToolAvailability = {
     languageServerAvailable: detectLanguageServerAvailable(config.cwd),
     operatorAvailable: true,
-    // TUI primary does not mount wait_agents — mailbox mail is the collect path.
+    // TUI primary does not mount wait_agents — mailbox mail is the collect
+    // path.
     waitAgentsMounted: false,
   };
   // The workflow host is built below, after the toolset; the holder lets
@@ -430,10 +433,8 @@ export async function assembleTUISession(
       provider: liveSubAgent.provider,
       sessions: subAgentSessions,
       getWorkdirBase: () => sessionDir(state.config.cwd, state.sessionId),
-      // Progress only, not the full event stream: forwarding every sub-agent
-      // inference.delta interleaves worker text with the parent turn.
-      // Progress keeps the status bar and Agents strip current without that
-      // pollution.
+      // Progress only — the full stream interleaves worker text with the
+      // parent turn; progress keeps the status bar and Agents strip current.
       onProgress: (info) => {
         emitter.emit("subagent.progress", info);
       },
@@ -518,12 +519,13 @@ export async function assembleTUISession(
     { isActivated: (name) => activatedToolNames.has(name) },
   );
 
-  // Reload, interrupt, compaction continuation, and proxy deliver share one queue
+  // Reload, interrupt, compaction continuation, and proxy deliver share
+  // one queue
   // so a rebuild never races an in-flight deliver.
   const sessionOps = createSessionOperationQueue();
-  // The deliverer bounds the acceptance wait so one stuck delivery fails fast
-  // with diagnostics instead of wedging the sessionOps tail for every later
-  // approval (send_input answers, interrupt_agent releases, ask_operator).
+  // The deliverer bounds the acceptance wait so one stuck delivery fails
+  // fast instead of wedging the sessionOps tail for every later approval
+  // (send_input answers, interrupt_agent releases, ask_operator).
   const approvalDeliverer = createApprovalDeliverer({
     deliverToAgent: (message) => liveAgent(state).deliver(message),
     acceptance: correlationAcceptance,
@@ -611,10 +613,10 @@ export async function assembleTUISession(
     resolveLiveSessionSources(state.config, state.sessionId);
 
   // Compaction summarizer: structured handoff via the live model. Failure
-  // substitutes a statistics-only stub; the pruning wrapper tells the operator
-  // only after that fold commits. Workflow state is read at compaction time so
-  // a pass mid-/build or mid-/plan still names the active step. The archive,
-  // when mounted, supplies the unclipped excerpt.
+  // substitutes a statistics-only stub; the pruning wrapper tells the
+  // operator only after that fold commits. Workflow state is read at
+  // compaction time so a pass mid-/build or mid-/plan still names the active
+  // step. The archive, when mounted, supplies the unclipped excerpt.
   //
   // Abort-aware lifecycle: the summary call is the only unbounded await in
   // the compact path, so the lifecycle aborts it on interrupt/rotation (via
@@ -687,8 +689,8 @@ export async function assembleTUISession(
     // Seed the idle-with-fleet allowance (fleet lanes may appear mid-session;
     // the fleet-wake publisher keeps it live). No onTasksChange /
     // requestContinuation / getLiveFleetCount closures: task/tool updates and
-    // compaction re-entry arrive as reactor events consumed in the stream
-    // sink, and the publisher drives the allowance via setAllowIdleWithFleet.
+    // compaction re-entry arrive as reactor events in the stream sink, and
+    // the publisher drives the allowance via setAllowIdleWithFleet.
     allowIdleWithFleet: true,
     clearDenials: () => permissionGate.clearDenials(),
     getProvider: () => state.config,
