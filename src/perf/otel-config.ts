@@ -1,8 +1,8 @@
 /**
- * Settings/env surface for opt-in OTEL export. Resolves whether an OTLP
- * exporter may be enabled — no SDK, no network; PerfTrace stays independent.
- * Fail closed: invalid endpoint/headers/attrs yield a stable error, never a
- * half-enabled export. Secrets never enter privacy-strict dumps.
+ * Settings/env surface for opt-in OTEL export — no SDK, no network;
+ * PerfTrace stays independent. Fail closed: invalid endpoint/headers/attrs
+ * yield a stable error, never a half-enabled export. Secrets never enter
+ * privacy-strict dumps.
  */
 
 import type { Settings } from "../config/settings.js";
@@ -23,13 +23,14 @@ export const OTEL_ENV = {
 
 /** Non-secret settings block for OTEL export (global settings only). */
 export interface OtelSettings {
-  /** Explicit off switch. When false and no env endpoint, export stays disabled. */
+  /** Explicit off switch. When false and no env endpoint, export stays
+   * disabled. */
   enabled?: boolean;
   /** OTLP base URL (http/https). Env OTEL_EXPORTER_OTLP_ENDPOINT overrides. */
   endpoint?: string;
   /**
    * Extra OTLP headers (auth). Prefer the env var so secrets stay out of
-   * settings files; env fully replaces settings headers when set.
+   * settings files.
    */
   headers?: Record<string, string>;
   /** Resource service.name. Env OTEL_SERVICE_NAME overrides. */
@@ -57,8 +58,8 @@ export type OtelExportConfig =
   | DisabledOtelExportConfig;
 
 /**
- * Dump-safe view: never includes header values or other secrets.
- * Local privacy-strict dumps must only ever receive this shape.
+ * Dump-safe view: no header values or other secrets. Privacy-strict
+ * dumps must only ever receive this shape.
  */
 export type OtelExportConfigDumpView =
   | { enabled: false }
@@ -94,8 +95,8 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 /**
- * Parse OTEL W3C-style `key=value,key2=value2` lists (headers / resource attrs).
- * Values may be percent-encoded. Empty keys or malformed pairs fail closed.
+ * Parse W3C-style `key=value,key2=value2` lists (headers / resource attrs).
+ * Values may be percent-encoded; empty keys or malformed pairs fail closed.
  */
 export function parseOtelKeyValueList(
   raw: string,
@@ -178,7 +179,7 @@ function validateEndpoint(
     };
   }
 
-  // Normalize: drop trailing slash so exporters can append /v1/traces consistently.
+  // Drop trailing slash so exporters append /v1/traces consistently.
   const normalized = endpoint.replace(/\/+$/, "");
   return { ok: true, endpoint: normalized };
 }
@@ -207,16 +208,14 @@ function validateStringMap(
 }
 
 /**
- * Resolve OTEL export config from global settings + process env.
- *
- * Precedence:
+ * Precedence (env over settings):
  * - endpoint: env > settings
  * - headers: env list fully replaces settings when set; else settings
  * - serviceName: env > settings.serviceName > attrs["service.name"] > default
  * - resourceAttributes: settings then env (env wins on conflict); after merge,
- *   attrs["service.name"] is always synced to the resolved serviceName
+ *   attrs["service.name"] is synced to the resolved serviceName
  *
- * No endpoint → disabled (ok). Invalid or malformed config → not ok.
+ * No endpoint → disabled (ok); invalid or malformed → not ok.
  */
 export function resolveOtelExportConfig(
   settings?: Settings | null,
@@ -234,7 +233,7 @@ export function resolveOtelExportConfig(
   const endpointRaw =
     envEndpointRaw.length > 0 ? envEndpointRaw : settingsEndpoint;
 
-  // settings.otel.enabled === false forces off unless env explicitly sets an endpoint.
+  // settings.otel.enabled === false forces off unless env sets an endpoint.
   if (otel?.enabled === false && envEndpointRaw.length === 0) {
     return { ok: true, config: { enabled: false } };
   }
@@ -319,8 +318,7 @@ export function resolveOtelExportConfig(
     resourceAttributes = { ...resourceAttributes, ...parsed.value };
   }
 
-  // serviceName: env > settings > attrs["service.name"] > default; then sync
-  // attrs["service.name"] to it so the two never diverge.
+  // Sync attrs["service.name"] to the resolved name so the two never diverge.
   const attrServiceName = trimOrEmpty(resourceAttributes["service.name"]);
   const serviceName =
     envServiceNameRaw.length > 0
@@ -354,8 +352,8 @@ export function resolveOtelExportConfig(
 }
 
 /**
- * Resolve or throw. Callers that treat invalid config as a hard startup error
- * use this; soft paths should call resolveOtelExportConfig and branch on ok.
+ * Hard-startup callers use this; soft paths call resolveOtelExportConfig
+ * and branch on ok.
  */
 export function requireOtelExportConfig(
   settings?: Settings | null,
@@ -386,8 +384,7 @@ export function redactResourceAttributesForDump(
 }
 
 /**
- * Dump-safe view of an export config: header values stripped. Use this,
- * never raw headers.
+ * Header values stripped. Use this, never raw headers.
  */
 export function otelConfigForDump(
   config: OtelExportConfig,
