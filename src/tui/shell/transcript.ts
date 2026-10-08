@@ -92,7 +92,7 @@ export function streamRowCount(shell: AppShell): number {
 /**
  * Row at absolute `index` on the log `appendStreamRow` targets, so a tool
  * result can fold into the call row it answers. Evicted rows read as
- * undefined, same as past-the-end.
+ * undefined.
  */
 export function streamRowAt(
   shell: AppShell,
@@ -144,8 +144,7 @@ export function transcriptRowOffset(shell: AppShell): number {
 /**
  * Rewrite a row's body on its existing paint node, keeping parser block state
  * and styled line/table content. False when the node shape no longer matches
- * the row (a label or arrow appearing, a line-count change) and the caller
- * must rebuild it.
+ * the row (a label or arrow appearing, a line-count change).
  */
 export function retextStreamRow(
   shell: AppShell,
@@ -166,8 +165,8 @@ export function retextStreamRow(
   return retextStreamRowBody(node, row, layout);
 }
 
-/** Last painted state per split markdown body, keyed by its column node.
- * A rebuild gets a fresh node; stale entries die with the old row. */
+/** Last painted state per split markdown body, keyed by its column node;
+ * stale entries die with the old row. */
 const splitBodyMemory = new WeakMap<BaseRenderable, StreamMarkdownSnapshot>();
 
 /** The shape-matching rewrite shared by labelled and unlabelled rows. */
@@ -281,9 +280,7 @@ function markdownContent(row: StreamRow): string {
   return withholdIncompleteHeading(row.text);
 }
 
-/** Build the row-shaped paint node: markdown body for assistant replies,
- * table for structured rows, diff body for edit-tool rows, plain text
- * otherwise. */
+/** Build the row-shaped paint node. */
 export function buildRowNode(
   ctx: CliRenderer,
   row: StreamRow,
@@ -464,8 +461,7 @@ function createMarkdownBody(
 }
 
 /** Gutter + one pre-coloured text line per body row (a diff, expanded tool
- * arguments). Lines paint inside the body column, so wraps land under the
- * body. */
+ * arguments); wraps land under the body. */
 function createStyledLinesRowRenderable(
   ctx: CliRenderer,
   row: StreamRow,
@@ -491,8 +487,7 @@ function createStyledLinesRowRenderable(
 }
 
 /** One painted body line: an expand arrow splits into its own clickable
- * renderable, URL lines arm as Ctrl+click targets, everything else a single
- * text node. */
+ * renderable; URL lines arm as Ctrl+click targets. */
 function bodyLineNode(
   ctx: CliRenderer,
   line: StyledBodyLine,
@@ -522,9 +517,8 @@ function bodyLineNode(
   return wrapper;
 }
 
-/** Gutter + native table body for a structured (MCP result) row, under its
- * collapsed head lines, in one body column so the table stays in the
- * gutter. */
+/** Gutter + native table body for a structured (MCP result) row; one body
+ * column keeps the table in the gutter. */
 function createStructuredRowRenderable(
   ctx: CliRenderer,
   row: StreamRow,
