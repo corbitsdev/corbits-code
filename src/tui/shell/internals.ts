@@ -49,7 +49,7 @@ export function clearShellExitHandler(shell: AppShell): void {
 
 export const effortCycleHandlers = new WeakMap<AppShell, () => void>();
 
-/** Shift+Tab host callback: cycle reasoning effort for the live session. */
+/** Shift+Tab host callback: cycle reasoning effort for the session. */
 export function setEffortCycleHandler(
   shell: AppShell,
   onCycle: () => void,
@@ -247,7 +247,7 @@ export function setPromptRecognitionSource(
   else shellRecognitionSource.delete(shell);
 }
 
-/** Palette "observe" handler: the live `ObserveSession` to enter, or `null`
+/** Palette "observe" handler: the `ObserveSession` to enter, or `null`
  * when none runs (unset keeps demo/smoke on `makeObserveFixture()`). */
 export type PaletteOnObserveRequest = () => ObserveSession | null;
 
@@ -391,11 +391,11 @@ export interface AppShell {
   workspace: { cwd: string; branch: string | null };
   /** Overlay list state (null when closed). */
   overlayList: OverlayList | null;
-  /** Overlay item labels currently shown. */
+  /** Overlay item labels shown. */
   overlayItems: readonly string[];
   /** Which primary overlay is open (null when closed). */
   overlayKind: PrimaryOverlayKind | null;
-  /** Optional long body lines painted above the list (operator question). */
+  /** Long body lines painted above the list (operator question). */
   overlayBodyLines: readonly string[];
   /** Palette role per body line, aligned with overlayBodyLines. */
   overlayBodyFgs: readonly string[];
@@ -446,12 +446,11 @@ export interface AppShell {
   parentStreamLogBase: number | null;
   /** Saved `unloadedHistory` for the parent snapshot while observing. */
   parentUnloadedHistory: boolean | null;
-  /** Readline kill ring backing Ctrl+Y/Alt+Y; the text widget has none (see
-   * ./prompt-kill-ring.js). */
+  /** Readline kill ring backing Ctrl+Y/Alt+Y; the text widget has none. */
   promptKillRing: KillRing;
   /** Images attached with Ctrl+P, sent with the next prompt submit. */
   pendingAttachments: PendingImageAttachment[];
-  /** Up/Down recall of messages already sent in this session. */
+  /** Up/Down recall of messages sent in this session. */
   sentHistory: SentHistoryBrowse;
   /** Detach key/resize listeners and unmount root. */
   dispose: () => void;
@@ -497,7 +496,7 @@ export interface FlashOptions {
   readonly schedule?: FlashSchedule;
 }
 
-/** Cancel for the flash currently counting down, per shell. */
+/** Cancel for the flash counting down, per shell. */
 export const flashTimers = new WeakMap<AppShell, () => void>();
 
 /** Per-shell FlashSchedule override (tests). */
@@ -511,7 +510,7 @@ export interface OverlayAnswerState {
   readonly onSubmit: (text: string) => void;
 }
 
-/** Item window the SelectRenderable currently shows. */
+/** Item window the SelectRenderable shows. */
 export interface OverlayListRange {
   /** Inclusive start index into the full list. */
   readonly start: number;
@@ -539,9 +538,9 @@ export interface OverlayList {
 }
 
 interface PrimaryOverlayBindings {
-  /** Optional stable ids aligned with overlayItems. */
+  /** Stable ids aligned with overlayItems. */
   itemIds: readonly string[];
-  /** Optional plain chosen values aligned with overlayItems. */
+  /** Plain chosen values aligned with overlayItems. */
   itemValues: readonly (string | undefined)[];
   /** Per-open accept callback; cleared on close without invoke. */
   onAccept: ((selection: OverlaySelection) => void) | null;
@@ -555,11 +554,9 @@ interface PrimaryOverlayBindings {
   onAction: ((itemId: string, key: KeyEvent) => boolean) | null;
   /** Per-open bracketed-paste owner. */
   onPaste: ((text: string) => void) | null;
-  /** Per-open dismiss hook for promise-backed overlays; see
-   * OpenListOverlayOpts.onCancel. */
+  /** Per-open dismiss hook for promise-backed overlays. */
   onCancel: (() => void) | null;
-  /** Per-open cleanup on replace/dismiss (MCP unsubscribe); see
-   * OpenListOverlayOpts.onDispose. */
+  /** Per-open cleanup on replace/dismiss (MCP unsubscribe). */
   onDispose: (() => void) | null;
   /** True while the open primary is a decision gate. */
   isGate: boolean;
@@ -628,8 +625,7 @@ interface ShellInternals {
   /** False while an overlay that reports its own outcome is open. */
   overlayEchoChoice: boolean;
   /** While true the shell ignores its own key/paste/submit handlers: a
-   * full-screen surface shares this renderer and would double-act on every
-   * keystroke. */
+   * full-screen surface shares this renderer and would double-act. */
   inputSuspended: boolean;
   /** Per-open free-text answer field, when the overlay opted into one. */
   overlayAnswer: OverlayAnswerState | null;
@@ -706,9 +702,9 @@ export const internals = new WeakMap<AppShell, ShellInternals>();
 
 /** Filler row sized to leftover viewport space so a short transcript
  * bottom-anchors against the prompt box; settles at zero once rows fill it.
- * A real child, not padding: `minHeight: "100%"` reads padding back as
- * viewport height, so `scrollHeight - spacer.height` isolates the rows' real
- * height. Index 0 is always the spacer. */
+ * A real child, not padding: `minHeight: "100%"` counts padding as viewport
+ * height, so `scrollHeight - spacer.height` isolates the rows.
+ * Index 0 is always the spacer. */
 export const transcriptSpacers = new WeakMap<AppShell, BoxRenderable>();
 
 /** True while the landing composition is still mounted. */
@@ -720,7 +716,7 @@ export interface OpenListOverlayOpts {
   readonly kind?: PrimaryOverlayKind;
   readonly title?: string;
   readonly items?: readonly string[];
-  /** Optional stable ids aligned with `items` (permission scope ids, model ids). */
+  /** Stable ids aligned with `items` (permission scope ids, model ids). */
   readonly itemIds?: readonly string[];
   /** Plain chosen value aligned with `items`, for rows whose label carries
    * more than the value (cycled field name, padding, `‹ ›`). */
@@ -762,14 +758,14 @@ export interface OpenListOverlayOpts {
    * submitting closes the overlay through this callback, not the selection
    * path. */
   readonly onTextAnswer?: (text: string) => void;
-  /** Open with the answer field already active (nothing to choose). */
+  /** Open with the answer field active (nothing to choose). */
   readonly textAnswerActive?: boolean;
   /** Suppress the `chose (kind): label` echo: it quotes the label from
    * *before* the action (a server just authorized would echo as needing
    * authorization). */
   readonly echoChoice?: boolean;
-  /** Claim printable keys for a `>` filter row so the list narrows as you
-   * type; opt-in per open, else j/k navigate. */
+  /** Claim printable keys for a `>` filter row so the list narrows;
+   * opt-in per open, else j/k navigate. */
   readonly typeToFilter?: boolean;
   /** Advertise Alt+A and /connect in the footer and yield Option+A (å/Å) from
    * type-to-filter. */
