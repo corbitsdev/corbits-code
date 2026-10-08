@@ -1,8 +1,7 @@
 /**
- * Transcript link targets: painted-line geometry (armed rows) plus
- * markdown resolution through childless library renderers. Span scanning
- * lives in link-spans, wrapped-URL fusion in link-wrap, the open gate
- * in link-open.
+ * Transcript link targets: painted-line geometry plus markdown resolution
+ * through childless library renderers. Span scanning, wrapped-URL fusion,
+ * and the open gate live in link-spans, link-wrap, link-open.
  */
 import {
   CodeRenderable,
@@ -42,10 +41,8 @@ export function linkSpanChunks(
   return [chunk];
 }
 
-/**
- * Openable-URL column ranges for one painted line. Armed nodes keep a
- * single text node and resolve clicks through these ranges instead.
- */
+/** Column ranges of the openable URLs on one painted line (armed nodes
+ * resolve clicks through these instead). */
 export interface LinkColumnHit {
   readonly url: string;
   /** Inclusive column where the URL starts. */
@@ -79,9 +76,8 @@ export function hitUrlAt(
 }
 
 /**
- * Paint one link line as a single text node, URL or not, so retext and
- * selection see one shape. OSC-8 metadata on URL spans lets the terminal
- * own Cmd+click on macOS.
+ * Paint one link line as a single text node so retext and selection see
+ * one shape; OSC-8 metadata keeps the terminal's Cmd+click.
  */
 export function buildLinkLine(
   ctx: CliRenderer,
@@ -96,11 +92,8 @@ export function buildLinkLine(
   return node;
 }
 
-/**
- * Rewrite a link line's text in place and re-arm. The node never changes
- * shape, so this always succeeds; callers rebuild only when their own
- * layout (line count, arrow presence) changes.
- */
+/** Rewrite a link line's text in place and re-arm; callers rebuild only
+ * when their own layout (line count, arrow presence) changes. */
 export function paintLinkLine(
   node: TextRenderable,
   lines: readonly (readonly LinkSpan[])[],
@@ -129,11 +122,9 @@ function linkLinesChunks(
 /**
  * Arm a text node over caller-built per-line spans: Ctrl+hover highlights
  * the URL; Ctrl+press and release on the same URL opens it. Disarms when
- * no line holds a URL — retexting the last URL away must not leave stale
- * handlers — and re-arming replaces handlers rather than stacking.
- *
- * The press keeps bubbling so drag-select starting on a URL still works;
- * release opens only on the pressed URL, so a Ctrl+drag selects instead.
+ * no line holds a URL; re-arming replaces handlers rather than stacking.
+ * Press keeps bubbling so drag-select still works; release opens only on
+ * the pressed URL, so Ctrl+drag selects instead.
  */
 export function armLinkLine(
   node: TextRenderable,
@@ -150,7 +141,7 @@ export function armLinkLine(
   }
   const at = (event: MouseEvent): string | null => {
     // Map terminal-absolute coordinates through the node's own screen
-    // position (scroll-aware via the translate chain).
+    // position.
     const line = Math.max(0, Math.min(hits.length - 1, event.y - node.screenY));
     return hitUrlAt(hits[line] ?? [], event.x - node.screenX);
   };
@@ -168,8 +159,7 @@ export function armLinkLine(
     if (start !== null && isUrlOpenClick(event) && at(event) === start) {
       openUrl(start);
       // Stop the bubbled release from reaching the transcript-root
-      // markdown handler: exactly one open per gesture. Press still
-      // bubbles so drag-select works.
+      // markdown handler: one open per gesture.
       event.stopPropagation();
     }
   };
@@ -203,17 +193,14 @@ export function isUnderlined(attributes: number): boolean {
 
 /**
  * Markup characters whose painted width the resolver cannot know: the
- * renderer conceals them (`[guide](…)` paints as `guide (…)`) and
- * highlight state is unreadable here, so each is modeled at width 0 or
- * 1; the rest paints at measured width.
+ * renderer conceals them (`[guide](…)` paints as `guide (…)`), so each
+ * is modeled at width 0 or 1.
  */
 const CONCEALABLE = new Set(["[", "]", "(", ")"]);
 
-/**
- * Inline `[label](target)` links in one source line: label and target
- * both open the target. Images are skipped — nothing specifies click
- * behavior, and a miss is safer than a wrong open.
- */
+/** Inline `[label](target)` links in one source line: label and target
+ * both open the target. Images are skipped (no click behavior is
+ * specified). */
 function findMarkdownLinks(line: string): LinkHit[] {
   const spans: LinkHit[] = [];
   const pattern = /\[([^\]]*)\]\(([^)\s]+)\)/g;
@@ -237,11 +224,9 @@ function findMarkdownLinks(line: string): LinkHit[] {
   return spans;
 }
 
-/**
- * Whole `![label](target)` ranges: bare-URL scanning cannot tell image
- * markup from links, so the resolver discards bare matches touching them.
- * Images stay non-openable by policy.
- */
+/** Whole `![label](target)` ranges: bare-URL scanning cannot tell image
+ * markup from links, so the resolver discards bare matches touching them;
+ * images stay non-openable. */
 function findImageRanges(line: string): { start: number; end: number }[] {
   const ranges: { start: number; end: number }[] = [];
   for (const match of line.matchAll(/!\[[^\]]*\]\(([^)\s]+)\)/g)) {
@@ -254,9 +239,8 @@ function findImageRanges(line: string): { start: number; end: number }[] {
 /**
  * Link target under one source offset: bare URLs first (URL-shaped labels
  * stay clickable), then inline `[label](target)` spans. A bare match fused
- * across a span boundary (`[a](u1)[b](u2)` scans as one run) or inside
- * image markup is a matcher artifact, so only a bare match fully inside
- * one span — or touching none — counts.
+ * across a span boundary or inside image markup is a matcher artifact, so
+ * only a bare match fully inside one span — or touching none — counts.
  */
 function markdownUrlAt(line: string, offset: number): string | null {
   const spans = findMarkdownLinks(line);
@@ -283,9 +267,9 @@ function markdownUrlAt(line: string, offset: number): string | null {
 
 /**
  * Source offsets a painted column can mean in one rendered row: each
- * offset starts in [min, max] (concealable markup before it spreads the
- * range) and paints up to wMax wide; the column hits the offset when it
- * falls in that range.
+ * offset starts in [min, max] (concealable markup spreads the range) and
+ * paints up to wMax wide; the column hits the offset when it falls in
+ * that range.
  */
 function paintedColumnToSource(
   line: string,
@@ -364,9 +348,9 @@ function codeBlockLinkAt(
  * Markdown click target under terminal-absolute (x, y), or null when the
  * cell paints no link. Walks from the hit leaf up to the nearest painted
  * code block (assistant markdown paints through library CodeRenderables);
- * that first block decides — a wider ancestor may pair the same column
- * with a link the narrower block already rejected. TextRenderable rows
- * resolve in their own armed handlers; this never throws.
+ * that first block decides — a wider ancestor may pair the column
+ * differently. Text rows resolve in their own armed handlers; this never
+ * throws.
  */
 export function markdownLinkAt(
   renderer: CliRenderer,
@@ -396,8 +380,7 @@ export function markdownLinkAt(
  * Arm a transcript ancestor as the markdown click target: markdown blocks
  * paint through childless library renderers, so only a bubbling ancestor
  * handler sees their clicks. Press and release must land on the same URL
- * to open. Everything goes through openUrl, which gates to http(s) —
- * markdown can carry any scheme.
+ * to open; openUrl gates to http(s), since markdown can carry any scheme.
  */
 export function armMarkdownLinks(
   target: Renderable,

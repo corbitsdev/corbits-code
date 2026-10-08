@@ -36,7 +36,8 @@ describe("decision overlay body cache survives a stacked palette", () => {
           await h.renderOnce();
           expect(shell.overlayBodyLines.length).toBeGreaterThan(0);
           const hostBefore = shell.layout.overlayHeight;
-          // Chrome is border (2) + title (1) + body lines; list is N * perItem.
+          // Chrome is border (2) + title (1) + body lines; list is N *
+          // perItem.
           expect(hostBefore).toBe(
             shell.overlayBodyLines.length +
               3 +

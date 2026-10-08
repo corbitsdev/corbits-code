@@ -1,16 +1,12 @@
 /**
  * Structured rendering of MCP tool results for the OpenTUI transcript.
- *
- * MCP servers answer with raw JSON — record lists (list_projects) or single
- * records (get_issue). Painted verbatim they are unreadable, so we derive
- * a cell grid: a header + one row per record for lists, label/value pairs
- * for a single record, with status/priority tone and date truncation.
- * `TextTableRenderable` does the column alignment; we do not reimplement
- * layout.
- *
- * It also owns the collapsed result's sentence, derived from the payload's
- * shape ("Grabbed 10 Linear issues"), not from the arguments that asked
- * for it.
+ * MCP servers answer with raw JSON — record lists (list_projects) or
+ * single records (get_issue). We derive a cell grid: a header + one row
+ * per record for lists, label/value pairs for a single record, with
+ * status/priority tone and date truncation. `TextTableRenderable` does
+ * the column alignment. It also owns the collapsed result's sentence,
+ * derived from the payload's shape ("Grabbed 10 Linear issues"), not from
+ * the arguments that asked for it.
  */
 
 import { isSameTool } from "../agent/canonical-tool-name.js";
@@ -56,8 +52,9 @@ export interface McpStructuredView {
   readonly cells: readonly (readonly McpCell[])[];
 }
 
-// Warning and danger both land on the action orange: a structured result has no
-// decision marker competing with it, and there is no red in the brand system.
+// Warning and danger both land on the action orange: a structured result
+// has no competing decision marker, and there is no red in the brand
+// system.
 const TONE_FG: Record<McpTone, string> = {
   plain: UI.text,
   muted: UI.textDim,
@@ -252,8 +249,9 @@ export function mcpRecordToView(
 }
 
 /**
- * Structured view for an MCP tool result body, or null when the tool is not an
- * MCP tool or the payload is not record-shaped (plain text, scalars, errors).
+ * Structured view for an MCP tool result body, or null when the tool is
+ * not an MCP tool or the payload is not record-shaped (plain text,
+ * scalars, errors).
  */
 export function mcpStructuredView(
   toolName: string,
@@ -323,9 +321,9 @@ const MCP_TOOL_VERB_PREFIXES = [
 ];
 
 /**
- * The thing an MCP tool is about, read off its name: `list_issues` -> "issues",
- * `get_project` -> "project". Only used to name a count the payload could not
- * name itself, so a tool whose name carries no noun yields nothing.
+ * The thing an MCP tool is about, read off its name: `list_issues` ->
+ * "issues", `get_project` -> "project". Only used to name a count the
+ * payload could not name itself; a name without a noun yields nothing.
  */
 function nounFromToolName(server: string, tool: string): string | undefined {
   const prefix = MCP_TOOL_VERB_PREFIXES.find((candidate) =>
@@ -380,8 +378,8 @@ function detailPlainText(detail: readonly StyledBodyLine[]): string {
 
 /**
  * A body worth an expand affordance: one that says something the summary
- * does not. An expansion that restates its own summary is worse than none,
- * so it is dropped rather than painted with an arrow behind it.
+ * does not. An expansion that restates its own summary is worse than
+ * none, so it is dropped.
  */
 function revealing(
   summary: string,
@@ -402,7 +400,7 @@ const TOOL_CARD = /^- ([^\s:]+):?\s*(.*)$/;
 /**
  * A capability search answers with one card per tool (name and a short
  * description). Full input schemas ride the next infer's tools array, not
- * this card; the transcript row counts the catalogue and lists names.
+ * this card.
  */
 function toolCatalogueSummary(content: string): ResultSummary | null {
   const cards = content
@@ -495,9 +493,9 @@ function resultSummary(input: ToolResultRowInput): ResultSummary | null {
 const USE_SKILL_TOOL = "use_skill";
 
 /**
- * Name of the skill a `use_skill` result loaded, read off the body the tool
- * returns. Display-only: a body that does not announce a skill (an error, a
- * future wording) simply does not collapse.
+ * Name of the skill a `use_skill` result loaded, read off the body the
+ * tool returns. Display-only: a body that does not announce a skill (an
+ * error, a future wording) simply does not collapse.
  */
 function loadedSkillName(name: string, content: string): string | undefined {
   if (!isSameTool(name, USE_SKILL_TOOL)) return undefined;
@@ -507,8 +505,8 @@ function loadedSkillName(name: string, content: string): string | undefined {
 /**
  * Build the transcript row for a tool result: one sentence about what came
  * back, with the body — an aligned MCP table, a catalogue, raw output —
- * behind the expand key. Errors are neither summarised nor collapsed: a
- * failure is exactly what nobody should have to press a key to read.
+ * behind the expand key. Errors are neither summarised nor collapsed — a
+ * failure should not need a keypress to read.
  */
 export function toolResultRow(input: ToolResultRowInput): StreamRow {
   const failed = input.isError === true;

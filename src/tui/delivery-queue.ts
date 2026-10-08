@@ -1,13 +1,11 @@
 /**
- * Delivery queue: mid-run queue / steer / interrupt state machine, the
- * serial chain that drains it, and the generation-gated delivery hops.
- *
- * Pure data — no paint, no OpenTUI. Shell + demo own delivery and UI flash.
+ * Mid-run queue / steer / interrupt state machine: the serial chain that
+ * drains it and the generation-gated delivery hops. Pure data — no paint,
+ * no OpenTUI.
  *
  * Product chords: Enter mid-run → "steer" (drain at tool.boundary);
  * Alt+Enter mid-run → "queue" (drain only when idle). "reinject" is a
- * bridge/shell submit kind, not a QueueKind — no chord wires it anymore;
- * tests/API only.
+ * submit kind, not a QueueKind — tests/API only.
  */
 
 import { AgentClosedError } from "@intx/agent";
@@ -41,9 +39,9 @@ export interface DeliverAgentMessageDeps {
 
 /**
  * Guard a queued/steer deliver against a mid-rebuild or closed agent. The
- * shell pops the queue item before this runs, so the caller must settle
- * from the structured result — a swallowed failure would claim delivery
- * for a message that never reached the agent.
+ * shell pops the item before this runs, so the caller must settle from the
+ * structured result — a swallowed failure would claim delivery for a
+ * message that never reached the agent.
  */
 export async function deliverAgentMessage(
   deps: DeliverAgentMessageDeps,
@@ -75,11 +73,10 @@ export async function deliverAgentMessage(
 }
 
 /**
- * Run a queued deliver against the generation captured at enqueue time. The
- * queue is FIFO with no preemption, so a deliver queued before a reload
- * still runs after it — re-check the generation when the closure runs, not
- * when it enqueues. A stale deliver takes `onStale`; a current one runs
- * the real settle.
+ * Run a queued deliver against the generation captured at enqueue time.
+ * The queue is FIFO with no preemption, so a deliver queued before a
+ * reload still runs after it — re-check the generation when the closure
+ * runs, not when it enqueues.
  */
 export async function runGenerationGuardedDeliver(options: {
   stillCurrent: () => boolean;
@@ -99,10 +96,9 @@ function compactionContinuationIsSuperseded(
 }
 
 /**
- * Compact continuation is consume-once at the stream gate. Interrupt
- * rebuild bumps generation and queues a rebuild behind this hop, so a
- * stale hop re-queues rather than retrying liveAgent here. A closed hop
- * still retries once.
+ * Compact continuation is consume-once at the stream gate. An interrupt
+ * rebuild bumps generation and queues a rebuild behind it, so a stale hop
+ * re-queues rather than retrying here; a closed hop still retries once.
  */
 export async function settleCompactionContinuationHop(options: {
   stillCurrent: () => boolean;
@@ -128,11 +124,9 @@ export async function settleCompactionContinuationHop(options: {
   return first;
 }
 
-/**
- * Enqueue a compact-continue hop. If interrupt already queued a rebuild
- * behind this hop, the continue re-schedules after it instead of retrying
- * liveAgent in the same op.
- */
+/** Enqueue a compact-continue hop. If an interrupt already queued a rebuild
+ * behind it, the continue re-schedules after it instead of retrying
+ * liveAgent in the same op. */
 export function enqueueCompactionContinuationHop(options: {
   enqueue: (op: () => Promise<void>) => unknown;
   captureGeneration: () => () => boolean;
@@ -253,8 +247,8 @@ export function setRunState(
 
 /**
  * Enqueue a mid-run message; whitespace-only is a no-op. Idle still
- * accepts into the bag for tests; the product shell routes idle Enter as
- * an immediate send instead.
+ * accepts for tests; the product shell routes idle Enter as an immediate
+ * send instead.
  */
 export function enqueue(
   state: SessionQueueState,
@@ -298,10 +292,9 @@ export function enqueueSteer(
 }
 
 /**
- * Hard interrupt: stop the run, keep everything the operator queued.
- * The common shape is typing a correction then interrupting so it lands
- * sooner, so discarding the queue would destroy that input. Pending items
- * survive to the next drain boundary.
+ * Hard interrupt: stop the run, keep everything the operator queued
+ * (often a typed correction meant to land sooner); pending items survive
+ * to the next drain boundary.
  */
 export function interrupt(state: SessionQueueState): SessionQueueState {
   return {
@@ -343,11 +336,9 @@ export function isPaused(state: SessionQueueState): boolean {
   return state.paused;
 }
 
-/**
- * Retract the most recently enqueued item, queue or steer alike. Last-only:
+/** Retract the most recently enqueued item, queue or steer alike. Last-only:
  * no path to an earlier item (see `applyShellCancelLast` for why that is
- * the shipped scope, not an oversight).
- */
+ * the shipped scope, not an oversight). */
 export function cancelLast(state: SessionQueueState): {
   state: SessionQueueState;
   item: QueueItem | null;
@@ -360,10 +351,8 @@ export function cancelLast(state: SessionQueueState): {
   };
 }
 
-/**
- * Retract a specific item by id — the pending column's per-row drop where
- * the operator picked which held message to kill rather than the newest.
- */
+/** Retract a specific item by id — the pending column's per-row drop, where
+ * the operator picks which held message to kill rather than the newest. */
 export function cancelItem(
   state: SessionQueueState,
   id: string,
@@ -426,8 +415,8 @@ export function drainSteersOnly(state: SessionQueueState): {
   return { state: current, drained };
 }
 
-// Serial promise chain for session-scoped operations; each task runs after
-// the previous one settles; failures do not block the tail.
+// Serial promise chain for session-scoped operations; failures do not
+// block the tail.
 
 export interface SessionOperationQueue {
   /** Enqueue an async operation; returns its settlement promise. */
@@ -452,9 +441,7 @@ export function createSessionOperationQueue(): SessionOperationQueue {
 
 /**
  * Kind routing for drained queue items, plus a generation token so a
- * /clear|/new rotation drops in-flight delivers from the previous session;
- * routing lives here, not on SessionPort.
- *
+ * /clear|/new rotation drops in-flight delivers from the previous session.
  * Live inject (`deliverSteer` → Agent.deliver) is only for an in-flight
  * parent tool.boundary; leftover steers at idle, idle-with-fleet, or
  * post-interrupt share the send path.
@@ -479,7 +466,7 @@ export interface RouteQueuedDeliveryArgs {
   /**
    * True only while the bridge is draining steers at a live parent
    * tool.boundary (or inference.done with tools outstanding). Read when
-   * the deliver op runs, not captured at mount.
+   * the deliver op runs, not at mount.
    */
   parentCycleLive: () => boolean;
 }
@@ -527,7 +514,7 @@ export interface IngestedSteer {
 
 export interface CreateLiveSteerDeliverArgs {
   /**
-   * FIFO session queue. Ingest must run on it — not in a fire-and-forget
+   * FIFO session queue. Ingest must run on it — not a fire-and-forget
    * IIFE — so two steers at one boundary cannot reverse if the second
    * ingest finishes first.
    */
@@ -537,8 +524,8 @@ export interface CreateLiveSteerDeliverArgs {
     attachments: readonly PendingImageAttachment[],
   ) => Promise<IngestedSteer>;
   /**
-   * Agent.deliver hop. When `settle` is provided, the hop owns reporting the
-   * eventual AgentDeliveryResult (accepted / closed / uncertain).
+   * Agent.deliver hop. When `settle` is provided, the hop owns reporting
+   * the eventual AgentDeliveryResult (accepted / closed / uncertain).
    */
   deliver: (
     text: string,
@@ -668,8 +655,8 @@ function createGenerationGatedHop(
 }
 
 /**
- * Live inject: enqueue ingest, then deliver, in drain order — previously
- * each item started ingest immediately, so Agent.deliver could reverse.
+ * Live inject: enqueue ingest, then deliver, in drain order — starting
+ * ingest immediately could reverse Agent.deliver.
  */
 export function createLiveSteerDeliver(
   args: CreateLiveSteerDeliverArgs,
@@ -683,9 +670,9 @@ export function createLiveSteerDeliver(
 
 /**
  * Leftover / queue drain hop: capture generation at hop time, ingest,
- * then send only if /clear|/new has not bumped. Operator Enter must not
- * use this; `ask_director wake` leftovers pass through raw so worker
- * @paths and image mentions are not rewritten as operator attachments.
+ * then send only if /clear|/new has not bumped. `ask_director wake`
+ * leftovers pass through raw so worker @paths and image mentions are not
+ * rewritten as operator attachments.
  */
 export function createLeftoverSend(
   args: CreateLeftoverSendArgs,

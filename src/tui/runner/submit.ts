@@ -67,8 +67,7 @@ export type SubmissionRoute =
 /**
  * Command names a leading-`/` token may dispatch to. Call sites own the set
  * — registry `listCommands()` names, the `/` popup catalog's source. A
- * supplier stays fresh across registry reloads; a plain set or array is a
- * snapshot.
+ * supplier stays fresh across registry reloads; a plain set is a snapshot.
  */
 export type KnownCommandNames =
   | readonly string[]
@@ -89,10 +88,9 @@ function hasKnownCommand(known: KnownCommandNames, name: string): boolean {
  * when its first token (lowercased, to whitespace) exactly matches a
  * registered id; anything else — absolute paths, unknown slashes — is a
  * model prompt, sent verbatim. Bare `/` stays empty. Callers omitting
- * `knownCommands` keep the legacy any-leading-slash-is-a-command rule;
- * product call sites pass the registry set. The returned name is the
- * canonical lowercase id, so the exact `getCommand` lookup hits mixed-case
- * input like `/CLEAR`.
+ * `knownCommands` keep the legacy any-slash-is-a-command rule; product
+ * call sites pass the registry set. The returned name is the canonical
+ * lowercase id, so the exact `getCommand` lookup hits mixed-case input.
  */
 export function routeSubmission(
   raw: string,
@@ -125,8 +123,9 @@ export interface SubmitHandlerDeps {
   /** Consent-by-proceeding hook: runs only for real prompts, never commands. */
   onPromptSubmitted?: () => void;
   /**
-   * When true, the next non-command submit is treated as intentional feedback
-   * text (bare `/feedback` multi-turn mode) instead of a model prompt.
+   * When true, the next non-command submit is treated as intentional
+   * feedback text (bare `/feedback` multi-turn mode) instead of a model
+   * prompt.
    */
   isFeedbackCapturePending?: () => boolean;
   /**
@@ -140,20 +139,14 @@ export interface SubmitHandlerDeps {
   onSystemNotice?: (text: string) => void;
 }
 
-/**
- * Composer submit handler: registered slash commands dispatch, anything else
- * goes to the model as a prompt. When feedback capture is armed (bare
- * `/feedback`), the next non-command line is captured as survey text.
- * Returns an outcome so the session bridge keeps local-only submits off the
- * agent busy path and out of the mid-run queue.
- */
+/** Where a submit lands: "agent" = model turn, "local" = handled here
+ * (command or feedback), "empty" = no-op. */
 export type SubmitOutcome = "agent" | "local" | "empty";
 
 /**
  * Classify a composer line without side effects. Local = registered slash
  * command or armed multi-turn feedback text; empty = no-op (or
- * cancel-feedback); agent = real model turn (paths and unknown slash names
- * included when the registry set is provided).
+ * cancel-feedback); agent = real model turn.
  */
 export function classifySubmission(
   text: string,
@@ -199,7 +192,7 @@ export function createSubmitHandler(
     });
 
     // Empty Enter while /feedback is armed cancels instead of trapping the
-    // operator until they type free text or /clear.
+    // operator.
     if (outcome === "empty") {
       if (feedbackPending) {
         deps.cancelFeedbackCapture?.();
@@ -208,7 +201,7 @@ export function createSubmitHandler(
       return "empty";
     }
     if (route.kind === "command") {
-      // Any other slash command drops a bare-/feedback arm so the next
+      // Other slash commands drop a bare-/feedback arm so the next
       // free-text line is not mis-routed as survey text.
       if (feedbackPending && route.name !== "feedback") {
         deps.cancelFeedbackCapture?.();
@@ -270,9 +263,8 @@ export function userInboundMessage(
 /**
  * Present at most one recovery surface when a send settles. The reconnect
  * offer re-auths the exact scope that failed, so it wins when armed and
- * wired; otherwise the credential picker. An armed reconnect with no
- * presenter must not swallow the credential fallback; dismissing never
- * cascades — one offer per failure.
+ * wired; otherwise the credential picker; an armed reconnect with no
+ * presenter must not swallow the credential fallback.
  */
 export function presentSendRecoveryOffer(args: {
   credential: PendingCredentialRecovery | null;
@@ -307,9 +299,9 @@ export function createSubmitPath(
     attachments?: readonly PendingImageAttachment[],
   ) => SubmitOutcome;
 } {
-  // Routed through the shell's notice path, not the transcript: anything
-  // said before the first turn arrives while the landing owns the screen,
-  // and a transcript row there wipes the whole composition.
+  // Routed through the shell's notice path, not the transcript: a
+  // transcript row before the first turn would wipe the whole composition
+  // while the landing owns the screen.
   const systemNotice = (text: string): void => {
     surfaceSystemNotice(hostOf(state).shell, text);
   };
@@ -462,8 +454,8 @@ export function createSubmitPath(
 
   const send = createSubmitHandler({
     dispatchCommand: (name, args) => state.dispatchCommand?.(name, args),
-    // Live registry names: a leading `/` dispatches only on an exact id hit,
-    // so absolute paths (`/Users/…`) fall through to the model as prompts.
+    // Live registry names: a leading `/` dispatches only on an exact id
+    // hit, so absolute paths fall through to the model as prompts.
     knownCommands: () => listCommands().map((c) => c.name),
     sendPrompt: (text, attachments) => {
       void sendUserPrompt(text, attachments ?? []).catch((error: unknown) => {

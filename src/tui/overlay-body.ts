@@ -3,9 +3,8 @@
  * question): the framed surface shown when a human is asked to authorize.
  * A dithered header carries the subject, air separates it from the context
  * rows, and a trailing blank row keeps the choices off the question.
- * Consequence text lives here; the choices are bare action names painted
- * by the overlay list. Wrapping is on word boundaries; an over-long token
- * (path, URL) breaks at a separator, never blind at the column.
+ * Wrapping is on word boundaries; an over-long token (path, URL) breaks
+ * at a separator, never blind at the column.
  */
 
 import { prefixIndexForWidth, stringWidth } from "./view/height.js";
@@ -14,10 +13,8 @@ import { UI } from "./theme.js";
 /** House ordered-dither ramp, sparsest-first, leading the header. */
 export const DECISION_DITHER = "░▒▓";
 
-/**
- * Rows each choice occupies: label plus air, so list index arithmetic stays
- * a simple multiple.
- */
+/** Rows each choice occupies: label plus air, so list index arithmetic
+ * stays a simple multiple. */
 export const DECISION_CHOICE_ROWS = 2;
 
 /** Narrowest line this module will shape text into. */
@@ -132,8 +129,8 @@ export interface OverlayBodyRow {
  * Shape a decision body: the first non-empty line is the subject (tool or
  * operator question), the only row in the action color; the rest is
  * context; a trailing blank row keeps the choices off the question.
- * `contextLines` budgets only context rows — header and air charge on top,
- * so shaping never costs a row of the command being approved.
+ * `contextLines` budgets only context rows — header and air charge on
+ * top, so shaping never costs a row of the command being approved.
  */
 export function composeDecisionBody(
   text: string,
@@ -244,29 +241,24 @@ export function describeZoneLines(
   return { lines, fgs };
 }
 
-/**
- * Context rows a decision body may use on a tall terminal; header and air
- * charge on top.
- */
+/** Context rows a decision body may use on a tall terminal; header and air
+ * charge on top. */
 const DECISION_CONTEXT_ROWS = 8;
 
-/**
- * Rows the body always spends, budget or not: header plus trailing blank.
- * Approximate — an underestimate just makes the context budget more generous.
- */
+/** Rows the body always spends, budget or not: header plus trailing blank.
+ * Approximate — an underestimate just makes the context budget more
+ * generous. */
 const DECISION_HEADER_AND_TRAILER_ROWS = 2;
 
-/**
- * Air row a non-zero context budget costs between header and context lines.
- */
+/** Air row a non-zero context budget costs between header and context lines. */
 const DECISION_CONTEXT_BLANK_ROWS = 1;
 
 /**
  * Shrink the context budget so the chrome never crowds the choices or the
- * prompt floor down to 10 rows: context shrinks first and drops
- * entirely on the shortest terminals, since an approval cannot render
- * without header and choices. Below 10 rows the resolver falls back to best
- * effort and may take rows from below the prompt floor.
+ * prompt floor down to 10 rows: context shrinks first and drops entirely
+ * on the shortest terminals, since an approval cannot render without
+ * header and choices; below 10 rows the resolver takes rows from below
+ * the prompt floor.
  */
 export function decisionContextBudget(input: {
   readonly terminalHeight: number;
@@ -296,9 +288,10 @@ export function decisionContextBudget(input: {
 }
 
 /**
- * Plain-English echo of an accepted choice. Cycled settings pass the winning
- * value via `itemValues` — parsing the label would break on `‹ ›` markers or
- * spacing changes. A plain list item has no value, so it is quoted as-is.
+ * Plain-English echo of an accepted choice. Cycled settings pass the
+ * winning value via `itemValues` — parsing the label would break on `‹ ›`
+ * markers or spacing changes. A plain list item has no value, so it is
+ * quoted as-is.
  */
 export function overlayChoiceText(
   label: string,

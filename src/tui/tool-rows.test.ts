@@ -374,8 +374,8 @@ describe("a run of identical calls", () => {
       content: "",
       callId: "m2",
     });
-    // MCP summaries are empty — the verb is the sentence — so the lane reads
-    // the identifying argument (the issue, not the body).
+    // MCP summaries are empty — the verb is the sentence — so the lane
+    // reads the identifying argument.
     expect(rows[0]?.memberLabels).toEqual(["CL-7386", "CL-7390"]);
     expect(runLines(rows[0])).toEqual([
       "CL-7386 — answered",
@@ -501,7 +501,7 @@ describe("a run of identical calls", () => {
 });
 
 describe("parallel calls to the same tool", () => {
-  // Three `spawn_agent` calls in one turn all carry the same meta — name alone
+  // Three `spawn_agent` calls in one turn carry the same meta — name alone
   // cannot tell them apart, so a result must find its row by call id or it
   // resolves the newest pending one, stranding the rest.
   test("each result resolves its own call by id, not the newest pending call of that name", () => {
@@ -560,9 +560,9 @@ describe("parallel calls to the same tool", () => {
     expect(rows[2]?.text).toBe("done c3");
   });
 
-  // A miss must not fall back to the newest pending row of that name — that is
-  // the exact misattribution this file rules out; every live caller carries a
-  // real id, so a miss means the id belongs to nothing on the log.
+  // A miss must not fall back to the newest pending row of that name —
+  // every live caller carries a real id, so a miss means the id belongs to
+  // nothing on the log.
   test("an id that matches nothing on the log answers nothing, not the newest pending call", () => {
     const rows: StreamRow[] = [
       {
@@ -589,15 +589,15 @@ describe("parallel calls to the same tool", () => {
       content: "orphan",
       callId: "zzz-does-not-exist",
     });
-    // Answers nothing on the log — appended as its own row, not resolving an
-    // unrelated in-flight call.
+    // Answers nothing on the log — appended as its own row, not resolving
+    // an unrelated in-flight call.
     expect(rows.length).toBe(3);
     expect(rows[0]?.pending).toBe(true);
     expect(rows[1]?.pending).toBe(true);
   });
 
-  // A failed call must show its error on the collapsed line, not only behind
-  // the arrow.
+  // A failed call must show its error on the collapsed line, not only
+  // behind the arrow.
   test("a failed call shows its error text on the collapsed line", () => {
     const rows: StreamRow[] = [];
     pushToolCall(rows, {
@@ -966,7 +966,8 @@ describe("lane paint", () => {
     });
     pushToolResult(rows, { name: "run_shell", content: "exit code 1\nboom" });
     expect(rows[0]?.stat).toBe("exit 1");
-    // The exit envelope line is the stat; the preview repeats only the output.
+    // The exit envelope line is the stat; the preview repeats only the
+    // output.
     expect(rows[0]?.previewLines).toEqual(["boom"]);
 
     const ok: StreamRow[] = [];

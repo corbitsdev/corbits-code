@@ -46,8 +46,7 @@ function memberRunLine(label: string, outcome: string): StyledBodyLine {
 /**
  * Argument keys naming what a call acted on, most-identifying first. Used
  * only when the painted summary is empty — an MCP call's verb is the whole
- * sentence, so its subject lives in the arguments (the issue id, not the
- * comment body).
+ * sentence, so its subject lives in the arguments.
  */
 const LANE_MEMBER_KEYS = [
   "issueId",
@@ -125,8 +124,8 @@ const MAX_ADDENDUM = 40;
 /** Failed-result addendum: same budget as `mergedToolCollapsedPreview` errors. */
 const MAX_ERROR_ADDENDUM = 72;
 
-/** Flatten a failed payload like the collapsed preview: one line, abbreviated,
- * so the operator can read why without expanding. */
+/** Flatten a failed payload like the collapsed preview: one abbreviated
+ * line, so the operator can read why without expanding. */
 function failedAddendum(payload: string): string | undefined {
   const oneLine = payload
     .split("\n")
@@ -140,9 +139,9 @@ function failedAddendum(payload: string): string | undefined {
 }
 
 /**
- * What an answer adds to its call's line: a count or short status on success,
- * the abbreviated error on failure — never prose. Anything unbounded stays
- * behind the expand key.
+ * What an answer adds to its call's line: a count or short status on
+ * success, the abbreviated error on failure — never prose. Anything
+ * unbounded stays behind the expand key.
  */
 export function resultAddendum(result: StreamRow): string | undefined {
   const payload = result.text.trim();
@@ -179,15 +178,15 @@ export function shellPreviewLines(content: string): string[] | undefined {
 const SHELL_EXIT_ENVELOPE = /^exit code (\d+)\n/;
 
 /**
- * Fold a tool result into the call row it answers. The row keeps saying what
- * the call was — the payload cannot be trusted to reproduce it; the answer
- * adds the marker, a short addendum, and the body behind the arrow.
+ * Fold a tool result into the call row it answers. The row keeps saying
+ * what the call was — the payload cannot reproduce it; the answer adds the
+ * marker, a short addendum, and the body behind the arrow.
  */
 export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   const failed = result.failed === true;
   const isShell = call.toolName === "run_shell";
-  // Shell exits come wrapped in an envelope; the exit code is the row's only
-  // stat — the preview's elision marker already counts lines.
+  // Shell exits come wrapped in an envelope; the exit code is the row's
+  // only stat — the preview marker already counts lines.
   const exitMatch = isShell ? SHELL_EXIT_ENVELOPE.exec(result.text) : null;
   const exitCode = exitMatch !== null ? Number(exitMatch[1]) : undefined;
   const shellStat =
@@ -207,8 +206,8 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   const addendum = resultAddendum(result);
   const effAddendum =
     isShell && (shellStat !== undefined || !failed) ? undefined : addendum;
-  // The answer's stat beats a leftover one — elapsed-time trailers are wait
-  // scaffolding, and an error matters more than an unlanded diff.
+  // The answer's stat beats a leftover one — elapsed-time trailers are
+  // scaffolding, and an error beats an unlanded diff.
   const callStat =
     failed || call.agentWorking !== undefined ? undefined : call.stat;
   const settledStat = shellStat ?? callStat;
@@ -363,9 +362,8 @@ export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
 /**
  * Index of the call row a result belongs to. A carried id wins: parallel
  * dispatch fires several same-name calls, and only the id tells them apart.
- * A miss returns -1 — every live caller carries a real id, so a miss is a
- * genuine mismatch; falling through to the newest same-name row would
- * misattribute it.
+ * A miss returns -1 — falling through to the newest same-name row would
+ * misattribute the result.
  *
  * The name scan runs only when `callId` is missing — pre-id history from
  * `history-hydrate.ts` is the only caller that omits it.
@@ -379,8 +377,8 @@ export function pendingCallIndex(
     for (let i = rows.length - 1; i >= 0; i--) {
       if (rows[i]?.callId === callId) return i;
     }
-    // The lane's callId moved to its newest member; this result's id may name
-    // one the lane absorbed earlier.
+    // The lane's callId moved to its newest member; this result's id may
+    // name one the lane absorbed earlier.
     for (let i = rows.length - 1; i >= 0; i--) {
       if (rows[i]?.memberIds?.includes(callId)) return i;
     }
