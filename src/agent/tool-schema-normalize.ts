@@ -60,7 +60,7 @@ const DIVIDER_NODE = {
 /**
  * Nested child: leafs fully typed, plus a depth-capped open object for deeper
  * containers, so type/children/text/rows are documented without recursive
- * `$ref`. Runtime `validateView` still accepts full nested trees.
+ * `$ref`.
  */
 const NESTED_CHILD = {
   oneOf: [
@@ -118,12 +118,11 @@ const COLUMNS_PROP = {
 } as const;
 
 /**
- * Non-recursive `present` parameters for backends that reject JSON Schema
- * `$ref` cycles on `tools.function.parameters`. Moonshot/Kimi and Muse Spark
- * both fail the turn before inference when the cycle is on the wire. Inlines
- * depth-capped oneOf primitives so the model still sees type/children/text
- * fields — not a bare freeform object. Runtime still validates full nested
- * trees via `validateView`.
+ * Non-recursive `present` parameters: Moonshot/Kimi and Muse Spark reject
+ * JSON Schema `$ref` cycles on `tools.function.parameters` and fail the turn
+ * before inference. Depth-capped oneOf primitives keep the model's view of
+ * type/children/text fields; runtime still validates full nested trees via
+ * `validateView`.
  */
 export const KIMI_PRESENT_INPUT_SCHEMA = {
   type: "object",
@@ -275,9 +274,9 @@ const SCHEMA_CHILD_KEYS = new Set([
 ]);
 
 /**
- * Grok's Responses proxy 400s the whole infer on one invalid tool schema
- * (empty body, statusText "Bad Request"). Untyped properties and `$schema`
- * are the shapes MCP tools and submit_result historically advertised.
+ * Grok's Responses proxy 400s the whole infer on one invalid tool schema.
+ * Untyped properties and `$schema` are the shapes MCP tools and
+ * submit_result historically advertised.
  */
 function sanitizeSchemaForGrok(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sanitizeSchemaForGrok);
@@ -328,14 +327,12 @@ function needsAcyclicPresentSchema(ctx: NormalizeToolDefsContext): boolean {
  * Family-gated wire rewrite of tool definitions before they reach the
  * director / provider. Moonshot/kimi and Muse Spark get a non-recursive
  * `present` schema; Grok/xAI get schema sanitization so an untyped property
- * or `$schema` cannot 400 the infer. Other providers pass through unchanged.
- *
- * Does not alter runtime validation or the canonical `presentDefinition` used
- * by providers that accept `$ref` cycles.
+ * or `$schema` cannot 400 the infer; others pass through unchanged. Does not
+ * alter runtime validation or the canonical `presentDefinition`.
  *
  * Call at every advertise path that may include `present` (main TUI/exec
- * sessions). Sub-agent toolsets omit `present`; identity when none is
- * present, rewrite if one appears.
+ * sessions); sub-agent toolsets omit `present`, so rewriting is a no-op
+ * unless one appears.
  */
 export function normalizeToolDefinitionsForProvider(
   defs: readonly ToolDefinition[],

@@ -1,8 +1,7 @@
-// Small, explicit tool allowlists for director packages. Prefer tools.allow at
-// mount over huge deny lists. manage_tasks is always mounted by runSubAgent
-// after the filter — omit it here. skill_search + use_skill mount on every
-// worker, scoped at mount to attachedSkills ∪ optionalSkills. ask_operator
-// stays primary-session-only: workers never mount it.
+// Small, explicit tool allowlists for director packages. Prefer tools.allow
+// over huge deny lists. manage_tasks mounts after the filter in runSubAgent
+// — omit it here. skill_search + use_skill mount on every worker, scoped to
+// attachedSkills ∪ optionalSkills. ask_operator stays primary-session-only.
 
 /** Skill discovery + loading — mounted on every worker surface below. */
 export const SKILL_TOOLS = ["skill_search", "use_skill"] as const;
@@ -39,10 +38,10 @@ export const PRODUCT_WRITE_TOOLS = [
 export const BUILD_TOOLS = [...READ_TOOLS, ...PRODUCT_WRITE_TOOLS] as const;
 
 /**
- * Docs workers: read/search/lsp/web + file writes — no run_shell. Envelope
- * policy only: omitting shell stops terminal mutation; there is no separate
- * path-level lock. Composed from READ_TOOLS minus run_shell so it tracks the
- * read surface automatically.
+ * Docs workers: read/search/lsp/web + file writes, no run_shell. Envelope
+ * policy only — omitting shell stops terminal mutation; there is no
+ * separate path-level lock. Composed from READ_TOOLS minus run_shell so it
+ * tracks the read surface automatically.
  */
 export const DOCS_TOOLS = [
   ...READ_TOOLS.filter((t) => t !== "run_shell"),

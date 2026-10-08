@@ -22,17 +22,12 @@ import { webFetchDefinition } from "../tools/web-fetch.js";
 import { webSearchDefinition } from "../tools/web-search.js";
 
 /**
- * Canonical prompt-size fixture.
- *
- * Assembles each director prompt exactly as src/subagent/run.ts does:
- * extensions=[director systemPromptRole] + environment + tools + appendix,
- * with the Grok finish-bias note gated by shouldApplyGrokAntiThrash (leaves
- * on Grok-family providers only) and the family promptResidual resolved from
- * the model family policy. Residual texts are single-sourced from the
- * versioned prompt-variance package.
- *
- * The env and provider inputs are pinned here so sizes never drift with the
- * machine, date, or checkout — only real prompt changes move the numbers.
+ * Canonical prompt-size fixture: assembles each director prompt exactly as
+ * src/subagent/run.ts does — extensions=[director systemPromptRole] +
+ * environment + tools + appendix, Grok finish-bias gated by
+ * shouldApplyGrokAntiThrash, family promptResidual from the model family
+ * policy. Inputs are pinned so sizes never drift with machine, date, or
+ * checkout — only real prompt changes move the numbers.
  */
 export const CANONICAL_PROMPT_ENV: EnvironmentInfo = {
   cwd: "/repo",
@@ -67,10 +62,9 @@ const GPT_PROVIDER = { providerName: "openai", model: "gpt-5.6" };
 export type PromptSizeFamily = "default" | "muse" | "grok" | "claude" | "gpt";
 
 /**
- * Pre-filter mount names in run.ts install order: posix base (TOOL_NAMES,
- * shared with createPosixTools) + delete_file / lsp plugin tools
- * (buildCorePosixToolPlugins) + core web tools (coreSubAgentWebTools).
- * Codex natives are not mounted.
+ * Pre-filter mount names in run.ts install order: posix base (TOOL_NAMES)
+ * + delete_file / lsp plugin tools + core web tools. Codex natives are not
+ * mounted.
  */
 function preFilterMountNames(): readonly string[] {
   return [
@@ -84,12 +78,11 @@ function preFilterMountNames(): readonly string[] {
 
 /**
  * Canonical tool names per director, assembled exactly as run.ts mounts them:
- * the pre-filter set narrowed by the package capability filter (allow keeps
- * only mounted names, exclude drops denials), then manage_tasks, leaf-only
- * submit_result + ask_director, then orchestrator fleet tools with
- * Tier-1-only search_agents. Allowlist entries that name no mounted tool
- * (list_dir, fleet verbs, off-family Codex proxies) fall out at the filter
- * instead of inflating the prompt.
+ * pre-filter set narrowed by the package capability filter (allow keeps only
+ * mounted names, exclude drops denials), then manage_tasks, leaf-only
+ * submit_result + ask_director, then orchestrator fleet tools (search_agents
+ * Tier-1 only). Allowlist entries naming no mounted tool fall out at the
+ * filter instead of inflating the prompt.
  */
 export function canonicalToolNamesForDirector(
   pkg: DirectorPackage,

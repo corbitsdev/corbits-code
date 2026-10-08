@@ -10,9 +10,9 @@ import {
 import { GROK_PROMPT_RESIDUAL } from "./model-family-policy.js";
 
 // Advertise every gated core tool when the caller has no session-start facts
-// (tests, ad-hoc prompt previews) — except wait_agents, which is mount-gated:
-// the default preview shows the unmounted (TUI/nested) surface. Real sessions
-// always pass their detected availability.
+// (tests, ad-hoc prompt previews), except wait_agents — it is mount-gated and
+// the default preview shows the unmounted surface. Real sessions always pass
+// their detected availability.
 const DEFAULT_TOOL_AVAILABILITY: ToolAvailability = {
   languageServerAvailable: true,
 };
@@ -52,13 +52,10 @@ export function buildChatRole(
 }
 
 // Facts the model cannot derive from its training: what the permission layer
-// blocks, what loads on demand, and the harness-specific tools. Everything a
-// frontier model already knows about being a coding agent is omitted.
-// `dynamicTools` controls the tool-loading fact: the main chat agent starts
-// with core tools plus the advertised catalog and finds MCP and other
-// unadvertised tools via tool_search; a sub-agent is handed its full toolset
-// upfront and has no tool_search — telling it otherwise wastes turns on a tool
-// that does not exist.
+// blocks, what loads on demand, and the harness-specific tools. `dynamicTools`
+// controls the tool-loading fact: the main chat agent starts with core tools
+// plus the advertised catalog and finds MCP/plugin tools via tool_search; a
+// sub-agent gets its full toolset upfront and has no tool_search.
 export function buildHarnessFacts(
   opts: {
     dynamicTools?: boolean;

@@ -5,9 +5,8 @@ import {
   SEARCH_QUERY_TOOLS,
 } from "./tool-classification.js";
 
-// Pins membership so a future edit to any of these sets — or to the director
-// READ_TOOLS they derive from — fails CI instead of silently drifting one
-// call site out of sync with the others.
+// Pins membership so a future edit to these sets or their base READ_TOOLS
+// fails CI instead of silently drifting call sites out of sync.
 describe("AUTO_ALLOW_READ_TOOLS", () => {
   test("gates auto-allow with exactly this membership", () => {
     expect([...AUTO_ALLOW_READ_TOOLS].sort()).toEqual(

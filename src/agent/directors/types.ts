@@ -27,13 +27,12 @@ export type TaskIntent =
   | "general";
 
 /**
- * Fleet authority tier. Runtime-enforced at the tool-mount point in
- * subagent/run.ts and by subagent/authority.ts — never by prompt wording.
+ * Fleet authority tier, enforced at the tool-mount point in subagent/run.ts
+ * and by subagent/authority.ts — never by prompt wording.
  *
  * - "orchestrator": Tier 1, primary (dispatch). Full fleet control.
- * - "nested-orchestrator": Tier 2, scoped to its own subtree (no closed
- *   director uses this tier today). May manage only its own descendants,
- *   never siblings or ancestors.
+ * - "nested-orchestrator": Tier 2, scoped to its own subtree — own
+ *   descendants only, never siblings or ancestors.
  * - "leaf": Tier 3 worker. No fleet verbs at all.
  */
 export type SubagentTier = "orchestrator" | "nested-orchestrator" | "leaf";
@@ -68,11 +67,11 @@ export interface NudgePolicy {
 }
 
 /**
- * Optional structured-output contract for a director's worker. Additive
- * alongside the markdown envelope (Summary/Findings/Blockers/Paths, see
- * subagent/report.ts) — declaring `outputSchema` lets a Tier 3 worker also
- * submit a JSON payload via `submit_result`, validated against this schema.
- * Omit entirely to keep a director on the markdown-only path.
+ * Optional structured output for a worker, additive alongside the markdown
+ * envelope (Summary/Findings/Blockers/Paths, see subagent/report.ts):
+ * declaring `outputSchema` lets a Tier 3 worker also submit a JSON payload
+ * via `submit_result`, validated against this schema. Omit to stay on the
+ * markdown-only path.
  */
 export interface ReportContract {
   /** Shape of submit_result's payload, validated with arktype (see subagent/submit-result.ts). */

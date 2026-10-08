@@ -21,14 +21,12 @@ import { resolveExecDirectorOverlay } from "../exec/runner.js";
 
 /**
  * Prompt size budget. Numeric asserts only — copy edits must not fail this
- * test. Baselines are a checked-in snapshot of the max measured sizes from
- * the canonical fixture in src/agent/prompt-sizes.ts; budgets add a +2000
- * char / +3000 byte allowance (ceiling to 100) in code below. Bytes get the
- * larger headroom because multibyte copy can shift them faster. Adding a
- * director is a type error until its baseline lands here; growing a prompt
- * past its allowance fails until the baseline moves. Deliberate jumps above
- * baseline + allowance belong in PROMPT_SIZE_OVERRIDES with justification,
- * not in the baseline.
+ * test. Baselines snapshot the max measured sizes from the canonical fixture
+ * in src/agent/prompt-sizes.ts; budgets add a +2000 char / +3000 byte
+ * allowance (bytes get more headroom: multibyte copy shifts faster).
+ * Adding a director is a type error until its baseline lands here; growing
+ * past the allowance fails until the baseline moves. Deliberate jumps above
+ * baseline + allowance belong in PROMPT_SIZE_OVERRIDES with justification.
  */
 const PROMPT_SIZE_BASELINE: Record<
   DirectorId,
@@ -47,9 +45,7 @@ const PROMPT_SIZE_BASELINE: Record<
   "qa-lead": { chars: 5226, bytes: 5246 },
 };
 
-/**
- * Deliberate budgets above baseline + allowance, with justification.
- */
+/** Deliberate budgets above baseline + allowance, with justification. */
 const PROMPT_SIZE_OVERRIDES: Partial<
   Record<DirectorId, { chars: number; bytes: number }>
 > = {};
