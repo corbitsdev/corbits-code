@@ -86,13 +86,12 @@ function sanitizeCallId(callId: string): string {
 
 /**
  * Parse conversation turns out of one JSONL segment. A crash can tear the
- * final line of the active segment mid-write; `tolerateTornTail` drops it
- * instead of aborting resume. Null padding from a stale keepBytes write is
- * stripped. `skipMalformed` drops (or partially recovers) a bad line
- * anywhere and keeps surrounding history — used by `loadRecentTurns` and
- * the reactor's `load()` recovery path, since a bad line should not kill
- * the session. A truncated stub glued to the next append still yields a
- * trailing complete turn via `recoverTurnFromGluedLine`.
+ * final line of the active segment mid-write; `tolerateTornTail` drops it.
+ * Null padding from a stale keepBytes write is stripped. `skipMalformed`
+ * drops (or partially recovers) a bad line anywhere and keeps surrounding
+ * history — used by `loadRecentTurns` and the reactor's `load()` recovery
+ * path. A truncated stub glued to the next append still yields a trailing
+ * complete turn via `recoverTurnFromGluedLine`.
  */
 function recoverTurnFromGluedLine(line: string): ConversationTurn | null {
   // Walk every `{` start: a truncated prefix glued onto a complete record

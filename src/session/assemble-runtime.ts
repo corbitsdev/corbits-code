@@ -279,8 +279,7 @@ export interface SessionGate {
 /**
  * Seed approvals (session → project → global → provider-model) and build the
  * permission gate over roots, persist, and log wiring. Runners differ only
- * in how approval reaches an operator (modal vs stdin) — both arrive as
- * callbacks.
+ * in the operator channel (modal vs stdin); approval arrives as a callback.
  */
 export async function assembleSessionGate(
   args: SessionGateArgs,
@@ -378,18 +377,18 @@ export interface AdvertisedToolset {
 
 /**
  * Fixed built-in prefix plus session-activated tools, family-gated for the
- * wire. The provider identity is read per call so a live model switch
- * re-gates without rebuilding the agent.
+ * wire. Provider identity is read per call, so a live model switch re-gates
+ * without a rebuild.
  *
  * Activation and advertisement are split: activating opens the call gate at
  * once; flushPromotions commits names onto the wire (promote-on-execute
- * flushes the one called name, tool_search only the top ranked hits). Fold
- * breaks the cache prefix — pruneIdlePromotions drops the advertised tail
- * back to it.
+ * flushes the called name, tool_search only top-ranked hits). Fold breaks
+ * the cache prefix — pruneIdlePromotions drops the advertised tail back to
+ * it.
  *
  * `pinnedTools` (local settings) merge into the prefix — advertised from the
- * first turn and exempt from activation state, so resume needs no
- * tool_search round-trip for the project's hottest integrations.
+ * first turn, exempt from activation state, so resume skips the tool_search
+ * round-trip for them.
  */
 export function createAdvertisedToolset(args: {
   sessionMode: SessionMode;
@@ -566,9 +565,8 @@ export interface ChatAgentWiring {
   anthropicCachePrompt?: () => boolean;
   /**
    * Present when a resumed run record has an Anthropic-protocol cache write
-   * and the provider about to be called is the same protocol. Read at each
-   * build so an interrupt rebuild of the same session still folds before the
-   * next infer. Omitted for a new session.
+   * and the next provider is the same protocol. Read at each build so an
+   * interrupt rebuild of the same session still folds before the next infer.
    */
   getCacheWriteSeed?: () => { at: number; model: string } | undefined;
   /** Assigns the runner's live agent/storage holders; keeps call sites unchanged. */
@@ -850,9 +848,9 @@ export interface SessionLifecycle {
 
 /**
  * Hook manager, turn observer, run sink, and in-flight cycle recorder. Pure
- * construction — every live value (session id, source, context dir) is read
- * through a getter at event time, so it can assemble before the agent exists
- * (the TUI builds it early, exec late; same call, different position).
+ * construction — live values (session id, source, context dir) are read
+ * through getters at event time, so it can assemble before the agent exists
+ * (TUI early, exec late).
  */
 export async function assembleSessionLifecycle(
   wiring: SessionLifecycleWiring,

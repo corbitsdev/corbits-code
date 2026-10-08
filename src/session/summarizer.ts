@@ -2,8 +2,8 @@
 //
 // On compaction the pruning compactor replaces older turns with a summary. A
 // deterministic stats blob loses what resuming work needs, so this module
-// writes a structured, workflow-aware narrative via one inference call
-// against the session's own model.
+// writes a structured, workflow-aware narrative in one inference call on the
+// session's own model.
 
 import { type } from "arktype";
 import { runInference, type Dependencies } from "@intx/inference";
@@ -119,8 +119,7 @@ export async function buildArchiveSummaryExcerpt(
 }
 
 // What the agent was doing when compaction fired, so the summary preserves
-// the workflow contract ("we are at step 3/7 of /build") instead of dropping
-// it into the compacted region.
+// the workflow contract ("we are at step 3/7 of /build").
 export interface SummaryContext {
   workflow?: {
     name?: string;
@@ -453,8 +452,8 @@ export interface ModelSummarizerOptions {
 /**
  * Build a `summarize(turns, ctx)` function suitable for `CompactorConfig`.
  * Throws on empty output or a failed call so the compact cycle can substitute
- * a statistics-only stub; the session pruning wrapper owns that stub's
- * operator notice and fires it only after the fold commits.
+ * a statistics-only stub; the pruning wrapper owns that stub's notice and
+ * fires it only after the fold commits.
  */
 export function createModelSummarizer(
   options: ModelSummarizerOptions,

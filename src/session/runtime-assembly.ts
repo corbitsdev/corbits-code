@@ -118,8 +118,8 @@ export interface LiveSubAgentSources {
 /**
  * Single owner of every session fact a sub-agent spawn reads. Each switch
  * path (model picker, /agent, post-connect refresh, favorite toggle)
- * reassigns the runner's config, so all three derive from a config getter
- * per spawn; hand-synced snapshots went stale when a switch path missed one.
+ * reassigns the runner's config, so all three read a config getter per
+ * spawn; hand-synced snapshots went stale when a switch path missed one.
  */
 export function createLiveSubAgentSources(
   getConfig: () => SubAgentSourcesConfig,
@@ -213,7 +213,7 @@ function persistBestEffort(
  * Route a gate-persisted grant to the store its scope selects. Session
  * grants never reach here — the gate keeps those in memory only.
  * `getActiveProviderModel` is read at persist time so a live model switch
- * stores under the pair now in use.
+ * stores under the pair in use.
  */
 export function createApprovalPersist(
   cwd: string,
@@ -582,9 +582,9 @@ export function createSessionPruningCompactor(
 
 /**
  * Content-less inbound the compaction governor self-delivers after a compact
- * cycle so the reactor re-enters (it emits no event after compact). Single
- * owner for the TUI, exec, and sub-agent loops; the copies were
- * byte-identical, so a new field is a one-site change.
+ * so the reactor re-enters (it emits nothing after). One owner for the TUI,
+ * exec, and sub-agent loops — the copies were byte-identical, so a new
+ * field is a one-site change.
  */
 export function buildCompactionContinuationMessage(): InboundMessage {
   return {
@@ -604,10 +604,10 @@ export function buildCompactionContinuationMessage(): InboundMessage {
 /**
  * Per-host consume-once gate for the compaction continuation emit. The
  * reactor emits it before compact runs and nothing after, so the emission
- * is the outstanding-continuation claim. Each emission (keyed by its
+ * is the outstanding-continuation claim. Each emission (keyed by a
  * session-scoped seq) is answered at most once: a replayed duplicate is
- * ignored since every delivery costs a billable inference, and a forged
- * fresh seq is answered with wait, so it cannot burn a model turn either.
+ * ignored (every delivery costs a billable inference) and a forged fresh
+ * seq is answered with wait, so it cannot burn a model turn.
  */
 export function createContinuationGate(): {
   shouldDeliver: (seq: number) => boolean;

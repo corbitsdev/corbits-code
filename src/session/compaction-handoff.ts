@@ -825,11 +825,9 @@ export function renderHandoffFile(
 }
 
 /**
- * Render the thin live spine: goal cut at a token boundary, standing output
- * tokens uncut, constraints/decisions, the evidence echo, activated tools,
- * and the file pointer. Starts with COMPACTED_PREFIX so the next fold parses
- * it as a handoff turn. Counts, file lists, and next actions stay in the fat
- * file.
+ * Render the thin live spine (shape in the module doc). Starts with
+ * COMPACTED_PREFIX so the next fold parses it as a handoff turn; counts,
+ * file lists, and next actions stay in the fat file.
  */
 export function renderHandoffSpine(
   spine: SpineFacts,
@@ -891,9 +889,9 @@ export interface HandoffFold {
 }
 
 /**
- * Build one fold's handoff: extract the artifact from the folded turns
- * (unioned with the previous fat file when provided), render the fat file,
- * and return the thin spine carrying the file's pointer.
+ * Build one fold's handoff: extract the artifact (unioned with the previous
+ * fat file when provided), render the fat file, and return the thin spine
+ * carrying the file's pointer.
  */
 export function buildHandoffFold(
   foldedTurns: readonly ConversationTurn[],
