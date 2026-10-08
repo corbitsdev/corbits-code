@@ -63,7 +63,7 @@ describe("shell stop affordance wiring (CL-10149 Phase 4)", () => {
       // cleared after a stop so the idle-with-fleet gauge drops.
       const fleetRecords = { clear: () => undefined };
       const affordance = buildShellStopAffordance(
-        { shell, bridge },
+        { bridge },
         { subAgentSessions: store, toolset: { fleetRecords } },
       );
       // The runner's wirePostStartup registers the affordance on the shell;
@@ -114,7 +114,7 @@ describe("shell stop affordance wiring (CL-10149 Phase 4)", () => {
 
       const store = createSubAgentSessionStore();
       const affordance = buildShellStopAffordance(
-        { shell, bridge: { clearQueuedDelivery: () => undefined } },
+        { bridge: { clearQueuedDelivery: () => undefined } },
         { subAgentSessions: store, toolset: { fleetRecords: undefined } },
       );
       setShellStopAffordance(shell, affordance);

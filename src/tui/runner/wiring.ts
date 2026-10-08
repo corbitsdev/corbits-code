@@ -185,7 +185,7 @@ export async function cancelWorkersForStop(
  * runner harness.
  */
 export function buildShellStopAffordance(
-  host: { shell: AppShell; bridge: { clearQueuedDelivery: () => void } },
+  host: { bridge: { clearQueuedDelivery: () => void } },
   deps: {
     subAgentSessions: Pick<
       RunnerServices["subAgentSessions"],
@@ -347,10 +347,7 @@ export function wirePostStartup(
   // running, and is idempotent so a later quit finds nothing live.
   setShellStopAffordance(
     hostOf(state).shell,
-    buildShellStopAffordance(
-      { shell: hostOf(state).shell, bridge: hostOf(state).bridge },
-      services,
-    ),
+    buildShellStopAffordance({ bridge: hostOf(state).bridge }, services),
   );
 
   // Harness inference.error events omit providerId; stamp the live catalog id
