@@ -8,9 +8,9 @@ import { LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
 const logger = getLogger([LOG_NAMESPACE_ROOT, "trust"]);
 
 /**
- * Global trust for path-origin plugins (`settings.pluginPaths` / add-by-path).
- * Unlike project trust, this is not keyed by working directory: explicit path
- * consent is user-global, matching where pluginPaths already lives.
+ * Global trust for path-origin plugins (pluginPaths / add-by-path). Not keyed
+ * by cwd, unlike project trust: explicit path consent is user-global, where
+ * pluginPaths already lives.
  */
 const PathTrustStoreSchema = type({
   trustedPluginPaths: "string[]",
@@ -27,10 +27,9 @@ export function pathTrustPath(home: string = homedir()): string {
 }
 
 /**
- * Read the store and report why it is empty when it is: a missing file means
- * the one-shot migration has not run yet, while an unreadable or malformed
- * file must not be mistaken for "already migrated" — that would silently lock
- * every path plugin into metadata-only forever.
+ * Read the store and report why it is empty: missing means migration has not
+ * run yet; invalid must not read as "already migrated", or every path plugin
+ * stays metadata-only forever.
  */
 export async function readPathTrustStore(
   home: string = homedir(),
@@ -77,9 +76,8 @@ export async function loadPathTrust(
   return (await readPathTrustStore(home)).store;
 }
 
-// Written via temp-file + rename (same pattern as saveGlobalSettings) so a
-// concurrent reader never sees a truncated or half-written store — a torn read
-// would disable every path plugin for that session.
+// Temp-file + rename (as saveGlobalSettings) so a concurrent reader never
+// sees a torn store — that would disable every path plugin for the session.
 async function savePathTrust(
   store: PathTrustStore,
   home: string = homedir(),
@@ -91,10 +89,9 @@ async function savePathTrust(
   await rename(tmp, path);
 }
 
-// The grant helpers re-read the store immediately before writing, but two
-// in-process mutations interleaving between that read and the write would
-// still drop grants. Chain them so each mutation sees the previous one's
-// result. (Cross-process writers remain last-writer-wins of a complete file.)
+// Mutations re-read the store right before writing; two interleaved in-process
+// mutations would drop grants. Chain them so each sees the previous result.
+// Cross-process writers stay last-writer-wins of a whole file.
 let mutationQueue: Promise<unknown> = Promise.resolve();
 
 function enqueueMutation<T>(run: () => Promise<T>): Promise<T> {
@@ -111,9 +108,8 @@ export function isPathPluginTrusted(
   return store.trustedPluginPaths.includes(resolve(pluginPath));
 }
 
-// Grants are always for a caller-resolved absolute path; resolving a relative
-// one here (against process.cwd()) would trust a different directory than the
-// user consented to.
+// Grants are caller-resolved absolute paths; resolving a relative one against
+// cwd would trust a directory the user never consented to.
 function requireAbsolute(pluginPath: string): string {
   if (!isAbsolute(pluginPath)) {
     throw new Error(`path trust requires an absolute path, got: ${pluginPath}`);
@@ -154,9 +150,8 @@ export async function trustPathPlugins(
 }
 
 /**
- * Withdraw a grant. Always writes, even when the store ends up empty: the
- * file's continued existence is what stops the one-shot migration from
- * re-seeding the revoked path on the next launch.
+ * Withdraw a grant. Writes even when the store empties: the file's continued
+ * existence is what stops migration re-seeding the revoked path next launch.
  */
 export async function revokePathPlugin(
   pluginPath: string,
@@ -175,22 +170,19 @@ export async function revokePathPlugin(
 
 /**
  * One-shot migration: seed the global store from `settings.pluginPaths` when
- * the store file is missing (first launch). Every registered path that
- * resolves to a plugin on disk is granted — pluginPaths lives in the user's
- * global settings, so each entry was put there by the user (add-by-path or a
- * hand edit) and registration counts as consent, even for entries never
- * confirmed through the UI. After the file exists, grants come only from
- * add-by-path / enable. Per-cwd project stores are not consulted: they gate
- * repo-controlled directories, which never appear in pluginPaths.
+ * the store file is missing (first launch). Entries are consent — they live
+ * in the user's global settings — so every registered path that resolves to
+ * a plugin on disk is granted, UI confirmation or not. After the file exists,
+ * grants come only from add-by-path / enable; project stores are never
+ * consulted, as they gate repo dirs, which never appear in pluginPaths.
  *
  * `resolveMembers` maps each registered path to existing absolute plugin
  * dirs; callers supply expansion so this module stays free of the plugin
  * loader. `onMigrated` fires only on the seeding run.
  *
- * A corrupt store refuses to seed: re-granting would undo an explicit revoke
- * the moment the file becomes unreadable. The file is left untouched, so
- * path plugins load metadata-only until the user repairs the file (deleting
- * it restores first-launch seeding) or re-consents explicitly.
+ * A corrupt store refuses to seed: re-granting would undo an explicit revoke.
+ * The file is left untouched — plugins stay metadata-only — until the user
+ * repairs it (deleting restores first-launch seeding) or re-consents.
  */
 export async function migratePathTrustFromPluginPaths(
   pluginPaths: string[],
@@ -212,9 +204,8 @@ export async function migratePathTrustFromPluginPaths(
     return emptyStore();
   }
   // A relative pluginPaths entry has no fixed meaning until resolved against
-  // some cwd; minting a grant for it here would trust whatever directory the
-  // user happened to launch from first, permanently. Drop it, matching the
-  // same rule readPathTrustStore enforces on load.
+  // some cwd; granting it here would trust the launch cwd permanently. Drop
+  // it, matching readPathTrustStore on load.
   const absolutePaths: string[] = [];
   for (const p of pluginPaths) {
     if (!isAbsolute(p)) {
