@@ -379,7 +379,16 @@ export async function createRunLifecycle(
       // interrupt rebuild (generation bump + rebuild already queued) is
       // re-queued onto the replacement agent so consume-once cannot land on
       // the outgoing liveAgent.
-      if (continuationGate.shouldDeliver(event.seq)) {
+      // CL-10149 pause gate: while the operator holds the queue (first
+      // Ctrl+C), the continuation is NOT re-queued onto the rebuilt agent —
+      // that would be the visible auto-restart. It stays consume-once-intact
+      // and only fires after resume (an explicit new send clears the flag;
+      // the next boundary re-drives the emit). The observer is optional so
+      // tests build partial sessions without the shell mount.
+      if (
+        state.isPaused?.() !== true &&
+        continuationGate.shouldDeliver(event.seq)
+      ) {
         state.enqueueCompactionContinuation?.(() =>
           liveAgent(state).deliver(buildCompactionContinuationMessage()),
         );

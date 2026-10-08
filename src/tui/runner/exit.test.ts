@@ -45,6 +45,7 @@ import {
   COMPACTION_ABORTED_REASON,
   createCompactionLifecycle,
 } from "../../session/compaction-lifecycle.js";
+import { COMPACTION_CONTINUATION_EVENT } from "../../agent/compaction.js";
 import type { RunnerServices, RunnerState } from "./state.js";
 import type { InboundMessage } from "@intx/types/runtime";
 import { createCredentialRecoveryState } from "./credential-recovery.js";
@@ -251,6 +252,21 @@ function recordingAgent(sends: string[]): Agent {
     readAt: async () => [],
     get blobReader() {
       return {} as Agent["blobReader"];
+    },
+  };
+}
+
+/**
+ * An agent whose stream replays a single COMPACTION_CONTINUATION_EVENT. Used
+ * to drive a continuation emission through the stream sink so the test can
+ * assert whether exit.ts defers it while paused and delivers it after resume.
+ * Deliveries are counted so a spy on the enqueue hop is unambiguous.
+ */
+function continuationAgent(): Agent {
+  return {
+    ...recordingAgent([]),
+    stream: async function* stream() {
+      yield { type: COMPACTION_CONTINUATION_EVENT, seq: 1, data: {} } as never;
     },
   };
 }
@@ -1003,6 +1019,50 @@ describe("rebuild close helpers", () => {
     });
     expect(order[0]).toBe("bump");
     expect(order.indexOf("enqueue")).toBeGreaterThan(0);
+  });
+
+  test("compaction continuation is deferred while paused and delivers after resume", async () => {
+    const directorHolder: RunnerServices["directorHolder"] = {};
+    const agent = continuationAgent();
+    const { state, services } = stubSendLifecycle(agent);
+    // The continuation event walks current() on its way through the sink;
+    // give the stub tracker a no-op so observeRecoveryAttempts is a no-op.
+    (
+      services.providerFailureAttempts as {
+        current?: () => ProviderFailureAttempt;
+      }
+    ).current = () => undefined as never;
+    // Wire the hop exit.ts calls: the real assembly routes it through
+    // enqueueCompactionContinuation → liveAgent.deliver. Here we spy on the
+    // call itself so we can assert whether exit.ts invokes it while paused.
+    let hops = 0;
+    state.enqueueCompactionContinuation = () => {
+      hops += 1;
+    };
+    // Simulated operator pause (first Ctrl+C) holds the queue. exit.ts
+    // consults this observer (wired to the shell session in index.ts).
+    let paused = true;
+    state.isPaused = () => paused;
+    wireRebuildServices(services, directorHolder, agent);
+    await createRunLifecycle(state, services);
+
+    // Drain the initial stream emission while paused: the continuation must
+    // NOT hop onto the rebuilt agent, and stay consume-once-intact so a later
+    // emission can still deliver.
+    await state.streamPromise;
+    expect(hops).toBe(0);
+
+    // Explicit new send clears the pause; rebuilding re-mounts the stream and
+    // the next boundary re-drives the continuation, which now hops.
+    paused = false;
+    const agent2 = continuationAgent();
+    services.buildAgent = (async () =>
+      agent2) as unknown as RunnerServices["buildAgent"];
+    state.currentAgent = agent2;
+    defined(state.interrupt, "interrupt")();
+    await services.sessionOps.awaitTail();
+    await state.streamPromise;
+    expect(hops).toBeGreaterThan(0);
   });
 });
 

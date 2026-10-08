@@ -293,6 +293,12 @@ export interface RunnerState {
     onSettle?: (result: AgentDeliveryResult) => void,
   ) => void;
   enqueueCompactionContinuation?: (deliverToLiveAgent: () => void) => void;
+  // CL-10149: late-wired observer the runner's compaction-continuation emit
+  // consults. The pause flag physically lives on the shell session queue; the
+  // runner must not reach into the shell, so index.ts mounts a tiny callback
+  // reading it (isPaused(host.shell.session)) the way systemNotice is wired.
+  // Optional because tests build partial states without that mount.
+  isPaused?: () => boolean;
   // CL-8220: abort-aware compaction lifecycle, created by the TUI session
   // assembly (session.ts) and read by the interrupt/rotation paths (exit.ts).
   // Optional because tests build partial states without session assembly.
