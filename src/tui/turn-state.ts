@@ -1,8 +1,7 @@
 /**
- * Live turn phase derived from the session event stream: the bridge folds the
- * events the transcript paints into this record — no React hook holds stream
- * state. Feeds the progress label, quota auto-retry, and stall watchdog.
- * Pure: every transition takes `nowMs` from the caller.
+ * Live turn phase folded from the session event stream — no React hook holds
+ * stream state. Feeds the progress label, quota auto-retry, and stall
+ * watchdog. Pure: every transition takes `nowMs` from the caller.
  */
 
 import { type } from "arktype";
@@ -11,28 +10,27 @@ import { isReactorErrorFatal } from "../agent/reactor-events.js";
 import type { TurnStatus } from "./chrome-state.js";
 
 // Bound on accumulated stream text per cycle; comfortably larger than the
-// fingerprint comparison needs.
+// fingerprint needs.
 const STREAM_TEXT_BUFFER_CHARS = 8_000;
 
 // Cycles shorter than this are skipped when updating the streak: a bare tool
-// call or one-word aside is too little signal — coincidence matches are
-// common at this length, and skipping neither breaks nor extends a streak.
+// call or one-word aside is too little signal — short matches are common
+// coincidences, and skipping neither breaks nor extends a streak.
 const CYCLE_FINGERPRINT_MIN_CHARS = 24;
 
 // Consecutive identical cycle fingerprints before the run counts as a loop.
-// Any variation in the cycle text never advances the streak — only
-// byte-for-byte invariant content can, which ordinary narration is not. The
-// bar sits above the verified false positive (the same short line before
-// each of 9-12 tool calls in one turn must not abort) and below the repro
+// Only byte-for-byte invariant text advances the streak — ordinary narration
+// is not. The bar sits above the verified false positive (the same short
+// line before each of 9-12 tool calls must not abort) and below the repro
 // (an unvarying 46-char block for 500 cycles). Left exposure: an invariant
 // line of at least `CYCLE_FINGERPRINT_MIN_CHARS` chars repeated with zero
 // variation — contentless boilerplate, not narration.
 const CYCLE_REPETITION_MIN_CONSECUTIVE = 20;
 
 /**
- * FNV-1a fingerprint of a completed cycle's text, so the streak remembers a
- * short string instead of raw text across cycles — raw retention caused the
- * false positive this replaces.
+ * FNV-1a fingerprint of a completed cycle's text, so the streak stores a
+ * short string instead of raw text — raw retention caused the false positive
+ * this replaces.
  */
 function cycleFingerprint(text: string): string {
   let hash = 0x811c9dc5;
@@ -56,51 +54,50 @@ export interface TurnState {
   readonly streamingType: "text" | "thinking" | "tool" | null;
   readonly currentToolName: string | null;
   /** Text deltas seen so far this turn — the only live count (usage totals
-   * land on `inference.done`, after streaming). Counts events, not real
-   * tokens: a proxy for arrival, not an exact count. */
+   * land on `inference.done`). Counts events, not real tokens: a proxy for
+   * arrival, not an exact count. */
   readonly streamTokenCount: number;
   readonly lastActivityAt: number;
   /** Set while a provider rate limit is cooling down. */
   readonly quota: QuotaWait | null;
   /** Tool calls streamed by the current cycle without a result yet. A reply
-   * closes the cycle but not the turn while tools are out, so the settle
-   * decision needs the outstanding ids, not just the last name. */
+   * closes the cycle, not the turn, while tools are out; settling needs the
+   * outstanding ids, not just the last name. */
   readonly activeToolCalls: readonly string[];
   /** Real id for a tool name once one has been seen this turn, so a
-   * name-only announcement and its later id-bearing counterpart collapse
-   * onto one `activeToolCalls` entry. See `registerActiveCall`. */
+   * name-only announcement and the later id-bearing tool.start collapse
+   * onto one `activeToolCalls` entry. */
   readonly callIdByName: Readonly<Record<string, string>>;
   /** Tool name per in-flight real call id, so concurrent same-name calls
    * each keep their own record. `callIdByName` holds only the latest id per
-   * name — when that call resolves and clears the slot, the leftover sibling
-   * would lose its name (and, for stall-bounded polls like `wait_agents`,
-   * its stall budget). */
+   * name — when that call resolves, the leftover sibling would lose its name
+   * (and, for stall-bounded polls like `wait_agents`, its stall budget). */
   readonly callNameById: Readonly<Record<string, string>>;
   /** Tail of text/thinking streamed in the current uninterrupted cycle. A
    * tool call ends the cycle and clears it, so short narration before each
-   * of several tool calls cannot accumulate into an apparent loop. Bounded
-   * to `STREAM_TEXT_BUFFER_CHARS`; feeds only the fingerprint comparison in
+   * of several tool calls cannot accumulate into a loop. Bounded to
+   * `STREAM_TEXT_BUFFER_CHARS`; feeds only the fingerprint comparison in
    * `runningTool`. */
   readonly streamText: string;
-  /** True once `consecutiveMatchingCycles` has crossed its threshold this turn. */
+  /** True once `consecutiveMatchingCycles` has crossed its threshold this
+   * turn. */
   readonly repeating: boolean;
   /** `streamTokenCount` when repetition was first observed this turn.
-   * Latched, not recomputed, so the abort reports tokens spent looping,
-   * not the whole turn's count. */
+   * Latched, so the abort reports tokens spent looping, not the whole
+   * turn's count. */
   readonly repeatingSinceTokenCount: number | null;
   /** Fingerprint of the last completed cycle (set at each tool-call
-   * boundary), compared against the next. Raw text across cycles caused
-   * repeats to accumulate into a false positive. */
+   * boundary), compared against the next. Keeping raw text made repeats
+   * accumulate into a false positive. */
   readonly cycleFingerprint: string | null;
   /** Consecutive completed cycles whose fingerprint matched the one before.
-   * A model repeating the same block every cycle, with a tool call between
-   * each, builds this streak on its own. */
+   * A model repeating the same block between tool calls builds this streak
+   * on its own. */
   readonly consecutiveMatchingCycles: number;
   /** Outstanding approval/operator gates — queued or on screen both count.
    * Above zero reads "blocked", exempting the turn from the stall watchdog:
    * an operator reading a prompt must look like a live tool call to the
-   * silence clock. Painter and watchdog read this one field instead of
-   * re-deriving blocked-ness from the overlay. */
+   * silence clock. Painter and watchdog share this one field. */
   readonly blockedGateCount: number;
 }
 
@@ -130,9 +127,9 @@ export function initialTurnState(nowMs: number): TurnState {
  * Reset to a fresh turn state, but carry an outstanding gate's count across
  * the boundary. Nothing else closes the overlay still on screen, so dropping
  * the count would let its eventual `turnStateGateClosed` decrement an
- * unrelated later turn's. The reset status (`"stopped"`, `"done"`, ...) is
- * left as given: all are already `!== "running"`, so relabeling `"blocked"`
- * would only risk a later gate-close reviving the turn to `"running"`.
+ * unrelated later turn's. The reset status is left as given: all are already
+ * `!== "running"`, so relabeling `"blocked"` would only risk a later
+ * gate-close reviving the turn to `"running"`.
  */
 function carryBlockedGateCount(prior: TurnState, fresh: TurnState): TurnState {
   return prior.blockedGateCount === 0
@@ -144,8 +141,8 @@ function carryBlockedGateCount(prior: TurnState, fresh: TurnState): TurnState {
 export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
   return {
     ...state,
-    // A gate left over from a prior turn still blocks the operator from
-    // doing anything else, so the new turn inherits the exemption too.
+    // A gate left over from a prior turn still blocks the operator, so the
+    // new turn inherits the exemption too.
     status: state.blockedGateCount > 0 ? "blocked" : "running",
     isProcessing: true,
     awaitingResponse: true,
@@ -164,7 +161,8 @@ export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
   };
 }
 
-/** Ctrl+C / watchdog abort: nothing is in flight and no prompt may be replayed. */
+/** Ctrl+C / watchdog abort: nothing is in flight and no prompt may be
+ * replayed. */
 export function turnStateOnInterrupt(
   state: TurnState,
   nowMs: number,
@@ -180,8 +178,7 @@ export function turnStateOnInterrupt(
  * record cannot tell "inference never started" from "provider went quiet
  * mid-stream", but phase markers can: tool turns keep `activeToolCalls` (or
  * `streamingType: "tool"`) and are left alone; a turn awaiting its first
- * token — or mid-stream with no tools out — is the inference layer hanging,
- * safe to bound.
+ * token, or mid-stream with no tools out, is the inference layer hanging.
  */
 export function turnStallLayer(
   state: TurnState,
@@ -198,7 +195,7 @@ export function turnStallLayer(
 
 /** A gate was raised — queued or opened, the turn does not distinguish.
  * The first outstanding gate blocks the turn without ending it; further
- * gates add to the count so the turn stays blocked until all clear. */
+ * gates add to the count until all clear. */
 export function turnStateGateOpened(state: TurnState): TurnState {
   const blockedGateCount = state.blockedGateCount + 1;
   return {
@@ -211,7 +208,7 @@ export function turnStateGateOpened(state: TurnState): TurnState {
 /** A gate resolved. Only the last one clearing returns the turn to
  * "running" (if processing) or "idle"; earlier ones just decrement.
  * `lastActivityAt` moves to `nowMs` so the stall clock restarts from the
- * answer, not from silence spent reading the prompt. */
+ * answer, not from silence reading the prompt. */
 export function turnStateGateClosed(
   state: TurnState,
   nowMs: number,
@@ -276,9 +273,9 @@ interface CallIdentity {
 }
 
 // Parse both streamed shapes — flat (`{ callId?, name? }`) and nested
-// tool.start (`{ call: { id?, callId?, name? } }`) — so the UI tool name and
-// the activeToolCalls bookkeeping read one identity off one parse instead of
-// two schemas that could drift.
+// tool.start (`{ call: { id?, callId?, name? } }`) — so tool name and
+// activeToolCalls bookkeeping read one identity off one parse instead of two
+// schemas that could drift.
 const callEventData = type({
   "callId?": "string",
   "name?": "string",
@@ -339,13 +336,12 @@ interface CallTracking {
   /** Real id for a tool name once one has been seen. A name-only
    * announcement and the id-bearing tool.start for the same call share this
    * mapping so the second collapses onto the first entry. Concurrent
-   * same-name calls still collide here — the stream gives no signal to tell
-   * them apart until both have real ids — but that ambiguity predates this
-   * fix. */
+   * same-name calls still collide — the stream gives no signal to tell them
+   * apart until both have real ids — an ambiguity that predates this fix. */
   readonly callIdByName: Readonly<Record<string, string>>;
-  /** Tool name per in-flight real call id. Unlike `callIdByName` this keeps
-   * one entry per call, so same-name siblings do not overwrite each other —
-   * the survivor is keyed by the leftover call's own id. */
+  /** Tool name per in-flight real call id. Unlike `callIdByName` it keeps
+   * one entry per call, so same-name siblings do not overwrite each other;
+   * the survivor is keyed by its own id. */
   readonly callNameById: Readonly<Record<string, string>>;
 }
 
@@ -360,9 +356,9 @@ function withoutCallNameById(
 }
 
 /**
- * Canonicalize one logical call's identity at the event boundary: a
- * name-only announcement (no callId yet) and a later id-bearing one for the
- * same call must collapse onto a single activeToolCalls entry, not two.
+ * Canonicalize one call's identity at the event boundary: a name-only
+ * announcement (no callId yet) and a later id-bearing one for the same call
+ * must collapse onto one activeToolCalls entry, not two.
  */
 function registerActiveCall(
   tracking: CallTracking,
@@ -379,8 +375,8 @@ function registerActiveCall(
       identity.name !== undefined
         ? { ...callNameById, [identity.id]: identity.name }
         : callNameById;
-    // A provisional entry may already be tracking this call under its name —
-    // promote it onto the real id in place instead of adding a duplicate.
+    // A provisional entry may already track this call under its name —
+    // promote it onto the real id instead of adding a duplicate.
     const withoutPlaceholder =
       identity.name !== undefined && activeToolCalls.includes(identity.name)
         ? activeToolCalls.filter((c) => c !== identity.name)
@@ -420,7 +416,7 @@ function withoutCallIdByName(
 
 /** Tool name mapping for an id — tool.done rarely carries the name, so
  * resolving id back to name is the only way to clear a finished call's
- * entry without depending on the result payload's shape. */
+ * entry without depending on the result payload. */
 function nameForCallId(
   callIdByName: Readonly<Record<string, string>>,
   id: string,
@@ -437,7 +433,7 @@ function unregisterActiveCall(
   if (identity.id !== undefined) {
     // Clear the mapping when the call resolves, or a later call reusing the
     // name would resolve to this finished id. The per-id record clears only
-    // the finished call's entry, so a same-name sibling keeps its name.
+    // that entry, so a same-name sibling keeps its name.
     const resolvedName =
       identity.name ?? nameForCallId(callIdByName, identity.id);
     const nextCallIdByName =
@@ -629,12 +625,11 @@ export function turnStateFromEvent(
       };
     }
 
-    /** A cycle with no active tool calls left is also a real turn
-     * terminator: `connector.reply` is the usual signal, but a
-     * self-continuing workflow cycle may never emit one. Without settling
-     * here the phase line stays hot ("working"). A cycle that just requested
-     * tools only ends here, not the turn — those calls are in
-     * `activeToolCalls`. */
+    /** A cycle with no active tool calls left also terminates the turn:
+     * `connector.reply` is the usual signal, but a self-continuing workflow
+     * cycle may never emit one, and without settling here the phase line
+     * stays hot ("working"). A cycle that just requested tools only ends
+     * here, not the turn — those calls are in `activeToolCalls`. */
     case "inference.done":
       if (state.activeToolCalls.length > 0) {
         return {
@@ -651,9 +646,9 @@ export function turnStateFromEvent(
       });
 
     /** The other turn terminator: `agent.send()` resolves on
-     * connector.reply, and `inference.done` usually already settled the turn
-     * a beat earlier, so this is an idempotent re-settle. A reply with
-     * tools still outstanding only ends the cycle, not the turn. */
+     * connector.reply; `inference.done` usually already settled the turn a
+     * beat earlier, so this is an idempotent re-settle. A reply with tools
+     * still outstanding only ends the cycle, not the turn. */
     case "connector.reply":
       if (state.activeToolCalls.length > 0) {
         return { ...state, awaitingResponse: false, lastActivityAt: nowMs };
