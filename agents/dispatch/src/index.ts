@@ -1,7 +1,7 @@
 /**
  * Dispatch worker: primary dispatcher card. Idle/mailbox/poll live in the harness.
  *
- * Ships as the @corbits/agent-dispatch workspace package: the tool allowlist
+ * Ships as the @corbits/code-agent-dispatch workspace package: the tool allowlist
  * lives here so the package stays importable without the app. Drift against
  * the app dispatch surface fails src/agent/directors/dispatch/package.test.ts.
  */

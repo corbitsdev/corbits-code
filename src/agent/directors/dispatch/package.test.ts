@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { dispatchPackage } from "@corbits/agent-dispatch";
+import { dispatchPackage } from "@corbits/code-agent-dispatch";
 import { dispatchPackage as inTreeDispatchPackage } from "./package.js";
 import { DISPATCH_TOOLS } from "../tool-sets.js";
 import { DIRECTOR_REGISTRY } from "../registry.js";
