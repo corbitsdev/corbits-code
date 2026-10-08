@@ -170,7 +170,15 @@ export const CTRL_C_EXIT_WINDOW_MS = 2000;
  */
 export const N_SUBAGENT_RUNNING_NOTE_PREFIX = "sub-agent(s) running — ";
 
-const ctrlCArmedAt = new WeakMap<AppShell, number>();
+/**
+ * Per-shell Ctrl+C arming slot. `at` is the window anchor; `state` extends the
+ * base two-state (unarmed/armed) machine with a third reachable state,
+ * STOPPED, recorded on the press that stops live sub-agents so the next press
+ * quits instead of double-stopping (see handleCtrlC).
+ */
+type CtrlCArmed = { at: number; state: "armed" | "stopped" };
+
+const ctrlCArmedAt = new WeakMap<AppShell, CtrlCArmed>();
 
 /**
  * Ctrl+C: interrupt / clear, and quit on a second press inside the window.
@@ -184,10 +192,31 @@ export function handleCtrlC(
   options?: FlashOptions,
 ): void {
   const armedAt = ctrlCArmedAt.get(shell);
-  if (armedAt !== undefined && now - armedAt <= CTRL_C_EXIT_WINDOW_MS) {
+  if (armedAt !== undefined && now - armedAt.at <= CTRL_C_EXIT_WINDOW_MS) {
     ctrlCArmedAt.delete(shell);
     const onExit = shellExitHandlers.get(shell);
     if (onExit !== undefined) {
+      // Three-press machine: a press that would previously exit (in-window)
+      // first asks whether live sub-agents exist to stop. An already-stopped
+      // shell, or one with no live workers, quits (two-press preserved); a
+      // shell with live workers is the STOP press -- stop the fleet, stay
+      // running, and quits only on the next press.
+      const { count, onStop } = readStopAffordance(shell);
+      const wasStopped = armedAt.state === "stopped";
+      if (!wasStopped && count > 0) {
+        // Stop press: do NOT quit. Record STOPPED at press time so a second
+        // simultaneous press cannot double-fire an async stop before it resolves.
+        ctrlCArmedAt.set(shell, { at: now, state: "stopped" });
+        setStatusFlash(shell, "press ctrl+c again to exit", {
+          ttlMs: CTRL_C_EXIT_WINDOW_MS,
+          ...(options?.schedule !== undefined
+            ? { schedule: options.schedule }
+            : {}),
+        });
+        void onStop();
+        return;
+      }
+      // Real quit (2nd press with no live workers, or 3rd press after stop).
       // Host teardown usually disposes; unlink here too so a stub/delayed
       // onExit cannot leave Corbits-created clipboard files behind.
       clearPendingAttachments(shell);
@@ -205,7 +234,7 @@ export function handleCtrlC(
     if (!hasPromptText) return;
   }
 
-  ctrlCArmedAt.set(shell, now);
+  ctrlCArmedAt.set(shell, { at: now, state: "armed" });
 
   // First Ctrl+C is the operator PAUSE gesture (CL-10149): hold the queue so
   // queued follow-ups / compaction continuations do not auto-drain onto a

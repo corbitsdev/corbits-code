@@ -15,6 +15,7 @@ import { createAppShell } from "./shell/index";
 import {
   isSlashPopupOpen,
   setShellExitHandler,
+  setShellStopAffordance,
   type AppShell,
 } from "./shell/internals";
 import { CTRL_C_EXIT_WINDOW_MS, handleCtrlC } from "./shell/keys";
@@ -508,6 +509,81 @@ describe("Ctrl+C exit", () => {
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe("second-press stop state machine (three-press contract)", () => {
+    let stops = 0;
+    let exits = 0;
+    let count = 0;
+    let onStop: () => void = () => {
+      stops += 1;
+    };
+    let onExit: () => void = () => {
+      exits += 1;
+    };
+
+    function wireWorkers(shell: AppShell, n: number): void {
+      count = n;
+      stops = 0;
+      exits = 0;
+      setShellStopAffordance(shell, {
+        liveWorkerCount: () => count,
+        onStopWorkers: () => onStop(),
+      });
+      setShellExitHandler(shell, () => onExit());
+    }
+
+    test("no live workers: two presses quit, onStopWorkers never fires", async () => {
+      await withShell(async ({ shell }) => {
+        wireWorkers(shell, 0);
+        handleCtrlC(shell, 0);
+        expect(stops).toBe(0);
+        expect(exits).toBe(0);
+        handleCtrlC(shell, 1);
+        expect(exits).toBe(1);
+        expect(stops).toBe(0);
+      });
+    });
+
+    test("live workers: 2nd press stops (no quit), 3rd press quits", async () => {
+      await withShell(async ({ shell }) => {
+        wireWorkers(shell, 2);
+        handleCtrlC(shell, 0);
+        expect(exits).toBe(0);
+        handleCtrlC(shell, 1);
+        expect(stops).toBe(1);
+        expect(exits).toBe(0);
+        handleCtrlC(shell, 2);
+        expect(stops).toBe(1);
+        expect(exits).toBe(1);
+      });
+    });
+
+    test("window re-arm reads a fresh worker count", async () => {
+      await withShell(async ({ shell }) => {
+        // Two live workers on the 1st press arm.
+        wireWorkers(shell, 2);
+        handleCtrlC(shell, 0);
+        // Fleet drains to zero between presses; outside the window the press
+        // re-arms rather than exiting, but the next in-window press must quit.
+        count = 0;
+        handleCtrlC(shell, CTRL_C_EXIT_WINDOW_MS + 1);
+        expect(stops).toBe(0);
+        expect(exits).toBe(0);
+        handleCtrlC(shell, CTRL_C_EXIT_WINDOW_MS + 2);
+        expect(stops).toBe(0);
+        expect(exits).toBe(1);
+      });
+    });
+
+    test("single press pauses only: neither stops nor exits", async () => {
+      await withShell(async ({ shell }) => {
+        wireWorkers(shell, 2);
+        handleCtrlC(shell, 0);
+        expect(stops).toBe(0);
+        expect(exits).toBe(0);
+      });
     });
   });
 });
