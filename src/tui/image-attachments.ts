@@ -6,11 +6,11 @@ import type { MessageAttachment } from "@intx/types/runtime";
 
 export const MAX_IMAGE_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
-// A pasted screenshot can be several MB of uncompressed PNG. Attachments land
-// verbatim inside a ConversationTurn and are replayed on every inference call
-// until compaction ages them out (src/session/compactor.ts), so an oversized
-// image inflates every prompt for as long as the turn survives. Downscale at
-// ingestion time so the worst case is bounded regardless of how long that takes.
+// A pasted screenshot can be several MB of uncompressed PNG. Attachments
+// replay verbatim on every inference call until compaction ages them out
+// (src/session/compactor.ts), so an oversized image inflates every prompt as
+// long as the turn survives. Downscale at ingestion so the worst case is
+// bounded.
 export const MAX_IMAGE_DIMENSION = 1568;
 const DOWNSCALE_THRESHOLD_BYTES = 300 * 1024;
 const JPEG_QUALITY = 70;
@@ -239,9 +239,9 @@ export async function imageAttachmentFromPath(
     };
   }
   const raw = await readFile(path);
-  // Hash the source bytes, not the (lossy, non-deterministic) capped output --
-  // two ingests of the same clipboard content must hash identically even if
-  // downscaling recompresses them differently.
+  // Hash the source bytes, not the lossy, non-deterministic capped output —
+  // two ingests of the same content must hash identically even if downscaling
+  // recompresses differently.
   const contentHash = await hashImageBytes(raw);
   const capped = await capImageForIngestion(raw, mimeType);
   return {
@@ -260,12 +260,11 @@ export async function imageAttachmentFromPath(
   };
 }
 
-/** SHA-256 of the source image file's bytes, used to identify identical
- * images regardless of filename or timing. */
+/** SHA-256 of the source bytes, so identical content dedupes regardless of
+ * filename or timing. */
 async function hashImageBytes(bytes: Buffer): Promise<string> {
-  // Buffer's type parameter is the looser ArrayBufferLike (it may back onto a
-  // pooled allocation), but readFile never actually hands back a
-  // SharedArrayBuffer-backed view, so this is a type-only cast, not a copy.
+  // Buffer's type parameter is the looser ArrayBufferLike, but readFile never
+  // hands back a SharedArrayBuffer-backed view, so this cast does not copy.
   const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
   return [...new Uint8Array(digest)]
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -273,12 +272,10 @@ async function hashImageBytes(bytes: Buffer): Promise<string> {
 }
 
 /**
- * Downscale/recompress an image before it enters a turn. Only shells out to
- * `sips` (macOS) when the source exceeds `DOWNSCALE_THRESHOLD_BYTES` --
- * smaller images are typically already screenshot-appropriate and not worth
- * a re-encode. On any failure (non-macOS, sips missing, decode error) the
- * original bytes pass through unchanged so ingestion never breaks on this
- * best-effort step.
+ * Downscale/recompress an image before it enters a turn. Shells out to `sips`
+ * (macOS) only when the source exceeds `DOWNSCALE_THRESHOLD_BYTES` — smaller
+ * images are usually already appropriate. Any failure passes the original
+ * bytes through unchanged, so ingestion never breaks on this best-effort step.
  */
 export async function capImageForIngestion(
   data: Buffer,
@@ -317,9 +314,9 @@ export async function capImageForIngestion(
     ]);
     if (result.code !== 0) return { data, contentType: mimeType };
     const capped = await readFile(outPath);
-    // Only adopt the recompressed version if it actually shrank things --
-    // a small/already-compressed source can grow slightly under JPEG
-    // re-encoding, and the point of this step is to reduce bytes.
+    // Adopt the recompressed version only if it shrank: a small source can
+    // grow slightly under JPEG re-encoding, and this step exists to reduce
+    // bytes.
     if (capped.byteLength >= data.byteLength)
       return { data, contentType: mimeType };
     return { data: capped, contentType: "image/jpeg" };

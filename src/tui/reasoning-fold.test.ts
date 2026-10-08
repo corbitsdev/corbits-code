@@ -1,10 +1,10 @@
 /**
  * A turn's reasoning is one row.
  *
- * The model stops to think between tool calls, and each stop used to open a
- * row of its own — fragments of half-sentences breaking up a run of tool rows
- * that reads as one piece of work. They fold into the row the turn already
- * opened, which keeps every word reachable behind the expand key.
+ * Each stop used to open a row of its own — half-sentence fragments breaking
+ * up a run of tool rows that reads as one piece of work. They fold into the
+ * row the turn already opened, keeping every word reachable behind the
+ * expand key.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

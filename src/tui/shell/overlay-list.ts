@@ -98,9 +98,8 @@ export function dispatchOverlayAccept(
 /**
  * Recompute the overlay host's row budget from the current item count and
  * relayout into it. Callers that refresh an already-open overlay's items in
- * place (rather than reopening) must call this themselves — a filter that
- * narrows a list and then widens it again would otherwise stay pinned at
- * whatever size it first opened at.
+ * place must call this themselves — a filter that narrows then widens would
+ * stay pinned at its first-opened size.
  */
 export function relayoutOverlayHost(shell: AppShell, itemCount: number): void {
   const perItem = overlayRowsPerItem(shell.overlayKind);
@@ -135,9 +134,9 @@ function placeholderOptions(count: number): SelectOption[] {
 
 /**
  * SelectRenderable keeps its scroll offset and visible-item capacity private
- * in its type surface (@opentui/core 0.5.10 exposes no accessors for either),
- * so the wrapper reads them reflectively and narrows the values instead of
- * asserting a shape.
+ * in its type surface (@opentui/core 0.5.10 exposes no accessors for
+ * either), so the wrapper reads them reflectively and narrows the values
+ * instead of asserting a shape.
  */
 function selectScrollState(select: SelectRenderable): {
   offset: number;

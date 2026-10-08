@@ -57,9 +57,8 @@ export function registerBuiltInCommands(): void {
   });
 
   // Layout-proof add-provider path: `/` works on every keyboard; there is no
-  // standalone /login. `/connect <kind> [profile]` pre-scopes the overlay to
-  // one account so a reconnect offer (or pasted terminal command) lands on
-  // the failed row.
+  // standalone /login. `/connect <kind> [profile]` pre-scopes the overlay so
+  // a reconnect offer lands on the failed row.
   registerCommand({
     name: "connect",
     description:

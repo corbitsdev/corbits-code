@@ -158,11 +158,11 @@ describe("approval overlay keeps the prompt box on screen (CL-5750)", () => {
           await h.renderOnce();
           const heights = shell.layout.heights;
           // Paint order stacks transcript, then overlay_host, then the other
-          // zones, then prompt — with nothing charged a height between the
-          // overlay and the prompt box, the overlay's bottom edge abuts the
-          // zones immediately above the prompt rather than leaving a gap.
-          // These zones are all off in this idle, no-task/no-agents scenario,
-          // so nothing should separate the overlay from the prompt.
+          // zones, then prompt — nothing is charged a height between the
+          // overlay and the prompt box, so the overlay's bottom edge abuts
+          // the zones above the prompt rather than leaving a gap.
+          // All these zones are off in this idle scenario, so nothing should
+          // separate the overlay from the prompt.
           const between =
             heights.agents +
             heights.task +

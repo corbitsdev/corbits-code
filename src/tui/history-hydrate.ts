@@ -27,10 +27,9 @@ export interface HistoryBlock {
   /** tool_call argument payload when `content` is absent (ContentBlockData). */
   readonly arguments?: string;
   /**
-   * Call id carried by a `tool_call` / `tool_result` block. Two saved calls to
-   * the same tool are indistinguishable by name alone — a resumed transcript
-   * with parallel sub-agent dispatches needs this to pair each result with
-   * its own call rather than the newest pending call of that name.
+   * Call id carried by a `tool_call` / `tool_result` block. Two saved calls
+   * to the same tool are indistinguishable by name alone, so parallel
+   * sub-agent dispatches need this to pair each result with its own call.
    */
   readonly callId?: string;
   /** view block payload — validated before it reaches the layout pass. */
@@ -39,9 +38,8 @@ export interface HistoryBlock {
   readonly steps?: unknown;
   /**
    * Persisted origin for user blocks (turns-to-blocks): "system" marks an
-   * occupancy wake, the only user-type block the resume path ever drops.
-   * The mark derives from content, so a verbatim wake-shaped operator turn
-   * arrives marked and drops here too (deliberate-paste-only trigger).
+   * occupancy wake, the only user block the resume path drops. Content-derived:
+   * a verbatim wake-shaped operator turn arrives marked and drops too.
    */
   readonly origin?: string;
 }
@@ -83,9 +81,9 @@ function asHistoryBlock(raw: unknown): HistoryBlock | null {
 }
 
 /**
- * A view tree as plain transcript text. Full view rendering (borders, grid
- * alignment, tone) is not part of hydration; the layout pass is reused only to
- * recover the words, because a resumed reply that was a view must not vanish.
+ * A view tree as plain transcript text. Full view rendering is not part of
+ * hydration; the layout pass recovers only the words, so a resumed view reply
+ * does not vanish.
  */
 function viewText(node: unknown): string {
   const result = validateView(node);
@@ -133,9 +131,9 @@ export function rowFromHistoryBlock(block: HistoryBlock): StreamRow | null {
     case "user": {
       const content = block.content ?? "";
       // Origin-keyed suppression: only a block marked as a system wake
-      // drops. Unmarked or operator-marked wake-shaped text paints at this
-      // layer — but the pipeline marks by content, so a verbatim
-      // wake-shaped operator turn never arrives here unmarked.
+      // drops. Unmarked wake-shaped text paints at this layer — the pipeline
+      // marks by content, so a verbatim wake-shaped operator turn never
+      // arrives here unmarked.
       if (block.origin === "system" && isPersistedOccupancyWakeText(content)) {
         return null;
       }

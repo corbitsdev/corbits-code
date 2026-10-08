@@ -24,11 +24,11 @@ function rowsContaining(frame: string, needle: string): readonly string[] {
 
 /**
  * Poll for the async markdown highlight pass instead of a fixed wait: the
- * tree-sitter pass repaints markdown row bodies asynchronously, so a frame
- * can lack row ink for a few tens of milliseconds after `appendStreamRow`.
- * Returns when the last row's text is painted (a collapsed skill row waits
- * for its summary line), bounded by a deadline so a highlight stall fails
- * the inspect assertions instead of hanging the suite.
+ * tree-sitter pass repaints row bodies asynchronously, so a frame can lack
+ * ink for tens of milliseconds after `appendStreamRow`. Returns when the
+ * last row's text is painted (a collapsed skill row waits for its summary
+ * line), bounded by a deadline so a highlight stall fails the assertions
+ * instead of hanging the suite.
  */
 async function waitForRowInk(
   h: Harness,

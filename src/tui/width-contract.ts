@@ -2,12 +2,12 @@
  * Startup check that our column arithmetic and OpenTUI's width table agree.
  *
  * The shell budgets every wrap/pad/truncation with `stringWidth`, but cells
- * are allocated by OpenTUI's native table, negotiated with the terminal at
- * boot. A disagreement on East Asian Ambiguous characters — most of what the
- * chrome is drawn from — shortens every border.
+ * come from OpenTUI's native table, negotiated with the terminal at boot. A
+ * disagreement on East Asian Ambiguous characters — most of the chrome —
+ * shortens every border.
  *
- * A mismatch is reported, never fatal, and never silent: a silently wrong
- * paint is the failure mode this check exists to remove.
+ * A mismatch is reported, never fatal, never silent: a silently wrong paint
+ * is the failure mode this check removes.
  */
 
 import { resolveRenderLib, type WidthMethod } from "@opentui/core";

@@ -1,11 +1,11 @@
 /**
  * Git branch polling for the prompt box's bottom border.
  *
- * The branch is the one border piece that changes under the operator without
- * the shell being told, so it is polled rather than pushed. While a lookup is
- * outstanding the tick is skipped, so a git process hung on a network
- * filesystem cannot accumulate children across ticks. Nothing here blocks a
- * paint — the border keeps the last branch it was given.
+ * The branch is the one border piece that changes without the shell being
+ * told, so it is polled rather than pushed. While a lookup is outstanding the
+ * tick is skipped, so a git process hung on a network filesystem cannot
+ * accumulate children. Nothing here blocks a paint — the border keeps the
+ * last branch it was given.
  */
 
 import { getGitBranch } from "../agent/environment.js";

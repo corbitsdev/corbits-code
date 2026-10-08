@@ -7,8 +7,7 @@ export interface CommandContext {
   getCostSummary?: () => CostSummary;
   /**
    * One-row answer to "where are we" on the dispatched fleet. Read live and
-   * answered locally, so asking never costs the operator an interrupt (and
-   * with it whatever they had queued).
+   * answered locally, so asking never costs the operator an interrupt.
    */
   getFleetStatus?: () => string;
   // Start a workflow by name; returns a status message to surface to the user.
@@ -77,8 +76,8 @@ export interface CommandDefinition {
   name: string;
   description: string;
   /**
-   * Discovery origin of the plugin that contributed this command, when the
-   * command came from a plugin. Built-ins leave it unset and render unmarked.
+   * Discovery origin of the plugin that contributed this command. Built-ins
+   * leave it unset and render unmarked.
    */
   pluginOrigin?: PluginOrigin;
   /**

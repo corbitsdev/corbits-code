@@ -1,10 +1,10 @@
 /**
  * Runtime side-channel wiring, asserted end to end.
  *
- * Every test here emits on the same emitter the session runner emits on and
- * then reads the painted frame. An emit with no listener is silent, and so is
- * a listener that paints nothing — only the frame tells those apart from a
- * working channel, which is the regression this file exists to catch.
+ * Every test emits on the same emitter the session runner emits on, then
+ * reads the painted frame. An emit with no listener is silent, and so is a
+ * listener that paints nothing — only the frame tells those apart from a
+ * working channel, the regression this file exists to catch.
  */
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";

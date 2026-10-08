@@ -20,12 +20,11 @@ export type ContentBlockData =
       type: "user";
       content: string;
       /**
-       * Persisted origin for resume suppression: turns carry no message
-       * flags, so wake-shaped user turns are marked "system" here and
-       * history-hydrate drops only marked blocks. The mark derives from
-       * content, not provenance — a verbatim wake-shaped operator turn is
-       * marked (and dropped) exactly like a real wake. Only a bare wake
-       * prefix, or non-wake text, stays unmarked and paints.
+       * Persisted origin for resume suppression: turns carry no flags, so
+       * wake-shaped user turns are marked "system" here and history-hydrate
+       * drops only marked blocks. The mark derives from content, not
+       * provenance — a verbatim wake-shaped operator turn drops exactly like
+       * a real wake. Bare wake prefixes and non-wake text stay unmarked.
        */
       origin?: "operator" | "system";
     }
@@ -69,10 +68,9 @@ function capWithOmissionSuffix(
   if (content.length <= maxChars) return content;
   const omitted = content.length - maxChars;
   const marker = `\n\n… ${omitted} characters omitted from ${label}`;
-  // The tail anchor also inserts a "\n\n" separator between the marker and the
-  // kept content, so its budget must reserve those two characters. Otherwise the
-  // result overshoots maxChars by 2, and a second cap on the already-capped
-  // string would slice through the first marker.
+  // The tail anchor inserts a "\n\n" separator between marker and kept
+  // content, so its budget reserves those two characters; otherwise the cap
+  // overshoots by 2 and a second pass slices the marker.
   const separator = anchor === "tail" ? "\n\n" : "";
   const budget = maxChars - marker.length - separator.length;
   const kept =
@@ -224,11 +222,10 @@ function turnToContentBlocks(turn: ConversationTurn): ContentBlockData[] {
   if (turn.role === "user") {
     const text = textFromBlocks(turn.content);
     if (text.length > 0) {
-      // Occupancy wakes persist as user-role turns with no flags. Mark the
-      // wake shape here so history-hydrate can drop it by origin. The match
-      // is content, not provenance: an operator turn carrying a byte-verbatim
-      // wake (deliberate paste of the full wake line plus report JSON) is
-      // marked — and dropped — too. A bare wake prefix stays unmarked.
+      // Occupancy wakes persist as user turns with no flags; mark the wake
+      // shape so history-hydrate can drop it by origin. The match is content,
+      // not provenance: a byte-verbatim wake pasted by the operator drops
+      // too. A bare wake prefix stays unmarked.
       if (isPersistedOccupancyWakeText(text)) {
         out.push({ type: "user", content: text, origin: "system" });
       } else {

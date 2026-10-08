@@ -1,7 +1,8 @@
 /**
- * Breathing room: one optical gutter shared by every surface, a blank row above
- * the first transcript row, a blank row below the prompt box, and a
- * narrow-terminal floor where each pad yields to content rather than squeezing it.
+ * Breathing room: one optical gutter shared by every surface, a blank row
+ * above the first transcript row, a blank row below the prompt box, and a
+ * narrow-terminal floor where each pad yields to content rather than
+ * squeezing it.
  */
 import { describe, expect, test } from "bun:test";
 import {

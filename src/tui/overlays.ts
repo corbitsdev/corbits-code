@@ -1,5 +1,5 @@
 /**
- * Wave 5 primary overlays — permissions, operator question, model/provider.
+ * Primary overlays — permissions, operator question, model/provider.
  * Pure content builders + open helpers on the shared list/focus/geometry kit.
  */
 
@@ -34,10 +34,9 @@ export interface OpenPermissionsOpts {
   /** True when this open is a live permission gate, not admin `/permissions`. */
   readonly isGate?: boolean;
   /**
-   * Suppress the generic accept/answer echo for this open. Decision gates
-   * pass `false` so a settled permission does not replay into the
-   * transcript; callers with no such policy get the default echo so their
-   * choice still leaves a trace.
+   * Suppress the generic accept/answer echo for this open: a settled
+   * permission must not replay into the transcript; others keep the default
+   * echo so the choice still leaves a trace.
    */
   readonly echoChoice?: boolean;
 }
@@ -80,18 +79,16 @@ export interface OpenOperatorOpts {
   /** True when this open is a live operator gate. */
   readonly isGate?: boolean;
   /**
-   * Suppress the generic accept/answer echo for this open. Decision gates
-   * pass `false` so a settled operator question does not replay into the
-   * transcript; callers with no such policy get the default echo so their
-   * choice still leaves a trace.
+   * Suppress the generic accept/answer echo for this open: a settled
+   * operator question must not replay into the transcript; others keep the
+   * default echo so the choice still leaves a trace.
    */
   readonly echoChoice?: boolean;
 }
 
 /**
- * Line appended to the question when the operator can neither pick nor type:
- * the overlay must say what its one available action is, not offer "Enter
- * choose" against an empty list.
+ * Appended when the operator can neither pick nor type: say the one available
+ * action, not "Enter choose" against an empty list.
  */
 const NO_WAY_TO_ANSWER =
   "No options were offered and this question takes no typed answer. Press Esc to cancel it.";

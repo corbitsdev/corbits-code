@@ -33,9 +33,8 @@ function rowProbe(row: StreamRow | undefined): string {
 
 /**
  * Markdown blocks highlight asynchronously; settle before capturing a frame.
- * Polls until the last row's text is painted instead of paying a fixed wait,
- * bounded by a deadline so a highlight stall fails the inspect assertions
- * instead of hanging.
+ * Polls until the last row's text is painted instead of a fixed wait, bounded
+ * by a deadline so a highlight stall fails the assertions instead of hanging.
  */
 async function settle(h: Harness, rows: readonly StreamRow[]): Promise<string> {
   const deadline = Date.now() + 2_000;

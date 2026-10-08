@@ -1,14 +1,14 @@
 /**
  * Retention budget for a long-running transcript. The paint tree tracks
- * `streamLog` 1:1 (see shell.ts's repaintTranscriptWindow/paintAppendStreamRow)
- * so every retained row stays reachable by scrolling; this cap is what keeps
- * that array — and so the paint tree — bounded over a long session.
+ * `streamLog` 1:1 (shell.ts's repaintTranscriptWindow/paintAppendStreamRow),
+ * so every retained row stays reachable by scrolling; this cap keeps that
+ * array — and the paint tree — bounded.
  */
 
 /**
  * Retained tail of a stream log. Display-only state — the agent's own context
  * is kept separately — but an unbounded array still costs memory and O(n)
- * snapshot/diff work on every append over a long, tool-heavy session.
+ * snapshot/diff work on every append.
  */
 export const MAX_RETAINED_STREAM_ROWS = 600;
 
@@ -21,9 +21,9 @@ export function retentionOverflow(length: number): number {
  * Evict the oldest rows once `log` exceeds the retention cap and return the
  * new absolute base (the index `log[0]` now represents).
  *
- * Every index the bridge holds onto — tool-call rows, the open streaming
- * row, the retry boundary — is absolute (base + local position), so eviction
- * only has to bump the base; it never has to rewrite a stored index.
+ * Every index the bridge holds — tool-call rows, the open streaming row, the
+ * retry boundary — is absolute (base + local position), so eviction only bumps
+ * the base; it never rewrites a stored index.
  */
 export function trimRetainedLog<T>(log: T[], base: number): number {
   const drop = retentionOverflow(log.length);
@@ -37,8 +37,8 @@ export function trimRetainedLog<T>(log: T[], base: number): number {
  * anything. Unlike the collapse marker it replaces, scrolling never reveals
  * more — these rows are gone, not merely out of the window.
  *
- * `evicted` is the count of painted rows actually spliced from the log. Do
- * not invent a count of 1 to mean "older history exists on disk."
+ * `evicted` is the count of painted rows actually spliced from the log; do
+ * not invent 1 to mean "older history exists on disk."
  */
 export function evictedRowsNotice(evicted: number): string {
   return ` … ${evicted} earlier row${evicted === 1 ? "" : "s"} dropped (past the retention limit)`;
@@ -46,8 +46,8 @@ export function evictedRowsNotice(evicted: number): string {
 
 /**
  * Notice when older history exists on disk but no painted row was spliced.
- * Resume can load a truncated tail that still fits the cap; the marker
- * must still say this is not the start of history, without a fake count.
+ * Resume can load a truncated tail that still fits the cap; the marker must
+ * still say this is not the start of history, without a fake count.
  */
 export function unloadedHistoryNotice(): string {
   return " … earlier rows not loaded (past the retention limit)";

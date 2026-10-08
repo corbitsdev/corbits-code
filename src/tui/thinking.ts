@@ -2,10 +2,9 @@
  * Reasoning chrome: a short wrapped preview while thought streams, and a
  * one-line opener once it settles (full text behind expand).
  *
- * Reasoning is not the answer, so it never owns the screen. The newest
- * revealed prose wraps into a bounded inset paragraph (hard-capped — never an
- * unbounded dump). Once the turn moves on the row collapses to its opening
- * clause — same expand path as before.
+ * Reasoning is not the answer, so it never owns the screen: the newest
+ * revealed prose wraps into a bounded inset paragraph, then the row collapses
+ * to its opening clause.
  */
 
 import { sliceToWidth, stringWidth, wrapLines } from "./view/height.js";
@@ -25,25 +24,22 @@ export function flattenReasoningText(text: string): string {
 }
 
 /**
- * Characters per second the reveal position advances at while reasoning
- * streams. Picked by printing sample frames and reading them back: below ~20
- * feels laggy against a fast model, above ~40 is unreadable. 28 landed as
- * fast-but-legible.
+ * Characters per second the reveal position advances while reasoning streams.
+ * Chosen by printing sample frames: below ~20 feels laggy, above ~40 is
+ * unreadable; 28 is fast-but-legible.
  */
 export const REVEAL_CHARS_PER_SEC = 28;
 
 /**
- * How many wrapped lines a live reasoning preview may claim. Hard bound — the
- * preview never paints unbounded CoT into the transcript. Raised into the
- * 8–12 band so mid-turn chain-of-thought is glanceable.
+ * How many wrapped lines a live reasoning preview may claim — never unbounded
+ * CoT. Raised into the 8–12 band so mid-turn chain-of-thought is glanceable.
  */
 export const LIVE_THINKING_MAX_LINES = 10;
 
 /**
- * Advance a reveal position toward the text that has actually arrived, capped
- * at a bounded reading rate. Never exceeds `availableChars` (can't outrun the
- * text) and never regresses (a shrinking available count — should not happen,
- * but the row must not visibly rewind if it does).
+ * Advance a reveal position toward the text that has arrived, capped at a
+ * bounded reading rate. Never exceeds `availableChars` and never regresses,
+ * so a shrinking count cannot visibly rewind the row.
  */
 export function advanceRevealChars(
   prevChars: number,
@@ -94,9 +90,9 @@ const ELLIPSIS = "…";
 
 /**
  * Settled reasoning as one line: the *opening* of the chain of thought, cut to
- * the row's columns. The opening is what the reasoning is about and reads as a
- * whole clause; the tail is wherever the model happened to stop, which is
- * usually a fragment mid-sentence. The rest stays behind the expand key.
+ * the row's columns. The opening reads as a whole clause; the tail is wherever
+ * the model stopped, usually a mid-sentence fragment. The rest stays behind
+ * the expand key.
  */
 export function thinkingSettledLine(text: string, width: number): string {
   const flat = flattenReasoningText(text).trimEnd();
