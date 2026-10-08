@@ -1,5 +1,6 @@
 /**
- * Terminal geometry: layout application, relayout, prompt-row sync, landing split.
+ * Terminal geometry: layout application, relayout, prompt-row sync, landing
+ * split.
  */
 import {
   FLEET_FLOOR_MIN_LANES,
@@ -32,16 +33,13 @@ export function terminalOf(
 }
 
 /**
- * The version row is real chrome, not a float: it holds a reserved row at
- * the foot of the shell rather than painting into the optical bottom pad
- * (`BOTTOM_MARGIN_ROWS`), blank breathing room, not a content slot.
- *
- * This costs the rest of the shell a row: the geometry resolver is handed
- * `terminal.rows - 1`, so every height it derives — including
- * `PROMPT_CAP_FRACTION * terminal.rows`, which runs before collapse and
- * outside `COLLAPSE_ORDER` — is one row short of the real terminal. The
- * badge is not in the collapse order and does not give the row back under
- * prompt-growth pressure.
+ * The version row reserves a real foot row instead of painting into the
+ * optical bottom pad (`BOTTOM_MARGIN_ROWS`, blank breathing room, not a
+ * content slot). So the resolver is handed `terminal.rows - 1`, and every
+ * height it derives — including `PROMPT_CAP_FRACTION * terminal.rows`,
+ * which runs before collapse and outside `COLLAPSE_ORDER` — is one row
+ * short of the real terminal. The badge never gives that row back under
+ * prompt-growth pressure (it is not in `COLLAPSE_ORDER`).
  */
 export function terminalForGeometry(terminal: {
   readonly columns: number;
@@ -69,11 +67,9 @@ export function defaultVisibility(visibility?: ZoneVisibility): ZoneVisibility {
 }
 
 /**
- * How the landing divides its rows around the prompt box.
- *
- * A floated overlay is clipped to the rows above the box so it never covers
- * the prompt. Losing a long body's tail to that clip is survivable; losing
- * every choice is not — the surface could not be answered. So the box
+ * A floated overlay clips to the rows above the prompt box, so it never
+ * covers the prompt. Losing a long body's tail to the clip is survivable;
+ * losing every choice is not — the surface could not be answered. The box
  * slides down just far enough to keep the overlay's full, fraction-capped
  * height on screen; the starters below pay for the move.
  */
@@ -96,20 +92,18 @@ export interface RelayoutOpts {
   readonly overlayMode?: OverlayMode;
   readonly overlayBodyRows?: number;
   /**
-   * Rows the open overlay cannot render without: border + title + at least
-   * one content row. Below this, the box paints past whatever height it was
-   * assigned instead of shrinking, so the resolver must never starve it here.
+   * Rows an open overlay cannot render without: border + title + one content
+   * row. Below this, the box paints past its assigned height instead of
+   * shrinking, so the resolver must never starve it.
    */
   readonly overlayMinBodyRows?: number;
 }
 
 /**
- * Rows the transcript holds back once a fleet is running.
- *
- * With several lanes live the operator manages a fleet rather than reads a
- * conversation, so the transcript gives up its idle floor to the board. It
- * keeps enough to stay a live tail — the orchestrator reporting back and
- * asking questions is still how the operator learns anything.
+ * Rows the transcript gives up once a fleet is running: with several lanes
+ * live the operator manages a fleet rather than reads a conversation. It
+ * keeps only a live tail — the orchestrator reporting back and asking
+ * questions is how the operator learns anything.
  */
 export function fleetTranscriptFloor(shell: AppShell): {
   transcriptFloor?: number;
