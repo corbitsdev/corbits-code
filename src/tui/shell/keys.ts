@@ -7,7 +7,7 @@ import {
   type KeyEvent,
   type MouseEvent,
 } from "@opentui/core";
-import { badgeCount } from "../delivery-queue.js";
+import { badgeCount, pause } from "../delivery-queue.js";
 
 import {
   type AppShell,
@@ -198,6 +198,12 @@ export function handleCtrlC(
   }
 
   ctrlCArmedAt.set(shell, now);
+
+  // First Ctrl+C is the operator PAUSE gesture (CL-10149): hold the queue so
+  // queued follow-ups / compaction continuations do not auto-drain onto a
+  // rebuilt agent. Set before interruptShell so the exclusive bridge path
+  // already observes the paused flag; an explicit new send later clears it.
+  shell.session = pause(shell.session);
 
   if (shell.session.run === "busy" || badgeCount(shell.session) > 0) {
     interruptShell(shell);

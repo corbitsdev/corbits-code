@@ -3,6 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { defined } from "../../testkit/defined.js";
+import { isPaused } from "./delivery-queue";
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
 import { withTestRenderer } from "./harness";
@@ -22,11 +23,8 @@ import {
   shellInternals,
   stickyMode,
 } from "./shell/internals";
-import {
-  applyShellCancelLast,
-  interruptShell,
-  submitPrompt,
-} from "./shell/prompt";
+import { applyShellCancelLast, submitPrompt } from "./shell/prompt";
+import { handleCtrlC } from "./shell/keys";
 import { transcriptRowLayout } from "./shell/transcript";
 
 /** The transient notice row sits directly above the prompt box's top rule. */
@@ -537,8 +535,11 @@ describe("product skin: stream + queue + overlay", () => {
           shell.prompt.value = "b";
           submitPrompt(shell, "steer");
           expect(shell.pendingQueue).toBe(2);
-          interruptShell(shell);
+          // Operator first-press Ctrl+C (handleCtrlC) = pause gesture (CL-10149):
+          // the session pauses, holding the queue, and the run interrupts.
+          handleCtrlC(shell);
           expect(shell.pendingQueue).toBe(2);
+          expect(isPaused(shell.session)).toBe(true);
           expect(shell.session.interruptFlash).toBe(true);
           expect(shell.session.run).toBe("idle");
           await h.renderOnce();

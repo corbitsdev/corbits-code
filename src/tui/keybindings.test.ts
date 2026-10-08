@@ -17,6 +17,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 
 import { defined } from "../../testkit/defined.js";
+import { isPaused } from "./delivery-queue.js";
 import { PROMPT_KEY_BINDINGS } from "./prompt-input.js";
 import { SHELL_SHORTCUTS } from "./keybindings.js";
 import { createHarness, type Harness } from "./harness.js";
@@ -574,6 +575,9 @@ const PROBES: Readonly<
       press(h, chords[0]);
       expect(interrupted).toBe(1);
       expect(exited).toBe(0);
+      // First Ctrl+C is the operator pause gesture: the session is paused so
+      // queued work stays held (CL-10149).
+      expect(isPaused(shell.session)).toBe(true);
       press(h, chords[0]);
       expect(exited).toBe(1);
       setShellRunState(shell, "idle");
@@ -594,7 +598,7 @@ const PROBES: Readonly<
       expect(notice?.text).not.toContain("discarded");
       // Other probes in this group share one shell — leave both the queue
       // and the transcript as this probe found them.
-      shell.session = { ...shell.session, items: [] };
+      shell.session = { ...shell.session, items: [], paused: false };
       truncateStreamRows(shell, rowsBefore);
       setShellRunState(shell, "idle");
 

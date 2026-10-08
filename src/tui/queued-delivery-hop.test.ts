@@ -12,7 +12,6 @@ import {
   createLiveSteerDeliver,
   createSessionOperationQueue,
   pause,
-  resumeForSend,
   routeQueuedDelivery,
   type AgentDeliveryResult,
   type DeliverySettle,
@@ -195,9 +194,8 @@ describe("queued delivery last hop", () => {
       expect(sends).toEqual([]);
       expect(steers).toEqual([]);
       expect(badgeCount(shell.session)).toBe(1);
-      // An explicit new send clears the pause and the boundary drains the
-      // held steer onto the fresh turn.
-      shell.session = resumeForSend(shell.session);
+      // An explicit new send clears the pause (the submit path resumes the
+      // session) and the boundary drains the held steer onto the fresh turn.
       bridge.submit("fresh prompt", "immediate");
       bridge.handle({ type: "run", state: "idle" });
       expect(sends).toEqual(["fresh prompt", "after stop"]);
@@ -218,8 +216,8 @@ describe("queued delivery last hop", () => {
       expect(sends).toEqual([]);
       expect(steers).toEqual([]);
       expect(badgeCount(shell.session)).toBe(1);
-      // Explicit new send clears the pause and starts a fresh turn.
-      shell.session = resumeForSend(shell.session);
+      // Explicit new send clears the pause (submit path resumes the session)
+      // and starts a fresh turn.
       bridge.submit("fresh prompt", "immediate");
       // Now the boundary delivers both the new send and the held follow-up.
       bridge.handle({ type: "run", state: "idle" });

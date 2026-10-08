@@ -15,6 +15,7 @@ import {
   enqueueSteer,
   interrupt,
   isPaused,
+  resumeForSend,
   setRunState,
   type QueueItem,
   type QueueKind,
@@ -2033,6 +2034,11 @@ export function attachSessionBridge(
       shell.session.run === "idle" ||
       parentIdleWithFleet
     ) {
+      // An explicit operator send releases the operator pause (CL-10149): clear
+      // the flag so the next drain boundary delivers the held follow-ups and
+      // compaction continuations onto this fresh turn. Queued work never
+      // auto-drains after a single Ctrl+C — only an explicit new send clears it.
+      shell.session = resumeForSend(shell.session);
       appendStreamRow(shell, {
         role: "user",
         text: userRowText(t, attached),
@@ -2157,9 +2163,11 @@ export function attachSessionBridge(
     applyShellInterrupt(shell);
     bag.port.interrupt();
     // The stop settles the turn without necessarily producing an idle event to
-    // drain against, so anything the operator had queued would sit there
-    // forever. Hand it over here instead: the host serialises it behind the
-    // agent rebuild the interrupt just started.
+    // drain against. On an operator PAUSE the drain gate (drainAtBoundary's
+    // isPaused check) keeps the held queue PENDING instead of handing it to a
+    // rebuilt agent — a later explicit new send clears the pause and the next
+    // boundary delivers it. Only non-operator drains (stall/expire aborts)
+    // fall through to the current handover behavior below.
     drainAtBoundary(shell, bag);
     // Clearing the last prompt is what stops the quota loop from replaying a
     // turn the operator (or the watchdog) deliberately stopped.
