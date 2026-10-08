@@ -1,10 +1,10 @@
 /**
  * Live progress for a dispatched sub-agent's pending transcript row, plus the
- * fleet-level roll-up of those lanes.
+ * fleet roll-up.
  *
- * The pending row lives for the worker's lifetime, not just the tool call in
- * flight — the immediate `{status:running}` result must not drop live clocks.
- * Lane and fleet share one stalled definition (`laneState` below).
+ * The pending row lives for the worker's lifetime, not just the tool call —
+ * the immediate `{status:running}` result must not drop live clocks. Lane and
+ * fleet share one stalled definition (`laneState`).
  */
 
 /** Minimal session shape this module reads — avoids a hard dep on the store. */
@@ -37,7 +37,7 @@ export interface AgentProgressSession {
 /**
  * What a lane is doing, not how long it has been alive.
  *
- * A worker inside one long tool call emits nothing, so silence alone cannot
+ * A worker in one long tool call emits nothing, so silence alone cannot
  * tell a wedged reactor from a long test run. `stalled` is quiet with no
  * outstanding tool to explain it — the only case an operator can act on.
  */
@@ -57,21 +57,20 @@ export interface AgentProgress {
 /**
  * Silence after which a running worker reads as hung rather than thinking.
  *
- * Grok routinely sits 60–120s between tool cycles, so a 2-minute bar painted
- * healthy gaps as stalled rows and drove dig/cascade thrash. Matches the
+ * Grok sits 60–120s between tool cycles, so a 2-minute bar painted healthy
+ * gaps as stalled rows and drove dig/cascade thrash. Matches the
  * 5-minute sub-agent stall nudge so UI and salvage agree on "quiet too long".
  */
 export const DEFAULT_STALL_MS = 300_000;
 
 /**
- * How long one tool call may stay outstanding before the lane reads as
- * stalled anyway.
+ * How long one tool call may stay outstanding before the lane reads stalled.
  *
  * Without it `in_tool` would be terminal: a wedged build or a shell blocked
- * on stdin would read as busy forever. Generous on purpose — real test
- * suites and builds run for minutes. Also backstops calls that never report
- * a result: the approval-suspend path emits no completion, so it would
- * otherwise leave a call outstanding forever.
+ * on stdin reads busy forever. Generous on purpose — real test suites and
+ * builds run for minutes. Also backstops calls that never report a result:
+ * the approval-suspend path emits no completion, so a call stays outstanding
+ * forever.
  */
 export const IN_TOOL_STALL_MS = 600_000;
 
@@ -130,8 +129,8 @@ export function agentLaneIsLive(session: {
  * Progress for a running session's pending row, or null once it has finished
  * (a terminal session resolves its row through the tool-result path instead).
  *
- * The number always explains the state: lifetime for a healthy lane, tool
- * runtime for one in a tool, silence length for a quiet one.
+ * The number explains the state: lifetime for a healthy lane, tool runtime
+ * for one in a tool, silence length for a quiet one.
  */
 export function agentProgress(
   session: AgentProgressSession,
@@ -151,8 +150,6 @@ export function agentProgress(
     };
   }
   const elapsed = clockLabel(nowMs - session.startedAt);
-  // Prefer the argument subject over the bare tool name so shell commands
-  // stay distinguishable.
   const preview = session.currentToolPreview;
   const tool = session.currentToolName;
   const subject =
@@ -197,11 +194,11 @@ export function agentProgress(
 }
 
 /**
- * What the whole fleet is doing, rolled up from the per-lane states.
+ * Fleet roll-up of the per-lane states.
  *
- * Without the roll-up the top-level indicator reports the parent's own
- * activity — mostly awaiting children at fleet scale — so it would read
- * "working" while every lane is stuck.
+ * Without it the top-level indicator reports the parent's own activity —
+ * mostly awaiting children — so it reads "working" while every lane is
+ * stuck.
  */
 export interface FleetProgress {
   readonly running: number;
