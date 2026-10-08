@@ -1,14 +1,13 @@
 /**
  * Delivery queue: mid-run queue / steer / interrupt state machine, the
- * serial operation chain that drains it, and the generation-gated delivery
- * hops.
+ * serial chain that drains it, and the generation-gated delivery hops.
  *
  * Pure data — no paint, no OpenTUI. Shell + demo own delivery and UI flash.
  *
  * Product chords: Enter mid-run → "steer" (drain at tool.boundary);
- * Alt+Enter mid-run → "queue" (drain only when the run goes idle).
- * "reinject" is a bridge/shell submit kind, not a QueueKind — no chord
- * wires it anymore; tests/API only.
+ * Alt+Enter mid-run → "queue" (drain only when idle). "reinject" is a
+ * bridge/shell submit kind, not a QueueKind — no chord wires it anymore;
+ * tests/API only.
  */
 
 import { AgentClosedError } from "@intx/agent";
@@ -253,7 +252,7 @@ export function setRunState(
 }
 
 /**
- * Enqueue a mid-run message. Whitespace-only is a no-op. Idle still
+ * Enqueue a mid-run message; whitespace-only is a no-op. Idle still
  * accepts into the bag for tests; the product shell routes idle Enter as
  * an immediate send instead.
  */
@@ -300,10 +299,9 @@ export function enqueueSteer(
 
 /**
  * Hard interrupt: stop the run, keep everything the operator queued.
- * Typing a correction then interrupting so it lands sooner is the common
- * shape, so discarding the queue would destroy the input the operator
- * most wanted delivered. Pending items survive to the next drain
- * boundary.
+ * The common shape is typing a correction then interrupting so it lands
+ * sooner, so discarding the queue would destroy that input. Pending items
+ * survive to the next drain boundary.
  */
 export function interrupt(state: SessionQueueState): SessionQueueState {
   return {
@@ -454,8 +452,8 @@ export function createSessionOperationQueue(): SessionOperationQueue {
 
 /**
  * Kind routing for drained queue items, plus a generation token so a
- * /clear|/new rotation drops in-flight delivers from the previous session.
- * Routing lives here, not on SessionPort.
+ * /clear|/new rotation drops in-flight delivers from the previous session;
+ * routing lives here, not on SessionPort.
  *
  * Live inject (`deliverSteer` → Agent.deliver) is only for an in-flight
  * parent tool.boundary; leftover steers at idle, idle-with-fleet, or
@@ -585,7 +583,10 @@ interface GenerationGatedHopArgs {
     attachments: readonly PendingImageAttachment[],
     settle?: DeliverySettle,
   ) => MaybeAsyncDeliveryResult;
-  /** Leftover/send settles from the send promise; live steer uses the callback. */
+  /**
+   * Leftover/send settles from the send promise; live steer uses the
+   * callback.
+   */
   settleFromHopResult?: boolean;
   recordSent?: (text: string) => void;
   captureGeneration: () => () => boolean;

@@ -2,15 +2,15 @@
  * Structured rendering of MCP tool results for the OpenTUI transcript.
  *
  * MCP servers answer with raw JSON — record lists (list_projects) or single
- * records (get_issue). Painted verbatim they are an unreadable dump, so we
- * derive a cell grid: a header + one row per record for lists, label/value
- * pairs for a single record, with status/priority tone and date truncation.
+ * records (get_issue). Painted verbatim they are unreadable, so we derive
+ * a cell grid: a header + one row per record for lists, label/value pairs
+ * for a single record, with status/priority tone and date truncation.
  * `TextTableRenderable` does the column alignment; we do not reimplement
  * layout.
  *
- * It also owns what a collapsed tool result says: one sentence derived
- * from the payload's shape ("Grabbed 10 Linear issues"), not from the
- * arguments that asked for it.
+ * It also owns the collapsed result's sentence, derived from the payload's
+ * shape ("Grabbed 10 Linear issues"), not from the arguments that asked
+ * for it.
  */
 
 import { isSameTool } from "../agent/canonical-tool-name.js";
@@ -381,7 +381,7 @@ function detailPlainText(detail: readonly StyledBodyLine[]): string {
 /**
  * A body worth an expand affordance: one that says something the summary
  * does not. An expansion that restates its own summary is worse than none,
- * so it is dropped here rather than painted with an arrow behind it.
+ * so it is dropped rather than painted with an arrow behind it.
  */
 function revealing(
   summary: string,
@@ -470,7 +470,7 @@ function recordSummary(
 /**
  * The one-sentence summary a tool result collapses to, derived from the
  * shape of what came back, not from the call that asked for it. Null when
- * the body is short enough (or literal enough) to read as itself.
+ * the body is short or literal enough to read as itself.
  */
 function resultSummary(input: ToolResultRowInput): ResultSummary | null {
   const content = input.content;

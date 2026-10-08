@@ -1,8 +1,7 @@
 /**
  * Submit path for the TUI runner: composer-line routing/classification, the
- * submit handler, the operator inbound-message builder, the send-failure
- * settle path, the full user-prompt send, and the host's queued/steer
- * deliver routing.
+ * submit handler, inbound-message building, send-failure settling, the
+ * full user-prompt send, and queued/steer deliver routing.
  */
 
 import { getLogger } from "@intx/log";
@@ -86,12 +85,12 @@ function hasKnownCommand(known: KnownCommandNames, name: string): boolean {
 }
 
 /**
- * What a submitted composer line is. A leading `/` is a slash command only
+ * What a submitted composer line is: a leading `/` is a slash command only
  * when its first token (lowercased, to whitespace) exactly matches a
- * registered command id; anything else — absolute paths, unknown slashes —
- * is a model prompt and reaches it verbatim. Bare `/` stays empty. Callers
- * omitting `knownCommands` keep the legacy any-leading-slash-is-a-command
- * rule; product call sites pass the registry set. The returned name is the
+ * registered id; anything else — absolute paths, unknown slashes — is a
+ * model prompt, sent verbatim. Bare `/` stays empty. Callers omitting
+ * `knownCommands` keep the legacy any-leading-slash-is-a-command rule;
+ * product call sites pass the registry set. The returned name is the
  * canonical lowercase id, so the exact `getCommand` lookup hits mixed-case
  * input like `/CLEAR`.
  */
@@ -119,7 +118,9 @@ export interface SubmitHandlerDeps {
     text: string,
     attachments?: readonly PendingImageAttachment[],
   ) => void;
-  /** Registry names a leading-`/` token may dispatch to (see routeSubmission). */
+  /**
+   * Registry names a leading-`/` token may dispatch to (see routeSubmission).
+   */
   knownCommands?: KnownCommandNames;
   /** Consent-by-proceeding hook: runs only for real prompts, never commands. */
   onPromptSubmitted?: () => void;
@@ -128,7 +129,10 @@ export interface SubmitHandlerDeps {
    * text (bare `/feedback` multi-turn mode) instead of a model prompt.
    */
   isFeedbackCapturePending?: () => boolean;
-  /** Consume the pending feedback arm and handle the text; return operator message. */
+  /**
+   * Consume the pending feedback arm and handle the text; return the
+   * operator message.
+   */
   onFeedbackText?: (text: string) => string;
   /** Drop a pending multi-turn /feedback arm (empty Enter cancel). */
   cancelFeedbackCapture?: () => void;
@@ -140,7 +144,6 @@ export interface SubmitHandlerDeps {
  * Composer submit handler: registered slash commands dispatch, anything else
  * goes to the model as a prompt. When feedback capture is armed (bare
  * `/feedback`), the next non-command line is captured as survey text.
- *
  * Returns an outcome so the session bridge keeps local-only submits off the
  * agent busy path and out of the mid-run queue.
  */
@@ -227,14 +230,17 @@ export function createSubmitHandler(
   };
 }
 
-/** Text sent alongside an image when the operator attached one without a prompt. */
+/**
+ * Text sent alongside an image when the operator attached one without a
+ * prompt.
+ */
 export const IMAGE_ONLY_PROMPT = "Please inspect the attached image.";
 
 /**
  * Build the inbound message for a genuine operator submit (sendUserPrompt /
  * the "send" command result), with or without attachments. Carries
  * OPERATOR_ORIGINATED_FLAG so director.ts's loop-protection backstop can
- * tell it apart from system-originated sends (compaction continuations,
+ * tell it from system-originated sends (compaction continuations,
  * retries, nudges).
  */
 export function userInboundMessage(
@@ -263,10 +269,10 @@ export function userInboundMessage(
 
 /**
  * Present at most one recovery surface when a send settles. The reconnect
- * offer re-auths the exact scope that failed, so it wins when armed and its
- * presenter is wired; otherwise the credential picker. An armed reconnect
- * with no presenter must not swallow the credential fallback; dismissing
- * never cascades — one offer per failure.
+ * offer re-auths the exact scope that failed, so it wins when armed and
+ * wired; otherwise the credential picker. An armed reconnect with no
+ * presenter must not swallow the credential fallback; dismissing never
+ * cascades — one offer per failure.
  */
 export function presentSendRecoveryOffer(args: {
   credential: PendingCredentialRecovery | null;
@@ -302,8 +308,8 @@ export function createSubmitPath(
   ) => SubmitOutcome;
 } {
   // Routed through the shell's notice path, not the transcript: anything
-  // said before the first turn arrives while the landing still owns the
-  // screen, and a transcript row there wipes the whole composition.
+  // said before the first turn arrives while the landing owns the screen,
+  // and a transcript row there wipes the whole composition.
   const systemNotice = (text: string): void => {
     surfaceSystemNotice(hostOf(state).shell, text);
   };

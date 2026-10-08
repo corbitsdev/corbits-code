@@ -127,11 +127,10 @@ function linkLinesChunks(
 }
 
 /**
- * Arm a text node as a link hit target over caller-built per-line spans:
- * Ctrl+hover highlights the URL; Ctrl+press and release on the same URL
- * opens it. Disarms when no line holds a URL — retexting the last URL
- * away must not leave stale handlers — and re-arming replaces handlers
- * rather than stacking.
+ * Arm a text node over caller-built per-line spans: Ctrl+hover highlights
+ * the URL; Ctrl+press and release on the same URL opens it. Disarms when
+ * no line holds a URL — retexting the last URL away must not leave stale
+ * handlers — and re-arming replaces handlers rather than stacking.
  *
  * The press keeps bubbling so drag-select starting on a URL still works;
  * release opens only on the pressed URL, so a Ctrl+drag selects instead.
@@ -367,7 +366,7 @@ function codeBlockLinkAt(
  * code block (assistant markdown paints through library CodeRenderables);
  * that first block decides — a wider ancestor may pair the same column
  * with a link the narrower block already rejected. TextRenderable rows
- * resolve in their own armed handlers. Never throws.
+ * resolve in their own armed handlers; this never throws.
  */
 export function markdownLinkAt(
   renderer: CliRenderer,

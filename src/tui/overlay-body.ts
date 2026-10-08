@@ -1,11 +1,11 @@
 /**
  * Text shaping for the decision overlay (permission approval, operator
- * question): the one framed surface shown when a human is asked to
- * authorize. A dithered header carries the subject, air separates it from
- * the context rows, and a trailing blank row keeps the choices off the
- * question. Consequence text lives here; the choices are bare action names
- * painted by the overlay list. Wrapping is on word boundaries; an over-long
- * token (path, URL) breaks at a separator, never blind at the column.
+ * question): the framed surface shown when a human is asked to authorize.
+ * A dithered header carries the subject, air separates it from the context
+ * rows, and a trailing blank row keeps the choices off the question.
+ * Consequence text lives here; the choices are bare action names painted
+ * by the overlay list. Wrapping is on word boundaries; an over-long token
+ * (path, URL) breaks at a separator, never blind at the column.
  */
 
 import { prefixIndexForWidth, stringWidth } from "./view/height.js";
@@ -130,10 +130,10 @@ export interface OverlayBodyRow {
 
 /**
  * Shape a decision body: the first non-empty line is the subject (tool or
- * operator question), the only row in the action color; the rest is context,
- * and a trailing blank row keeps the choices off the question. `contextLines`
- * budgets only context rows — header and air charge on top, so shaping never
- * costs a row of the command being approved.
+ * operator question), the only row in the action color; the rest is
+ * context; a trailing blank row keeps the choices off the question.
+ * `contextLines` budgets only context rows — header and air charge on top,
+ * so shaping never costs a row of the command being approved.
  */
 export function composeDecisionBody(
   text: string,
@@ -263,7 +263,7 @@ const DECISION_CONTEXT_BLANK_ROWS = 1;
 
 /**
  * Shrink the context budget so the chrome never crowds the choices or the
- * prompt floor down to a 10-row terminal: context shrinks first and drops
+ * prompt floor down to 10 rows: context shrinks first and drops
  * entirely on the shortest terminals, since an approval cannot render
  * without header and choices. Below 10 rows the resolver falls back to best
  * effort and may take rows from below the prompt floor.

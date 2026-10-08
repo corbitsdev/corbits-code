@@ -365,7 +365,7 @@ export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
  * dispatch fires several same-name calls, and only the id tells them apart.
  * A miss returns -1 — every live caller carries a real id, so a miss is a
  * genuine mismatch; falling through to the newest same-name row would
- * misattribute the result.
+ * misattribute it.
  *
  * The name scan runs only when `callId` is missing — pre-id history from
  * `history-hydrate.ts` is the only caller that omits it.
