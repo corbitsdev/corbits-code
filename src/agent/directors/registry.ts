@@ -1,10 +1,10 @@
 import { director as shakespeareDirector } from "@corbits/code-agent-shakespeare";
 import { director as proberDirector } from "@corbits/code-agent-prober";
+import { dispatchPackage } from "@corbits/code-agent-dispatch";
 import type { AgentProfile, CapabilityFilter } from "../profile-types.js";
 import { director as artistDirector } from "@corbits/code-agent-artist";
 import { coderPackage } from "./coder/package.js";
 import { designerPackage } from "./designer/package.js";
-import { dispatchPackage } from "@corbits/agent-dispatch";
 import { explorerPackage } from "./explorer/package.js";
 import { plannerPackage } from "./planner/package.js";
 import { qaLeadPackage } from "./qa-lead/package.js";

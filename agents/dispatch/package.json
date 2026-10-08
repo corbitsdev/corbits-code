@@ -1,5 +1,5 @@
 {
-  "name": "@corbits/agent-dispatch",
+  "name": "@corbits/code-agent-dispatch",
   "version": "0.1.0",
   "private": true,
   "type": "module",
