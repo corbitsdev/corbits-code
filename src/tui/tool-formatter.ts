@@ -22,10 +22,10 @@ export interface ToolCallDescriptor {
 }
 
 /**
- * One label table for both tool-name readers: the present-tense display name
- * and the settled head of a tool lane in past tense, keyed by the raw
- * identifier. Entries that existed in only one map carry the other reader's
- * old fallback value so both fallbacks below stay byte-identical.
+ * Label table shared by both tool-name readers: the present-tense display
+ * name and the past-tense lane head, keyed by the raw identifier. Entries
+ * unique to one map carry the other reader's old fallback so both stay
+ * identical.
  */
 const TOOL_LABELS: Record<string, { display: string; past: string }> = {
   read_file: { display: "Read", past: "Read" },
@@ -44,9 +44,8 @@ const TOOL_LABELS: Record<string, { display: string; past: string }> = {
   use_skill: { display: "Use Skill", past: "Loaded skill" },
 };
 
-// Brand of the active web plugin, set at startup when one overrides the
-// built-in provider; renders web_search/web_fetch as branded actions so it is
-// clear which backend served the call.
+// Brand of the active web plugin, set at startup; renders web_search/web_fetch
+// as branded actions so the backend is clear.
 let activeWebProviderBrand: string | undefined;
 
 export function setActiveWebProviderBrand(brand: string | undefined): void {
@@ -106,16 +105,15 @@ function toolRole(toolName: string): SemanticRole {
   }
 }
 
-// One source of truth for how a tool call presents: its human name, its action
-// colour, and its argument summary. run_shell is special-cased so the command
-// itself is the headline.
+// One source of truth for how a tool call presents: name, action colour, and
+// argument summary. run_shell's command is the headline.
 export function describeToolCall(
   toolName: string,
   rawArgs: string,
 ): ToolCallDescriptor {
-  // `present` carries a large view spec; never dump that JSON. On failure the
-  // tool_call stays in the transcript, so this line is all the user sees
-  // alongside the separate error — keep it labeled.
+  // `present` carries a large view spec; never dump that JSON. A failed call
+  // stays in the transcript, so this line is all the user sees — keep it
+  // labeled.
   if (toolName === "present") {
     return {
       display: "Render view",
@@ -143,8 +141,8 @@ export function describeToolCall(
     if (!(taskParsed instanceof type.errors)) {
       const agentName = taskParsed.agent?.trim();
       const description = (taskParsed.description ?? "").trim();
-      // description is optional on spawn; the brief's prompt is the next best
-      // subject so the row never falls through to raw argument JSON.
+      // description is optional on spawn; the prompt is the next best subject
+      // so the row never falls to raw argument JSON.
       const prompt = (taskParsed.prompt ?? "").trim();
       const subject = description.length > 0 ? description : prompt;
       const first = agentName?.[0];
@@ -180,10 +178,8 @@ export interface ToolResultSummary {
 
 const ARG_VALUE_MAX = 48;
 
-// The markdown renderer is roughly quadratic in content length (a 320KB API
-// dump blocks every frame for ~half a second). Past this size the document is
-// shown as plain text, which wraps in about a millisecond and adds nothing —
-// it only misreads JSON punctuation as emphasis.
+// The markdown renderer is roughly quadratic in content length; past this
+// size a JSON blob is shown as plain text instead.
 const MAX_JSON_DOCUMENT_CHARS = 32 * 1024;
 
 function shortenPath(p: string): string {
@@ -232,28 +228,22 @@ function scalarToString(value: unknown): string {
   return Array.isArray(value) ? `[${value.length} items]` : "{…}";
 }
 
-/**
- * Collapse a value to a single line and clip it to `max` columns with an
- * ellipsis. Shared by the result preview and the lane member subjects so the
- * limit lives at each call site but the collapse-and-clip logic lives once.
- */
+/** Collapse a value to one line, clipped to `max` columns with an ellipsis.
+ * Shared by the result preview and lane member subjects. */
 export function abbreviate(value: string, max: number): string {
   const oneLine = value.replace(/\s+/g, " ").trim();
   return oneLine.length <= max ? oneLine : oneLine.slice(0, max - 1) + "…";
 }
 
-/**
- * Render tool arguments as a human-readable "key: value" line rather than raw
- * JSON. The full form keeps every pair on its own line for the Alt+E reveal.
- */
+/** Render tool arguments as a "key: value" line rather than raw JSON; the
+ * full form keeps every pair on its own line for the Alt+E reveal. */
 export function summarizeToolArgs(
   toolName: string,
   rawArgs: string,
 ): ToolArgSummary {
   const obj = tryParseObject(rawArgs);
 
-  // Known file tools read cleanly as just their path, mirroring the result
-  // row ("Write donut_anim.py" next to "Wrote donut_anim.py").
+  // File tools read cleanly as just their path, mirroring the result row.
   switch (toolName) {
     case "write_file":
     case "edit_file":
@@ -267,8 +257,8 @@ export function summarizeToolArgs(
     }
     case "spawn_agent":
     case "task": {
-      // Spawns carry a large structured brief; the transcript only needs a
-      // short subject — prefer description, then prompt.
+      // Spawns carry a large brief; the transcript only needs a short subject
+      // — description, then prompt.
       const parsed = TaskArgSchema(obj);
       if (!(parsed instanceof type.errors)) {
         const desc = (parsed.description ?? "").trim();
@@ -285,7 +275,7 @@ export function summarizeToolArgs(
   }
 
   if (obj === null) {
-    // Not a JSON object: show whatever we got, abbreviated, never as a blob.
+    // Not a JSON object: show it abbreviated, never as a blob.
     const fallback = rawArgs.trim();
     return { summary: abbreviate(fallback, ARG_VALUE_MAX * 2), full: fallback };
   }
@@ -452,8 +442,8 @@ export function mergedToolCollapsedPreview(
   }
 
   if (toolName === "spawn_agent" || toolName === "task") {
-    // describeToolCall already curates the spawn brief to a short description;
-    // reusing it here keeps the collapsed row free of prompt/intent/criteria dumps.
+    // describeToolCall already curates the brief to a short description;
+    // reuse it so the row stays free of brief dumps.
     const { display, summary } = describeToolCall(toolName, rawArgs);
     if (summary.length > 0) return `${display} ${summary} — ${outcomePreview}`;
     return `${display} — ${outcomePreview}`;
@@ -485,8 +475,8 @@ function pathFromResult(_toolName: string, content: string): string | null {
   return null;
 }
 
-// Worker reports are either "Sub-agent \"desc\" reported:\n\n## Summary\n..."
-// or a cancel notice. Pull a one-line human preview without leaking markdown headers.
+// Worker reports are a cancel notice or a "Sub-agent reported: ## Summary"
+// envelope; pull a one-line preview without leaking markdown headers.
 function summarizeTaskResultPreview(content: string): string {
   const trimmed = content.trim();
   if (/^Sub-agent ".+" cancelled/i.test(trimmed)) {
@@ -610,11 +600,8 @@ function webFetchSummary(raw: string): ToolResultSummary | null {
   };
 }
 
-/**
- * Collapse a tool result to a single human-readable preview line; the raw
- * content stays in `full` for the Alt+E reveal. `isJSONDocument` is true only
- * when the content is genuinely a JSON document worth reading as JSON.
- */
+/** Collapse a tool result to one readable preview line; raw content stays in
+ * `full` for the Alt+E reveal. */
 export function summarizeToolResult(
   toolName: string,
   rawResult: string,
@@ -622,9 +609,8 @@ export function summarizeToolResult(
   const content = rawResult;
   const full = content;
 
-  // MCP results are arbitrary, often enormous JSON — dumping them verbatim
-  // freezes the TUI, so render a compact summary and never flag it as a JSON
-  // document.
+  // MCP results are arbitrary, often enormous JSON; dumping them freezes the
+  // TUI, so render a compact summary, never a document.
   if (isMcpToolName(toolName)) {
     const summary = formatMcpResult(content);
     return {
@@ -643,8 +629,8 @@ export function summarizeToolResult(
     if (fetchSummary !== null) return fetchSummary;
   }
 
-  // read_file line-numbers its output ("     1\t<line>"); strip those prefixes
-  // before JSON detection or a real .json file never matches.
+  // read_file line-numbers its output; strip the prefixes before JSON
+  // detection or a .json file never matches.
   const contentForDetection =
     toolName === "read_file" ? stripLineNumbers(content) : content;
   const isJSONDocument = isUserFacingJSON(contentForDetection);
@@ -688,19 +674,19 @@ export function summarizeToolResult(
       break;
     }
     case "spawn_agent": {
-      // Live payload is `{"agent_id","status":"running"}`. Historical fused
-      // spawn+wait bodies still peel the report envelope.
+      // Live payload is `{"agent_id","status":"running"}`; fused spawn+wait
+      // history still peels the report envelope.
       preview = summarizeSpawnAgentResultPreview(content);
       break;
     }
     case "wait_agents": {
-      // Collect returns `{results:[{report}], timed_out}`. Peel ## Summary from
-      // the first report so raw markdown headings never leak into the transcript.
+      // Collect returns `{results:[{report}], timed_out}`; peel ## Summary so
+      // markdown headings never leak into the transcript.
       preview = summarizeWaitAgentsResultPreview(content);
       break;
     }
     case "task": {
-      // Resume of a retired fused spawn: format the old report envelope without
+      // Resume of a retired fused spawn: format the old envelope without
       // remounting a callable `task` tool.
       preview = summarizeTaskResultPreview(content);
       break;
@@ -731,13 +717,11 @@ export function summarizeToolResult(
 }
 
 /**
- * Whether raw content is a JSON document worth showing as JSON. Tool results
- * are plain strings, and most never return JSON (line-numbered file content,
- * "wrote N bytes", shell output); a few do (reading a .json file). So the
- * rule is: it must parse as JSON and be a non-trivial object or array. Bare
- * scalars and empty containers are status values, not documents; oversized
- * documents are excluded so the markdown renderer never chokes on a huge blob
- * (see MAX_JSON_DOCUMENT_CHARS).
+ * Whether raw content is a JSON document worth showing as JSON. Most tool
+ * results are plain strings; a few (reading a .json file) are documents. The
+ * rule: it must parse as JSON and be a non-trivial object or array. Bare
+ * scalars, empty containers and oversized blobs (see MAX_JSON_DOCUMENT_CHARS)
+ * are status values, not documents.
  */
 export function isUserFacingJSON(raw: string): boolean {
   const trimmed = raw.trim();
