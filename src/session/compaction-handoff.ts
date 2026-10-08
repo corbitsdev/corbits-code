@@ -2,20 +2,18 @@
 //
 // SPDX-License-Identifier: GPL-2.0-only WITH AI-Exception-2.0
 //
-// A fold writes a fat structured handoff file (goal, constraints, decisions,
-// evidence markers, files, commands, verification, dead ends, next actions,
-// verbatim exact-facts appendix) under one STABLE key every fold overwrites,
-// plus a thin spine in the live prompt: goal cut at a token boundary, standing
-// output tokens uncut, top constraints/decisions, cumulative evidence echo,
-// activated tools, and a tool-output:/// pointer back to the file.
+// A fold writes a fat structured handoff file (the HandoffArtifact sections)
+// under one STABLE key every fold overwrites, plus a thin spine in the live
+// prompt: goal cut at a token boundary, standing output tokens uncut, top
+// constraints/decisions, cumulative evidence echo, activated tools, and a
+// tool-output:/// pointer back to the file.
 //
 // Everything carried is verbatim out of the folded turns — never paraphrased —
-// so exact facts (paths, commands, counts, decisions) survive. Each fold
-// unions the prior file with fresh detail. The spine starts with
-// COMPACTED_PREFIX so the compactor's foldable-handoff detection picks it up
-// and it never becomes an anchor. A dropped prior spine passes the
-// completeness gate only when its bytes are archived as a user_message or
-// still verbatim in the output.
+// so exact facts survive; each fold unions the prior file with fresh detail.
+// The spine starts with COMPACTED_PREFIX so the compactor's foldable-handoff
+// detection picks it up. A dropped prior spine passes the completeness gate
+// only when its bytes are archived as a user_message or still verbatim in the
+// output.
 
 import { ArkErrors, type } from "arktype";
 import type { ConversationTurn, StrategyBlob } from "@intx/types/runtime";
@@ -26,15 +24,14 @@ import { VERIFY_REPAIR_HEADING } from "./compaction-verify.js";
 export const COMPACTED_PREFIX = "[Compacted prior context]";
 
 // Stable blob key for the fat handoff file; every fold overwrites the same
-// key, unioning with the prior file so no verbatim fact is lost.
+// key.
 export const HANDOFF_LATEST_KEY = "compaction-handoff-latest.md";
 
 const HANDOFF_TOOLS_LINE_PREFIX =
   "Tools still activated and callable directly (no tool_search needed): ";
 const HANDOFF_OUTPUT_LINE_PREFIX = "Output: ";
 
-// The fat file's sections. Every entry is verbatim from the folded turns or
-// a prior file/spine, never a paraphrase.
+// The fat file's sections; every entry is verbatim.
 export const HandoffArtifact = type({
   version: "'1'",
   goal: "string",
@@ -509,10 +506,8 @@ export interface HandoffExtractOpts {
 
 /**
  * Build the artifact from the folded turns plus the fold's own summary.
- * Verbatim: paths, commands, counts, evidence markers, and decisions come
- * straight out of the turns and the prior file, never rewritten. Prior spine
- * turns contribute their carried facts and are skipped so the spine is not
- * double-counted as a fresh turn.
+ * Prior spine turns contribute their carried facts and are skipped so the
+ * spine is not double-counted as a fresh turn.
  */
 export function extractHandoffArtifact(
   foldedTurns: readonly ConversationTurn[],
@@ -896,10 +891,9 @@ export interface HandoffFold {
 }
 
 /**
- * Build one fold's handoff: extract the verbatim artifact from the folded
- * turns (unioned with the previous fat file when provided), render the fat
- * file under the stable latest key, and return the thin spine carrying the
- * file's pointer.
+ * Build one fold's handoff: extract the artifact from the folded turns
+ * (unioned with the previous fat file when provided), render the fat file,
+ * and return the thin spine carrying the file's pointer.
  */
 export function buildHandoffFold(
   foldedTurns: readonly ConversationTurn[],

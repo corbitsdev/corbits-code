@@ -214,8 +214,7 @@ function persistBestEffort(
  * Route a gate-persisted grant to the store its scope selects. Session
  * grants never reach here — the gate keeps those in memory only.
  * `getActiveProviderModel` is read at persist time so a live model switch
- * stores under the pair now in use. Disk failures are logged, noticed, and
- * swallowed so they cannot crash the session.
+ * stores under the pair now in use.
  */
 export function createApprovalPersist(
   cwd: string,
@@ -451,9 +450,7 @@ export interface SessionPruningCompactorArgs {
   onFailure?: (text: string) => void;
   /**
    * True when the lifecycle has discarded (or will discard) the in-flight
-   * compact — e.g. bound to the lifecycle's signal. A fold the outer abort
-   * race threw away must report nothing: no telemetry, no onFolded for work
-   * that never landed.
+   * compact — e.g. bound to the lifecycle's signal.
    */
   isAborted?: () => boolean;
   /**

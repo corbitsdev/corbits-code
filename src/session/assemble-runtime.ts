@@ -384,10 +384,10 @@ export interface AdvertisedToolset {
  * re-gates without rebuilding the agent.
  *
  * Activation and advertisement are split on purpose: activating opens the
- * call gate at once (isAdvertised flips); flushPromotions copies names onto
- * the next infer's wire array (promote-on-execute flushes the one called
- * name, tool_search only the top ranked hits). Fold is a free cache break —
- * pruneIdlePromotions drops the advertised tail back to the prefix.
+ * call gate at once; flushPromotions commits names onto the wire
+ * (promote-on-execute flushes the one called name, tool_search only the top
+ * ranked hits). Fold breaks the cache prefix — pruneIdlePromotions drops the
+ * advertised tail back to it.
  *
  * `pinnedTools` (local settings) merge into the prefix — advertised from the
  * first turn and exempt from activation state, so resume needs no
@@ -408,9 +408,8 @@ export function createAdvertisedToolset(args: {
     ...(args.pinnedTools ?? []).filter((name) => !builtIn.includes(name)),
   ];
   const activated = createActivatedToolTracker();
-  // Wire-committed activations: names join via flushPromotions
-  // (promote-on-execute, cache-safe boundaries for resume); clear() resets
-  // both so a rotated session restarts at the prefix.
+  // Wire-committed activations; clear() resets both so a rotated session
+  // restarts at the prefix.
   let wireActivated: string[] = [];
   const wireActivatedSet = new Set<string>();
   const advertised: ActivatedToolTracker = {
@@ -446,9 +445,7 @@ export function createAdvertisedToolset(args: {
         ? prefix
         : prefix.filter((name) => !denied.includes(name));
     const gatedPrefix = foldFileToolNames(rawGated, profile);
-    // The wire carries only the prefix plus wire-committed activations;
-    // fresh ones open the call gate but stay off until flushPromotions
-    // commits them.
+    // The wire carries only the prefix plus wire-committed activations.
     return normalizeToolDefinitionsForProvider(
       advertisedTools(all, wireActivated, gatedPrefix, profile),
       {

@@ -3,10 +3,7 @@
 // On compaction the pruning compactor replaces older turns with a summary. A
 // deterministic stats blob loses what resuming work needs, so this module
 // writes a structured, workflow-aware narrative via one inference call
-// against the session's own model. Empty output or a failed call throws so
-// the compact cycle can substitute a statistics-only stub. The operator
-// notice for that fallback is owned by the session pruning wrapper, which
-// fires it only after the fold commits.
+// against the session's own model.
 
 import { type } from "arktype";
 import { runInference, type Dependencies } from "@intx/inference";
@@ -299,10 +296,8 @@ export function buildSummaryPrompt(
   return `${contextPreamble(ctx)}Session excerpt:\n\n${body}`;
 }
 
-// Per-call wall-clock cap for the summary call. Compaction runs inline on the
-// reactor, so inheriting the director's 600 s budget would freeze the session
-// for the full window; the prompt is small, so a slow answer is a stuck call,
-// not a thinking model.
+// Per-call wall-clock cap for the summary call; compaction runs inline on the
+// reactor, so a slow answer is a stuck call, not a thinking model.
 export const DEFAULT_SUMMARIZER_TIMEOUT_MS = 90_000;
 
 // The harness would retry retryable and timeout categories up to three times
@@ -542,8 +537,7 @@ export function createModelSummarizer(
         // A lifecycle abort is operator intent, not a summarizer failure: the
         // wrapCompactor race already returns its no-op fold and the lifecycle
         // emits its own "interrupted" notice, so a summarizer_failure event
-        // would be noise. Stay silent and rethrow so the race resolves as an
-        // abort.
+        // would be noise.
         if (failureClass === "aborted" && signal.aborted) throw err;
         const source = options.getSource();
         telemetry.capture("summarizer_failure", {

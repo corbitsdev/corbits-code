@@ -92,7 +92,7 @@ function sanitizeCallId(callId: string): string {
  * anywhere and keeps surrounding history — used by `loadRecentTurns` and
  * the reactor's `load()` recovery path, since killing the session on one
  * bad line was worse than a hole in history. A truncated stub glued to the
- * next append (no newline) still yields a trailing complete turn via
+ * next append still yields a trailing complete turn via
  * `recoverTurnFromGluedLine`.
  */
 function recoverTurnFromGluedLine(line: string): ConversationTurn | null {
