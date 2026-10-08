@@ -185,10 +185,9 @@ export function dropOrphanedOAuthEntries(
   };
 }
 
-// A codex/<slug> or xai/<slug> settings row carrying its own credential is
-// the operator's explicit config, not an OAuth placeholder: projections must
-// never overwrite or orphan-sweep it. Credential-less namespaced rows stay
-// placeholders.
+// A codex/<slug> or xai/<slug> row with its own credential is explicit
+// config, not an OAuth placeholder: projections must never overwrite or
+// orphan-sweep it. Credential-less namespaced rows stay placeholders.
 function isHandNamedProviderEntry(
   entry: Pick<ProviderSettings, "apiKey" | "keyless"> | undefined,
 ): boolean {
@@ -307,13 +306,11 @@ export function buildOpenAISource(fields: {
 // One configured provider the /agent modal can switch to. Carries credentials
 // (live switching builds an InferenceSource from it; the modal never sees the
 // key). Derived from ProviderSettings so a new required field forces every
-// catalog literal to supply it. `name` is required (every entry is a concrete
-// provider id); `contextWindow` is dropped (settings-only, never surfaced).
-// OAuth-profile markers have no ProviderSettings counterpart — such entries
-// are never written to settings.json (credentials live in the Codex/xAI auth
-// stores). Optional fields still need the round-trip test in config.test.ts:
-// TS does not flag a missing optional property against an explicitly-typed
-// literal, so forwarding one is only caught at runtime.
+// catalog literal to supply it; `name` is required (a concrete provider id);
+// `contextWindow` is dropped (settings-only, never surfaced). OAuth-profile
+// markers have no ProviderSettings counterpart and are never written to
+// settings.json. Optional fields still need the config.test.ts round-trip:
+// TS misses a missing optional property on an explicitly-typed literal.
 export type ProviderCatalogEntry = Omit<
   ProviderSettings,
   "name" | "contextWindow"
@@ -343,11 +340,10 @@ export type ProviderCatalogEntry = Omit<
   verified?: boolean;
 };
 
-// Build the InferenceSource for a Codex OAuth profile. Routes to the
-// "codex-responses" adapter (Codex speaks the Responses API, not Chat
-// Completions) and carries the session id through providerOptions. The access
-// token and account id register together in the credential cell; the harness
-// resolves both at send time.
+// Build the InferenceSource for a Codex OAuth profile: routes to
+// "codex-responses" (Codex speaks the Responses API, not Chat Completions)
+// and carries the session id through providerOptions; the access token and
+// account id register together in the credential cell.
 export function buildCodexSource(fields: {
   id: string;
   profile: string;
@@ -380,12 +376,11 @@ export function buildCodexSource(fields: {
   };
 }
 
-// Build the InferenceSource for an xAI/Grok OAuth profile. Routes to the
-// "grok-responses" adapter (the grok-cli proxy speaks the Responses API, not
-// Chat Completions). The adapter decodes the caller's user id from the access
-// token into the x-grok-user-id header. The session id becomes
-// prompt_cache_key so every call in the thread routes to the same cache shard
-// (store:false has no other signal).
+// Build the InferenceSource for an xAI/Grok OAuth profile: routes to
+// "grok-responses" (the grok-cli proxy speaks the Responses API, not Chat
+// Completions); the adapter decodes the caller's user id from the token into
+// x-grok-user-id. Session id becomes prompt_cache_key so every call in the
+// thread routes to the same cache shard (store:false has no other signal).
 export function buildXaiSource(fields: {
   id: string;
   profile: string;
@@ -885,12 +880,11 @@ export async function loadConfig(
 
   let cwd = process.cwd();
   let dangerouslySkipPermissions = false;
-  // Auto mode is the default: non-destructive consequential actions (file
-  // writes/edits, unconstrained shell) run without prompting; shell
-  // file-mutation stays denied and installs / recursive rm / worktree /
-  // sensitive-path / opaque-wrapper shell still ask. --no-auto reverts to
-  // ask-on-every-write. No in-session key toggles auto; Shift+Tab cycles
-  // reasoning effort instead.
+  // Auto mode: non-destructive consequential actions (file writes/edits,
+  // unconstrained shell) run unprompted; shell file-mutation stays denied and
+  // installs / recursive rm / worktree / sensitive-path / opaque-wrapper
+  // shell still ask. --no-auto reverts to ask-on-every-write; no in-session
+  // key toggles auto (Shift+Tab cycles reasoning effort instead).
   let auto = true;
   let director: DirectorId | undefined;
   let configPath: string | undefined;
@@ -1028,8 +1022,7 @@ export async function loadConfig(
   // provider *definitions* come from, so OAuth profiles must still merge in or
   // every codex/xai OAuth run through --config reaches the provider
   // unauthenticated. Only the programmatic `globalSettingsPath` test override
-  // (never a CLI flag) opts out — tests want a fully controlled provider set
-  // with no home-directory reads at all.
+  // (never a CLI flag) opts out — tests want no home-directory reads.
   const useOAuthProfiles = options.globalSettingsPath === undefined;
   const [codexProfiles, xaiProfiles]: [CodexProfile[], XaiProfile[]] =
     useOAuthProfiles
@@ -1058,9 +1051,8 @@ export async function loadConfig(
           { persist: true },
         );
 
-  // Track whether the value came from the settings source rather than this
-  // invocation's --dangerously-skip-permissions flag, so TUI/exec entry points
-  // can surface a startup notice for the silent case.
+  // True when the value came from settings, not this invocation's
+  // --dangerously-skip-permissions flag (Config.skipPermissionsFromSettings).
   const skipPermissionsFromSettings =
     !dangerouslySkipPermissions &&
     settings?.dangerouslySkipPermissions === true;
@@ -1290,23 +1282,21 @@ export async function loadConfig(
 }
 
 // Settings-file providers plus Codex/xAI OAuth profile-store entries, merged
-// the same way loadConfig assembles Config.providers. Exposed so a live
-// provider connect (mid-session, no restart) can rebuild the picker's catalog
-// after writing new credentials, instead of waiting for the next process start.
+// the way loadConfig assembles Config.providers. Exposed so a live provider
+// connect (mid-session, no restart) can rebuild the picker's catalog after
+// writing new credentials.
 //
 // Credential-removal convergence is rebuild-only: every rebuild derives rows
 // from the current settings file plus the live Codex/xAI stores, so a
 // provider without a credential is rebuilt without one and re-auth restores
-// it on the next rebuild. Settings-file rows are re-projected verbatim and
+// it on the next rebuild. Settings-file rows pass through verbatim and are
 // never deleted — one exception: the legacy bare `codex`/`xai` row dedupe
 // (below). A dedicated disabled flag was rejected (no removal event drives a
-// refresh — there is no logout/disconnect surface or auth-store watcher), so
-// removal takes effect on the next rebuild, not live.
+// refresh — there is no logout/disconnect surface or auth-store watcher).
 //
 // Compare a settings-row baseURL against the OAuth endpoint so a proxy/mirror
 // row is never mistaken for the legacy bare-row duplicate; normalization
-// failures fall back to a trailing-slash-insensitive compare rather than
-// dropping a row whose URL cannot be parsed.
+// failures fall back to a trailing-slash-insensitive compare.
 function sameEndpoint(raw: string | undefined, oauthBaseURL: string): boolean {
   if (raw === undefined) return false;
   const normalized = (value: string): string => {
