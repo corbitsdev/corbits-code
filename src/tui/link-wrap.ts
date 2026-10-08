@@ -12,20 +12,18 @@ import {
 } from "./link-spans.js";
 
 /**
- * Split pre-wrapped plain-row lines so a URL broken across continuation
- * lines resolves to one target: every fragment highlights and opens the
- * full URL.
+ * Rejoin URL fragments split across continuation lines so every fragment
+ * highlights and opens the full URL.
  *
  * `wrapWidth` is the painted width the row was wrapped at. A chain starts
- * only on a full line ending in a URL run and continues only through full
- * lines; a short line ends it unless nothing textual follows — a short
- * line with text after it is a natural break, not a wrap. A chain is
- * accepted when its fragments reassemble to one of `sourceUrls`, the
- * links the row's pre-wrap text actually holds: word wrap can orphan a
- * short fragment line with wrapped text after it, indistinguishable from
- * a natural break by geometry alone. Without known source URLs the joined
- * candidate must still scan as exactly one clean http(s) URL, so an
- * unfortunate break cannot fuse two unrelated runs.
+ * on a full line ending in a URL run and continues through full lines; a
+ * short line ends it unless no text follows (then a natural break, not a
+ * wrap). A chain is accepted when its fragments reassemble to one of
+ * `sourceUrls`, the row's real links: wrap can orphan a short fragment
+ * with text after it, indistinguishable from a natural break by geometry.
+ * Without known source URLs the joined candidate must still scan as
+ * exactly one clean http(s) URL, so a break cannot fuse two unrelated
+ * runs.
  */
 export function splitWrappedLinkSpans(
   lines: readonly { text: string; fg: string }[],

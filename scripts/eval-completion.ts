@@ -2,14 +2,14 @@
 /**
  * Task-completion baseline runner.
  *
- * Runs the frozen task set (evals/completion/tasks.json) end to end through
- * the production agent loop with the mock inference stack (no network, no
- * provider credentials): each task's version-controlled responder script
- * plays the model, the real reactor/director/toolset executes, and the
- * task's verify.sh grades the outcome. Reports completion rate plus the
- * control-layer secondary signals (turns, failed tool calls, compaction
- * events, doom-loop/thrash interventions, wall clock) as JSON and a human
- * summary.
+ * Runs the frozen task set (evals/completion/tasks.json) end to end
+ * through the production agent loop with the mock inference stack (no
+ * network, no provider credentials): each task's version-controlled
+ * responder script plays the model, the real reactor/director/toolset
+ * executes, and verify.sh grades the outcome. Reports completion rate
+ * plus control-layer signals (turns, failed tool calls, compaction
+ * events, doom-loop/thrash interventions, wall clock) as JSON and a
+ * human summary.
  *
  * Scripted responders isolate the control layer from model variance on
  * purpose: solve/decline/stall profiles exercise finish, decline, and
@@ -19,14 +19,15 @@
  *   bun scripts/eval-completion.ts --repeats 2 --out evals/completion/baseline-<YYYY-MM-DD>.json
  * The task set is frozen — never edit tasks.json, per-task
  * script.json/verify.sh/fixture, or a recorded baseline to hit a target
- * number; a task-set change needs a version bump plus a new baseline file.
+ * number; a task-set change needs a version bump plus a new baseline.
  *
- * TRUST BOUNDARY: the version-controlled files under evals/completion/tasks/
- * are the trusted grading boundary — edits there are grading changes
- * requiring owner review. A custom --tasks JSON file is untrusted: its
- * fixture/script/verify references are confined to evals/completion/ (see
- * resolveTaskRelativePath; absolute paths and `..` escapes are rejected)
- * before any fixture copy or grader spawn.
+ * TRUST BOUNDARY: the version-controlled files under
+ * evals/completion/tasks/ are the trusted grading boundary — edits
+ * there are grading changes requiring owner review. A custom --tasks
+ * JSON file is untrusted: its fixture/script/verify references are
+ * confined to evals/completion/ (see resolveTaskRelativePath; absolute
+ * paths and `..` escapes are rejected) before any fixture copy or
+ * grader spawn.
  */
 
 import { cpSync } from "node:fs";

@@ -169,20 +169,20 @@ export async function revokePathPlugin(
 }
 
 /**
- * One-shot migration: seed the global store from `settings.pluginPaths` when
- * the store file is missing (first launch). Entries are consent — they live
- * in the user's global settings — so every registered path that resolves to
- * a plugin on disk is granted, UI confirmation or not. Once the file exists,
- * grants come only from add-by-path / enable; project stores gate repo dirs,
- * which never appear in pluginPaths.
+ * One-shot migration: seed the global store from `settings.pluginPaths`
+ * when the store file is missing (first launch). Entries are consent in
+ * the user's global settings, so every registered path resolving to a
+ * plugin on disk is granted, UI confirmation or not. Once the file
+ * exists, grants come only from add-by-path / enable; project stores
+ * gate repo dirs, which never appear in pluginPaths.
  *
- * `resolveMembers` expands each registered path to its existing plugin dirs
- * (callers supply it, so this module stays free of the plugin loader);
- * `onMigrated` fires only on the seeding run.
+ * `resolveMembers` expands each registered path to its existing plugin
+ * dirs (callers supply it, so this module stays free of the plugin
+ * loader); `onMigrated` fires only on the seeding run.
  *
  * A corrupt store refuses to seed — re-granting would undo an explicit
- * revoke; the file stays untouched (plugins stay metadata-only) until the
- * user deletes it to re-seed or re-consents.
+ * revoke; the file stays untouched (plugins stay metadata-only) until
+ * the user deletes it to re-seed or re-consents.
  */
 export async function migratePathTrustFromPluginPaths(
   pluginPaths: string[],

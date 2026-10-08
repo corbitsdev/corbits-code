@@ -9,8 +9,9 @@
  *   UpdateFile := "*** Update File: " path NEWLINE [ "*** Move to: " path NEWLINE ] { Hunk }
  *   Hunk := "@@" [ " " header ] NEWLINE { (" "|"-"|"+") text NEWLINE } [ "*** End of File" NEWLINE ]
  *
- * Stacked `@@` anchors (class → method) parse as header-only hunks that advance
- * the apply cursor before the hunk carrying +/- lines. Parse + string apply only.
+ * Stacked `@@` anchors (class → method) parse as header-only hunks
+ * advancing the apply cursor before the +/- hunk. Parse + string apply
+ * only.
  */
 
 import { isAbsolute } from "node:path";

@@ -125,18 +125,18 @@ export async function readExtraSegmentTexts(
 
 /**
  * Append-oriented JSONL snapshot writer. Full-history rewrites are
- * O(session length) per turn, and re-hashing one ever-growing file on every
- * `git add` is O(session length) per commit; instead this writer serializes
- * only records past the longest unchanged prefix (matched by reference) and
- * rolls the file into fixed-size segments, so sealed segments never change
- * and only the active one re-hashes.
+ * O(session length) per turn and re-hash one ever-growing file on every
+ * `git add`; instead this writer serializes only records past the
+ * longest unchanged prefix (matched by reference) and rolls the file
+ * into fixed-size segments, so sealed segments never change and only
+ * the active one re-hashes.
  *
  * A compaction rewrite replaces the record objects, fails the reference
- * match, truncates back to the first changed record, and deletes stale later
- * segments. The writer is process-local: a fresh writer has no in-memory
- * state, so its first write discovers and deletes stale on-disk segments,
- * or a rewrite leaves orphan tails the next load concatenates back into
- * history (duplicate tool_call ids).
+ * match, truncates back to the first changed record, and deletes stale
+ * later segments. Process-local: a fresh writer has no in-memory state,
+ * so its first write discovers and deletes stale on-disk segments; a
+ * rewrite otherwise leaves orphan tails the next load concatenates back
+ * into history (duplicate tool_call ids).
  */
 export function createSegmentedJSONLWriter(
   dir: string,

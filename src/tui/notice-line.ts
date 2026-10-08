@@ -1,16 +1,16 @@
 /**
  * The transient notice row.
  *
- * No permanent status strip exists: keys are discoverable from the landing
- * screen and palette, and the prompt box's border already carries the model
- * and workspace. The row shows state that is only sometimes true — a steer
- * waiting on a tool, a copy result, pinned scroll, attachments — and only
- * while it has something to say; at defaults it composes empty and the
- * shell hides it.
+ * No permanent status strip exists: keys are discoverable from the
+ * landing screen and palette, and the prompt box's border already
+ * carries the model and workspace. The row shows only-sometimes-true
+ * state — a steer waiting on a tool, a copy result, pinned scroll,
+ * attachments — and only while it has something to say; at defaults it
+ * composes empty and the shell hides it.
  *
  * MCP authorization and a live turn are not notice concerns: the border
- * already carries both (the `mcp !` marker; the running state), so a ramp
- * here would repeat it.
+ * already carries both (the `mcp !` marker; the running state), so a
+ * ramp here would repeat it.
  *
  * Pure: no renderer access, so the wording is testable without a frame.
  */
