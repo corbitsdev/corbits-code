@@ -1,4 +1,5 @@
-/** Persist close_agent must surface a leftover-child posix dispose, not treat it as a bounded close. */
+/** Persist close_agent must surface a leftover-child posix dispose, not
+ * treat it as a bounded close. */
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";

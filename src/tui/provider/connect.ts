@@ -31,7 +31,8 @@ export interface ConnectProviderInput {
 
 export interface ConnectProviderResult {
   readonly connected: boolean;
-  /** Settings/catalog provider name to select once connected (may differ from `providerId` for OAuth). */
+  /** Settings/catalog provider name to select once connected (may differ
+   * from `providerId` for OAuth). */
   readonly providerName?: string;
   readonly model?: string;
 }

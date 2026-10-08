@@ -284,7 +284,8 @@ export async function discoverSessionPlugins(
   ]);
 }
 
-/** Skill directories from plugins that are executable and enabled (settings or repo defaultEnabled). */
+/** Skill directories from plugins that are executable and enabled (settings
+ * or repo defaultEnabled). */
 export function skillDirsFromEnabledPlugins(
   modules: readonly PluginModule[],
   pluginConfig: Record<string, PluginConfig | undefined>,
@@ -646,7 +647,8 @@ export function buildFleetDryContinuationMessage(text: string): InboundMessage {
   };
 }
 
-/** System-originated inbound re-entering the parent when mailbox mail (worker terminal or fail) is ready; not operator input. */
+/** System-originated inbound re-entering the parent when mailbox mail
+ * (worker terminal or fail) is ready; not operator input. */
 export function buildMailboxMailMessage(text: string): InboundMessage {
   return {
     ref: { uid: 0, mailbox: "system" },

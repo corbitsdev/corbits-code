@@ -26,7 +26,8 @@ const longState = {
   })),
 } as unknown as ReactorState;
 
-// Freeze time: with the real clock, a load gap over the 30ms stall window would trip a spurious nudge on empty pings.
+// Freeze time: with the real clock, a load gap over the 30ms stall window
+// would trip a spurious nudge on empty pings.
 const frozenNow = () => 0;
 
 function makeDirector(): {
@@ -1435,7 +1436,8 @@ describe("SubAgentDirector idle stall ping", () => {
     expect(early.some((action) => action.type === "infer")).toBe(false);
     expect(early.some((action) => action.type === "checkpoint")).toBe(false);
 
-    // In-window waits do not restart the silence clock; one stall timeout from the original activity still nudges.
+    // In-window waits do not restart the silence clock; one stall timeout
+    // from the original activity still nudges.
     setNow(8_000_000 + 1_000);
     const nudge = actions(
       await director.decide(messageReceived(""), state, caps),

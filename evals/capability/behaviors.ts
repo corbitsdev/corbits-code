@@ -141,7 +141,8 @@ function countParentFileMutations(callsByName: Record<string, number>): number {
   );
 }
 
-/** Split a shell command into chain segments with the same quote-aware tokenizer the permission gate uses. */
+/** Split a shell command into chain segments with the same quote-aware
+ * tokenizer the permission gate uses. */
 export const splitChainSegments = splitChainedCommand;
 
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;

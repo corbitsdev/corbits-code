@@ -7,7 +7,8 @@ export interface PromptActionBarModelLabelInput {
   mode?: string | undefined;
 }
 
-/** Right-aligned muted label above the prompt: `profile · model · effort · mode`, empty segments omitted. */
+/** Right-aligned muted label above the prompt: `profile · model · effort ·
+ * mode`, empty segments omitted. */
 export function composePromptActionBarModelLabel(
   input: PromptActionBarModelLabelInput,
 ): string | undefined {

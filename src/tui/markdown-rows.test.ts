@@ -1,4 +1,5 @@
-/** Transcript markdown rendering — assistant rows render formatted, not as literal markdown source. */
+/** Transcript markdown rendering — assistant rows render formatted, not as
+ * literal markdown source. */
 
 import { describe, expect, test } from "bun:test";
 import {
@@ -25,7 +26,10 @@ const shellOpts = {
   wireKeys: false,
 } as const;
 
-/** Highlighting runs on a worker outside the render scheduler, so the scheduler idles before the highlighted frame lands. Pass a predicate for the settled shape and get the frame back the moment it's true, rather than gambling on a fixed sleep long enough to outrun load. */
+/** Highlighting runs on a worker outside the render scheduler, so the
+ * scheduler idles before the highlighted frame lands. Pass a predicate for
+ * the settled shape and get the frame back the moment it's true, rather
+ * than gambling on a fixed sleep long enough to outrun load. */
 async function settle(
   h: Harness,
   isSettled: (frame: string) => boolean,

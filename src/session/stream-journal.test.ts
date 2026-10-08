@@ -111,7 +111,8 @@ describe("createCycleTextRecorder", () => {
   });
 
   test("inference.error with empty cycle text still writes a partial with the error payload", async () => {
-    // Live failures can emit inference.error with no streamed text; the partial must still land so category/message survive.
+    // Live failures can emit inference.error with no streamed text; the
+    // partial must still land so category/message survive.
     const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent({
       type: "inference.error",
@@ -253,7 +254,9 @@ describe("createCycleTextRecorder", () => {
 
 describe("successful-send teardown", () => {
   test("drain-then-dispose writes nothing when the final done arrived on the stream", async () => {
-    // Mirrors exec success: send resolves on the connector reply while inference.done may still be queued; disposing before drain would snapshot the full reply as a spurious partial.
+    // Mirrors exec success: send resolves on the connector reply while
+    // inference.done may still be queued; disposing before drain would
+    // snapshot the full reply as a spurious partial.
     const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent(delta("final assistant answer"));
 

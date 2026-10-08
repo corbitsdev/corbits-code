@@ -98,7 +98,8 @@ export interface DirectorPackage {
    * Primary leaves this unset.
    */
   readonly attachedSkills?: readonly string[];
-  /** Optional skill names (ordered). Loaded on demand via skill_search + use_skill, scoped to attachedSkills ∪ optionalSkills. */
+  /** Optional skill names (ordered). Loaded on demand via skill_search +
+   * use_skill, scoped to attachedSkills ∪ optionalSkills. */
   readonly optionalSkills?: readonly string[];
   readonly tools?: ToolEnvelope;
   readonly spawn: SpawnRights;

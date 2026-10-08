@@ -1,4 +1,5 @@
-/** run.ts must thread grant_request_id through the handler into the port; dropping it forces the legacy first-pending path. */
+/** run.ts must thread grant_request_id through the handler into the port;
+ * dropping it forces the legacy first-pending path. */
 import { describe, expect, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";

@@ -19,7 +19,8 @@ export interface AgeImageResult {
   blobs: StrategyBlob[];
 }
 
-/** Replace base64 image blocks with a rehydratable marker and emit blobs ContextStore.writeBlob persists. */
+/** Replace base64 image blocks with a rehydratable marker and emit blobs
+ * ContextStore.writeBlob persists. */
 export interface AgeImageOptions {
   /** When set, record verified attachment blob provenance into the evidence archive. */
   archive?: CompactionArchive;
@@ -61,7 +62,8 @@ export async function ageImageBlocks(
 
     const id = await attachmentIdFromBase64(block.source.data);
     const uri = attachmentUri(id);
-    // Keep base64 as UTF-8 so rehydrate rebuilds without re-encoding; contentType is the image MIME type.
+    // Keep base64 as UTF-8 so rehydrate rebuilds without re-encoding;
+    // contentType is the image MIME type.
     const bytes = new TextEncoder().encode(block.source.data);
     blobs.push({
       key: id,
@@ -119,7 +121,8 @@ export async function rehydrateAttachmentImages(
   return out;
 }
 
-/** Pre-inference only: restore aged markers to image blocks; durable history keeps the marker + blob. */
+/** Pre-inference only: restore aged markers to image blocks; durable
+ * history keeps the marker + blob. */
 export function createAttachmentRehydrateTransform(
   readBlob: (key: string) => Promise<Uint8Array>,
 ): ContextTransform {

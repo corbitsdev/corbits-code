@@ -227,7 +227,8 @@ export function applyLineRangeEdit(
   const after = lines.slice(endLine);
   const merged = [...before, ...newLines, ...after];
 
-  // When the range includes the last line, the replacement defines EOF; otherwise keep prior trailing newline.
+  // When the range includes the last line, the replacement defines EOF;
+  // otherwise keep prior trailing newline.
   const rangeTouchesLastLine = endLine === lines.length;
   const keepTrailing = rangeTouchesLastLine
     ? newString.endsWith("\n") || newString.endsWith("\r\n")

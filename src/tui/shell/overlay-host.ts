@@ -725,7 +725,8 @@ export interface OverlayContinuationToken {
   readonly generation: number;
 }
 
-/** Capture overlay generation for an async continuation. Stale after a newer open, a full close, or Esc abort. */
+/** Capture overlay generation for an async continuation. Stale after a
+ * newer open, a full close, or Esc abort. */
 export function captureOverlayContinuation(
   shell: AppShell,
 ): OverlayContinuationToken {

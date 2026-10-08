@@ -3,7 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { createRunSink, resolveExecRunStatus } from "./run-sink.js";
 
 describe("resolveExecRunStatus", () => {
-  // Truth table over the three inputs: a completed send finishes the run without reactor.done, and a real run error beats both.
+  // Truth table over the three inputs: a completed send finishes the run
+  // without reactor.done, and a real run error beats both.
   test.each([
     {
       name: "successful send maps to done even when sink is cancelled (no reactor.done)",

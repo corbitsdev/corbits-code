@@ -34,7 +34,8 @@ export interface PermissionRequestQueue {
   reconcile: (
     covers: (request: PermissionRequest) => boolean,
   ) => readonly number[];
-  /** Deny and remove everything still queued (session teardown) so no awaited resolve is left hanging. */
+  /** Deny and remove everything still queued (session teardown) so no
+   * awaited resolve is left hanging. */
   drain: () => void;
   size: () => number;
 }

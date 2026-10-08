@@ -164,7 +164,8 @@ export function assertTaskSetContained(
   }
 }
 
-/** A run counts as complete only when the loop finished cleanly, the grader passed, and the budget held. */
+/** A run counts as complete only when the loop finished cleanly, the
+ * grader passed, and the budget held. */
 export const isCompletedRun = (
   result: Pick<TaskResult, "runStatus" | "verifyExitCode" | "overBudget">,
 ): boolean =>

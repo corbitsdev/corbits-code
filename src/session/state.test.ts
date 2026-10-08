@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { withMockedModule } from "../../testkit/mock-module.js";
 
-// Simulates a straggler writeFile landing after a later-issued terminal write's, so rename-order alone would let it win.
+// Simulates a straggler writeFile landing after a later-issued terminal
+// write, so rename-order alone would let it win.
 let delayNextWrite = false;
 await withMockedModule(
   import.meta.resolve("node:fs/promises"),

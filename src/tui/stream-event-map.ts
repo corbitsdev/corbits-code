@@ -1,4 +1,5 @@
-/** Production stream/reactor → BridgeInboundEvent mapping (user, assistant deltas, tools, attempt boundaries). Pure: no renderer / OpenTUI deps. */
+/** Production stream/reactor → BridgeInboundEvent mapping (user, assistant
+ * deltas, tools, attempt boundaries). Pure: no renderer / OpenTUI deps. */
 
 import {
   splitPendingControlTail,
@@ -47,11 +48,15 @@ export type BridgeInboundEvent =
    * than a queued steer.
    */
   | { readonly type: "fleet"; readonly running: number }
-  /** Authoritative snapshot of pending top-level ask_director questions, including empty. The bridge reconciles and dedups delivery. */
+  /** Authoritative snapshot of pending top-level ask_director questions,
+ * including empty. The bridge reconciles and dedups delivery. */
   | { readonly type: "agent-ask"; readonly asks: readonly PendingAskWake[] }
   | { readonly type: "tool.boundary" }
   | { readonly type: "error"; readonly message: string }
-  /** Attempt-boundary bookkeeping for retries: `mark` records where the attempt's rows begin, `clear` disarms it once settled, `rollback` retracts what was painted since. The mapper decides when; the consumer owns the row index. */
+  /** Attempt-boundary bookkeeping for retries: `mark` records where the
+ * attempt's rows begin, `clear` disarms it once settled, `rollback`
+ * retracts what was painted since. The mapper decides when; the consumer
+ * owns the row index. */
   | {
       readonly type: "attempt";
       readonly action: "mark" | "clear" | "rollback";
@@ -64,7 +69,8 @@ export interface ReactorLikeEvent {
   readonly seq?: number;
 }
 
-/** Reactor/stream types that are not bridge-native and must go through the production mapper (avoids collisions like tool.done vs tool_result). */
+/** Reactor/stream types that are not bridge-native and must go through the
+ * production mapper (avoids collisions like tool.done vs tool_result). */
 export const PRODUCTION_REACTOR_TYPES: ReadonlySet<string> = new Set([
   "message.received",
   "inference.start",
@@ -93,13 +99,23 @@ export interface StreamMapContext {
   hadTextDelta: boolean;
   /** Trailing fragment of a possibly-incomplete escape sequence, per channel. */
   readonly pendingDelta: { assistant: string; thinking: string };
-  /** True between an `inference.start` and the event that settles its cycle. The harness's pre-commit `inference.retry` (nothing streamed, nothing to retract) arrives before the start; the reactor's retry comes after a committed attempt failed and is about to re-stream. Only a retry arriving while this is armed retracts. */
+  /** True between an `inference.start` and the event that settles its cycle.
+ * The harness's pre-commit `inference.retry` (nothing streamed, nothing to
+ * retract) arrives before the start; the reactor's retry comes after a
+ * committed attempt failed and is about to re-stream. Only a retry arriving
+ * while this is armed retracts. */
   attemptArmed: boolean;
   /** Tool calls already known when the current attempt started. */
   attemptCallIds: Set<string>;
-  /** A committed attempt can end in `inference.error` with no `inference.done`, followed by a same-provider retry start. The boundary must not stay armed across a terminal error, so the error hands it off here: the next event retracts the failed attempt or expires the handoff and keeps the error row. */
+  /** A committed attempt can end in `inference.error` with no
+ * `inference.done`, followed by a same-provider retry start. The boundary
+ * must not stay armed across a terminal error, so the error hands it off
+ * here: the next event retracts the failed attempt or expires the handoff
+ * and keeps the error row. */
   errorRollbackArmed: boolean;
-  /** Live catalog provider id (e.g. `xai/alice`). Harness `inference.error` events omit it; the session stamps this so transcript formatting can reuse known-provider remappers. */
+  /** Live catalog provider id (e.g. `xai/alice`). Harness `inference.error`
+ * events omit it; the session stamps this so transcript formatting can
+ * reuse known-provider remappers. */
   providerId?: string;
   providerLabel?: string;
   /** Provider selection captured when the active inference cycle started. */
@@ -172,7 +188,10 @@ const DELTA_EVENT_TYPE: Record<DeltaChannel, BridgeInboundEvent["type"]> = {
   thinking: "thinking.delta",
 };
 
-/** Model output is attacker-influenceable and never passes the tool-dispatch sanitizer. Deltas arrive in fragments, so a sequence can straddle a boundary — the trailing partial is held in context and joined to the next fragment rather than sanitized in isolation. */
+/** Model output is attacker-influenceable and never passes the
+ * tool-dispatch sanitizer. Deltas arrive in fragments, so a sequence can
+ * straddle a boundary — the trailing partial is held in context and joined
+ * to the next fragment rather than sanitized in isolation. */
 function sanitizeDelta(
   ctx: StreamMapContext | undefined,
   channel: DeltaChannel,
@@ -186,7 +205,9 @@ function sanitizeDelta(
   return stripTerminalControlSequences(head);
 }
 
-/** Flush held fragments when the burst ends; what is still incomplete never became a real sequence, so discard it rather than paint it with introducer bytes shaved off. */
+/** Flush held fragments when the burst ends; what is still incomplete never
+ * became a real sequence, so discard it rather than paint it with
+ * introducer bytes shaved off. */
 function flushDelta(
   ctx: StreamMapContext | undefined,
   channel: DeltaChannel,
@@ -270,7 +291,11 @@ function toolCallEvent(
   };
 }
 
-/** Map one production reactor/stream event into zero or more bridge events. `ctx` carries cross-event bookkeeping: callId→name resolution for tool.done without result.name, retry boundaries, and suppressions that keep one paint per thing (connector.reply after deltas, no double tool_call). Stateless calls stay safe for fixtures and unit tests. */
+/** Map one production reactor/stream event into zero or more bridge events.
+ * `ctx` carries cross-event bookkeeping: callId→name resolution for
+ * tool.done without result.name, retry boundaries, and suppressions that
+ * keep one paint per thing (connector.reply after deltas, no double
+ * tool_call). Stateless calls stay safe for fixtures and unit tests. */
 export function mapProductionEvent(
   event: ReactorLikeEvent,
   ctx?: StreamMapContext,

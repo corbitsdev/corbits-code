@@ -948,7 +948,8 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
   return layout;
 }
 
-/** Append a raw line to the sticky transcript ScrollBox (auto-follows until the operator scrolls up). */
+/** Append a raw line to the sticky transcript ScrollBox (auto-follows
+ * until the operator scrolls up). */
 export function appendTranscript(
   shell: AppShell,
   line: string,
@@ -1304,7 +1305,8 @@ function clearLandingMark(shell: AppShell): void {
   }
 }
 
-/** Idle repaint cadence (mount-scoped timer in `createAppShell`): snow needs about half a row per second, so 8fps reads as motion. */
+/** Idle repaint cadence (mount-scoped timer in `createAppShell`): snow
+ * needs about half a row per second, so 8fps reads as motion. */
 export const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
 
 /**
@@ -1560,7 +1562,8 @@ function renderAgentsRows(
   }
 }
 
-/** Set agents/task chrome zone content (null/empty hides the zone); heights come from geometry resolve. */
+/** Set agents/task chrome zone content (null/empty hides the zone); heights
+ * come from geometry resolve. */
 function taskRowsEqual(
   a: readonly TaskPanelRow[],
   b: readonly TaskPanelRow[],

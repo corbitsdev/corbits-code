@@ -142,7 +142,8 @@ describe("createRunSink", () => {
   });
 
   test("onTurnBoundarySnapshot reads getTurnCount after the turn, not the initial zero", () => {
-    // Exec persist snapshots from this callback; a closed-over turnsUsed: 0 would write run.json as zero mid-run.
+    // Exec persist snapshots from this callback; a closed-over turnsUsed: 0
+    // would write run.json as zero mid-run.
     const snapshots: number[] = [];
     const runSink = createRunSink({
       emitter: new EventEmitter(),

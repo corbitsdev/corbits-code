@@ -104,7 +104,8 @@ export async function discoverOllamaModels(args: {
   return models.length > 0 ? { status: "models", models } : { status: "empty" };
 }
 
-/** Operator-facing line for a discovery failure. Network stays canned; HTTP and URL errors surface. */
+/** Operator-facing line for a discovery failure. Network stays canned; HTTP
+ * and URL errors surface. */
 export function ollamaDiscoveryFailureLine(
   state: Exclude<OllamaDiscoveryState, { readonly status: "models" }>,
 ): string {

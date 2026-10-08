@@ -15,7 +15,8 @@ import {
 } from "./fleet-test-harness.js";
 
 function retryableAfterToolsFailure(): Error {
-  // After any tool ran, runSubAgentInner throws without an outer retry; the fleet catch resolves it as retryable.
+  // After any tool ran, runSubAgentInner throws without an outer retry; the
+  // fleet catch resolves it as retryable.
   return createResolvedProviderFailureError("test-provider", {
     category: "retryable",
     message: "upstream overloaded, retry later",

@@ -59,7 +59,8 @@ const LOCK_TIMEOUT_MS = 1_000;
 // LOCK_TIMEOUT_MS so a waiter never declares a live holder stale mid-wait.
 const LOCK_STALE_MS = 5_000;
 
-// Per-call unique temp (pid + counter); pid alone is not unique if writeAuthFile ever overlaps in-process.
+// Per-call unique temp (pid + counter); pid alone is not unique if
+// writeAuthFile ever overlaps in-process.
 let tmpWriteCounter = 0;
 
 // Per-waiter unique lock claim (pid + counter): a matching steal re-read
@@ -182,7 +183,8 @@ export function createAuthStore<TTokens extends BaseTokens>(
     try {
       const parsed = AuthFileShape(JSON.parse(raw));
       if (parsed instanceof type.errors) return { profiles: {} };
-      // Drop invalid entries rather than wedge the session on one corrupt profile; a fresh login overwrites it.
+      // Drop invalid entries rather than wedge the session on one corrupt
+      // profile; a fresh login overwrites it.
       const valid: Record<string, AuthProfile<TTokens>> = {};
       for (const [name, entry] of Object.entries(parsed.profiles)) {
         if (isProfile(entry, options.isTokens)) valid[name] = entry;

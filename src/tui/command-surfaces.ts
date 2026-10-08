@@ -423,7 +423,8 @@ function cycleField<T extends string>(
     .join("  ");
 }
 
-/** The active option's plain label — the value an accept echo should report, not the row's painted display string. */
+/** The active option's plain label — the value an accept echo should
+ * report, not the row's painted display string. */
 function activeOptionLabel<T extends string>(
   options: readonly CycleOption<T>[],
   activeId: T,

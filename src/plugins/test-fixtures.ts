@@ -11,7 +11,8 @@ import { join } from "node:path";
 import type { CommandContext } from "../tui/commands/registry.js";
 
 export interface PluginDir {
-  /** Create a plugin dir under the per-test root from `relPath: content` entries (parent dirs created as needed). */
+  /** Create a plugin dir under the per-test root from `relPath: content`
+   * entries (parent dirs created as needed). */
   makePlugin(layout: Record<string, string>): Promise<string>;
 }
 

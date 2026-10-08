@@ -129,7 +129,8 @@ export interface ItemDescription {
   readonly what: string;
   /** One-line cost or effect of choosing it. */
   readonly impact?: string;
-  /** `consequence` paints impact in UI.warning — anything that spends or extends reach (billing, trust). */
+  /** `consequence` paints impact in UI.warning — anything that spends or
+   * extends reach (billing, trust). */
   readonly tone?: "plain" | "consequence";
 }
 
@@ -447,7 +448,8 @@ export interface AppShell {
   parentStreamLogBase: number | null;
   /** Saved `unloadedHistory` for the parent snapshot while observing. */
   parentUnloadedHistory: boolean | null;
-  /** Readline kill ring backing Ctrl+Y/Alt+Y; the text widget has none (see ./prompt-kill-ring.js). */
+  /** Readline kill ring backing Ctrl+Y/Alt+Y; the text widget has none (see
+   * ./prompt-kill-ring.js). */
   promptKillRing: KillRing;
   /** Images attached with Ctrl+P, sent with the next prompt submit. */
   pendingAttachments: PendingImageAttachment[];
@@ -833,7 +835,8 @@ export function clearMentionAccept(shell: AppShell): void {
   mentionGenerations.set(shell, (mentionGenerations.get(shell) ?? 0) + 1);
 }
 
-/** Live accept snapshot, or null when there is no state, generation is stale, or the cursor left this @. */
+/** Live accept snapshot, or null when there is no state, generation is
+ * stale, or the cursor left this @. */
 export function liveMentionAccept(
   shell: AppShell,
 ): { state: MentionAcceptState; live: AtState } | null {

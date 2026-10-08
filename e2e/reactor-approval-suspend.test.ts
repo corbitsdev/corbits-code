@@ -189,7 +189,8 @@ describe("integration — reactor approval suspend/resume", () => {
 
         await turn.reply();
         expect(Date.now() - started).toBeLessThan(1000);
-        // resume.tool_result commits the result turn directly (no tool.done), so the reason lands in history.
+        // resume.tool_result commits the result turn directly (no tool.done),
+        // so the reason lands in history.
         const history = await session.agent.history();
         const denied = history
           .flatMap((t) => t.content)

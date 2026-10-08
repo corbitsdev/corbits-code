@@ -55,7 +55,8 @@ describe("createReadAgentTraceTool", () => {
   });
 
   describe("descendant-only scoping (two sibling subtrees under one flat root)", () => {
-    // All workers share one root subagents/ dir; authority comes from the fleet node list, not the directory tree.
+    // All workers share one root subagents/ dir; authority comes from the
+    // fleet node list, not the directory tree.
     const nodes: FleetNode[] = [
       { id: "orchA" },
       { id: "workerA1", parentSessionId: "orchA" },

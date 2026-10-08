@@ -240,7 +240,8 @@ function textHasXaiQuotaMarkers(...parts: string[]): boolean {
   return combinedTextIncludesMarker(parts, XAI_QUOTA_BODY_MARKERS);
 }
 
-/** User-visible line for an attributable xAI / Grok capacity error; also terminal once retries are exhausted. */
+/** User-visible line for an attributable xAI / Grok capacity error; also
+ * terminal once retries are exhausted. */
 export const XAI_CAPACITY_USER_MESSAGE = "xAI at capacity";
 
 /**
@@ -668,7 +669,8 @@ function hasOAuthUpgrade426Signal(error: InferenceErrorLike): boolean {
   );
 }
 
-/** Deprecation phrasing that vetoes the 426 classifier; same rationale as the Codex model-deprecation veto. */
+/** Deprecation phrasing that vetoes the 426 classifier; same rationale as
+ * the Codex model-deprecation veto. */
 const OAUTH_UPGRADE_426_DEPRECATION_MARKERS = [
   "deprecated",
   "deprecation",
@@ -821,7 +823,8 @@ function isInferenceErrorCategory(
   );
 }
 
-/** Normalize a provider diagnostic once for terminal presentation without dropping context fields. */
+/** Normalize a provider diagnostic once for terminal presentation without
+ * dropping context fields. */
 export function normalizeInferenceErrorForTerminal(
   error: InferenceErrorLike,
   fallbackProviderId: string,

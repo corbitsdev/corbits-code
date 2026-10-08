@@ -88,7 +88,8 @@ export const resumeAgentToolDefinition: ToolDefinition = {
   },
 };
 
-/** Every id in `target`'s subtree (nodes with target somewhere up their parentSessionId chain), deepest first, target last. */
+/** Every id in `target`'s subtree (nodes with target somewhere up their
+ * parentSessionId chain), deepest first, target last. */
 function descendantsClosingOrder(
   nodes: readonly { id: string; parentSessionId?: string | undefined }[],
   target: string,

@@ -147,7 +147,10 @@ describe("turn progress label", () => {
     });
   });
 
-  /** The shape a real chat turn actually has. A chat session emits no `reactor.done` until it closes, so `connector.reply` is the only terminal event the shell sees — the regression this covers left the phase counting for the rest of the session. */
+  /** The shape a real chat turn actually has. A chat session emits no
+   * `reactor.done` until it closes, so `connector.reply` is the only
+   * terminal event the shell sees — the regression this covers left the
+   * phase counting for the rest of the session. */
   test("a full turn with a tool clears the phase on connector.reply", async () => {
     await withHarness(async (t) => {
       t.bridge.handle({

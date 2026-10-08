@@ -53,7 +53,8 @@ export function transcriptRowLayout(shell: AppShell): RowLayout {
   };
 }
 
-/** Record a row's writer. True when the transcript gains a second voice, so earlier rows need labels. */
+/** Record a row's writer: true when the transcript gains a second voice,
+ * so earlier rows need labels. */
 export function noteAgentVoice(shell: AppShell, row: StreamRow): boolean {
   if (row.role === "user") return false;
   const before = shell.agentVoices.size;
@@ -73,7 +74,8 @@ export function gapBefore(shell: AppShell, index: number): number {
   return rowGroupGap(rowBefore(shell, index), row);
 }
 
-/** Writer label above the row at `index`, or null mid-block. A block is a gap-free run from one writer, so this reads `gapBefore`. */
+/** Writer label above the row at `index`, or null mid-block. A block is a
+ * gap-free run from one writer, so this reads `gapBefore`. */
 export function labelBefore(shell: AppShell, index: number): string | null {
   const row = shell.streamLog[index];
   if (row === undefined) return null;
@@ -115,7 +117,8 @@ export function streamRowAt(
  */
 export const evictionMarkers = new WeakSet<BaseRenderable>();
 
-/** `getChildren()` is not 1:1 with `streamLog` (bottom-anchor spacer, eviction notice), so row-only consumers go through here. */
+/** `getChildren()` is not 1:1 with `streamLog` (bottom-anchor spacer,
+ * eviction notice), so row-only consumers go through here. */
 export function transcriptRowChildren(
   shell: AppShell,
 ): readonly BaseRenderable[] {
@@ -163,7 +166,8 @@ export function retextStreamRow(
   return retextStreamRowBody(node, row, layout);
 }
 
-/** Last painted state per split markdown body, keyed by its column node. A rebuild gets a fresh node; stale entries die with the old row. */
+/** Last painted state per split markdown body, keyed by its column node.
+ * A rebuild gets a fresh node; stale entries die with the old row. */
 const splitBodyMemory = new WeakMap<BaseRenderable, StreamMarkdownSnapshot>();
 
 /** The shape-matching rewrite shared by labelled and unlabelled rows. */
@@ -241,7 +245,8 @@ function retextStreamRowBody(
   return true;
 }
 
-/** Prefix column beside a body the renderer owns, pinned to the painted columns so an empty gutter costs none. */
+/** Prefix column beside a body the renderer owns, pinned to the painted
+ * columns so an empty gutter costs none. */
 function gutterNode(
   ctx: CliRenderer,
   gutter: PaintedStreamLine,
@@ -254,7 +259,9 @@ function gutterNode(
   });
 }
 
-/** Columns a markdown body may paint into: the transcript budget less the row's prefix. Pinned, because `flexGrow` reports intrinsic width and lets a wide table paint past the edge. */
+/** Columns a markdown body may paint into: the transcript budget less the
+ * row's prefix. Pinned, because `flexGrow` reports intrinsic width and lets
+ * a wide table paint past the edge. */
 function markdownBodyColumns(
   gutter: PaintedStreamLine,
   layout: RowLayout,
@@ -262,7 +269,8 @@ function markdownBodyColumns(
   return Math.max(1, layout.width - stringWidth(gutter.content));
 }
 
-/** Markdown tables shrink to the row's column budget: proportional columns, word-boundary wraps, and the body's pinned width clips the rest. */
+/** Markdown tables shrink to the row's column budget: proportional columns,
+ * word-boundary wraps, and the body's pinned width clips the rest. */
 const TRANSCRIPT_TABLE_OPTIONS = {
   wrapMode: "word",
   columnFitter: "proportional",
@@ -273,7 +281,9 @@ function markdownContent(row: StreamRow): string {
   return withholdIncompleteHeading(row.text);
 }
 
-/** Build the row-shaped paint node: markdown body for assistant replies, table for structured rows, diff body for edit-tool rows, plain text otherwise. */
+/** Build the row-shaped paint node: markdown body for assistant replies,
+ * table for structured rows, diff body for edit-tool rows, plain text
+ * otherwise. */
 export function buildRowNode(
   ctx: CliRenderer,
   row: StreamRow,
@@ -358,7 +368,8 @@ function markdownBodyOptions(gutter: PaintedStreamLine, width: number) {
   } as const;
 }
 
-/** A literal-text row's paint node: a single text node, styled and click-armed when it holds URLs. */
+/** A literal-text row's paint node: a single text node, styled and
+ * click-armed when it holds URLs. */
 function buildPlainRowNode(
   ctx: CliRenderer,
   row: StreamRow,
@@ -373,12 +384,14 @@ function buildPlainRowNode(
   return node;
 }
 
-/** Links a plain row's pre-wrap text holds, so a wrap across a short fragment line is told apart from a natural line break. */
+/** Links a plain row's pre-wrap text holds, so a wrap across a short
+ * fragment line is told apart from a natural line break. */
 function plainRowSourceUrls(row: StreamRow): string[] {
   return findLinks(`${row.text}\n${row.summary ?? ""}`).map((hit) => hit.url);
 }
 
-/** Rewrite a plain row's text on its existing node. The node never changes shape, so URL changes repaint in place. */
+/** Rewrite a plain row's text on its existing node. The node never changes
+ * shape, so URL changes repaint in place. */
 function paintPlainRowNode(
   node: TextRenderable,
   row: StreamRow,
@@ -450,7 +463,9 @@ function createMarkdownBody(
   return column;
 }
 
-/** Gutter + one pre-coloured text line per body row (a diff, expanded tool arguments). Lines paint inside the body column, so wraps land under the body. */
+/** Gutter + one pre-coloured text line per body row (a diff, expanded tool
+ * arguments). Lines paint inside the body column, so wraps land under the
+ * body. */
 function createStyledLinesRowRenderable(
   ctx: CliRenderer,
   row: StreamRow,
@@ -475,7 +490,9 @@ function createStyledLinesRowRenderable(
   return wrapper;
 }
 
-/** One painted body line: an expand arrow splits into its own clickable renderable, URL lines arm as Ctrl+click targets, everything else a single text node. */
+/** One painted body line: an expand arrow splits into its own clickable
+ * renderable, URL lines arm as Ctrl+click targets, everything else a single
+ * text node. */
 function bodyLineNode(
   ctx: CliRenderer,
   line: StyledBodyLine,
@@ -505,7 +522,9 @@ function bodyLineNode(
   return wrapper;
 }
 
-/** Gutter + native table body for a structured (MCP result) row, under its collapsed head lines, in one body column so the table stays in the gutter. */
+/** Gutter + native table body for a structured (MCP result) row, under its
+ * collapsed head lines, in one body column so the table stays in the
+ * gutter. */
 function createStructuredRowRenderable(
   ctx: CliRenderer,
   row: StreamRow,
@@ -538,5 +557,7 @@ function createStructuredRowRenderable(
   return wrapper;
 }
 
-/** Bare key the modal overlay claims for its expand/collapse hook. Not in SHELL_SHORTCUTS: live only while an overlay with `onToggleExpand` is open. */
+/** Bare key the modal overlay claims for its expand/collapse hook. Not in
+ * SHELL_SHORTCUTS: live only while an overlay with `onToggleExpand` is
+ * open. */
 export const OVERLAY_EXPAND_KEY = EXPAND_KEY;

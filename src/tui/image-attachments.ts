@@ -260,7 +260,8 @@ export async function imageAttachmentFromPath(
   };
 }
 
-/** SHA-256 of the source image file's bytes, used to identify identical images regardless of filename or timing. */
+/** SHA-256 of the source image file's bytes, used to identify identical
+ * images regardless of filename or timing. */
 async function hashImageBytes(bytes: Buffer): Promise<string> {
   // Buffer's type parameter is the looser ArrayBufferLike (it may back onto a
   // pooled allocation), but readFile never actually hands back a

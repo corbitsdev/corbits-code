@@ -1,4 +1,6 @@
-/** Bounded live-output tail of a running shell command. The shell-guard plugin appends chunks; the TUI polls `snapshot()` on its sticky tick. Nothing is persisted. */
+/** Bounded live-output tail of a running shell command. The shell-guard
+ * plugin appends chunks; the TUI polls `snapshot()` on its sticky tick.
+ * Nothing is persisted. */
 
 /** Tail of output a feed keeps before the oldest chunk is dropped. */
 export const SHELL_FEED_LIMIT_BYTES = 8 * 1024;

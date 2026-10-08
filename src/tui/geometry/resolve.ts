@@ -27,11 +27,13 @@ export interface OverlayInput {
   readonly mode: OverlayMode;
   /** Requested overlay body rows (measured by host). Capped by fraction + floor. */
   readonly bodyRows?: number;
-  /** Minimum overlay chrome rows (border + title + one content row); falls back to `OVERLAY_MIN_ROWS` when unmeasured. */
+  /** Minimum overlay chrome rows (border + title + one content row); falls
+   * back to `OVERLAY_MIN_ROWS` when unmeasured. */
   readonly minBodyRows?: number;
 }
 
-/** Optional zone visibility. Prompt is the only always-on zone and defaults to its idle budget; the rest default to off (0). */
+/** Optional zone visibility. Prompt is the only always-on zone and defaults
+ * to its idle budget; the rest default to off (0). */
 export interface ZoneVisibility {
   /** Transient notice row on (default off). */
   readonly notice?: boolean;
@@ -55,10 +57,13 @@ export interface ZoneVisibility {
 export interface GeometryInput {
   readonly terminal: TerminalSize;
   readonly visibility?: ZoneVisibility;
-  /** Requested prompt rows (content + borders). Capped at 40% of terminal rows; default PROMPT_IDLE_ROWS (5). */
+  /** Requested prompt rows (content + borders). Capped at 40% of terminal
+   * rows; default PROMPT_IDLE_ROWS (5). */
   readonly promptContentRows?: number;
   readonly overlay?: OverlayInput;
-  /** Transcript rows to hold back for content, overriding the registry default. Landing passes 0: no transcript yet, so reserving rows only starves the screen. */
+  /** Transcript rows to hold back for content, overriding the registry
+   * default. Landing passes 0: no transcript yet, so reserving rows only
+   * starves the screen. */
   readonly transcriptFloor?: number;
 }
 
@@ -308,7 +313,9 @@ function assignRects(
   return regions;
 }
 
-/** Resolve shell region rects from terminal size, optional chrome, and overlay mode. Pure: no I/O; extra rows accrue to the transcript residual; layout is always a full-width y-stack. */
+/** Resolve shell region rects from terminal size, optional chrome, and
+ * overlay mode. Pure: no I/O; extra rows accrue to the transcript residual;
+ * layout is always a full-width y-stack. */
 export function resolveGeometry(input: GeometryInput): GeometryLayout {
   const terminal = {
     columns: Math.max(1, Math.floor(input.terminal.columns)),

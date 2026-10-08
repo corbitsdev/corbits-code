@@ -48,7 +48,8 @@ export function ageStaleRunningState(
   };
 }
 
-/** Periodic running snapshot writer. `unref`d so it cannot keep the process alive; callers stop it on terminal paths. */
+/** Periodic running snapshot writer. `unref`d so it cannot keep the process
+ * alive; callers stop it on terminal paths. */
 export function startRunHeartbeat(args: {
   intervalMs?: number;
   shouldTick: () => boolean;

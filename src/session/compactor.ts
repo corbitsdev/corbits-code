@@ -48,11 +48,13 @@ export interface CompactorConfig {
   ) => Promise<string>;
   /** Read at compaction time; passed to `summarize` with live workflow state. */
   summaryContext?: () => SummaryContext | undefined;
-  /** Previous fat handoff body, so the next fold unions files/commands and full constraint/goal text instead of spine-truncated cuts. */
+  /** Previous fat handoff body, so the next fold unions files/commands and
+   * full constraint/goal text instead of spine-truncated cuts. */
   readPriorHandoff?: () => Promise<string | undefined>;
   // Recorded for compatibility; the live fold keeps spine + token-capped tail.
   maxAnchorTurns: number;
-  /** Budgeted-tail shape (token budget, not turn-count floor). Partial: missing fields resolve against DEFAULT_TAIL_COMPACTION_SHAPE. */
+  /** Budgeted-tail shape (token budget, not turn-count floor). Partial:
+   * missing fields resolve against DEFAULT_TAIL_COMPACTION_SHAPE. */
   compactionShape?: Partial<CompactionShape>;
 }
 
@@ -137,7 +139,9 @@ interface ToolCallInfo {
   name: string;
   /** Display path for stubs (always the raw path arg when present). */
   pathArg?: string;
-  /** Dedup identity for re-read stubbing. Full-file reads share the path; ranged reads (offset/limit) get a distinct key so chunked reads of one file do not hollow each other. */
+  /** Dedup identity for re-read stubbing. Full-file reads share the path;
+   * ranged reads (offset/limit) get a distinct key so chunked reads of one
+   * file do not hollow each other. */
   readKey?: string;
 }
 
@@ -154,7 +158,9 @@ function scalarArg(value: unknown): string {
   return "";
 }
 
-/** Path + re-read identity from a tool_call's arguments: path alone for full-file reads; path+offset+limit when either range arg is present so partial reads don't supersede each other. */
+/** Path + re-read identity from a tool_call's arguments: path alone for
+ * full-file reads; path+offset+limit when either range arg is present so
+ * partial reads don't supersede each other. */
 function readIdentityFromArguments(
   raw: unknown,
 ): { path: string; readKey: string } | undefined {
@@ -194,7 +200,9 @@ function stableStringify(value: unknown): string {
   return scalar === undefined ? "undefined" : scalar;
 }
 
-/** Dedup identity for a query call: tool name + canonicalized arguments. Only byte-identical (modulo key order) calls share a key, so differing calls never supersede each other. */
+/** Dedup identity for a query call: tool name + canonicalized arguments.
+ * Only byte-identical (modulo key order) calls share a key, so differing
+ * calls never supersede each other. */
 function queryIdentityFromArguments(
   name: string,
   raw: unknown,

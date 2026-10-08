@@ -282,7 +282,8 @@ export interface OpenResidualListOpts {
   readonly items: readonly string[];
   /** Stable ids aligned with `items` (setting keys, session ids, paths). */
   readonly itemIds?: readonly string[];
-  /** Plain chosen value aligned with `items`, for the accept echo (see `OpenListOverlayOpts.itemValues`). */
+  /** Plain chosen value aligned with `items`, for the accept echo (see
+   * `OpenListOverlayOpts.itemValues`). */
   readonly itemValues?: readonly (string | undefined)[];
   readonly activeIndex?: number;
   /** Per-open accept; host binds toggle / resume / mention insert. */

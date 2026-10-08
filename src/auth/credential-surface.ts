@@ -20,7 +20,8 @@ export const credentialFileDescriptors: CredentialFileDescriptor[] = [
 ];
 
 export const credentialDirDescriptors: CredentialDirDescriptor[] = [
-  // Per-server files embed a content sha in the name, so they cannot be enumerated — match the whole directory.
+  // Per-server files embed a content sha in the name, so they cannot be
+  // enumerated — match the whole directory.
   { settingsDirName: SETTINGS_DIR_NAME, dirname: "mcp-auth" },
 ];
 

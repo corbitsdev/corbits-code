@@ -183,7 +183,9 @@ export type RunSubAgentParams = {
    */
   skipPricingSeed?: boolean;
   systemPromptRole?: string;
-  /** Resolved closed-director id (e.g. "reviewer") when the worker is one. Structured gate key — prefer over persona-string matching in systemPromptRole. */
+  /** Resolved closed-director id (e.g. "reviewer") when the worker is one.
+   * Structured gate key — prefer over persona-string matching in
+   * systemPromptRole. */
   directorId?: string;
   // When true, the system prompt grants this sub-agent permission to call
   // `spawn_agent` (orchestrator exception to the no-recursion rule); set
@@ -264,7 +266,9 @@ export type RunSubAgentParams = {
   }) => void;
 } & SubAgentSandboxDeps;
 
-/** runSubAgent's result: the parent-facing report plus, when force-stopped, the structured reason why — classify outcomes from `stopReason`, not by parsing `report`. */
+/** runSubAgent's result: the parent-facing report plus, when force-stopped,
+ * the structured reason why — classify outcomes from `stopReason`, not by
+ * parsing `report`. */
 export interface SubAgentTelemetryRollup {
   turn_count: number;
   input_tokens: number;

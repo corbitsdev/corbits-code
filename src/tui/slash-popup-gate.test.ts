@@ -1,4 +1,11 @@
-/** A queued permission gate must not open onto the host mid-`/`-filter: the old close-then-reopen refresh released the host between the two calls (idle-notify via onOverlayClosed), and a gate queued behind the popup drained into that gap. Accepting a slash/palette command must not drain that queue before dispatch claims it; a live gate already on the host is not stolen — the command surface waits until it settles. */
+/**
+ * A queued permission gate must not open onto the host mid-`/`-filter: the
+ * old close-then-reopen refresh released the host between the two calls
+ * (idle-notify via onOverlayClosed), and a gate queued behind the popup
+ * drained into that gap. Accepting a slash/palette command must not drain
+ * that queue before dispatch claims it; a live gate already on the host is
+ * not stolen — the command surface waits until it settles.
+ */
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 

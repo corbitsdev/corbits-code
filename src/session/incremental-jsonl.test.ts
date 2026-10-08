@@ -94,7 +94,9 @@ describe("createSegmentedJSONLWriter", () => {
     }
   });
 
-  // Agent rebuilds construct a fresh writer with no segment map; a compaction rewrite must still unlink the prior writer's sealed tails, or the next load duplicates tool_call ids.
+  // Agent rebuilds construct a fresh writer with no segment map; a
+  // compaction rewrite must still unlink the prior writer's sealed tails, or
+  // the next load duplicates tool_call ids.
   test("a fresh writer still deletes stale segments left by a prior writer", async () => {
     const dir = tempDir();
     const write1 = createSegmentedJSONLWriter(dir, BASE, 64);
