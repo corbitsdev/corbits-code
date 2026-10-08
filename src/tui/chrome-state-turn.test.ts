@@ -12,10 +12,10 @@ import {
   shouldSettleUiAfterSendFailure,
 } from "./chrome-state.js";
 
-// Whatever tool identifier, MCP server name, or plugin name the runtime hands
-// us, the rendered ticker must land in the closed set of human activity
-// states — never the raw identifier. An unmapped tool must still fall back
-// into the set rather than leaking through verbatim.
+// Whatever tool identifier, MCP server name, or plugin name the runtime
+// hands us, the ticker must land in the closed set of human activity
+// states — never the raw identifier. An unmapped tool still falls back
+// into the set, not verbatim.
 describe("resolveTurnLabel closed-set guarantee", () => {
   const leakingIdentifiers = [
     "run_shell",
@@ -358,8 +358,8 @@ describe("fleet state in the top-level indicator", () => {
     );
   });
 
-  // The parent is idle by design while children run, so its own stall clock
-  // firing says nothing about whether the session is progressing.
+  // The parent is idle by design while children run, so its own stall
+  // clock says nothing about progress.
   test("live lanes outrank the parent's own stall clock", () => {
     expect(resolveTurnLabel(parentAwaitingChildren, true, fleet(6, 0))).toBe(
       "working",

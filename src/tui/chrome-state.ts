@@ -1,8 +1,8 @@
 /**
  * Pure chrome zone formatter for setChromeZones: session state → task/agents
- * zone rows. The product host pushes a full snapshot, so absent zones clear
- * (`null` hides); the task checklist stays parked until a later rebuild.
- * Live progress clocks stay with chrome only (see `agentsChromeNeedsSticky`).
+ * zone rows. The product host pushes a full snapshot, so absent zones
+ * clear; the task checklist stays parked until a later rebuild. Live
+ * progress clocks stay with chrome only (see `agentsChromeNeedsSticky`).
  */
 
 import {
@@ -48,8 +48,8 @@ export interface ChromeAgentSession {
   readonly currentToolStartedAt: number | null;
   /** When the live turn ended; drives the linger window
    * (`AGENTS_PANEL_LINGER_MS`); absent → no linger. Set on interrupt even
-   * though TUI `status` still reads `"running"` — the turn is over while
-   * leftover tools keep running. */
+   * though TUI `status` still reads `"running"` — leftover tools keep
+   * running after the turn. */
   readonly finishedAt?: number;
   /** False while admission-queued. Missing means unknown. */
   readonly runInFlight?: boolean;
@@ -100,8 +100,8 @@ export interface AgentPanelRow {
   readonly status?: "running" | "done" | "failed" | "cancelled" | "interrupted";
 }
 
-/** Board paint order — trouble first so problems read at a glance. Display
- * order only; stall/`in_tool` semantics live in `agent-progress`. */
+/** Board paint order — trouble first. Display order only;
+ * stall/`in_tool` semantics live in `agent-progress`. */
 const BOARD_LANE_ORDER: readonly LaneState[] = [
   "stalled",
   "in_tool",
@@ -210,7 +210,7 @@ export function formatTasksPanel(
  *
  * No FLEET header — a roll-up board fought the lane list. Live lanes sort
  * trouble-first via `laneState`; finished sessions linger
- * `AGENTS_PANEL_LINGER_MS` after `finishedAt`, then drop. Observe mode
+ * `AGENTS_PANEL_LINGER_MS` after `finishedAt`. Observe mode
  * replaces the strip with a single observe row. */
 export function formatAgentsPanel(
   agents: readonly ChromeAgentSession[] | null | undefined,
@@ -315,10 +315,10 @@ function boardLaneState(
   return laneState(progress, nowMs, stallMs);
 }
 
-/** Clamp the strip to the rows geometry actually granted. The formatter
- * sizes to content, but collapse can grant fewer rows; painting the full
- * set would overflow the box. The granted height wins; lost lanes show via
- * `+N more`, and prior counts carry into the re-clamp total. */
+/** Clamp the strip to the rows geometry granted. The formatter sizes to
+ * content, but collapse can grant fewer rows; painting the full set would
+ * overflow the box. Lost lanes show via `+N more`; prior counts carry into
+ * the re-clamp total. */
 export function clampBoardRows(
   rows: readonly AgentPanelRow[],
   height: number,
@@ -386,8 +386,8 @@ function formatAgentRow(
   // stays clock/tool only.
   const marker = stalled ? "!" : "●";
   const label = `${marker} ${session.agentId}  ${session.description}`.trim();
-  // Prefer the argument subject (command / path) over the bare tool name so a
-  // strip of shell calls is distinguishable at a glance.
+  // Prefer the argument subject (command / path) over the bare tool name
+  // so a strip of shell calls is distinguishable.
   const preview = session.currentToolPreview;
   const tool = session.currentToolName;
   const doing =
@@ -467,11 +467,10 @@ function formatTerminalRow(session: ChromeAgentSession): AgentPanelRow {
   };
 }
 
-/** Overlay live per-agent tool names onto the agents zone. The subagent
- * store is the sole source of truth for what a worker is doing; the
- * `subagent.progress` ping carries only a name, no clock, and fires on
- * completion too, so painting it could announce a dead tool (the false
- * "quiet · read_file" stall) or a stale one.
+/** The subagent store is the sole source of truth for what a worker is
+ * doing; the `subagent.progress` ping carries only a name, no clock, and
+ * fires on completion too, so painting it could announce a dead tool (the
+ * false "quiet · read_file" stall) or a stale one.
  */
 export function annotateAgentTools(
   state: ChromeLiveState,
