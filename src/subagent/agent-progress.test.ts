@@ -152,9 +152,8 @@ describe("agentProgress", () => {
     });
   });
 
-  // A worker inside one long tool call emits nothing for its whole execution,
-  // so a fleet running a test suite must not flip every lane to "stalled"
-  // while working fine.
+  // A worker inside one long tool call emits nothing, so a fleet running a
+  // test suite must not flip every lane to "stalled".
   test("silence inside an outstanding tool call is not a stall", () => {
     const progress = agentProgress(
       {
@@ -182,9 +181,8 @@ describe("agentProgress", () => {
   });
 
   test("default stall window tolerates a multi-minute Grok think gap", () => {
-    // DEFAULT_STALL_MS is 300s — 180s of quiet with no tool outstanding must
-    // still read working, or worker/spawn_agent rows false-stall on healthy
-    // Responses thinks.
+    // 300s window: 180s of quiet with no tool outstanding must still read
+    // working, or worker rows false-stall on healthy Responses thinks.
     const progress = agentProgress(
       { ...base, currentToolName: null, lastActivityAt: 0 },
       180_000,
