@@ -60,28 +60,22 @@ export interface CorePosixToolPluginsArgs {
   secretGuardExtraDeniedPaths?: readonly string[];
 }
 
-// Middleware order matches docs/ARCHITECTURE.md: path escape through truncation,
-// with shell-guard after permission so blocked commands never spawn.
+// Middleware order matches docs/ARCHITECTURE.md: path escape through
+// truncation, shell-guard after permission so blocked commands never spawn.
 //
-// The secret scrub and the character cap are prepended unconditionally, ahead
-// of every other plugin, rather than left in call order. composeMiddleware
-// wraps outer-to-inner in array order, so a plugin earlier in this array
-// still observes the final result even when a later plugin (ripgrepPlugin,
-// notably) answers a call directly without invoking its own `next()` and so
-// never reaches whatever sits after it. A mandatory terminal concern like
-// redacting a credential cannot depend on every middleware author remembering
-// to call `next()` — see vendor/intx-inference/src/assembly.ts's
-// sizeCapTransform for the same reasoning upstream.
+// The secret scrub and the char cap are prepended unconditionally, ahead of
+// every other plugin: composeMiddleware wraps outer-to-inner, so a plugin
+// earlier in the array still sees the final result even when a later plugin
+// (ripgrepPlugin notably) answers without calling next(). A mandatory
+// terminal concern cannot depend on every middleware author remembering
+// next() — see vendor/intx-inference/src/assembly.ts's sizeCapTransform.
 //
-// Truncation must run outermost, ahead of (i.e. after "seeing the result of")
-// the scrub — meaning the scrub sits closer to the base handler, at index 1,
-// so it runs on the FULL, untruncated content and truncation only trims what
-// the scrub already produced. The reverse order is exploitable: a secret
-// straddling the character-cap boundary gets cut mid-pattern (e.g.
-// `AKIA[0-9A-Z]{16}` losing its tail), the scrub's regex no longer matches
-// the fragment, and a bare, unredacted piece of the credential reaches the
-// model with no redaction marker. Scrub-then-truncate is always safe, since
-// truncating already-redacted text loses nothing sensitive.
+// Truncation must run outermost, so the scrub (index 1, closest to the base
+// handler) runs on the FULL content and truncation only trims what the scrub
+// produced. The reverse order is exploitable: a secret straddling the cap
+// boundary gets cut mid-pattern, the scrub regex no longer matches the
+// fragment, and a bare credential piece reaches the model. Scrub-then-truncate
+// loses nothing sensitive.
 export function buildCorePosixToolPlugins(
   args: CorePosixToolPluginsArgs,
 ): ToolPlugin[] {
@@ -99,21 +93,17 @@ export function buildCorePosixToolPlugins(
     getEvidenceArchive,
     secretGuardExtraDeniedPaths,
   } = args;
-  // Pre-gate sandboxes honor yolo mode so outside-workspace path tools and shell
-  // cwd are not hard-denied after the gate already auto-allows. Pass a live
-  // getter so `/yolo` mid-session unlocks (or re-enforces) bounds without
-  // rebuilding the plugin stack. Secret-guard and the gate's
-  // catastrophic-shell check still hard-deny regardless.
+  // Pre-gate sandboxes honor yolo mode so outside-workspace paths and shell
+  // cwd are not hard-denied after the gate auto-allows. Live getter so
+  // `/yolo` mid-session re-bounds without rebuilding the stack; secret-guard
+  // and the catastrophic-shell check still hard-deny.
   const allowOutside = (): boolean => permissionGate.getSkipPermissions();
-  // One shared workspace-roots provider for every bound in this stack, so
-  // pathEscape and delete_file admit the same registered sibling worktrees.
+  // One shared workspace-roots provider so pathEscape and delete_file admit
+  // the same registered sibling worktrees.
   const rootsProvider = createWorktreeRootsProvider(cwd);
-  // The gate's shell legs (segmentGuard, auto-allow, auto policy) must treat
-  // the extras-denied paths as sensitive exactly like the secret-guard plugin
-  // below does. The gate is built before this stack and shared across stacks,
-  // so forward the list here — the single funnel every entry point (exec,
-  // TUI) and worker flows through — rather than wiring each runner's gate
-  // construction separately.
+  // The gate's shell legs must treat extras-denied paths as sensitive like
+  // the secret-guard plugin does. The gate is shared across stacks, so
+  // forward the list here rather than wiring each runner separately.
   if (secretGuardExtraDeniedPaths !== undefined) {
     permissionGate.setSensitiveExtraDeniedPaths?.(secretGuardExtraDeniedPaths);
   }
@@ -155,12 +145,12 @@ export function buildCorePosixToolPlugins(
       : []),
     readFileGuardPlugin(cwd, readFileGuard),
     ripgrepPlugin(cwd, {}, undefined, secretGuardExtraDeniedPaths ?? []),
-    // Verify wraps the line-range short-circuit (composeMiddleware runs plugins
-    // outer-to-inner in array order) so its before/after check still covers
-    // start_line/end_line edits instead of only substring-mode edit_file calls.
+    // Verify wraps the line-range short-circuit so its before/after check
+    // also covers start_line/end_line edits.
     verifyPlugin(),
     editFileLineRangePlugin(),
-    // Outside verify: enrich stock substring mismatch errors (composeMiddleware last→first).
+    // Outside verify: enrich stock substring mismatch errors (composeMiddleware
+    // runs last→first).
     editFileDiagnosticsPlugin(),
     lspHintPlugin(),
     createLSPPlugin({ cwd, minSeverity: 1 }),
