@@ -5,7 +5,7 @@
     "": {
       "name": "@corbits/code",
       "dependencies": {
-        "@corbits/agent-prober": "workspace:*",
+        "@corbits/code-agent-prober": "workspace:*",
         "@corbits/codex-provider": "0.1.1",
         "@corbits/oauth-core": "0.2.0",
         "@corbits/openai-responses": "0.2.1",
@@ -54,12 +54,11 @@
     "agents/artist": {
       "name": "@corbits/code-agent-artist",
     },
-<<<<<<< HEAD
     "agents/shakespeare": {
       "name": "@corbits/code-agent-shakespeare",
     },
     "agents/prober": {
-      "name": "@corbits/agent-prober",
+      "name": "@corbits/code-agent-prober",
       "version": "0.1.0",
     },
     "packages/first-class-providers": {
@@ -255,7 +254,7 @@
 
     "@corbits/code-agent-artist": ["@corbits/code-agent-artist@workspace:agents/artist"],
     "@corbits/code-agent-shakespeare": ["@corbits/code-agent-shakespeare@workspace:agents/shakespeare"],
-    "@corbits/agent-prober": ["@corbits/agent-prober@workspace:agents/prober"],
+    "@corbits/code-agent-prober": ["@corbits/code-agent-prober@workspace:agents/prober"],
 
     "@corbits/codex-provider": ["@corbits/codex-provider@0.1.1", "", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.2.0", "@corbits/openai-responses": "^0.2.0", "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-MiGA5djQNtRpHqLvJAGdFgHEbUl808AbveMPwt7krLjOH0i20DyElpitHPZF3ltCXkFMhcKIoyTAEpRDqeB/Rw=="],
 

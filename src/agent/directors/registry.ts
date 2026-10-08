@@ -1,5 +1,5 @@
 import { director as shakespeareDirector } from "@corbits/code-agent-shakespeare";
-import { proberPackage } from "@corbits/agent-prober";
+import { proberPackage } from "@corbits/code-agent-prober";
 import type { AgentProfile, CapabilityFilter } from "../profile-types.js";
 import { director as artistDirector } from "@corbits/code-agent-artist";
 import { coderPackage } from "./coder/package.js";

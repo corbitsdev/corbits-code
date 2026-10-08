@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { proberPackage } from "@corbits/agent-prober";
+import { proberPackage } from "@corbits/code-agent-prober";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 import { DIRECTOR_REGISTRY } from "../registry.js";
 import type { DirectorPackage } from "../types.js";
