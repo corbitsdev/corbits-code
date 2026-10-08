@@ -72,7 +72,7 @@ export function setPaletteCatalog(
 
 /**
  * Open the `/` command list overlay. Catalog: `opts.catalog` when given,
- * else the registry-backed default (see `resolvePaletteCatalog`).
+ * else the registry-backed default.
  */
 export function openPalette(
   shell: AppShell,
@@ -132,10 +132,10 @@ function repaintPalette(shell: AppShell): void {
 }
 
 /**
- * Keys a type-to-filter overlay claims while open, so printable keys feed
- * the `>` filter row. Opt-in (`typeToFilter`): the palette, model picker,
- * and resume picker trade j/k navigation for it; other overlays keep j/k.
- * Arrow and page keys are never claimed.
+ * Keys a type-to-filter overlay claims while open: printable keys feed the
+ * `>` filter row. The palette, model picker, and resume picker trade j/k
+ * navigation for it; other overlays keep j/k. Arrow and page keys are
+ * never claimed.
  */
 export function handlePaletteFilterKey(
   shell: AppShell,
@@ -357,7 +357,7 @@ const defaultMentionSource: MentionSuggestionSource = (prefix) =>
 /**
  * Open path suggestions for the @token under the cursor and splice the
  * accepted entry back into the prompt. Directory picks re-open one level
- * down so the operator can drill in without typing the path.
+ * down so the operator drills without typing the path.
  *
  * Returns false when the cursor is not on an @token, nothing matched, a
  * newer lookup superseded this one, or the overlay host was taken.
@@ -371,7 +371,7 @@ export async function openAtMentionSuggestions(
     return false;
   }
 
-  // Every keystroke re-queries; a slower earlier query must not overwrite a
+  // Every keystroke re-queries; a slower earlier one must not overwrite a
   // later list.
   const generation = (mentionGenerations.get(shell) ?? 0) + 1;
   mentionGenerations.set(shell, generation);
@@ -471,10 +471,9 @@ function editPromptAt(shell: AppShell, value: string, cursor: number): void {
 
 /**
  * Keys the `@` popup claims while open — the `/` popup contract: printables
- * narrow the list, Backspace widens it, and no match closes the popup with
- * the typed text left in place. The prompt does not hold focus while the
- * overlay is open, so this edits the text itself instead of the
- * InputRenderable.
+ * narrow the list, Backspace widens it, and no match closes with the typed
+ * text standing. The prompt does not hold focus while the overlay is open,
+ * so this edits the text itself, not the InputRenderable.
  */
 export function handleMentionPopupKey(shell: AppShell, key: KeyEvent): boolean {
   if (!isMentionPopupOpen(shell) || shell.overlayList === null) return false;
@@ -531,7 +530,7 @@ export function openSlashCommands(shell: AppShell): boolean {
   const query = slashPopupQuery(shell);
   if (query !== null) {
     // Name-prefix, not the palette's fuzzy label match: at the prompt the
-    // operator is typing the command they already mean.
+    // operator types the command they already mean.
     const q = query.toLowerCase();
     const matches = resolvePaletteCatalog(shell).filter((cmd) =>
       cmd.id.toLowerCase().startsWith(q),
@@ -561,11 +560,11 @@ export function openSlashCommands(shell: AppShell): boolean {
 }
 
 /**
- * Second stage: `/name` is settled; the tail filters the arg rows —
- * subcommands by name prefix, or the free-form hint as one reminder row
- * while the tail is empty. Unknown names and arg-less commands dismiss
- * silently: this runs on mid-word keystroke re-parses, and the default
- * idle-notify would drain a queued permission/operator gate onto the host.
+ * Second stage: `/name` is settled; the tail filters arg rows — subcommands
+ * by name prefix, or the free-form hint as one reminder row while the tail
+ * is empty. Unknown names and arg-less commands dismiss silently: this runs
+ * on mid-word re-parses, and the default idle-notify would drain a queued
+ * permission/operator gate onto the host.
  */
 function openSlashArgRows(shell: AppShell): boolean {
   const argQuery = slashArgQuery(shell);
@@ -574,9 +573,9 @@ function openSlashArgRows(shell: AppShell): boolean {
     return false;
   }
   // Two or more tokens past the name (`/deploy prod --force`): filtering is
-  // over — subcommand rows match one prefix token and a hint row only shows
-  // on an empty tail — so dismiss rather than hold a dead "(no matches)"
-  // while real arguments are typed. A trailing space after one token
+  // over — subcommand rows match one prefix token, a hint row shows only on
+  // an empty tail — so dismiss rather than hold a dead "(no matches)" while
+  // real arguments are typed. A trailing space after one token
   // (`/deploy prod `) still filters.
   if (/\s/.test(argQuery.arg.trim())) {
     closeSlashPopup(shell, { suppressIdleNotify: true });
@@ -591,7 +590,7 @@ function openSlashArgRows(shell: AppShell): boolean {
     // hint typed over), not a recoverable typo — dismiss rather than hold a
     // dead "(no matches)" while free-form args are typed. Subcommand
     // filtering is the exception: a zeroed single-token prefix recovers by
-    // typing, so hold the host like the name stage does.
+    // typing, so hold the host like the name stage.
     const filterable = (cmd?.subcommands?.length ?? 0) > 0;
     if (
       filterable &&
@@ -656,7 +655,7 @@ export function setPromptText(shell: AppShell, value: string): void {
 /**
  * setPromptText plus a selected span. The hint lands as real selected text,
  * not ghost paint: the textarea owns selection, so typing replaces the span
- * with no extra bookkeeping, and a ghost-paint renderer has no precedent.
+ * with no bookkeeping; a ghost-paint renderer has no precedent.
  */
 function setPromptTextWithSelection(
   shell: AppShell,
@@ -670,9 +669,8 @@ function setPromptTextWithSelection(
 
 /**
  * Complete a second-stage arg row into the prompt. Arg rows are fragments,
- * never dispatch: a subcommand completes to `/parent sub ` with the caret
- * past the space; a free-form hint completes to selected text so typing
- * replaces it.
+ * never dispatch: a subcommand completes to `/parent sub ` (caret past the
+ * space); a free-form hint completes to selected text so typing replaces it.
  */
 function completeSlashArgRow(shell: AppShell, row: PaletteCommand): void {
   const base = `/${row.parentId ?? row.id} `;
@@ -691,12 +689,11 @@ function completeSlashArgRow(shell: AppShell, row: PaletteCommand): void {
 /**
  * Keys the `/` popup claims while open. Returns true when handled.
  *
- * Enter runs the highlighted command with no arguments (bare dispatch even
- * for param commands — the typed `/name` already says what to run, and an
- * untouched Tab-accepted hint is stripped at submit). Tab completes the
- * name instead; commands with an argumentHint or subcommands open the
- * second-stage arg rows, param-less commands keep the bare `/id ` accept
- * and close.
+ * Enter runs the highlighted command with no arguments (bare even for param
+ * commands — the typed `/name` says what to run, and an untouched
+ * Tab-accepted hint is stripped at submit). Tab completes the name;
+ * commands with an argumentHint or subcommands open the second-stage arg
+ * rows, param-less commands keep the bare `/id ` accept and close.
  */
 export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
   if (!isSlashPopupOpen(shell) || shell.overlayList === null) return false;

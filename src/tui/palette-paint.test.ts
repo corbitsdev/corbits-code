@@ -476,11 +476,10 @@ describe("command list height cap", () => {
     }),
   );
 
-  // Every plugin-inflated catalog and every terminal size gets a bounded
-  // frame: the border-to-border row count never grows past the terminal.
-  // Below the 10-row comfort line the overlay may take rows from the prompt
-  // floor so the list stays painted; a cramped prompt is preferred to an
-  // overflowed host.
+  // Every plugin-inflated catalog and terminal size gets a bounded frame:
+  // the border-to-border row count never grows past the terminal. Below the
+  // 10-row comfort line the overlay may take rows from the prompt floor so
+  // the list stays painted; a cramped prompt beats an overflowed host.
   for (const height of [24, 16, 12, 8, 6]) {
     test(`stays within a ${height}-row terminal`, async () => {
       await withTestRenderer(
