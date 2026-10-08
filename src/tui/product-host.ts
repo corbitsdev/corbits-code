@@ -86,8 +86,8 @@ function annotateCurrent(
 }
 
 /**
- * Alt+R armed-confirm window; expiry is checked lazily at the second press
- * (no timer — the arm flash shares the TTL).
+ * Alt+R armed-confirm window. No timer: the second press checks expiry and
+ * the arm flash shares the TTL.
  */
 export const REMOVE_ARM_MS = 5000;
 
@@ -99,9 +99,9 @@ export interface RemoveArmed {
 export type RemoveKeyDecision = "inert" | "armed" | "confirmed";
 
 /**
- * Pure Alt+R transition for one focused picker row. Ghost rows and the empty
- * filter sentinel are inert; a second press on the same row inside the window
- * confirms; anything else re-arms.
+ * Alt+R transition for one focused picker row. Ghost rows and the
+ * empty-filter sentinel are inert; a second press on the same row inside the
+ * window confirms; anything else re-arms.
  */
 export function decideRemoveKey(
   armed: RemoveArmed | null,
@@ -157,9 +157,9 @@ export interface ProductHostAddProviderChoice {
 }
 
 /**
- * Pre-scoped reconnect context (`/connect <kind> [profile]`, or the idle
- * one-action reconnect offer). `profile` is the slug being re-keyed: the flow
- * prefills it, never skips the confirm-to-re-key.
+ * Reconnect context (`/connect <kind> [profile]`, or the idle one-action
+ * offer). `profile` is the slug being re-keyed: the flow prefills it, never
+ * skips the re-key confirm.
  */
 export interface ProductHostConnectRequest {
   readonly kind?: string;
@@ -175,24 +175,24 @@ export interface ProductHostConfig {
   readonly eventEmitter: EventEmitter;
   readonly send: ProductHostSend;
   /** Classify a submit without side effects: slash commands and multi-turn
-   * /feedback never mark the session busy or enter the mid-run queue. */
+   * /feedback never mark the session busy or queue mid-run. */
   readonly classifySubmit?: ProductHostClassifySubmit;
   readonly interrupt: ProductHostInterrupt;
   readonly deliver: ProductHostDeliver;
   /** Model/provider rows for the picker (id applied on select). */
   readonly models?: readonly ProductHostModelOption[];
-  /** Opaque model option id of the running model, read live on every picker
-   * open so selections made outside the picker (e.g. `defaultProvider` at
-   * startup) mark that row "(current)" instead of guessing from recents. */
+  /** Id of the running model, read on every picker open so outside
+   * selections (e.g. `defaultProvider` at startup) mark that row
+   * "(current)" instead of guessing from recents. */
   readonly activeModelId?: () => string | undefined;
   readonly onModelSelect?: (id: string) => void;
   /** Description-zone source for the model picker, keyed by row id. */
   readonly describeModel?: (itemId: string) => ItemDescription | null;
-  /** Picking a provider in the Alt+A selector calls this. Caller runs the
-   * connect flow and, on success, updates `models`/`describeModel` via
-   * `setModels` and reopens the picker. `req.profile` pre-scopes a reconnect:
-   * the flow prefills the account-name step with the existing slug, and the
-   * confirm-to-re-key runs unchanged. */
+  /** Called when a provider is picked in the Alt+A selector. Caller runs the
+   * connect flow, then updates `models`/`describeModel` via `setModels` and
+   * reopens the picker. `req.profile` pre-scopes a reconnect, prefilling
+   * the account-name step with the existing slug and keeping the re-key
+   * confirm. */
   readonly onConnectProvider?: (
     providerName: string,
     req?: ProductHostConnectRequest,
@@ -201,18 +201,17 @@ export interface ProductHostConfig {
   readonly onFavoriteToggle?: (itemId: string) => void;
   /** Alt+D on a focused model row. Bare `d` is claimed by type-to-filter. */
   readonly onSetDefault?: (itemId: string) => void;
-  /** Alt+R on a focused model row (bare `r` is type-to-filter text).
-   * Two-press armed confirm: the first press arms the row and flashes the
-   * `describeRemoveProvider` line; the second press on the same armed row
-   * calls this. Esc, focus moves, and the arm timeout disarm with no call;
-   * without `describeRemoveProvider` the chord stays inert so the hint never
-   * names a dead action. */
+  /** Alt+R on a focused model row (bare `r` types to filter). Two-press
+   * armed confirm: the first press arms the row and flashes the
+   * `describeRemoveProvider` line; the second on the same row calls this.
+   * Esc, focus moves, and the arm timeout disarm without calling; without
+   * `describeRemoveProvider` the chord stays inert. */
   readonly onRemoveProvider?: (itemId: string) => void;
-  /** Blast-radius line for the Alt+R arm step. Null means the row is not
-   * removable (ghost/residual rows, the "(no matches)" sentinel) and Alt+R
+  /** Line flashed for the Alt+R arm step. Null means the row is not
+   * removable (ghost/residual rows, the "(no matches)" sentinel), so Alt+R
    * stays inert; only read when `onRemoveProvider` is wired. */
   readonly describeRemoveProvider?: (itemId: string) => string | null;
-  /** Every first-class provider kind, read fresh on each Alt+A open so a
+  /** First-class provider kinds, read fresh on each Alt+A open so a
    * just-connected account's count is current. Omitted hosts get no hint. */
   readonly addProviderChoices?: () => readonly ProductHostAddProviderChoice[];
   /** Command palette catalog (registry-backed). */
@@ -223,21 +222,20 @@ export interface ProductHostConfig {
   /** Optional initial chrome snapshot. */
   readonly chrome?: ChromeLiveState | null;
   /** Agents-strip post-finish linger window. Production keeps the 4s default;
-   * tests set it short so the sticky-poll linger test doesn't pay the full
-   * window in wall clock (pattern: the watchdog's salvageGraceMs). */
+   * tests set it short so the sticky-poll linger test doesn't wait the full
+   * window (same pattern as the watchdog's salvageGraceMs). */
   readonly agentsPanelLingerMs?: number;
   /** Resolves the live subagent session for the palette "observe" action;
-   * unset falls back to the shell's demo fixture (production must supply
-   * this to view real sessions). */
+   * unset falls back to the shell's demo fixture; production must supply
+   * this to view real sessions. */
   readonly onObserveRequest?: PaletteOnObserveRequest;
   /** Live sub-agent sessions read on the chrome poll cadence to refresh
    * outstanding `spawn_agent` rows (elapsed time, tool, stall state);
-   * omitted hosts (tests, demo shell) paint bare pending rows. */
+   * omitted hosts paint bare pending rows. */
   readonly subAgentSessions?: () => readonly TaskProgressSession[];
-  /** Per-call bounded shell-output feeds, polled on the same sticky tick to
-   * paint a running command's live output tail onto the pending row that owns
-   * the call. Omitted hosts (tests, demo shell) paint pending shell rows
-   * without a tail. */
+  /** Per-call bounded shell-output feeds, polled on the sticky tick to
+   * paint a running command's live output tail onto its pending row.
+   * Omitted hosts paint pending rows without a tail. */
   readonly shellOutputFeed?: (callId: string) => ShellOutputFeed | undefined;
   /** Renderer factory override for headless mounting in tests; defaults to
    * the real `createCliRenderer`. */
@@ -251,8 +249,7 @@ export interface ProductHostConfig {
   readonly reducedMotion?: boolean;
   /** Take DEC mouse reporting. Default true: without it, alternate-scroll
    * resends wheel input as arrow keys; with it, drag-select is OpenTUI-owned
-   * and auto-copies on mouse-up (Alt+M hands the mouse back for native
-   * selection). */
+   * and auto-copies on mouse-up (Alt+M returns to native selection). */
   readonly useMouse?: boolean;
 }
 
@@ -301,23 +298,23 @@ export async function mountProductHost(
     ? await config.createRenderer()
     : await createCliRenderer({
         // Ctrl+C stays with shell.ts's double-tap-to-quit
-        // (CTRL_C_EXIT_WINDOW_MS): the SIGINT handler only receives it as a
-        // real OS signal when nothing consumed it.
+        // (CTRL_C_EXIT_WINDOW_MS): SIGINT reaches the handler only when
+        // nothing consumed it.
         exitOnCtrlC: false,
         targetFps: 30,
         // Mouse reporting on by default (see `useMouse`): without it,
-        // alternate-scroll resends wheel input as arrow keys, which the prompt
-        // reads as history navigation instead of transcript scrolling. Cost:
-        // native drag-select is suppressed.
+        // alternate-scroll resends wheel as arrow keys and the prompt reads
+        // history instead of scrolling the transcript; cost: native
+        // drag-select is suppressed.
         // enableMouseMovement stays on (?1003): URL hover needs pointer
-        // motion with the modifier held — clicks and wheel never report an
+        // motion with the modifier held; clicks and wheel never report an
         // unpressed pointer.
         useMouse: config.useMouse ?? true,
         enableMouseMovement: true,
         // A plain terminal sends bare CR for Enter and Shift+Enter alike; the
         // modifier arrives only once the kitty keyboard protocol negotiates.
-        // Empty object, not explicit flags: matches what OpenCode passes and
-        // is the config Shift+Enter works under on the same renderer.
+        // Empty object, not explicit flags: matches OpenCode's config and is
+        // what Shift+Enter works under on the same renderer.
         useKittyKeyboard: {},
       });
 
@@ -347,8 +344,8 @@ export async function mountProductHost(
 
   // Notice strip (or transcript once there is content), not a log: a log is
   // invisible behind the full-screen shell, and only the operator can fix a
-  // terminal setting. The startup-notice path keeps the landing painted when
-  // this fires before the first turn.
+  // terminal setting. The startup path keeps the landing painted when this
+  // fires before the first turn.
   const widthReport = checkWidthContract(renderer.widthMethod);
   if (!widthReport.agrees) {
     surfaceSystemNotice(shell, widthContractNotice(widthReport));
@@ -363,7 +360,7 @@ export async function mountProductHost(
       : {}),
   });
   // Empty options accept the defaults (real clock, 250 ms tick, 15 min stall)
-  // while still opting this host into the quota-retry / stall timers.
+  // while still opting the host into the quota-retry / stall timers.
   const bridge = attachSessionBridge(shell, port, config.turnMonitor ?? {});
 
   if (config.commands !== undefined) {
@@ -396,10 +393,10 @@ export async function mountProductHost(
     resolveExit = resolve;
   });
 
-  // The poll outlives the renderer when a caller tears it down without
-  // disposing the host; painting into freed buffers throws, so it stands down.
-  // Sticky is tracked so a true→false edge still paints once — otherwise the
-  // strip never clears when linger expires without a store notify.
+  // The poll outlives the renderer when a caller tears down without
+  // disposing the host; painting into freed buffers throws, so it stands
+  // down. Sticky is tracked so a true→false edge still paints once —
+  // otherwise the strip never clears when linger expires without a notify.
   let stickyWasNeeded =
     chromeState !== null &&
     agentsChromeNeedsSticky(
@@ -410,8 +407,8 @@ export async function mountProductHost(
   const stickyPoll = setInterval(() => {
     if (disposed) return;
     try {
-      // The poll exists for the strip, not the chrome, and both edges paint
-      // via the stickyWasNeeded latch below.
+      // The poll paints the strip, not the chrome; both edges go through
+      // the stickyWasNeeded latch below.
       const stickyNeeded =
         chromeState !== null &&
         agentsChromeNeedsSticky(
@@ -422,19 +419,19 @@ export async function mountProductHost(
       if (stickyNeeded || stickyWasNeeded) {
         paintChrome(shell);
       }
-      // While the strip owns live clocks / linger, skip syncAgentProgress
-      // rewrites — anchors still arrive via event paths; only the sticky
-      // clock tick is frozen.
+      // While the strip owns live clocks/linger, skip syncAgentProgress
+      // rewrites — anchors still arrive via events; only the sticky clock
+      // tick is frozen.
       if (config.subAgentSessions !== undefined && !stickyNeeded) {
         bridge.syncAgentProgress(config.subAgentSessions());
       }
-      // Live shell tail: deduped in the bridge, so an unchanged snapshot is a
-      // no-op and this poll cadence (200 ms) is the paint cadence.
+      // Live shell tail: deduped in the bridge, so an unchanged snapshot is
+      // a no-op; this poll cadence (200 ms) is the paint cadence.
       bridge.syncShellOutputs(config.shellOutputFeed);
-      // Elapsed clock, stall flip, and linger are wall-time — repaint while
+      // Elapsed clock, stall flip, and linger are wall-time, so repaint while
       // sticky is needed; paintChromeZones re-enters setChromeZones, so gate
-      // on sticky rather than every tick. The falling edge clears the zone
-      // when formatAgentsPanel returns null after linger.
+      // on sticky, not every tick. The falling edge clears the zone when
+      // formatAgentsPanel returns null after linger.
       if (stickyNeeded || stickyWasNeeded) {
         paintChromeZones();
       }
@@ -460,8 +457,8 @@ export async function mountProductHost(
     config.eventEmitter.off("compaction", onCompaction);
     config.eventEmitter.off("workflow", onWorkflow);
     bridge.dispose();
-    // Cancels any flash still counting down: its expiry repaints, and after
-    // teardown that repaint reaches a destroyed text buffer.
+    // Cancels any flash still counting down: its expiry repaints into a
+    // destroyed text buffer after teardown.
     setStatusFlash(shell, null);
     try {
       shell.dispose();
@@ -512,9 +509,9 @@ export async function mountProductHost(
     if (disposed) return;
     const parsed = mcpServerState(state);
     if (parsed === null) return;
-    // An auth wait that timed out is still waiting on the operator — keep
-    // the marker until the server connects, leaves config, or fails for a
-    // reason that is not the authorization itself.
+    // A timed-out auth wait is still waiting on the operator — keep the
+    // marker until the server connects, leaves config, or fails for a
+    // non-auth reason.
     if (
       parsed.state === "needs-auth" ||
       (parsed.state === "failed" && parsed.authPending === true)
@@ -547,8 +544,8 @@ export async function mountProductHost(
     workflowWasActive = info.current.active;
   }
 
-  // The renderer already owns the alternate screen and raw mode, but `dispose`
-  // has not reached a caller yet — a throw here would wedge the terminal.
+  // The renderer owns the alternate screen and raw mode, and `dispose` has
+  // not reached a caller yet — a throw here would wedge the terminal.
   let disposeGates: () => void;
   try {
     disposeGates = wireGates(config.eventEmitter, shell, {
@@ -580,7 +577,7 @@ export async function mountProductHost(
   }
 
   // /clear and /new rotate the backend session; wipe the painted transcript
-  // so the screen matches a brand-new session (the Ink App used to own this —
+  // so the screen matches a brand-new session (the Ink App used to own this;
   // OpenTUI regressed it).
   function onSessionClear(): void {
     if (disposed) return;
@@ -611,8 +608,8 @@ export async function mountProductHost(
       onRemoveProvider !== undefined && describeRemoveProvider !== undefined;
 
     // Alt+R armed-confirm state, per picker mount. Only the latest arm can
-    // confirm; every exit clears it — Esc/dismiss, Enter, Alt+A, fresh open.
-    // Focus moves disarm through the describe wrapper below.
+    // confirm; every exit clears it (Esc/dismiss, Enter, Alt+A, fresh open).
+    // Focus moves disarm via the describe wrapper below.
     let armedRemove: RemoveArmed | null = null;
     let armedRemoveFlash: string | null = null;
     const disarmRemove = (): void => {
@@ -624,10 +621,10 @@ export async function mountProductHost(
     };
 
     // Alt+A from the model picker: close it and open a fresh selector over
-    // every provider kind, no already-connected filtering. Opens through the
-    // same reserved close-then-open path openModels uses, not the palette's
+    // every provider kind, no already-connected filtering. Uses the same
+    // reserved close-then-open path as openModels, not the palette's
     // priorOverlay stack (which floats over a question without dropping its
-    // awaited promise — not applicable here).
+    // awaited promise).
     openAddProvider =
       addProviderChoices !== undefined && onConnect !== undefined
         ? (opts?: {
@@ -653,8 +650,8 @@ export async function mountProductHost(
                 if (id === undefined || id.length === 0) return;
                 // A pre-scoped reconnect carries the profile to the connect
                 // flow (account-name prefill); anything else connects bare.
-                // Unknown kinds fall back to the full list — the overlay
-                // opened unscoped, so nothing stale to carry.
+                // Unknown kinds fall back to the full list, as the overlay
+                // opened unscoped.
                 if (
                   opts?.initialProfile !== undefined &&
                   (opts.initialKind === undefined || opts.initialKind === id)
@@ -683,7 +680,7 @@ export async function mountProductHost(
                 };
               },
               // Esc returns through the same entry Alt+A, /model, and a
-              // completed connect use; /connect omits this so Esc dismisses.
+              // completed connect use; /connect omits it so Esc dismisses.
               ...(opts?.returnToModels === true
                 ? { onCancel: () => openModels?.() }
                 : {}),
