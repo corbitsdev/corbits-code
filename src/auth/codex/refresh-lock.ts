@@ -3,29 +3,22 @@ import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 
 // Serializes Codex OAuth refresh-and-persist sections across processes that
-// share one credential store (concurrent headless runs). Three layers:
-// (1) same-process callers chain on an in-memory tail so they never contend
-// on the file with each other; (2) cross-process callers contend on an
-// exclusive lock file, with crashed-holder takeover via PID liveness;
-// (3) inside the lock, the inner TokenSession dedups overlapping refreshes
-// for one credential store. At most one refresh grant is ever in flight, so
-// a second refresher observes the persisted result instead of racing the
-// authorization server's refresh-token rotation and revoking its sibling.
+// share one credential store. Same-process callers chain on an in-memory
+// tail; cross-process callers contend on an exclusive lock file with
+// crashed-holder takeover via PID liveness; the inner TokenSession dedups
+// overlapping refreshes. At most one refresh grant is in flight, so a second
+// refresher sees the persisted result instead of racing refresh-token
+// rotation and revoking its sibling.
 //
-// Limits (accepted). PID-liveness takeover assumes contender and holder
-// share one PID namespace on one host: across namespaces or machines the
-// check is meaningless — ESRCH steals a live holder's lock (overlapping
-// grants) while a recycled PID reads alive and stalls recovery. Likewise,
-// serialization needs one canonical lock path per store: contenders that
-// spell the same store via two paths (symlinked TMPDIR, uncanonicalized
-// home) contend on two files and never meet. Same-host headless runs share
-// namespace and path, so the lock holds.
+// Accepted limits: PID liveness only means something on one host in one PID
+// namespace (ESRCH would steal a live holder's lock, a recycled PID stalls
+// recovery), and one lock path per store (two spellings contend on two
+// files). Same-host headless runs satisfy both.
 const tails = new Map<string, Promise<void>>();
 
-// Default stale horizon for legacy lock files that carry no holder PID
-// (foreign writers, or locks predating PID tagging): crashed-holder recovery
-// only. Kept far above any legitimate hold and any contender timeout so a
-// live holder is never declared stale mid-wait (see the staleMs field docs).
+// Stale horizon for legacy locks that carry no holder PID (foreign writers,
+// pre-tagging locks). Kept far above any legitimate hold and contender
+// timeout so a live holder is never declared stale mid-wait.
 const DEFAULT_STALE_MS = 120_000;
 
 export interface CodexRefreshLockOptions {
@@ -34,21 +27,18 @@ export interface CodexRefreshLockOptions {
   /** Poll interval while contending. Defaults to 25. */
   retryMs?: number;
   /**
-   * Lock-file age at which an untagged (PID-less) holder is presumed crashed
-   * and the lock is taken over. Defaults to 120_000. This must stay far
-   * above the longest legitimate hold (the token endpoint timeout plus store
-   * I/O) — and, in particular, far above any contender's own timeout —
-   * otherwise a waiter declares the live holder stale mid-wait, steals the
-   * lock, and the two overlapping refresh grants revoke each other under
-   * token rotation. PID-tagged locks ignore this horizon: a dead PID takes
-   * over immediately, a live PID never does.
+   * Age at which an untagged holder is presumed crashed and the lock is
+   * taken over. Defaults to 120_000. Must stay far above the longest
+   * legitimate hold and any contender timeout, or a waiter steals a live
+   * holder's lock and the overlapping grants revoke each other under token
+   * rotation. PID-tagged locks ignore this: dead PID takes over, live PID
+   * never does.
    */
   staleMs?: number;
 }
 
-// The lock could not be acquired in time: either a refresh is genuinely
-// stalled past the timeout, or a crashed holder's lock survived takeover.
-// Carries the lock path so the message can tell the operator how to recover.
+// The lock could not be acquired in time — a stalled refresh, or a crashed
+// holder's lock surviving takeover. Carries the lock path for recovery.
 export class CodexRefreshLockTimeoutError extends Error {
   readonly lockPath: string;
   readonly timeoutMs: number;
@@ -64,10 +54,9 @@ export class CodexRefreshLockTimeoutError extends Error {
   }
 }
 
-// Holder tag written into the lock file on creation: the creating PID (for
-// crashed-holder liveness) plus a unique token (so only the creator removes
-// it — a stale-takeover steal is never deleted by the victim's belated
-// release, which would otherwise hand two holders overlapping grants).
+// Holder tag: the creating PID (for crashed-holder liveness) plus a unique
+// token, so only the creator removes the file — a belated release after a
+// stale-takeover steal would otherwise hand two holders overlapping grants.
 function holderTag(): string {
   return `${String(process.pid)}:${randomUUID()}`;
 }
@@ -77,13 +66,9 @@ function holderPid(content: string): number | null {
   return Number.isInteger(pid) && pid > 0 ? pid : null;
 }
 
-// kill(pid, 0) liveness: success means the process exists (alive); EPERM
-// means it exists but belongs to another user (alive); ESRCH/EINVAL mean no
-// such process (dead). Any other failure is treated as alive — never steal
-// a live holder's lock on a confused signal check; the waiter times out with
-// a recovery hint instead. Meaningful only when contender and holder share
-// a PID namespace (see the module header): across namespaces the answer is
-// about the wrong process table.
+// kill(pid, 0) liveness: EPERM is alive (other user), ESRCH/EINVAL dead,
+// anything else treated as alive so a confused signal check never steals a
+// live holder's lock. Only meaningful within one PID namespace.
 function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -102,9 +87,8 @@ async function readLockContent(lockPath: string): Promise<string | null> {
   }
 }
 
-// True when the observed lock is safe to take over: a tagged holder whose
-// PID is dead (crashed — reachable under any timeout/stale combination), or
-// a legacy untagged lock older than the stale horizon.
+// Safe to take over: a tagged holder with a dead PID, or an untagged lock
+// older than the stale horizon.
 async function isLockStale(
   lockPath: string,
   staleMs: number,
@@ -140,10 +124,8 @@ async function acquireLockFile(
     } catch (err) {
       if ((err as NodeJS.ErrnoException)?.code !== "EEXIST") throw err;
     }
-    // A crashed holder never releases: unlink and take over rather than
-    // brick refreshes. The content is re-checked before unlinking so a
-    // concurrent takeover winner's fresh lock is never mistaken for the
-    // stale entry just observed.
+    // A crashed holder never releases: unlink and take over. Re-check the
+    // content first so a concurrent winner's fresh lock is not unlinked.
     const content = await readLockContent(lockPath);
     if (content !== null && (await isLockStale(lockPath, staleMs, content))) {
       if ((await readLockContent(lockPath)) === content) {
@@ -157,9 +139,8 @@ async function acquireLockFile(
   }
 }
 
-// Same-process queueing never waits past the acquisition deadline: without
-// this bound the in-memory tail sits outside the file timer and a backed-up
-// queue stalls far longer than timeoutMs promises.
+// Bound the in-memory queue wait by the same deadline as file contention,
+// or a backed-up queue stalls far longer than timeoutMs promises.
 async function waitForTail(
   previous: Promise<void>,
   lockPath: string,
@@ -187,13 +168,10 @@ async function waitForTail(
 }
 
 /**
- * Runs `work` while holding the refresh lock at `lockPath`. Concurrent
- * same-process callers queue in memory; concurrent processes queue on the
- * lock file. The lock file is removed afterwards by the holder that created
- * it. One acquisition deadline covers both the queue wait and the file
- * contention, so the call either holds the lock or throws within ~timeoutMs.
- * Callers must pass one canonical path per credential store: two spellings
- * of the same store contend on two files (see the module header).
+ * Runs `work` while holding the refresh lock at `lockPath`. Same-process
+ * callers queue in memory, other processes on the lock file; one deadline
+ * covers both, so the call holds or throws within ~timeoutMs. The creating
+ * holder removes the file. Callers must pass one canonical path per store.
  */
 export async function withCodexRefreshLock<T>(
   lockPath: string,
@@ -222,9 +200,8 @@ export async function withCodexRefreshLock<T>(
     try {
       return await work();
     } finally {
-      // Fenced release: only remove the file while it still carries our tag.
-      // A stale-takeover steal replaces the content; deleting it would hand
-      // two holders overlapping grants.
+      // Fenced release: remove the file only while it still carries our
+      // tag, or a stale-takeover steal would hand two holders grants.
       if ((await readLockContent(lockPath)) === tag) {
         await unlink(lockPath).catch(() => undefined);
       }
