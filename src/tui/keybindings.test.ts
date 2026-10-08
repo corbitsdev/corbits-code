@@ -2,12 +2,12 @@
  * The help catalog, checked against real behavior.
  *
  * Every row in `SHELL_SHORTCUTS` is looked up here by its own `keys` string
- * and driven as the bytes that string denotes: rename a chord and the lookup
- * fails, change a chord and the probe presses the new one against the old
- * assertion. A catalog row with no probe fails the coverage test outright.
+ * and driven as the bytes that string denotes: rename a chord and the
+ * lookup fails, change a chord and the probe presses the new one against
+ * the old assertion. A catalog row with no probe fails coverage outright.
  *
- * What this does not check: which description sits on which row — swapping
- * two descriptions between rows would pass. Everything else (the chord, its
+ * Not checked: which description sits on which row — swapping two
+ * descriptions between rows would pass. Everything else (the chord, its
  * modifiers, the stated condition, whether the host shadows the prompt's
  * own binding) is asserted against a live shell.
  */

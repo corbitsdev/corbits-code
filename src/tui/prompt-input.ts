@@ -1,19 +1,19 @@
 /**
  * The shell's prompt input: a genuine multi-line composing area.
  *
- * OpenTUI's `InputRenderable` is hard-wired to one row, no wrapping, and
- * newlines stripped, so the prompt is built on `TextareaRenderable`. Two
- * things have to be put back on top of it:
+ * OpenTUI's `InputRenderable` is one row, no wrapping, newlines stripped,
+ * so the prompt is built on `TextareaRenderable`. Two things are put back
+ * on top:
  *
- * - **Enter sends.** The textarea's default is Enter-inserts-newline, which
+ * - **Enter sends.** The textarea defaults to Enter-inserts-newline, which
  *   would swallow the shell's primary action, so the bindings below flip
  *   it: Enter submits, a newline needs an explicit chord, and Alt+Enter
  *   (follow-up) is claimed by the shell's key listener first.
  * - **`value`.** The textarea calls the buffer `plainText` and has no
- *   setter that parks the caret. The whole shell — kill ring, history
- *   recall, the `/` and `@` popups, attachments — reads and writes `value`
- *   as one logical string, so the accessor is defined here rather than
- *   rewritten at every call site.
+ *   setter that parks the caret. The shell — kill ring, history recall,
+ *   the `/` and `@` popups, attachments — reads and writes `value` as one
+ *   logical string, so the accessor lives here rather than at every call
+ *   site.
  */
 
 import {
@@ -26,11 +26,10 @@ import {
 export type PromptInput = TextareaRenderable & { value: string };
 
 /**
- * Enter sends the message, so a literal newline needs a chord of its own:
- * Shift+Enter or Ctrl+Enter where the terminal reports the modifier, Ctrl+J
- * (`linefeed`) everywhere else — terminals that don't negotiate the kitty
- * keyboard protocol can't report Shift+Enter at all. Alt+Enter is left
- * alone; the shell claims it for the follow-up action first.
+ * Enter sends, so a literal newline needs its own chord: Shift+Enter or
+ * Ctrl+Enter where the terminal reports the modifier, Ctrl+J (`linefeed`)
+ * elsewhere — terminals without the kitty keyboard protocol can't report
+ * Shift+Enter. Alt+Enter is left alone; the shell claims it for follow-up.
  */
 // Modifier-qualified entries lead: a first-match table would otherwise resolve
 // Shift+Enter against the bare `return` submit binding and send the message.
@@ -78,10 +77,9 @@ export function createPromptInput(
 /**
  * Where the caret sits among the buffer's wrapped rows, document-absolute.
  *
- * `visualCursor.visualRow` is viewport-relative, so it reads 0 whenever the
- * caret is on the top visible row. Adding the scroll offset back gives the
- * row the operator is actually on, which decides whether Up/Down moves the
- * caret or recalls history.
+ * `visualCursor.visualRow` is viewport-relative — 0 whenever the caret is
+ * on the top visible row — so the scroll offset is added back. The absolute
+ * row decides whether Up/Down moves the caret or recalls history.
  */
 export function promptCaretRow(prompt: PromptInput): number {
   return prompt.visualCursor.visualRow + prompt.scrollY;
@@ -90,10 +88,9 @@ export function promptCaretRow(prompt: PromptInput): number {
 /**
  * Total wrapped rows the buffer occupies, however few are on screen.
  *
- * Read from the editor view's line table rather than `virtualLineCount`,
- * which counts only the rows in the viewport and stops rising once the box
- * hits its cap. The table is the same wrap the view paints and the caret is
- * measured against, so sizing and caret placement cannot drift apart.
+ * Read from the editor view's line table, not `virtualLineCount`
+ * (viewport-only, capped once the box fills): the table is the same wrap
+ * the view paints, so sizing and caret placement cannot drift apart.
  */
 export function promptRowCount(prompt: PromptInput): number {
   return Math.max(1, prompt.lineInfo.lineStartCols.length);

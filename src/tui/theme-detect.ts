@@ -9,10 +9,10 @@
  * 3. OS appearance (best-effort per platform; unknown platforms abstain).
  * 4. Default dark.
  *
- * Pure over injected inputs: no direct `process.env`, `process.platform`, or
- * stdin access — callers read the environment once and pass it in, keeping
- * the precedence matrix unit-testable. Nothing is cached across restarts;
- * every launch re-detects.
+ * Pure over injected inputs: no direct `process.env`, `process.platform`,
+ * or stdin access — callers read the environment once and pass it in,
+ * keeping the precedence matrix unit-testable. Nothing is cached across
+ * restarts; every launch re-detects.
  */
 
 import type { ThemeName } from "./theme.js";
@@ -42,11 +42,11 @@ export interface SyncThemeEnv {
 /**
  * Step 2: synchronous terminal sniff.
  *
- * COLORFGBG is `fg;bg` (xterm appends a third cursor field whose middle `bg`
- * still applies). A `default` background means "ask the terminal" — unknown,
- * never a guess. Numeric backgrounds follow the ANSI table: 0-6 and 8 are
- * dark grounds, 7 and 9-15 are light ones. TERM_PROGRAM names the terminal
- * but no current terminal encodes its light/dark state there, so it never
+ * COLORFGBG is `fg;bg` (xterm appends a third cursor field whose middle
+ * `bg` still applies). A `default` background means "ask the terminal" —
+ * unknown, never a guess. Numeric backgrounds follow the ANSI table: 0-6
+ * and 8 are dark grounds, 7 and 9-15 light. TERM_PROGRAM names the
+ * terminal but no current terminal encodes light/dark there, so it never
  * decides alone.
  */
 export function sniffSyncTheme(env: SyncThemeEnv): ThemeName | null {

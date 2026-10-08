@@ -16,17 +16,17 @@ export interface CreateGateRequestApprovalArgs {
   /** Emits the gate event to the UI; returns false when nothing is listening. */
   emitGate: (event: PermissionGateEvent) => boolean;
   /**
-   * Auto-deny timeout parameters for an unattended run, or undefined when
-   * nothing currently arms it. No caller arms it today; a future
-   * auto-continue mechanism owns re-arming.
+   * Auto-deny timeout for an unattended run, or undefined when nothing arms
+   * it. No caller arms it today; a future auto-continue mechanism owns
+   * re-arming.
    */
   approvalTimeout: () =>
     | { timeoutMs: number; timeoutMessage: string }
     | undefined;
   /**
    * Session-identity abort. A generation bump (interrupt, /clear, /new)
-   * aborts this signal so the outstanding overlay denies through the existing
-   * gate abort path instead of remaining as a ghost accept.
+   * aborts it so the outstanding overlay denies through the gate abort
+   * path instead of lingering as a ghost accept.
    */
   identitySignal?: () => AbortSignal;
 }
@@ -36,13 +36,11 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "tui", "permission"]);
 /**
  * Wires a gate's settle callback to the ALS tool-approval budget, so every
  * gate (permission, ask_operator, MCP TOFU) freezes the tool's wall-clock
- * budget the same way while a human decides. The budget pauses the moment
- * the gate is raised, not when its overlay shows — the timeout keeps running
- * whether or not the overlay is on screen, and deferring would let a
- * queued-and-invisible request burn it. `resolve` is called at most once no
- * matter how many times the returned `finish` is invoked; the budget handle
- * is captured at gate time, since `finish` may run on the UI thread outside
- * the tool ALS, where a re-lookup would no-op.
+ * budget while a human decides. The pause starts when the gate is raised,
+ * not when its overlay shows, so a queued-and-invisible request cannot burn
+ * the timeout. `resolve` runs at most once however often `finish` is called;
+ * the budget handle is captured at gate time because `finish` may run on
+ * the UI thread outside the tool ALS, where a re-lookup would no-op.
  */
 export function attachApprovalBudget<T>(
   resolve: (value: T) => void,

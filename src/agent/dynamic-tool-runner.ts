@@ -25,26 +25,26 @@ export type DynamicToolRunner = AgentToolRunner & {
   removeTools(names: string[]): void;
   currentDefinitions(): ToolDefinition[];
   /**
-   * When a gate is set, a registered tool whose name is not on the current
-   * wire (built-in prefix + pinned + activated) is interceptable: if
-   * `setOnUndeclaredCall` was wired, that handler declares the one name
-   * (promote-on-execute) and run() re-checks the gate, then dispatches;
-   * otherwise it errors toward tool_search. Without a gate every registered
-   * tool stays dispatchable — sub-agent runners never set one.
+   * When a gate is set, a registered tool whose name is off the current
+   * wire (built-in prefix + pinned + activated) is interceptable:
+   * `setOnUndeclaredCall` declares the one name (promote-on-execute) and
+   * run() re-checks the gate, then dispatches; otherwise it errors toward
+   * tool_search. Without a gate every registered tool stays dispatchable —
+   * sub-agent runners never set one.
    *
    * `options.isActivated` is the promotion side: an activated-but-unregistered
-   * name reports "not currently available, server may be reconnecting" rather
-   * than the bare unknown-tool string; names never activated keep that string.
+   * name reports "not currently available, server may be reconnecting"
+   * rather than the bare unknown-tool string.
    */
   setCallGate(
     isCallable: (name: string) => boolean,
     options?: { isActivated?: (name: string) => boolean },
   ): void;
   /**
-   * Session promoter used when a known-but-unadvertised call arrives:
-   * declare that one name (activate + flush), then dispatch. Search loads
-   * only the top ranked hits onto the tail; this path covers a called name
-   * that was not in that prefix, plus director-side triggers.
+   * Session promoter for a known-but-unadvertised call: declare that one
+   * name (activate + flush), then dispatch. Search loads only the top
+   * ranked hits; this path covers a called name outside that prefix, plus
+   * director-side triggers.
    */
   setOnUndeclaredCall(handler: (name: string) => void): void;
 };
@@ -100,10 +100,10 @@ export function createDynamicToolRunner(
         byName.has(name),
       );
       if (resolved === undefined) {
-        // The name was promoted (gate-activated) but the registry no longer
-        // holds it — the server dropped between search and call. Say so: the
-        // name was already promoted, so retry rather than re-search. A name
-        // never activated keeps the exact unknown-tool string.
+        // Promoted (gate-activated) but the registry no longer holds it —
+        // the server dropped between search and call. Say so: the name was
+        // already promoted, so retry rather than re-search. A name never
+        // activated keeps the exact unknown-tool string.
         if (isActivated?.(call.name) === true) {
           return {
             callId: call.id,
@@ -147,8 +147,8 @@ export function createDynamicToolRunner(
       // A registered tool off the advertised wire: declare that one name
       // (strict providers see it on the session tool list before dispatch),
       // then run the call. Search already loaded the top ranked hits; this
-      // covers a called name that was not in that prefix. If the promoter
-      // cannot admit the name (closed overlay, denied family), the gate still
+      // covers a called name outside that prefix. If the promoter cannot
+      // admit the name (closed overlay, denied family), the gate still
       // fails and the model is pointed at tool_search.
       // Unadvertised mounted builtins (list_dir) stay off the wire — search
       // hides them in favor of glob — so intercept dispatches without

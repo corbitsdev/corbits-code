@@ -1,17 +1,16 @@
 /**
  * The transient notice row.
  *
- * There is no permanent status strip: keys are discoverable from the landing
- * screen and the command palette, and the prompt box's border already
- * carries the model and the workspace. The row shows state that is only
- * sometimes true — a steer waiting on a tool, a copy result, pinned scroll,
- * attachments — and only while it has something to say; at defaults it
- * composes to the empty string and the shell hides it.
+ * No permanent status strip exists: keys are discoverable from the landing
+ * screen and palette, and the prompt box's border already carries the model
+ * and workspace. The row shows state that is only sometimes true — a steer
+ * waiting on a tool, a copy result, pinned scroll, attachments — and only
+ * while it has something to say; at defaults it composes to the empty
+ * string and the shell hides it.
  *
- * MCP authorization is not a notice-row concern (it has the prompt box's
- * `mcp !` marker and a surface in /mcp), and a live turn contributes
- * nothing here — the border already carries the running state, so a ramp
- * would be a second animation saying the same thing.
+ * MCP authorization and a live turn are not notice concerns: the border
+ * already carries both (the `mcp !` marker; the running state), so a ramp
+ * here would be a second animation saying the same thing.
  *
  * Pure: no renderer access, so the wording is testable without a frame.
  */
@@ -51,12 +50,12 @@ export function resolveWaitingOn(
 
 export function composeNoticeLine(state: NoticeState): string {
   const segments: string[] = [];
-  // Pending counts earned their own surface: the column stacked on the prompt
-  // box lists the items themselves, so the row no longer says "steer 2".
+  // Pending steers live in the prompt-box column; the row no longer says
+  // "steer 2".
   if (state.waitingOn) segments.push(`waiting on ${state.waitingOn}`);
   if (state.pinned) segments.push("pinned");
-  // "interrupt" is not a standing notice. Mid-run stop feedback is a system
-  // row (wording without "interrupt"); empty-prompt Ctrl+C arms exit via flash.
+  // "interrupt" is not a standing notice: mid-run stop feedback is a system
+  // row; empty-prompt Ctrl+C arms exit via flash.
   if (state.attachments > 0) {
     segments.push(
       `${state.attachments} image${state.attachments === 1 ? "" : "s"}`,

@@ -1,18 +1,17 @@
 /**
  * The bottom-left status slot: whatever the session is currently doing.
  *
- * It rides the prompt box's bottom border, opposite the working directory
- * and branch. Idle it reads `corbits code`; while a turn runs it reads the
- * live phase — `thinking`, `responding`, the running tool's name — led by a
- * single density cell (`rampPulse` in `ramp.ts`) that carries what the word
- * cannot: the word alone printed the same static `working` for a live run
- * and a hung one. The cell cycles while the turn moves, holds a static half
- * block while the turn waits on an operator gate, and blinks a bang while
- * the run is stalled-silent — every distinction is glyph or motion before
- * color, so the states separate on a monochrome terminal.
+ * It rides the prompt box's bottom border. Idle it reads `corbits code`;
+ * while a turn runs it reads the live phase — `thinking`, `responding`,
+ * the running tool's name — led by a single density cell (`rampPulse` in
+ * `ramp.ts`): the word alone printed the same static `working` for a live
+ * run and a hung one. The cell cycles while the turn moves, holds a static
+ * half block on an operator gate, and blinks a bang when stalled — glyph
+ * and motion before color, so the states separate on a monochrome
+ * terminal.
  *
- * The cell and the word share `rampFor`'s phase and color rather than
- * re-deriving them, so the slot can never disagree with the phase itself.
+ * The cell and the word share the phase's color rather than re-deriving
+ * it, so the slot can never disagree with the phase.
  *
  * Pure and clock-injected: `nowMs` in, cells out, no timer.
  */
@@ -55,22 +54,21 @@ export function lockupLabel(phase: string | null): string {
 }
 
 /**
- * Columns the slot paints. Measured off the cells it will actually draw rather
- * than off the label, so the reservation cannot drift from the paint when the
- * pulse is present or the label is wide (CJK) or astral.
+ * Columns the slot paints. Measured off the cells it draws, not the label,
+ * so the reservation cannot drift when the pulse is present or the label
+ * is wide (CJK) or astral.
  */
 export function lockupWidth(input: LockupInput): number {
   return stringWidth(lockupText(lockupCells(input)));
 }
 
 /**
- * The slot as coloured cells, left to right. `still` is the settled state: the
- * idle wordmark at its resting tones, with nothing left to animate.
+ * The slot as coloured cells, left to right. `still` is the settled state:
+ * the idle wordmark at its resting tones, nothing left to animate.
  *
- * A live turn is led by the phase's single density cell and tinted by the
- * phase's colour; the cell is what makes the state readable without colour.
- * The idle wordmark keeps the neutral crossfade — nothing is running, so there
- * is no phase to draw from.
+ * A live turn leads with the phase's density cell and tint — the cell makes
+ * the state readable without colour. The idle wordmark keeps the neutral
+ * crossfade; nothing is running, so there is no phase to draw from.
  */
 export function lockupCells(input: LockupInput): readonly MarkCell[] {
   const live = (input.phase?.trim().length ?? 0) > 0;
@@ -96,9 +94,9 @@ export function lockupCells(input: LockupInput): readonly MarkCell[] {
 }
 
 /**
- * 0 the moment the text changes, 1 once the fade has run. A settled slot skips
- * it entirely: idle is genuinely still, and the monitor tick that would carry
- * the remaining frames has already stopped by then.
+ * 0 the moment the text changes, 1 once the fade has run. A settled slot
+ * skips it: idle is genuinely still, and the monitor tick that would carry
+ * the frames has already stopped.
  */
 function fadeProgress(input: LockupInput): number {
   if (input.still) return 1;

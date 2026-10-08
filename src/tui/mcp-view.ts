@@ -5,12 +5,12 @@
  * records (get_issue). Painted verbatim they are an unreadable dump, so we
  * derive a cell grid: a header + one row per record for lists, label/value
  * pairs for a single record, with status/priority tone and date truncation.
- * The grid rides the row and `TextTableRenderable` does the column
- * alignment — we do not reimplement layout.
+ * `TextTableRenderable` does the column alignment; we do not reimplement
+ * layout.
  *
- * This module also owns what a tool result *says* when collapsed: one
- * sentence derived from the shape of the payload ("Grabbed 10 Linear
- * issues"), not from the arguments that asked for it.
+ * The module also owns what a collapsed tool result says: one sentence
+ * derived from the payload's shape ("Grabbed 10 Linear issues"), not from
+ * the arguments that asked for it.
  */
 
 import { isSameTool } from "../agent/canonical-tool-name.js";
@@ -379,8 +379,8 @@ function detailPlainText(detail: readonly StyledBodyLine[]): string {
 }
 
 /**
- * A body worth an expand affordance: one that says something the summary does
- * not. An expansion that restates its own summary is worse than no expansion,
+ * A body worth an expand affordance: one that says something the summary
+ * does not. An expansion that restates its own summary is worse than none,
  * so it is dropped here rather than painted with an arrow behind it.
  */
 function revealing(
@@ -425,9 +425,9 @@ function toolCatalogueSummary(content: string): ResultSummary | null {
     .map((card): StyledBodyLine => {
       const rawName = card[1] ?? "";
       const name = isMcpToolName(rawName) ? humanizeMcpTool(rawName) : rawName;
-      // The catalogue text sometimes leads its description with the same
-      // "[server]" tag the humanised name already carries as its prefix; drop it
-      // so the server is not said twice.
+      // The catalogue description sometimes leads with the "[server]" tag
+      // the humanised name already carries; drop it so the server is not
+      // said twice.
       const description = cut((card[2] ?? "").replace(/^\[[^\]]+\]\s*/, ""));
       return description.length > 0
         ? [
@@ -468,9 +468,9 @@ function recordSummary(
 }
 
 /**
- * The one-sentence summary a tool result collapses to, derived from the shape
- * of what came back rather than from the call that asked for it. Null means the
- * body is short enough (or literal enough) to read as itself.
+ * The one-sentence summary a tool result collapses to, derived from the
+ * shape of what came back, not from the call that asked for it. Null when
+ * the body is short enough (or literal enough) to read as itself.
  */
 function resultSummary(input: ToolResultRowInput): ResultSummary | null {
   const content = input.content;
@@ -506,9 +506,9 @@ function loadedSkillName(name: string, content: string): string | undefined {
 
 /**
  * Build the transcript row for a tool result: one sentence about what came
- * back, with the body — an aligned MCP table, a catalogue, raw output — behind
- * the expand key. Errors are neither summarised nor collapsed: a failure is
- * exactly the thing nobody should have to press a key to read.
+ * back, with the body — an aligned MCP table, a catalogue, raw output —
+ * behind the expand key. Errors are neither summarised nor collapsed: a
+ * failure is exactly what nobody should have to press a key to read.
  */
 export function toolResultRow(input: ToolResultRowInput): StreamRow {
   const failed = input.isError === true;

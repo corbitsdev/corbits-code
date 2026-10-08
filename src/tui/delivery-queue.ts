@@ -1,15 +1,15 @@
 /**
- * Delivery queue: mid-run queue / steer / interrupt state machine, the serial
- * operation chain that drains it, and the generation-gated delivery hops
- * (the former session-queue, session-operation-queue, and queued-delivery
- * modules, moved together).
+ * Delivery queue: mid-run queue / steer / interrupt state machine, the
+ * serial operation chain that drains it, and the generation-gated delivery
+ * hops (the former session-queue, session-operation-queue, and
+ * queued-delivery modules, moved together).
  *
  * Pure data — no paint, no OpenTUI. Shell + demo own delivery and UI flash.
  *
  * Product chords: Enter mid-run → "steer" (drain at tool.boundary);
- * Alt+Enter mid-run → "queue" (drain only when the run goes idle). Internal
- * "reinject" is a separate bridge/shell submit kind, not a QueueKind, and no
- * product chord wires it anymore — tests/API only.
+ * Alt+Enter mid-run → "queue" (drain only when the run goes idle).
+ * "reinject" is a separate bridge/shell submit kind, not a QueueKind — no
+ * product chord wires it anymore; tests/API only.
  */
 
 import { AgentClosedError } from "@intx/agent";
@@ -300,10 +300,11 @@ export function enqueueSteer(
 }
 
 /**
- * Hard interrupt: stop the run, keep everything the operator queued. Typing a
- * correction and then interrupting so it lands sooner is the common shape, so
- * discarding the queue would destroy the input the operator most wanted
- * delivered. Pending items survive to the next drain boundary.
+ * Hard interrupt: stop the run, keep everything the operator queued.
+ * Typing a correction and then interrupting so it lands sooner is the
+ * common shape, so discarding the queue would destroy the input the
+ * operator most wanted delivered. Pending items survive to the next drain
+ * boundary.
  */
 export function interrupt(state: SessionQueueState): SessionQueueState {
   return {
@@ -455,7 +456,7 @@ export function createSessionOperationQueue(): SessionOperationQueue {
 /**
  * Kind routing for drained queue items, plus a generation token so a
  * /clear|/new rotation can drop in-flight delivers that belonged to the
- * previous session. Kind routing lives here, not on SessionPort.
+ * previous session. Routing lives here, not on SessionPort.
  *
  * Live inject (`deliverSteer` → Agent.deliver) is only for an in-flight
  * parent tool.boundary; leftover steers at idle, idle-with-fleet, or

@@ -3,17 +3,17 @@
  *
  * The reactor accepts a correlated decision asynchronously after deliver()
  * returns, so the sessionOps tail waits for the acceptance signal. The wait
- * must be bounded: a delivery that produces no observed stream event would
- * wedge the serial tail forever, queuing every later approval behind it. The
- * vendored reactor surface exposes no liveness query, so absent acceptance
- * is treated as delivery failure — a deadline race settles the waiter, logs,
- * and lets the tail advance.
+ * must be bounded: a delivery with no observed stream event would wedge the
+ * serial tail forever, queuing every later approval behind it. The vendored
+ * reactor has no liveness query, so absent acceptance counts as delivery
+ * failure — a deadline race settles the waiter, logs, and lets the tail
+ * advance.
  *
- * Retry safety: once deliver() has returned, the reactor may hold the
- * decision even though no acceptance was observed. A retry for the same
- * correlationId re-awaits acceptance only — handing the decision over twice
- * could re-dispatch the parked call. A retry after a deliver() throw
- * re-delivers, because nothing was handed over.
+ * Retry safety: once deliver() returns, the reactor may hold the decision
+ * even with no acceptance observed, so a retry for the same correlationId
+ * re-awaits acceptance only — handing the decision over twice could
+ * re-dispatch the parked call. A retry after a deliver() throw re-delivers;
+ * nothing was handed over.
  */
 
 import type { InboundMessage } from "@intx/types/runtime";
@@ -25,11 +25,9 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 const logger = getLogger([LOG_NAMESPACE_ROOT, "approval-delivery"]);
 
 /**
- * Deadline for the reactor to observably accept a delivered approval decision.
- * Far above normal tick latency (acceptance usually lands within a reactor
- * tick, including the approved hold until tool.start) and far below the
- * vendored reactor approval timeout, so one stuck delivery fails fast instead
- * of wedging the tail.
+ * Deadline for the reactor to observably accept a delivered decision. Far
+ * above normal tick latency and far below the vendored reactor approval
+ * timeout, so one stuck delivery fails fast instead of wedging the tail.
  */
 export const APPROVAL_ACCEPTANCE_TIMEOUT_MS = 30_000;
 

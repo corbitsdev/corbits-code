@@ -1,15 +1,16 @@
 /**
  * Readline-style kill ring for the OpenTUI prompt.
  *
- * The prompt's text buffer lives in `@opentui/core`'s InputRenderable, which
- * implements the delete and word-motion keys natively but discards deleted
- * text, so Ctrl+Y (yank) and Alt+Y (yank-pop) have nothing to restore.
+ * The prompt's text buffer lives in `@opentui/core`'s InputRenderable,
+ * which implements the delete and word-motion keys natively but discards
+ * deleted text, so Ctrl+Y (yank) and Alt+Y (yank-pop) have nothing to
+ * restore.
  *
  * This module is the pure, testable half of that gap: shell.ts calls the
- * native delete methods (so column/width handling stays correct), diffs
+ * native delete methods (keeping column/width handling correct), diffs
  * value/cursor before and after to learn what was removed, and hands that
  * text to `recordKill`. `beginYank` / `rotateYank` hand back the text to
- * splice in; shell.ts performs the splice against the InputRenderable.
+ * splice in; shell.ts performs the splice.
  */
 
 export const KILL_RING_MAX = 10;
@@ -25,7 +26,8 @@ export interface KillRing {
   /** Ring entry inserted by the most recent yank; Alt+Y advances it. */
   yankIndex: number;
   lastAction: "kill-forward" | "kill-backward" | "yank" | "other";
-  /** Buffer span occupied by the last yank; null unless the previous command was a yank. */
+  /** Buffer span occupied by the last yank; null unless the previous
+   * command was a yank. */
   lastYankSpan: YankSpan | null;
 }
 
@@ -118,9 +120,8 @@ export function rotateYank(
 
 /**
  * Diff helper for forward kills (Ctrl+K, Alt+D): the cursor does not move
- * when text is removed ahead of it, so the killed text is the slice of the
- * pre-delete value starting at the pre-delete cursor, sized by however much
- * the buffer shrank.
+ * when text is removed ahead of it, so the killed text is the pre-delete
+ * slice at the pre-delete cursor, sized by how much the buffer shrank.
  */
 export function killedTextForward(
   beforeValue: string,

@@ -1,8 +1,7 @@
 /**
- * Density ramp — the activity primitive, replacing the braille spinner.
+ * Density ramp — the activity primitive.
  *
- * A terminal has block density natively, so the web build's ordered dither
- * ports rather than being approximated. Two surfaces draw from it.
+ * Two surfaces draw from it.
  *
  * The wide fill (`rampFor`) is the provider-setup status line:
  *
@@ -56,12 +55,10 @@ const BLOCKED_GLYPH = "▌";
 export const STALL_BLINK_CYCLE_MS = 900;
 
 /**
- * How long the stall blink runs before settling to a static bang.
- *
- * A stall can last minutes, so an unbounded blink would strobe until it
- * stops meaning anything; the burst spends attention up front, where the
- * state is news, then a static bang still reads as a problem, and the tick
- * falls back to its slow cadence.
+ * How long the stall blink runs before settling to a static bang. A stall
+ * can last minutes; an unbounded blink would strobe until it means
+ * nothing. The burst spends attention up front, then the static bang still
+ * reads as a problem.
  */
 export const STALL_BLINK_BURST_MS = STALL_BLINK_CYCLE_MS * 9;
 
@@ -134,8 +131,7 @@ export type RampFillPhase = Exclude<RampPhase, "stalled">;
 
 /**
  * Stalled duration, or null when not stalled. Required: it decides whether
- * the blink still runs, and a caller that forgets it would paint a
- * permanent strobe.
+ * the blink still runs; forgetting it paints a permanent strobe.
  */
 export type StallAge = number | null;
 

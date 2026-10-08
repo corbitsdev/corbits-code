@@ -2,11 +2,11 @@
  * The pending column: queued steer/follow-up messages stacked directly above
  * the prompt box, one dim row per item.
  *
- * Queued input used to echo into the transcript twice — once tagged
- * "[will steer next]" at enqueue, again tagged "[steering]" at delivery —
- * which made a held-back message louder than a sent one. The column keeps
- * the same fact on screen without spending transcript rows on it: items sit
- * here while pending and land in the transcript only when they deliver.
+ * Queued input used to echo into the transcript twice — tagged
+ * "[will steer next]" at enqueue, again "[steering]" at delivery — which
+ * made a held-back message louder than a sent one. The column keeps the
+ * same fact on screen without spending transcript rows: items sit here
+ * while pending and land in the transcript only when they deliver.
  *
  * Pure: delivery-queue items in, row models out.
  */
@@ -18,8 +18,8 @@ import type { QueueItem } from "./delivery-queue.js";
 /** Marker opening every pending row — a pointer at the prompt it sits on. */
 const ROW_MARK = "›";
 
-/** Selected row's marker — a shape change, not only a colour, so the active
- * row reads on terminals that paint every fg the same. */
+/** Selected row's marker — a shape change, not only a colour, so the
+ * active row reads on terminals that paint every fg the same. */
 const SELECTED_MARK = "▸";
 
 /** Widest kind tag; pads shorter ones so message text opens on one column. */
@@ -48,10 +48,10 @@ function pendingText(item: QueueItem): string {
 }
 
 /**
- * Index of the oldest item the column shows at a given item-row budget. A deep
- * queue keeps the *newest* items visible — the row ↑ selects first — folding
- * the older ones into a "+N more" header. Nav clamps against this floor so
- * the selection can never point at a folded item.
+ * Index of the oldest item the column shows at a given item-row budget. A
+ * deep queue keeps the *newest* items visible — the row ↑ selects first —
+ * folding the older ones into a "+N more" header. Nav clamps against this
+ * floor so the selection can never point at a folded item.
  */
 export function pendingWindowStart(
   itemCount: number,

@@ -1,15 +1,14 @@
 /**
  * OpenTUI shell keybinding catalog (pure data).
  *
- * Source of truth for the help overlay — every row here must match a real,
- * currently-working chord: a handler in `src/tui/shell.ts`'s onKey/onEnter,
- * or a default binding of the prompt's InputRenderable (Ctrl+B/F/D, Alt+B/F,
- * arrow motion — see `defaultTextareaKeyBindings` in @opentui/core). Do not
- * hand-transcribe from docs.
+ * Source of truth for the help overlay — every row must match a real,
+ * working chord: a handler in `src/tui/shell.ts`'s onKey/onEnter, or a
+ * default prompt binding (Ctrl+B/F/D, Alt+B/F, arrow motion — see
+ * `defaultTextareaKeyBindings` in @opentui/core). Do not hand-transcribe
+ * from docs.
  *
- * The comment alone did not hold: two rows drifted into describing behavior
- * the shell never had. `keybindings.test.ts` now drives every row's own chord
- * through a live shell and asserts the effect it claims.
+ * The comment alone did not hold; `keybindings.test.ts` now drives every
+ * row's chord through a live shell and asserts the effect it claims.
  */
 
 export interface ShellShortcut {

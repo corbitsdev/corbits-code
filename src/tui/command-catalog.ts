@@ -1,7 +1,7 @@
 /**
  * Registry → `/` command list catalog (pure).
  *
- * Pure: host injects `listCommands()` results (or fixtures). No registry import
+ * Host injects `listCommands()` results (or fixtures); no registry import
  * here — avoids circular / heavy deps from `src/tui/commands`.
  *
  *   setPaletteCatalog(shell, () => commandItemsFromRegistry(listCommands()))
@@ -24,10 +24,10 @@ export interface RegistryCommandSource {
   /** Discovery origin of the contributing plugin, when the command has one. */
   readonly origin?: PluginOrigin;
   /**
-   * Free-form arg guidance (frontmatter `argument-hint`). Shown greyed in the
-   * `/` popup row and spliced into the prompt as selected text on Tab so
-   * typing replaces it. `undefined` means the command takes no params and
-   * keeps today's bare `/id` accept behavior.
+   * Free-form arg guidance (frontmatter `argument-hint`). Shown greyed in
+   * the `/` popup row and spliced into the prompt as selected text on Tab
+   * so typing replaces it. `undefined` means the command takes no params
+   * and keeps the bare `/id` accept behavior.
    */
   readonly argumentHint?: string;
   /** Named subcommands (frontmatter `subcommands`); offered as arg rows. */
@@ -82,10 +82,9 @@ export function commandItemsFromRegistry(
     }
     return {
       id: c.name,
-      // Name-only rows keep the slash popup scannable; description is a
-      // dedicated field for the overlay zone and stays in keywords so typed
-      // filter still finds prose matches. Plugin rows carry their origin
-      // marker ([bundled] for bundled, origin label otherwise).
+      // Name-only rows keep the popup scannable; description stays in
+      // keywords so typed filter still finds prose matches. Plugin rows
+      // carry their origin marker ([bundled] for bundled, label otherwise).
       label: withOriginMarker(`/${c.name}`, c.origin),
       description: c.description,
       keywords,
@@ -138,15 +137,16 @@ export function slashArgItems(
 }
 
 /**
- * Bare base text (`/id `) when a value about to be submitted is still exactly
- * a Tab-accepted free-form hint: the hint lands as selected text so typing
- * replaces it, but submitting it untouched would send the placeholder as the
- * argument. The guard is shape-only, not selection-gated — the selection is
- * trivially lost without editing (one arrow key), and a bare Enter would then
- * submit the literal. An exact `/id <hint>` match is always the placeholder:
- * real arguments never equal the hint byte-for-byte. Pure; `submitPrompt`
- * applies the result. Returns null when the value is real content (subcommand
- * accepts, typed text, unknown commands, bare bases).
+ * Bare base text (`/id `) when a value about to be submitted is still
+ * exactly a Tab-accepted free-form hint: the hint lands as selected text so
+ * typing replaces it, but submitting it untouched would send the
+ * placeholder as the argument. The guard is shape-only, not
+ * selection-gated — the selection is trivially lost without editing, and a
+ * bare Enter would then submit the literal. An exact `/id <hint>` match is
+ * always the placeholder: real arguments never equal the hint
+ * byte-for-byte. Pure; `submitPrompt` applies the result. Returns null when
+ * the value is real content (subcommand accepts, typed text, unknown
+ * commands, bare bases).
  */
 export function stripUneditedSlashHint(
   catalog: readonly PaletteCommand[],
@@ -195,8 +195,8 @@ export function paletteLabels(
 function fitLabel(label: string, width: number): string {
   if (width <= 0) return "";
   const columns = stringWidth(label);
-  // padEnd counts code units, so a label carrying a wide glyph has to be padded
-  // by the column shortfall rather than to a code-unit length.
+  // padEnd counts code units, so a label with a wide glyph must be padded
+  // by the column shortfall, not to a code-unit length.
   if (columns <= width) return label + " ".repeat(width - columns);
   if (width === 1) return "…";
   const cut = `${sliceToWidth(label, width - 1)}…`;

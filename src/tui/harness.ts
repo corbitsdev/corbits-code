@@ -10,10 +10,7 @@
  * |------------|----------|--------|--------|-------|
  * | Enter      | `return` | false  | false  | Canonical is **return**, not enter; keybindings alias enter→return |
  * | Alt+Enter  | `return` | false  | true   | Match `meta \|\| option` (Kitty may set option) |
- * | Ctrl+C     | `c`      | true   | false  | Default renderer `exitOnCtrlC` is true; harness defaults false |
- *
- * Alt surfaces as `meta: true` on the mock/mac path; real Kitty terminals may
- * also set `option`.
+ * | Ctrl+C     | `c`      | true   | false  | harness defaults false |
  */
 
 import { getTreeSitterClient } from "@opentui/core";
@@ -121,9 +118,8 @@ export interface Harness {
   readonly captureSpans: TestRendererSetup["captureSpans"];
   readonly resize: (width: number, height: number) => void;
   /**
-   * Press a named chord or a raw key via mock input.
-   * Named: Enter | Alt+Enter | Ctrl+C | Escape | Tab | Backspace.
-   * Anything else delegates to `mockInput.pressKey(name, mods)`.
+   * Press a named chord or a raw key via mock input. Anything not named
+   * here delegates to `mockInput.pressKey(name, mods)`.
    */
   readonly pressKey: (name: NamedKey | KeyInput, mods?: KeyModifiers) => void;
   /** Destroy the underlying renderer (idempotent-safe to call once from finally). */
@@ -198,8 +194,8 @@ export async function createHarness(
     destroy: () => {
       setup.renderer.destroy();
       // renderer.destroy() tears down the process-global tree-sitter client
-      // once no renderers remain. Eagerly recreate it so the next test file's
-      // markdown/code highlighting doesn't hit the destroyed singleton.
+      // once no renderers remain; recreate it eagerly so the next test
+      // file's highlighting doesn't hit the destroyed singleton.
       getTreeSitterClient();
     },
   };

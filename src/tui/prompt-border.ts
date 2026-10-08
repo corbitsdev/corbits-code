@@ -1,14 +1,13 @@
 /**
  * The prompt box's border, and the metadata it carries.
  *
- * The box has no bars above or below it: the model name rides the top rule and
- * the workspace (directory + git branch) rides the bottom one, so both cost
- * zero rows. The rule breaks around each label and resumes on the far side,
- * which is what makes the label read as part of the frame rather than as text
- * that happens to sit on it.
+ * The box has no bars above or below it: the model name rides the top rule
+ * and the workspace (directory + git branch) rides the bottom one, so both
+ * cost zero rows. The rule breaks around each label and resumes on the far
+ * side, so the label reads as part of the frame, not text on it.
  *
- * Pure: text in, ordered parts out. The shell colours the parts and swaps the
- * `brand` part for the animated lockup cells, which is why a placeholder of the
+ * Pure: text in, ordered parts out. The shell colours the parts and swaps
+ * the `brand` part for the animated lockup cells, so a placeholder of the
  * lockup's exact width is passed in rather than the cells themselves.
  */
 
@@ -200,11 +199,11 @@ function plainRule(open: string, close: string, inner: number): RulePart[] {
 }
 
 /**
- * Compose one border rule. Runs are dropped whole, never truncated mid-glyph:
- * a half-written label corrupts the frame. Drop order, most to least
- * expendable: brand, the meter's cost suffix, the meter's context reading,
- * the attention mark, then the label — the operator's own workspace path
- * survives everything else.
+ * Runs are dropped whole, never truncated mid-glyph: a half-written label
+ * corrupts the frame. Drop order, most to least expendable: brand, the
+ * meter's cost suffix, the meter's context reading, the attention mark,
+ * then the label — the operator's own workspace path survives everything
+ * else.
  */
 export function composeRule(input: RuleInput): readonly RulePart[] {
   const width = Math.max(0, Math.floor(input.width));

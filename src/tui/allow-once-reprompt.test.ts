@@ -7,10 +7,10 @@
  * opened and its evaluation never settled. These tests pin the fixed
  * contract: queued and new decision cards win the host over deferred
  * surfaces, a visible replaceable surface yields to a gate and returns
- * after it settles, a slash behind a live gate still waits, a queued card's
- * auto-deny timer and a pending row's elapsed clock do not run while the
- * gate is off-screen, and Allow Once persists nothing while Allow Always /
- * Reject drain in the same order as Accept once.
+ * after it settles, a slash behind a live gate still waits, a queued
+ * card's auto-deny timer and a pending row's elapsed clock do not run
+ * while the gate is off-screen, and Allow Once persists nothing while
+ * Allow Always / Reject drain like Accept once.
  */
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
@@ -76,10 +76,9 @@ async function settledWithin<T>(
 
 /**
  * `gate.evaluate()` raises its card asynchronously (decide → approval seam →
- * emit → enqueue), so the overlay is never up on the very next line. Flush
- * macrotasks so the card is raised — shown, or queued behind the live gate —
- * before asserting on the host. All gate-side work is microtasks, so two
- * macrotask drains provably suffice; nothing here changes what is asserted.
+ * emit → enqueue), so the overlay is never up on the next line. Flush
+ * macrotasks so the card is raised — shown or queued — before asserting.
+ * Gate-side work is microtasks, so two drains provably suffice.
  */
 async function flushGateRaise(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -510,7 +509,7 @@ describe("CL-8792 overlay host: suspend preserves the surface instead of dismiss
   });
 
   // Other replaceable surfaces (model picker, add provider) yield and return
-  // by the same suspend path the slash test above pins — e2e covers them.
+  // by the same suspend path — e2e covers them.
   test("MCP onCancel during suspend does not steal the host from a queued gate while a deferred slash occupies idle", async () => {
     await withWiredWorld(async ({ shell, emitter }) => {
       let cancelOpens = 0;
