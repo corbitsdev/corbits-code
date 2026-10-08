@@ -53,7 +53,9 @@ import {
   setEffortCycleHandler,
   setMentionSuggestionSource,
   setPromptRecognitionSource,
+  setShellStopAffordance,
   type AppShell,
+  type ShellStopAffordance,
 } from "../shell/internals.js";
 import {
   setPromptModelLabel,
@@ -170,6 +172,37 @@ export async function cancelWorkersForStop(
   deps.subAgentSessions.teardown("Session closed");
   deps.fleetRecords?.clear();
   deps.bridge.clearQueuedDelivery();
+}
+
+/**
+ * Stop-teardown sources for the shell stop affordance (CL-10149 Phase 4).
+ * Live-worker count is the authoritative `liveFleetCount` over the session
+ * store (not the bridge-local mirror); the stop callback is the exact
+ * production `cancelWorkersForStop` closure, so a 2nd-press stop and the
+ * 3rd-press quit share the same teardown deps as `shutdownRuntime`
+ * (wiring.ts:295-301) and stay idempotent. Extracted so the Phase 4 wiring
+ * test can drive the real closure against a harnessed store without a full
+ * runner harness.
+ */
+export function buildShellStopAffordance(
+  host: { shell: AppShell; bridge: { clearQueuedDelivery: () => void } },
+  deps: {
+    subAgentSessions: Pick<
+      RunnerServices["subAgentSessions"],
+      "list" | "cancelAll" | "teardown"
+    >;
+    toolset: { fleetRecords?: { clear: () => void } | undefined };
+  },
+): ShellStopAffordance {
+  return {
+    liveWorkerCount: () => liveFleetCount(deps.subAgentSessions.list()),
+    onStopWorkers: () =>
+      cancelWorkersForStop({
+        subAgentSessions: deps.subAgentSessions,
+        fleetRecords: deps.toolset.fleetRecords,
+        bridge: host.bridge,
+      }),
+  };
 }
 
 export function createFleetWakePublisher(
@@ -305,6 +338,20 @@ export function wirePostStartup(
   state.shutdownRuntime = shutdownRuntime;
   services.crashGuard.setDisposeHost(() => shutdownRuntime());
   setActiveDisposeHost(() => services.crashGuard.invokeDisposeHost());
+
+  // CL-10149 three-press: register the shell stop affordance so the 2nd Ctrl+C
+  // (with live sub-agents) drives the same faithful stop-teardown closure the
+  // quit path uses — the runner owns the source of truth, the shell stays
+  // service-free (SOLUTION_SCOPE D1/D2). liveWorkerCount reports the live fleet
+  // from the session store; onStopWorkers stops the workers while the app stays
+  // running, and is idempotent so a later quit finds nothing live.
+  setShellStopAffordance(
+    hostOf(state).shell,
+    buildShellStopAffordance(
+      { shell: hostOf(state).shell, bridge: hostOf(state).bridge },
+      services,
+    ),
+  );
 
   // Harness inference.error events omit providerId; stamp the live catalog id
   // onto the stream map so transcript copy can identify known-xAI short 429s.
