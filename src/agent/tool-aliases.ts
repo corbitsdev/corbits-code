@@ -1,9 +1,7 @@
-/**
- * Advertised tool names are a projection of registry engine ids that depends
- * on the model family: each family sees exactly one name per tool, the one it
- * was trained on. Incoming calls accept every name any profile advertises, so
- * dispatch, grants, and history replay never depend on the active profile.
- */
+// Advertised tool names are a projection of registry engine ids by model
+// family: each family sees exactly one name per tool, the one it was trained
+// on. Incoming calls accept every name any profile advertises, so dispatch,
+// grants, and history replay never depend on the active profile.
 
 import { type } from "arktype";
 import type { ToolCall, ToolDefinition } from "@intx/types/runtime";
@@ -51,10 +49,8 @@ const PATCH_FOLDED_ENGINES: ReadonlySet<string> = new Set([
   "delete_file",
 ]);
 
-/**
- * gpt models are trained on apply_patch, not write/edit/delete. Other
- * profiles and lists with no file-mutation tool pass through unchanged.
- */
+/** gpt models are trained on apply_patch, not write/edit/delete. Other
+ * profiles and lists without a file-mutation tool pass through unchanged. */
 export function foldFileToolNames(
   names: readonly string[],
   profile: ToolProfile,
@@ -131,10 +127,8 @@ export function advertisedToolName(
   return table[engine] ?? engine;
 }
 
-/**
- * True when `name` (wire, engine, or hidden alias) is covered by an
- * advertised or activated listing, which may store wire or engine ids.
- */
+/** True when `name` (wire, engine, or hidden alias) is covered by an
+ * advertised or activated listing (which may store wire or engine ids). */
 export function nameMatchesAdvertisedListing(
   name: string,
   isListed: (candidate: string) => boolean,
@@ -194,13 +188,11 @@ export function projectToolDefinitions(
   return defs.map((def) => projectToolDefinition(def, profile));
 }
 
-/**
- * Authz parity: the reactor authz snapshot is keyed by parked wire name, so
- * without per-alias copies an ask-tier `bash`/`shell` call throws a
+/** Authz parity: the reactor authz snapshot is keyed by parked wire name,
+ * so without per-alias copies an ask-tier `bash`/`shell` call throws a
  * wiring-defect error instead of suspending. `update_plan` is never
  * snapshotted (its grant is create-only narrow); non-aliased defs (MCP,
- * leaf-only) pass through unchanged.
- */
+ * leaf-only) pass through. */
 export function authzParityDefinitions(
   defs: readonly ToolDefinition[],
 ): ToolDefinition[] {
@@ -223,10 +215,8 @@ export function authzParityDefinitions(
   return out;
 }
 
-/**
- * Tool bundle wrapper (e.g. DynamicToolRunner): identical except the
- * `definitions` getter returns `authzParityDefinitions` over the live set.
- */
+/** Tool bundle wrapper (e.g. DynamicToolRunner): identical except the
+ * `definitions` getter returns `authzParityDefinitions` over the live set. */
 export function withAuthzParityDefinitions<
   T extends { readonly definitions: readonly ToolDefinition[] },
 >(bundle: T): T {
@@ -255,10 +245,8 @@ export function shellQuote(arg: string): string {
   return `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
-/**
- * Codex `shell` sends `command` as a string or argv array, while `run_shell`
- * takes a single shell string.
- */
+/** Codex `shell` sends `command` as a string or argv array, while
+ * `run_shell` takes a single shell string. */
 export function normalizeShellCommand(command: string | string[]): string {
   if (typeof command === "string") return command;
   const wrapper = command[0];
@@ -352,10 +340,8 @@ function incomingAlias(requested: string): string {
   return name;
 }
 
-/**
- * Coerce hidden Codex-shaped arguments onto the engine tool. Callers pass the
- * already-resolved engine.
- */
+/** Coerce hidden Codex-shaped arguments onto the engine tool. Callers pass
+ * the already-resolved engine. */
 export function prepareDispatchedToolCall(
   call: ToolCall,
   engine: string,

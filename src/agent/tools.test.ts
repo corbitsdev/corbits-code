@@ -59,7 +59,7 @@ interface ModuleStub {
 }
 
 // Table-driven stub registrations: one entry per mocked module, installed in
-// order through withMockedModule.
+// order.
 const MODULE_STUBS: readonly ModuleStub[] = [
   {
     path: import.meta.resolve("@intx/tools-posix"),

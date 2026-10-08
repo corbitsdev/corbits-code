@@ -27,7 +27,7 @@ import { ORCHESTRATOR_TOOLS, READ_TOOLS } from "./directors/tool-sets.js";
 // so tool_search finds it on demand. Write/edit/delete stay in CORE so the
 // primary dispatch can do tiny/bounded edits without a search round-trip;
 // substantial work spawns build / docs directors. Codex natives
-// (apply_patch / shell / update_plan) are not advertised.
+// (apply_patch / shell / update_plan) stay off.
 export const CORE_TOOL_NAMES: readonly string[] = [
   "read",
   "write",
@@ -63,8 +63,8 @@ const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = [
 ];
 
 // Session-start facts gating a core tool's advertisement, fixed for the
-// session: the tools array is a provider cache prefix, so a value that
-// could flip mid-session forces a re-prefill worse than the bytes it saves.
+// session: the tools array is a provider cache prefix, so a value that flips
+// mid-session forces a re-prefill worse than the bytes it saves.
 export interface ToolAvailability {
   // Whether a language server was resolvable for this project at startup.
   languageServerAvailable: boolean;
@@ -74,7 +74,7 @@ export interface ToolAvailability {
   operatorAvailable?: boolean;
   // Whether createAgentToolset mounted wait_agents: true only on exec
   // primary; TUI primary and nested orchestrators collect via mailbox mail.
-  // False/omitted filters it out of the core and advertised name sets.
+  // False/omitted filters it out of the core and advertised sets.
   waitAgentsMounted?: boolean;
 }
 
@@ -110,11 +110,9 @@ const WORKER_WIRE_ALWAYS: readonly string[] = [
   "submit_result",
 ];
 
-/**
- * Advertised wire prefix for a spawned worker: the director's tool allowlist
- * plus `tool_search` and the leaf reporting channel. No shared preset across
- * roles; MCP stays off until tool_search / promote-on-execute.
- */
+/** Advertised wire prefix for a spawned worker: the director's tool
+ * allowlist plus `tool_search` and the leaf reporting channel. No shared
+ * preset across roles; MCP stays off until tool_search / promote-on-execute. */
 export function advertisedToolNamesForWorker(opts: {
   allow?: readonly string[];
   orchestrator?: boolean;
@@ -141,7 +139,7 @@ export function advertisedToolNamesForWorker(opts: {
 }
 
 // Built-in file/search/web tools advertised with full schema alongside the
-// core set; MCP tools are absent — discovered blind via tool_search. list_dir
+// core set; MCP tools are absent — found blind via tool_search. list_dir
 // stays mounted but unadvertised and excluded from tool_search (use glob).
 // web_fetch/web_search are catalog, not deferred: URL reads and search are
 // first-class primary work; gating them behind tool_search thrashed on
@@ -192,8 +190,8 @@ export const UNADVERTISED_MOUNTED_BUILTINS = new Set([
 // followed by wire-committed tools in first-commit order. Callers pass names
 // committed via flushPromotions (on promote and at cache-safe boundaries),
 // never the live activation list, so a mid-handler discovery cannot append
-// until the promoter commits it. Names are deduped so raw matches cannot
-// reorder or duplicate an entry.
+// until the promoter commits it. Deduped so raw matches cannot reorder or
+// duplicate an entry.
 export function advertisedTools(
   all: readonly ToolDefinition[],
   activated: readonly string[] = [],
@@ -225,15 +223,15 @@ export function advertisedTools(
 
 // Non-built-in tool names the session has activated (promote-on-execute of a
 // called name, or a director-side trigger like the lsp hint), in
-// first-activation order. Backed by a Set: re-activating a known name is a
-// no-op.
+// first-activation order. Backed by a Set, so re-activating a known name is
+// a no-op.
 export interface ActivatedToolTracker {
   // Adds any new names; returns whether the set changed.
   activate(names: readonly string[]): boolean;
   has(name: string): boolean;
   list(): string[];
   // Session rotation (/clear, /new) mints a fresh transcript whose model
-  // never saw the activations — the advertised set starts clean with it.
+  // never saw the activations — the advertised set starts clean.
   clear(): void;
 }
 
@@ -352,7 +350,7 @@ export interface ToolSearchDeps {
   promote?: (names: string[]) => void;
   // Remaining in-flight MCP handshake count after a bounded wait. The
   // handler re-races this so a stuck dependency (hung OAuth) cannot hang the
-  // call. Omitted callers have no pending handshakes.
+  // call. Omitted callers have none.
   awaitPendingConnections?: (timeoutMs?: number) => Promise<number>;
   // True when a reconnecting MCP server holds tools that could match
   // `query`, justifying one short extra wait for the redial to remount them.

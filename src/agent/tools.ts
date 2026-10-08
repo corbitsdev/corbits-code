@@ -162,16 +162,15 @@ export type OperatorResult =
 export interface AgentToolsetArgs {
   cwd: string;
   permissionGate: PermissionGate;
-  // Interactive operator ask; omit on headless/non-TTY so the tool is unmounted.
+  // Interactive operator ask; omit on headless/non-TTY so the tool is
+  // unmounted.
   onOperatorGate?: (
     question: string,
     options: string[],
   ) => Promise<OperatorResult>;
   mcpServers?: MCPServerConfig[];
-  /**
-   * Where mcpServers came from. `"local"` requires project trust before spawn;
-   * `"global"` / `"none"` skip the trust filter.
-   */
+  /** Where mcpServers came from. `"local"` requires project trust before
+   * spawn; `"global"` / `"none"` skip the trust filter. */
   mcpServersSource?: "local" | "global" | "none";
   /**
    * Project trust store for local MCP. When source is local and store is
@@ -183,8 +182,8 @@ export interface AgentToolsetArgs {
   // Pre-resolved tool plugins (enabled + consented kind:"tool" plugins). Their
   // tools are appended to the posix toolset.
   extraToolPlugins?: ToolPlugin[];
-  // Skill directories (from enabled plugins) the use_skill tool resolves bodies
-  // from, in addition to the project-local and bundled defaults.
+  // Skill directories (from enabled plugins) use_skill resolves bodies from,
+  // beyond the project-local and bundled defaults.
   skillDirs?: string[];
   // Session-start skill snapshot; when omitted, createAgentToolset discovers
   // once via discoverSkills. Passed to skill_search so it never rediscovers.
@@ -200,30 +199,29 @@ export interface AgentToolsetArgs {
   // agent rebuilds need not recreate the posix toolset.
   getBlobReader?: () => BlobReader | undefined;
   // Session blob store oversized tool results spill into (see
-  // result-truncation-plugin.ts), keyed distinctly from getBlobReader reads so
-  // the reactor's size-cap transform never overwrites the spill. Lazy like
+  // result-truncation-plugin.ts), keyed apart from getBlobReader reads so the
+  // reactor's size-cap transform never overwrites the spill. Lazy like
   // getBlobReader; omitted where there is no session store (tests).
   getBlobWriter?: () => SpillBlobWriter | undefined;
   // Absolute session context dir (`…/context`) for the truncation notice's
   // on-disk path, re-read live across session rotation.
   getContextDir?: () => string | undefined;
-  // Per-project settings.env, merged into the run_shell tool's spawn environment.
+  // Per-project settings.env, merged into the run_shell tool's spawn
+  // environment.
   shellEnv?: Record<string, string>;
-  /**
-   * Runtime secret-guard denylist for the active --config path; entry points
-   * pass [config.globalSettingsPath]. Forwarded to the posix plugin stack and
-   * workers; omitted keeps the static denylist only.
-   */
+  /** Runtime secret-guard denylist for the active --config path; entry
+   * points pass [config.globalSettingsPath]. Forwarded to the posix plugin
+   * stack and workers; omitted keeps the static denylist only. */
   secretGuardExtraDeniedPaths?: readonly string[];
   // Called when a background run_shell exits. Hosts deliver the exit as a
-  // system message so the reactor re-enters on a later turn; omit it and
-  // background runs never notify.
+  // system message so the reactor re-enters; omit it and background runs
+  // never notify.
   onBackgroundShellExit?: (exit: BackgroundShellExit) => void;
   /** Primary-only evidence archive; workers omit this getter. */
   getEvidenceArchive?: () => CompactionArchive | undefined;
   // Whether a workflow is running. submit_output rides the wire every turn,
-  // so the model can call it with nothing active; the handler then reports an
-  // honest no-op instead of a false advance.
+  // so the model can call it with nothing active; the handler reports an honest
+  // no-op instead of a false advance.
   isWorkflowActive?: () => boolean;
   // Compare-and-advance the live workflow; the handler reports this result
   // instead of reconstructing the cursor. Omitted (exec, tests) never claims
@@ -233,12 +231,12 @@ export interface AgentToolsetArgs {
   sessionMode?: SessionMode;
   // Session-start facts gating LSP advertisement. Omitted callers (tests,
   // ad-hoc toolsets) get it advertised, matching prior behavior; real sessions
-  // always pass detected values — see tool-search.ts for why these must be
-  // fixed for the session's life.
+  // pass detected values — see tool-search.ts for why these must be fixed for
+  // the session's life.
   toolAvailability?: ToolAvailability;
   // Per-project pinned tool names (local settings); they join the advertised
-  // prefix at the session layer, and are excluded from tool_search here so
-  // discovery only surfaces names not already on the wire.
+  // prefix at the session layer and are excluded from tool_search so discovery
+  // only surfaces names not already on the wire.
   pinnedTools?: readonly string[];
   // Records skill loads and sub-agent dispatch; omitted (tests, ad-hoc
   // toolsets) means those events never emit.
@@ -271,17 +269,13 @@ export interface AgentToolsetArgs {
   /** Kept for callers still passing the Codex family flag: no proxies mount
    * now, hidden aliases dispatch onto engine tools. */
   isCodex?: boolean;
-  /**
-   * Opt-in: mount wait_agents beside the other fleet verbs. Exec-primary only
+  /** Opt-in: mount wait_agents beside the other fleet verbs. Exec-primary only
    * (with an advertised allow); TUI primary and nested orchestrators collect
-   * worker reports from mailbox mail instead.
-   */
+   * worker reports via mailbox mail instead. */
   mountWaitAgents?: boolean;
-  /**
-   * Closed allow list (exec director overlays). tool_search mounts only when
-   * allowed, and the index only surfaces allowed tools. Omit for the product
-   * default (tool_search mounted, index over the live registry).
-   */
+  /** Closed allow list (exec director overlays). tool_search mounts only
+   * when allowed, and the index surfaces only allowed tools. Omit for the
+   * product default (tool_search mounted, index over the live registry). */
   toolSearchAllow?: readonly string[];
 }
 
@@ -332,7 +326,8 @@ export interface AgentToolset {
   // Bounded live-output tails of foreground shells, polled by the transcript
   // for each pending run_shell row's live lines.
   shellOutputFeed: ReturnType<typeof createShellOutputFeedMap>;
-  // Connect one newly persisted server through the same lifecycle as startup MCP.
+  // Connect one newly persisted server through the same lifecycle as
+  // startup MCP.
   connectMCPServer: (
     config: MCPServerConfig,
     callbacks: MCPConnectCallbacks,
@@ -346,7 +341,7 @@ export interface AgentToolset {
   ) => Promise<void>;
   // True while connected, connecting, or backoff-redialing; false after
   // teardown or a failed connect. Persist blocks a second add of an active
-  // name with this; failed rows retry via connectMCPServer. Still true while
+  // name with this; failed rows retry via connectMCPServer; still true while
   // disable is in progress.
   hasMCPServer: (name: string) => boolean;
   // Single-dial manual retry for failed/reconnecting rows; cancels any backoff
@@ -370,16 +365,14 @@ export interface AgentToolset {
   setToolPromoter: (promote: (names: string[]) => void) => void;
   // Session-start skill snapshot shared with the prompt listing.
   skills: SkillSummary[];
-  /**
-   * Live wait mailbox built for spawn_agent / wait_agents; absent when the
-   * session has no sub-agents. Read it each time, not a startup snapshot.
-   */
+  /** Live wait mailbox for spawn_agent / wait_agents; absent when the session
+   * has no sub-agents. Read each time, not a startup snapshot. */
   fleetRecords?: FleetMailboxHandle;
   dispose: () => Promise<void>;
 }
 
 // Connect-only abort fan-out: the client keeps `signal` on the live transport,
-// so a shared parent abort would tear down HTTP already connected. Forward
+// so a shared parent abort would tear down already-connected HTTP. Forward
 // until the handshake settles, then detach.
 function forwardAbortUntilDisarmed(parent: AbortSignal): {
   signal: AbortSignal;
@@ -443,7 +436,7 @@ export async function createAgentToolset(
   });
   // Bounded live-output tails of foreground shells, polled by the TUI for each
   // pending run_shell row. Workers get a map too; nothing reads it unless a
-  // transcript polls it.
+  // transcript polls.
   const shellOutputFeed = createShellOutputFeedMap();
   const sessionBlobReader =
     getBlobReader !== undefined
@@ -559,9 +552,9 @@ export async function createAgentToolset(
         }),
       );
     }
-    // Tier 1: the primary session is always an orchestrator and may target
-    // any worker, so no authority context is passed here; omission means
-    // unrestricted, matching Tier 1's actual authority.
+    // Tier 1: the primary is always an orchestrator and may target any worker,
+    // so no authority context is passed here; omission means unrestricted,
+    // matching Tier 1's actual authority.
     orchestratorTools.push(createReadAgentTraceTool(sa.getWorkdirBase));
 
     // Mirror runSubAgent's orchestrator fleet mount (run.ts) but reuse the
@@ -735,9 +728,9 @@ export async function createAgentToolset(
     stringTool({
       definition: submitOutputDefinition,
       // The director also observes this call on tool.done; complete() is
-      // compare-and-advance, so a second pass is a no-op. The handler
-      // reports its result so parallel calls cannot both claim an advance;
-      // already-complete and not-current ids succeed without claiming one.
+      // compare-and-advance, so a second pass is a no-op. The handler reports
+      // its result so parallel calls cannot both claim an advance;
+      // already-complete and not-current ids succeed without one.
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
         const parsed = SubmitOutputArgs(rawArgs);
         const step = parsed instanceof type.errors ? undefined : parsed.step;
@@ -801,7 +794,7 @@ export async function createAgentToolset(
         // Tier-2 extension: true when a reconnecting server's retained tools
         // score against the query, so the search waits once more for the
         // redial to remount them. Only transport-death reconnects populate
-        // the map, so needs-auth stays false here.
+        // the map, so needs-auth stays false.
         hasReconnectingMatch: (query: string): boolean => {
           const rawQuery = query.toLowerCase().trim();
           const queryTokens = tokenizeLexical(query);
@@ -836,7 +829,6 @@ export async function createAgentToolset(
   const connectedClients = new Map<string, MCPClient>();
   const inFlightConnections = new Map<string, Promise<void>>();
   const inFlightEpochs = new Map<string, number>();
-  // Bounded wait for in-flight handshakes; resolves to the remaining count.
   const awaitPendingMcpConnections = async (
     timeoutMs = TOOL_SEARCH_PENDING_WAIT_MS,
   ): Promise<number> => {
@@ -881,7 +873,8 @@ export async function createAgentToolset(
         : {}),
     });
     if (mcpServersSource !== "local") return allowed;
-    // Remember grants so connectOneMCPServer does not re-prompt after startup TOFU.
+    // Remember grants so connectOneMCPServer does not re-prompt after
+    // startup TOFU.
     let fingerprints = mcpTrustStore.trustedMcpFingerprints;
     let changed = false;
     for (const server of allowed) {
@@ -1054,7 +1047,7 @@ export async function createAgentToolset(
   // Redials that cannot succeed stop after the attempt that surfaced them:
   // untrusted local servers (fail closed until trust or the source changes),
   // misconfigured servers (missing command/url), and a stdio binary the OS
-  // refuses to spawn. Everything else is transient and keeps reconnecting.
+  // refuses to spawn. Everything else is transient.
   const isTerminalReconnectError = (error: string): boolean =>
     error.includes("Not trusted for this project") ||
     error.includes("requires a command") ||
@@ -1152,7 +1145,7 @@ export async function createAgentToolset(
       }
       // Transient failure: keep the row reconnecting with the live attempt
       // instead of flashing failed; the emission names the next redial, which
-      // the top of the loop counts into state.attempt.
+      // the loop top counts into state.attempt.
       state.callbacks.onStatus({
         name,
         state: "reconnecting",
@@ -1491,7 +1484,7 @@ export async function createAgentToolset(
       serverAborts.set(config.name, new AbortController());
       reconnectingServers.delete(config.name);
       disabledNames.delete(config.name);
-      // Drop the fail-fast stubs so the single dial can mount the live set
+      // Drop the fail-fast stubs so the single dial mounts the live set
       // without a DuplicateToolError. A failed retry leaves the row failed
       // with no tools, like a fresh connect — no backoff resumes.
       dropServerTools(config.name);
@@ -1510,7 +1503,8 @@ export async function createAgentToolset(
       toConnect.map((config) => connectOneMCPServer(config, callbacks, signal)),
     );
     if (disposed) return;
-    // Report untrusted local servers as failed (fail closed) so the UI is honest.
+    // Report untrusted local servers as failed (fail closed) so the UI is
+    // honest.
     if (mcpServersSource === "local") {
       const connectedNames = new Set(toConnect.map((s) => s.name));
       for (const server of mcpServers) {

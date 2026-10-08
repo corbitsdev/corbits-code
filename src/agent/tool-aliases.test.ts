@@ -99,7 +99,7 @@ describe("grant aliases", () => {
   // todo/doing/done statuses, while manage_tasks spans the full lifecycle.
   // A stored update_plan grant never covers a manage_tasks request; live
   // requests are coerced before matching and seeders drop stored
-  // update_plan keys, so that replay path is unreachable in production.
+  // update_plan keys, so that replay path is unreachable.
   test("a stored update_plan grant does not cover manage_tasks", async () => {
     expect(
       await evaluateApprovals({
