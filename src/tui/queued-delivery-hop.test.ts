@@ -11,6 +11,8 @@ import {
   badgeCount,
   createLiveSteerDeliver,
   createSessionOperationQueue,
+  pause,
+  resumeForSend,
   routeQueuedDelivery,
   type AgentDeliveryResult,
   type DeliverySettle,
@@ -181,12 +183,48 @@ describe("queued delivery last hop", () => {
     });
   });
 
-  test("interrupt leftover steer last-hops to send", async () => {
-    await withBridge("busy", ({ bridge, sends, steers }) => {
+  test("interrupt leftover steer is held under pause until an explicit new send", async () => {
+    await withBridge("busy", ({ shell, bridge, sends, steers }) => {
+      // A steer the operator queued while the run was busy.
       bridge.submit("after stop", "steer");
+      // Operator Ctrl+C pauses (Phase 4 sets the flag; the gate here honors an
+      // already-paused state) then stops and interrupts the run.
+      shell.session = pause(shell.session);
       bridge.interrupt();
-      expect(sends).toEqual(["after stop"]);
+      // Paused: the leftover steer must NOT deliver to the rebuilt agent.
+      expect(sends).toEqual([]);
       expect(steers).toEqual([]);
+      expect(badgeCount(shell.session)).toBe(1);
+      // An explicit new send clears the pause and the boundary drains the
+      // held steer onto the fresh turn.
+      shell.session = resumeForSend(shell.session);
+      bridge.submit("fresh prompt", "immediate");
+      bridge.handle({ type: "run", state: "idle" });
+      expect(sends).toEqual(["fresh prompt", "after stop"]);
+      expect(steers).toEqual([]);
+      expect(badgeCount(shell.session)).toBe(0);
+    });
+  });
+
+  test("held follow-up delivers at the boundary only after an explicit new send", async () => {
+    await withBridge("busy", ({ shell, bridge, sends, steers }) => {
+      bridge.submit("held follow-up", "queue");
+      expect(badgeCount(shell.session)).toBe(1);
+      // Operator Ctrl+C pauses and stops the run.
+      shell.session = pause(shell.session);
+      bridge.interrupt();
+      // Paused: nothing drains at the interrupt/following boundaries.
+      bridge.handle({ type: "run", state: "idle" });
+      expect(sends).toEqual([]);
+      expect(steers).toEqual([]);
+      expect(badgeCount(shell.session)).toBe(1);
+      // Explicit new send clears the pause and starts a fresh turn.
+      shell.session = resumeForSend(shell.session);
+      bridge.submit("fresh prompt", "immediate");
+      // Now the boundary delivers both the new send and the held follow-up.
+      bridge.handle({ type: "run", state: "idle" });
+      expect(sends).toEqual(["fresh prompt", "held follow-up"]);
+      expect(badgeCount(shell.session)).toBe(0);
     });
   });
 

@@ -14,6 +14,7 @@ import {
   enqueue,
   enqueueSteer,
   interrupt,
+  isPaused,
   setRunState,
   type QueueItem,
   type QueueKind,
@@ -1364,6 +1365,10 @@ function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
 }
 
 function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
+  // Pause gate (CL-10149): while the operator holds the queue, no boundary may
+  // auto-drain into a rebuilt agent. Return early keeping every item pending;
+  // an explicit new send clears the flag and the next boundary delivers.
+  if (isPaused(shell.session)) return;
   for (;;) {
     const { state, item } = drainOne(shell.session);
     if (!item) break;
@@ -1379,6 +1384,10 @@ function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
  * kind filter.
  */
 function drainSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
+  // Pause gate (CL-10149): soft steers are also held while paused; the parent
+  // that accepted them has stopped, so they must wait for an explicit new send
+  // rather than auto-start on the rebuilt agent.
+  if (isPaused(shell.session)) return;
   for (;;) {
     const { state, item } = drainOne(shell.session, "steer");
     if (!item) break;
