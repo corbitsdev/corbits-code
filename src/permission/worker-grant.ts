@@ -2,8 +2,7 @@
 // approval. The deny text names only the requestId; the envelope carries the
 // exact denied call so the parent replays it through its own gate and the
 // worker retries via resume_agent. Prose is never authority: nothing here
-// parses message text, and send_input stays text-only. The atomic
-// grant-and-retry verb is a Phase 2 follow-up.
+// parses message text, and send_input stays text-only.
 
 import { createHash, randomUUID } from "node:crypto";
 
@@ -12,8 +11,8 @@ import type { ToolCall } from "@intx/types/runtime";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import { stableRequestId } from "./denial-memory.js";
 
-/** One granted retry per deny, within ten minutes. Expiry is purely
- * expiresAt-driven; turnId is metadata only. */
+/** One granted retry per deny, within ten minutes; expiry is purely
+ * expiresAt-driven (turnId is metadata only). */
 export const WORKER_GRANT_TTL_MS = 10 * 60 * 1000;
 
 export type WorkerGrantStatus =
@@ -63,8 +62,8 @@ export interface DeniedCallDescriptor {
   now?: number;
 }
 
-/** Stable path-aware fingerprint: relative path args resolve against cwd,
- * keys sort first so a retried call with reordered args still matches. */
+/** Stable path-aware fingerprint: relative path args resolve against cwd;
+ * sorted keys let a retried call with reordered args still match. */
 export function fingerprintDeniedCall(
   canonicalTool: string,
   args: Record<string, unknown>,
@@ -142,8 +141,8 @@ export function createDeniedCallEnvelope(
   return envelope;
 }
 
-/** Keeps the deny + approval text and names only the requestId; ask_director
- * text must reference that id and carries no authority. */
+/** Names only the requestId; ask_director text must reference that id and
+ * carries no authority. */
 export function formatWorkerDenyWithGrantId(
   baseReason: string,
   requestId: string,
@@ -189,10 +188,9 @@ export class WorkerGrantStore {
    * waiters FIFO through the precheck-to-consume gap. */
   private readonly turns = new Map<string, Promise<void>>();
 
-  /** Serialize concurrent identical retries across the precheck-to-consume
-   * gap; without this, two in-flight copies both pass precheck and the gate
-   * allows two executions for one envelope. Key covers session +
-   * tool/args/cwd fingerprint. Non-reentrant for the same key. */
+  /** Serialize identical retries across the precheck-to-consume gap: two
+   * in-flight copies would both pass precheck and each execute once. Key
+   * covers session + tool/args/cwd fingerprint; non-reentrant per key. */
   async runExclusive<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.turns.get(key) ?? Promise.resolve();
     let release!: () => void;
@@ -259,11 +257,10 @@ export class WorkerGrantStore {
     return undefined;
   }
 
-  /** Stamp the questionId so the parent's retry references the envelope. A
-   * named requestId binds its exact denial (first-pending would join a
-   * question about B to call A); an unnamed ask keeps the legacy
-   * first-pending bind. Unresolvable ids fail closed; overdue envelopes
-   * sweep first. */
+  /** Stamp the questionId the parent's retry references. A named requestId
+   * binds its exact denial (first-pending would join a question about B to
+   * call A); an unnamed ask keeps the legacy first-pending bind. Unresolvable
+   * ids fail closed; overdue envelopes sweep first. */
   attachToAsk(
     sessionId: string,
     questionId: string,
@@ -294,11 +291,10 @@ export class WorkerGrantStore {
   /**
    * Execution backstop: fail closed when the exact call matches a terminal
    * envelope (replay, interrupt) or a tampered cwd. Expired envelopes are
-   * marked and skipped, not denied, so the retry mints a fresh envelope
-   * instead of blackholing the worker. Other sessions' envelopes never veto
-   * this session. Unknown calls fall through to the normal gate path. The
-   * cwd anchor binds the retry to the denied cwd: a session grant is not
-   * cwd-scoped, so the same args from another directory must not ride it.
+   * marked and skipped, not denied — the retry mints a fresh envelope
+   * instead of blackholing the worker. The cwd anchor binds the retry to
+   * the denied cwd: a session grant is not cwd-scoped, so the same args
+   * from another directory must not ride it.
    */
   precheck(
     identity: WorkerCallIdentity,
@@ -308,9 +304,8 @@ export class WorkerGrantStore {
     const fingerprint = fingerprintOf(identity);
     for (const envelope of this.envelopes.values()) {
       if (envelope.argsFingerprint !== fingerprint) continue;
-      // Only own-session envelopes can veto: a sibling's envelope is
-      // irrelevant here (reactor retries share this session, so consume-once
-      // survives).
+      // Own-session envelopes only (reactor retries share this session, so
+      // consume-once survives).
       if (
         envelope.canonicalTool !== identity.canonicalTool ||
         envelope.workerSessionId !== identity.sessionId
@@ -346,14 +341,12 @@ export class WorkerGrantStore {
       return { ok: true };
     }
     // Unmatched calls fall through to the normal gate path, where a broad
-    // session grant can cover more than the exact denied subject. Binding
-    // the grant to the envelope args is a Phase 2 follow-up.
+    // session grant can cover more than the exact denied subject.
     return { ok: true };
   }
 
   /** Spend the pending own-session envelope on the exact allowed call: one
-   * retry per requestId. Returns the envelope, or undefined when nothing
-   * pending matches. */
+   * retry per requestId. */
   consumeOnAllow(
     identity: WorkerCallIdentity,
   ): WorkerDeniedCallEnvelope | undefined {
@@ -378,8 +371,8 @@ export class WorkerGrantStore {
 
   /** Interrupt invalidation: tombstone the session's envelopes so a later
    * replay fails closed instead of riding whatever grant the gate now holds.
-   * Retained completion keeps pending envelopes — the retained resume_agent
-   * retry is the Phase 1 retry path. */
+   * Retained completion does not invalidate — the resume_agent retry is a
+   * legitimate replay. */
   invalidateSession(sessionId: string, reason: string): number {
     let invalidated = 0;
     for (const envelope of this.envelopes.values()) {
@@ -396,7 +389,7 @@ export class WorkerGrantStore {
   }
 
   /** Lazy expiry: every pendency read sweeps overdue envelopes to expired, so
-   * a lapsed window never reads as pending. No periodic scheduler is needed. */
+   * a lapsed window never reads as pending. */
   sweepExpired(now = Date.now()): number {
     let expired = 0;
     for (const envelope of this.envelopes.values()) {
