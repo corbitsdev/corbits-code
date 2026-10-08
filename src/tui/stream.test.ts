@@ -26,7 +26,7 @@ const CREW: RowLayout = { width: 56, multiAgent: true };
 const lines = (row: StreamRow, layout: RowLayout = SOLO): string[] =>
   paintStreamRow(row, layout).content.split("\n");
 
-/** Body lines of a user bubble (strip the empty pad rows above and below). */
+/** Body lines of a user bubble (empty pad rows stripped above and below). */
 const userBody = (row: StreamRow, layout: RowLayout = SOLO): string[] => {
   const painted = lines(row, layout);
   expect(painted.length).toBeGreaterThanOrEqual(3);
@@ -41,7 +41,7 @@ describe("stream paint", () => {
     expect(you).not.toContain("you");
     expect(agent).not.toContain("agent");
     expect(agent.startsWith("hello")).toBe(true);
-    // A marker column leads the body: the text itself never starts at 0.
+    // A marker column leads the body: the text never starts at 0.
     expect(you.indexOf("hi")).toBeGreaterThan(0);
     expect(you.trimEnd().endsWith("hi")).toBe(true);
   });
@@ -62,8 +62,8 @@ describe("stream paint", () => {
   });
 
   test("queued-item meta paints as a plain operator row — no delivery prefixes", () => {
-    // Pending state lives in the column above the prompt; a row that reaches
-    // the transcript has already delivered and reads as an ordinary message.
+    // Pending state lives above the prompt; a row that reaches the
+    // transcript has delivered and reads as an ordinary message.
     for (const meta of ["steer", "queue", "steering", "following-up"]) {
       expect(userBody({ role: "user", text: "a", meta })[0]).toContain(" a");
       expect(userBody({ role: "user", text: "a", meta })[0]).not.toContain("[");
@@ -256,7 +256,7 @@ describe("stream paint", () => {
 
   test("a second agent's row paints no icon or name inline", () => {
     // Writer identity is a block-level header (see `blockLabel`), not baked
-    // into the row body, so a lone row never carries "●" itself.
+    // into the row body, so a lone row never carries "●".
     const solo = lines({ role: "assistant", text: "on it" })[0] as string;
     const crew = lines(
       { role: "assistant", text: "on it", agent: "critic" },
@@ -573,10 +573,9 @@ describe("sub-agent dispatch row marks", () => {
   });
 });
 
-// TUI markdown links are click-only: there is no hover tracking, so no hover
-// state may add an affordance the idle render does not have. Pin
-// underline-absence on the link scopes so a future hover style cannot sneak
-// one in.
+// TUI markdown links are click-only (no hover tracking): pin
+// underline-absence on the link scopes so a future hover style cannot
+// sneak one in.
 describe("transcriptSyntaxStyle markdown links", () => {
   test("link cells carry no underline", () => {
     const styles = transcriptSyntaxStyle().getAllStyles();
