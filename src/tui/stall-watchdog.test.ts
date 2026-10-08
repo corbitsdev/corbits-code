@@ -94,8 +94,8 @@ describe("shouldAbortForStall", () => {
 });
 
 // Awaiting the model's next response with no tokens yet (after submit, a tool
-// batch, or compact re-entry). Past STALL_TIMEOUT_MS this shape auto-aborts so
-// a continuation that never lands cannot freeze the turn.
+// batch, or compact re-entry); past STALL_TIMEOUT_MS this shape auto-aborts
+// so a continuation that never lands cannot freeze the turn.
 describe("shouldAbortForStall — awaiting-response with a null stream eventually aborts", () => {
   const awaiting = {
     status: "running" as const,
@@ -127,8 +127,8 @@ describe("shouldAbortForStall — awaiting-response with a null stream eventuall
     ).toBe(false);
   });
 
-  // A gate open and an outstanding sibling tool call exempt independently;
-  // each guard must also work when both conditions hold at once.
+  // A gate open and a sibling tool call exempt independently, and must also
+  // work when both hold at once.
   test("a gate open and a sibling tool call each exempt alone, and together", () => {
     const gateOnly = { ...awaiting, status: "blocked" as const };
     const toolCallOnly = { ...awaiting, activeToolCalls: ["call-2"] };
@@ -178,8 +178,8 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
     ).toBe(true);
   });
 
-  // A sibling tool.done clears the last announced name while the poll is
-  // still in flight; keying only that name would leave it unbounded forever.
+  // A sibling tool.done clears the last announced name while the poll is in
+  // flight; keying only that name would leave it unbounded forever.
   test("sibling tool.done while collect is in-flight still aborts at the stall budget", () => {
     const afterSiblingDone = {
       ...collect,
@@ -210,8 +210,8 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
     ).toBe(false);
   });
 
-  // Concurrent collects share one slot; the per-id record keeps the leftover
-  // bounded when the mapping owner resolves first and clears the slot.
+  // Concurrent collects share one slot; the per-id record bounds the leftover
+  // when the mapping owner resolves first and clears the slot.
   test("concurrent collects with the mapping owner done first still abort at the stall budget", () => {
     const leftover = {
       ...collect,
@@ -430,8 +430,8 @@ describe("the stall level the indicator reads", () => {
 
   test("the indicator keeps reading stalled across the abort threshold", () => {
     // The notice hands over to the abort so they never speak at once, but the
-    // indicator must not flip back to healthy at the most stuck moment — that
-    // was the whole complaint it answers.
+    // indicator must not flip back to healthy at the most stuck moment — the
+    // complaint this answers.
     const midStream = {
       ...base,
       awaitingResponse: false,
