@@ -209,10 +209,10 @@ import type { TaskIntent } from "./report.js";
 import { runWithSubAgentIdentity } from "./identity-context.js";
 
 /**
- * Worker authorization denies unresolved approvals without suspending, so the
- * reactor should never park a gate and Agent.send should always settle on
- * "reply". Sound fallback if that drifts: the thrown error carries the
- * correlationId and approval snapshot needed to resume or diagnose.
+ * Worker authorization denies without suspending, so Agent.send must settle
+ * on "reply" — a parked gate would wedge the worker. Sound fallback if that
+ * drifts: the thrown error still carries the correlationId and approval
+ * snapshot.
  */
 export function assertReplySend(
   result: SendResult,
@@ -235,18 +235,18 @@ export function assertReplySend(
 
 // One outer retry after the harness's per-attempt retries give up (3x per
 // send, vendor/intx-inference/src/retry-policy.ts). Delay matches the first
-// backoff step with the same jitter below. createCorbitsRetryPolicy drives
-// per-attempt retry inside a live send; it must not drive this loop. Never
-// retry after a tool started — the second send would replay side effects.
+// backoff step below. createCorbitsRetryPolicy handles per-attempt retry
+// inside a live send, never this loop. Never retry after a tool started —
+// a second send would replay side effects.
 const MAX_OUTER_ATTEMPTS = 2;
 const OUTER_RETRY_DELAY_MS = 500;
 
 /**
  * Reap deadline for the session-stream drain on teardown. A worker parked
- * behind a live shell descendant holds `streamPromise` open; awaiting it
- * unbounded wedges interrupt/close forever. Settling after this deadline
- * drops late stream events. Matches the shell-guard reap scale (2s), not
- * the 30s close deadline.
+ * behind a live shell descendant holds `streamPromise` open, so awaiting
+ * it unbounded would wedge interrupt/close forever — settling after this
+ * deadline drops late stream events, matching the shell-guard reap scale
+ * (2s), not the 30s close deadline.
  */
 const SUBAGENT_STREAM_DRAIN_REAP_MS = 2_000;
 
@@ -372,12 +372,12 @@ export function coreSubAgentWebTools(
  * Capability allowlist/exclude over the assembled worker tool set, with
  * on-demand inherited-MCP mounting.
  *
- * `mcp__*` tools mount only when stamped — a `requiresTools` entry or a
- * `capabilities.tools` allowlist — or inherited via `inheritedMcpTools`
- * when no narrower constraint applies. A stamp narrows inheritance to the
- * stamped names. Unstamped `mcp__*` names never mount; an explicit exclude
- * still withholds a requested live tool (surfacing as a stale snapshot,
- * normally pre-empted by the dispatch preflight).
+ * `mcp__*` tools mount only when stamped (`requiresTools` or a
+ * `capabilities.tools` allowlist) or inherited via `inheritedMcpTools` when
+ * no narrower constraint applies; a stamp narrows inheritance to the
+ * stamped names. Unstamped `mcp__*` names never mount, and an explicit
+ * exclude still withholds a requested live tool (surfacing as a stale
+ * snapshot, normally pre-empted by the dispatch preflight).
  */
 export function applyCapabilityFilter(
   tools: AgentTool[],
@@ -434,10 +434,10 @@ export interface SubAgentRunController {
 }
 
 /**
- * Combines the caller's cancel signal with an optional wall-clock deadline
- * into one abort signal, so the run can tell a genuine cancel apart from
- * the deadline firing (deadlineHit()) when picking a salvage reason. When
- * deadlineMs is omitted, no timer is armed — cancel is the only bound.
+ * Merges the caller's cancel signal with an optional wall-clock deadline
+ * into one abort signal, so salvage can tell a genuine cancel apart from
+ * the deadline firing (deadlineHit()). No timer when deadlineMs is omitted
+ * — cancel is the only bound.
  */
 export function createSubAgentRunController(
   parentSignal: AbortSignal | undefined,
@@ -666,16 +666,15 @@ async function runSubAgentInner(
     onExit: (exit) => backgroundExitSink?.(exit),
   });
   // A worker whose capability filter drops run_shell has no bash to detach
-  // from. The getter stays live so the filter below can unwire it before
-  // the first tool call.
+  // from; the getter stays live so the filter below can unwire it first.
   let backgroundShellsMounted = true;
   // read_file PDF diagnosis asks whether this worker can run pdftotext via
   // bash; flip with backgroundShellsMounted when the filter unmounts shell.
   let hostCommandsMounted = true;
   // Child tools resolve spills against the child's own store first, then
   // the parent's: tool-output:// URIs handed in the brief stay readable
-  // after spawn. Writer/context dir bind after createSessionStores — tools
-  // wrap first, same late-bind as primary getBlobWriter.
+  // after spawn. Writer/context dir bind after createSessionStores, same
+  // late-bind as the primary getBlobWriter.
   let childBlobReader: BlobReader | undefined;
   let childBlobWriter: SpillBlobWriter | undefined;
   let childContextDir: string | undefined;
@@ -735,10 +734,10 @@ async function runSubAgentInner(
   // Declared before try (like closeOnAbort): assigned once inside the try,
   // but must be visible to the finally block, a sibling scope, not a child.
   let stallWatchdog: ReturnType<typeof setInterval> | undefined;
-  // Combines the caller's cancel signal with an optional wall-clock deadline
-  // so a leaf that hits it can still return a salvage report. Declared before
-  // try so finally can dispose. spawn_agent is exempt from the per-tool
-  // watchdog (resolveToolExecutionTimeoutMs), so no outer budget clamps it.
+  // Wall-clock bound so a leaf that hits it can still return a salvage
+  // report; resolved before try so finally can dispose. spawn_agent is
+  // exempt from the per-tool watchdog (resolveToolExecutionTimeoutMs), so
+  // no outer budget clamps it.
   const resolvedDeadlineMs =
     params.deadlineMs !== undefined
       ? resolveSubAgentDeadlineMs(params.deadlineMs, undefined)
@@ -773,10 +772,10 @@ async function runSubAgentInner(
     }
 
     const runManageTasks = createManageTasksRunner();
-    // Every worker mounts skill_search + use_skill, scoped to the dispatch's
-    // allowedSkillNames (pkg.attachedSkills + optionalSkills), before the
-    // capability filter so allowlists keep them like any named tool. The
-    // scope cannot widen — use_skill refuses names outside the allowlist.
+    // Every worker mounts skill_search + use_skill, scoped to the
+    // dispatch's allowedSkillNames, before the capability filter so
+    // allowlists keep them like any named tool. The scope cannot widen —
+    // use_skill refuses names outside the allowlist.
     const modelFamilyPolicy = resolveModelFamilyPolicy({
       providerName: params.provider.providerName,
       model: params.provider.model,
@@ -1239,12 +1238,12 @@ async function runSubAgentInner(
       },
     });
 
-    // Directors are pure decide() functions with no timer of their own
-    // (see checkStallPing), so a silent leaf needs an external nudge: ping
-    // the compaction continuation channel at the stall interval; the
-    // director acts only if nothing happened since. Skip the ping while
-    // ask_director is parked — a deferred one would make the post-unpark
-    // flush look like an empty stall window.
+    // Directors are pure decide() functions with no timer (see
+    // checkStallPing), so a silent leaf needs an external nudge: ping the
+    // compaction continuation channel at the stall interval; the director
+    // acts only if nothing happened since. Skip while ask_director is
+    // parked — a deferred ping would make the post-unpark flush look like
+    // an empty stall window.
     stallWatchdog = setInterval(() => {
       if (askDirectorState.pending) return;
       deliverCompactContinue();
@@ -1286,9 +1285,9 @@ async function runSubAgentInner(
     });
 
     // Reuse the caller's session-store id as the on-disk directory name
-    // when it is safe as a path segment, so read_agent_trace's descendant
-    // check can walk the same parentSessionId chain SubAgentSessionStore
-    // already tracks, not a second, disk-only identity scheme.
+    // when it is safe as a path segment, so read_agent_trace walks the
+    // same parentSessionId chain SubAgentSessionStore already tracks — no
+    // second, disk-only identity scheme.
     const safeRequestedId =
       params.id !== undefined && /^[A-Za-z0-9_-]+$/.test(params.id)
         ? params.id
@@ -1583,11 +1582,11 @@ async function runSubAgentInner(
       });
     }
 
-    // Bounded, idempotent close handle (close_agent), retained or not.
-    // Abort first stops a still-running turn; a finished turn is a no-op.
-    // posix dispose/reap runs before agent.close so a wedged close cannot
-    // skip killing detached run_shell children; the deadline abandons a
-    // hung close rather than reporting success while children stay live.
+    // Bounded, idempotent close handle (close_agent). Abort first stops a
+    // still-running turn; a finished turn is a no-op. posix dispose/reap
+    // runs before agent.close so a wedged close cannot skip killing
+    // detached run_shell children; the deadline abandons a hung close
+    // rather than reporting success while children stay live.
     if (params.onAgentReady !== undefined) {
       const boundedClose = async (
         deadlineMs = DEFAULT_CLOSE_DEADLINE_MS,
@@ -1795,8 +1794,7 @@ async function runSubAgentInner(
       // consistent shape even when the model returns free-form prose.
       const report = formatSubAgentReport(parseSubAgentReport(reply));
       // Only a clean completion retains: an aborted or salvaged run falls
-      // through without setting this, so the finally block still tears down
-      // for those.
+      // through without setting this, so the finally still tears down.
       turnSucceeded = true;
       return withTelemetry({
         report: parentFacing(report, directorForcedStopReason),

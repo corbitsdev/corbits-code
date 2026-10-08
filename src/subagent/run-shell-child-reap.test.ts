@@ -1,15 +1,15 @@
 /**
  * A session holding a live shell child must still settle.
  *
- * Teardown path (run.ts finally → disposeSubAgentSession under a 30s
- * awaitBoundedTeardown): posixTools.dispose() runs the shell-guard
- * reapLiveChildren (SIGKILL the child process groups, 2s reap wait), then
- * agent.close() and the session-stream drain are awaited — voided, not hung
- * on, when the reap reports leftovers.
+ * Teardown (run.ts finally → disposeSubAgentSession under a 30s
+ * awaitBoundedTeardown): posixTools.dispose() reaps live shell children
+ * (SIGKILL process groups, 2s wait), then agent.close() and the
+ * session-stream drain are awaited — voided when the reap reports
+ * leftovers.
  *
  * These tests drive the real `runSubAgent` with a stub agent whose `send`
- * holds a real live `sleep` child (killed on abort, like runGuardedShell's
- * onAbort) and whose `stream()` stays open until the session closes.
+ * holds a real `sleep` child (killed on abort, like runGuardedShell's
+ * onAbort) and whose `stream()` stays open until close.
  */
 import { describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -50,14 +50,14 @@ async function waitForChildExit(
 
 /**
  * Stub agent modeling a worker parked behind a live shell child: `send`
- * spawns a real `sleep` descendant and pends (like a pending shell call);
- * the abort listener kills the child first, mirroring runGuardedShell's
- * onAbort. `stream()` stays open until `releaseStream` — the session cannot
- * drain while the descendant is wedged. `leakOnAbort` models a stub that
- * never kills: send-abort rejects and close() releases the stream, both
- * without killAll. The descendant is spawned outside the shell guard, so
- * production teardown never sees it — the run must settle with the child
- * still live, and the test reaps its own orphan via the exposed killAll.
+ * spawns a real `sleep` descendant and pends; the abort listener kills the
+ * child first, mirroring runGuardedShell's onAbort. `stream()` stays open
+ * until `releaseStream`, so the session cannot drain while the descendant
+ * is wedged. `leakOnAbort` models a stub that never kills: send-abort
+ * rejects and close() releases the stream without killAll. The descendant
+ * spawns outside the shell guard, so production teardown never sees it —
+ * the run must settle with the child live, and the test reaps its own
+ * orphan via the exposed killAll.
  */
 function createShellChildAgent(opts?: {
   wedgeClose?: boolean;
@@ -188,9 +188,8 @@ async function runWithShellChildAgent(
 }
 
 /**
- * Drive a body with the live-tool-dispatch module mocked to hand out `agent`.
- * Extracts the mock boilerplate shared by every test below; the body is
- * invoked unchanged.
+ * Runs `body` with the live-tool-dispatch module mocked to hand out
+ * `agent`; extracts the mock boilerplate shared by every test below.
  */
 async function runWithStubAgent<T>(
   agent: ReturnType<typeof createShellChildAgent>,
@@ -352,12 +351,12 @@ describe("CL-7990 shell-child reap: sessions holding a live shell child settle",
 });
 
 /**
- * Kill proof: the tests above prove the run settles under a wedged
- * child, but none proves a shell-guard-tracked child is actually KILLED on
- * close/dispose. This drives a real `sleep` through `runGuardedShell` (the
- * shell-guard tracking primitive) and the exact `reapLiveChildren` call the
- * plugin dispose runs, then asserts on the ChildProcess handle itself that
- * the process is dead — not just that the run settled.
+ * Kill proof: the tests above prove the run settles under a wedged child,
+ * but none proves a shell-guard-tracked child is actually KILLED on
+ * close/dispose. This drives a real `sleep` through `runGuardedShell` and
+ * the exact `reapLiveChildren` call the plugin dispose runs, then asserts
+ * on the ChildProcess handle itself that the process is dead — not just
+ * that the run settled.
  */
 describe("CL-7997 shell-guard kill proof: dispose leaves the tracked child dead", () => {
   test(
