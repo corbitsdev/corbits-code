@@ -932,6 +932,13 @@ describe("same-turn retry after inference.error", () => {
 
       const text = shell.streamLog.map((r) => r.text).join("\n");
       expect(text).toContain("restart from here");
+      // Reinject interrupts are pause-oriented (CL-10149): the stop note reuses
+      // the pause wording ("pending kept"/"stopped" + the arming flash) and
+      // never says "restart from your message" anymore.
+      expect(text).toMatch(
+        /(pending kept|stopped).*press ctrl\+c again to exit/,
+      );
+      expect(text).not.toContain("restarting from your message");
       expect(errorRows(shell)).toEqual([]);
     });
   });

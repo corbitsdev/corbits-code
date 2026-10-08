@@ -15,6 +15,7 @@ import {
   enqueueSteer,
   interrupt,
   isPaused,
+  badgeCount,
   resumeForSend,
   setRunState,
   type QueueItem,
@@ -2012,9 +2013,16 @@ export function attachSessionBridge(
       bag.mapCtx.errorRollbackArmed = false;
       bag.attemptRow = null;
       shell.session = interrupt(shell.session);
+      // Reuse the first-Ctrl+C pause wording ("pending kept"/"stopped") plus the
+      // arming-window flash so this reinject stop reads as a pause, not a
+      // restart: queued work delivers only on the operator's next explicit send,
+      // and a second Ctrl+C quits.
       appendStreamRow(shell, {
         role: "system",
-        text: "stop — restarting from your message",
+        text:
+          badgeCount(shell.session) > 0
+            ? `${badgeCount(shell.session)} pending kept — press ctrl+c again to exit`
+            : "stopped — press ctrl+c again to exit",
         meta: "stop",
       });
       bag.port.interrupt();
