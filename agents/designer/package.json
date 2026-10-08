@@ -1,5 +1,5 @@
 {
-  "name": "@corbits/agent-designer",
+  "name": "@corbits/code-agent-designer",
   "version": "0.1.0",
   "private": true,
   "type": "module",

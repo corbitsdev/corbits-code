@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { designerPackage } from "@corbits/agent-designer";
+import { designerPackage } from "@corbits/code-agent-designer";
 import { BUILD_TOOLS } from "../tool-sets.js";
 import { DIRECTOR_REGISTRY } from "../registry.js";
 import type { DirectorPackage } from "../types.js";
