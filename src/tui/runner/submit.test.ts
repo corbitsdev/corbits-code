@@ -133,8 +133,8 @@ describe("presentSendRecoveryOffer precedence", () => {
       presentCredentialRecovery: () => {
         presented.push("credential");
       },
-    // No presentReconnectRecovery: an unwired presenter must not swallow the
-    // credential fallback.
+      // No presentReconnectRecovery: an unwired presenter must not swallow the
+      // credential fallback.
     });
     expect(presented).toEqual(["credential"]);
   });

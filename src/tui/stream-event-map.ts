@@ -49,14 +49,14 @@ export type BridgeInboundEvent =
    */
   | { readonly type: "fleet"; readonly running: number }
   /** Authoritative snapshot of pending top-level ask_director questions,
- * including empty. The bridge reconciles and dedups delivery. */
+   * including empty. The bridge reconciles and dedups delivery. */
   | { readonly type: "agent-ask"; readonly asks: readonly PendingAskWake[] }
   | { readonly type: "tool.boundary" }
   | { readonly type: "error"; readonly message: string }
   /** Attempt-boundary bookkeeping for retries: `mark` records where the
- * attempt's rows begin, `clear` disarms it once settled, `rollback`
- * retracts what was painted since. The mapper decides when; the consumer
- * owns the row index. */
+   * attempt's rows begin, `clear` disarms it once settled, `rollback`
+   * retracts what was painted since. The mapper decides when; the consumer
+   * owns the row index. */
   | {
       readonly type: "attempt";
       readonly action: "mark" | "clear" | "rollback";
@@ -100,20 +100,20 @@ export interface StreamMapContext {
   /** Trailing fragment of a possibly-incomplete escape sequence, per channel. */
   readonly pendingDelta: { assistant: string; thinking: string };
   /** True between an `inference.start` and the event that settles its cycle.
- * The harness's pre-commit `inference.retry` (nothing streamed, nothing to
- * retract) arrives before the start; the reactor's retry comes after a
- * committed attempt failed and is about to re-stream. */
+   * The harness's pre-commit `inference.retry` (nothing streamed, nothing to
+   * retract) arrives before the start; the reactor's retry comes after a
+   * committed attempt failed and is about to re-stream. */
   attemptArmed: boolean;
   /** Tool calls already known when the current attempt started. */
   attemptCallIds: Set<string>;
   /** A committed attempt can end in `inference.error` with no
- * `inference.done`, followed by a same-provider retry start. The boundary
- * must not stay armed across a terminal error, so the error hands it off
- * to the next event. */
+   * `inference.done`, followed by a same-provider retry start. The boundary
+   * must not stay armed across a terminal error, so the error hands it off
+   * to the next event. */
   errorRollbackArmed: boolean;
   /** Live catalog provider id (e.g. `xai/alice`). Harness `inference.error`
- * events omit it; the session stamps this so transcript formatting can
- * reuse known-provider remappers. */
+   * events omit it; the session stamps this so transcript formatting can
+   * reuse known-provider remappers. */
   providerId?: string;
   providerLabel?: string;
   /** Provider selection captured when the active inference cycle started. */
