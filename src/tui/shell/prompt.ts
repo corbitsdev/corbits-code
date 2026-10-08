@@ -87,17 +87,14 @@ function isENOENT(err: unknown): boolean {
   );
 }
 
-/**
- * Ctrl+P: read an image off the clipboard into the pending set.
- * Resolves false (with a status flash) when nothing was attached.
- */
+/** Ctrl+P: read a clipboard image into the pending set. False if none. */
 export async function attachClipboardImage(shell: AppShell): Promise<boolean> {
   const source = shellPromptImageSource.get(shell) ?? readClipboardImage;
   // Sticky until the read resolves — mid-async progress, not a confirmation.
   setStatusFlash(shell, "reading clipboard image…");
   const result = await source();
-  // Quitting while the clipboard read is pending tears down the shell's
-  // renderables; a stale continuation must not mutate them on resume.
+  // Quitting mid-read tears down the shell's renderables; a stale
+  // continuation must not mutate them on resume.
   if (shell.disposed) return false;
   if (!result.ok) {
     setStatusFlash(shell, `image attach failed: ${result.reason}`, {
@@ -162,9 +159,9 @@ export function setPromptWorkspace(
 }
 
 /**
- * Publish the cost/context meter carried by the bottom border. Driven by
- * usage changes (a completed turn), not a timer: the percentage does not move
- * between turns, so there is nothing to animate on the idle tick.
+ * Publish the cost/context meter on the bottom border. Updated on usage
+ * changes (a completed turn), not a timer: the percentage is static between
+ * turns.
  */
 export function setPromptCostContext(
   shell: AppShell,
@@ -195,9 +192,9 @@ onThemeChange(() => {
 });
 
 /**
- * The style registry backing the prompt's highlights, plus the one style id
- * this feature uses. Lazy for the same reason as `transcriptSyntaxStyle`:
- * construction reaches into the native render lib.
+ * Highlight style registry plus the one style id this feature uses. Lazy
+ * like `transcriptSyntaxStyle`: construction reaches into the native render
+ * lib.
  */
 function promptRecognizedStyleId(): number {
   if (cachedPromptSyntaxStyle === null) {
@@ -215,10 +212,9 @@ function promptRecognizedStyleId(): number {
 const promptHighlightedValue = new WeakMap<AppShell, string>();
 
 /**
- * Re-mark leading slash commands and @mentions in the prompt. Runs once per
- * frame (see `onFrame` in `createShell`) and no-ops unless the text changed
- * since the last frame — typing that misses a token, and every non-typing
- * frame, is a plain string compare.
+ * Re-mark leading slash commands and @mentions. Runs once per frame (see
+ * `onFrame`) and no-ops unless the text changed since the last frame — a
+ * miss is just a plain string compare.
  */
 export function syncPromptHighlights(shell: AppShell): void {
   const source = shellRecognitionSource.get(shell);
@@ -246,10 +242,9 @@ export function syncPromptHighlights(shell: AppShell): void {
 }
 
 /**
- * Suspend/resume the shell's own key/paste/submit handling. A full-screen
- * surface borrowing this renderer (the inline provider connect) owns the
- * keyboard for its lifetime; otherwise Ctrl+C during a sign-in would reach
- * the shell and interrupt the running agent.
+ * Suspend/resume shell key/paste/submit handling. A full-screen surface
+ * borrowing this renderer (the inline provider connect) owns the keyboard
+ * for its lifetime, so Ctrl+C during a sign-in can't interrupt the agent.
  */
 export function setShellInputSuspended(
   shell: AppShell,
@@ -260,11 +255,10 @@ export function setShellInputSuspended(
 }
 
 /**
- * Surface a runtime/load notice without stealing the landing hero. While the
- * landing is still mounted the wording rides the notice strip and the row is
- * held for flush once a real session row ends the landing; after that it is
- * a normal system row. Every producer of a system-class row belongs here
- * rather than at `appendStreamRow` — reaching for it directly is the bug.
+ * Surface a runtime/load notice without stealing the landing hero: while the
+ * landing is mounted the wording rides the notice strip and is flushed when
+ * a real session row ends the landing; afterwards it is a normal system row.
+ * System-class rows belong here, not at `appendStreamRow`.
  */
 export function surfaceSystemNotice(shell: AppShell, text: string): void {
   if (isLanding(shell)) {
@@ -282,22 +276,21 @@ export function surfaceSystemNotice(shell: AppShell, text: string): void {
  * Submit the prompt. Product chords:
  *  - "steer": mid-run Enter — soft steer at the next tool boundary.
  *  - "queue": mid-run Alt+Enter — follow-up, delivered only when the run
- *    goes idle (idle Alt+Enter is a no-op at the key handler).
+ *    goes idle (idle Alt+Enter is a no-op).
  *  - "reinject": hard-stop and restart from this message. No product chord
- *    wires it; kept for tests / direct API callers. No-op unless the run is
- *    busy and the prompt non-empty.
- *  - Idle Enter (queue or steer kind) goes straight through; "kind" only
- *    matters while a run is in flight.
+ *    wires it; for tests / direct API callers. No-op unless the run is busy
+ *    and the prompt non-empty.
+ *  - Idle Enter (either kind) sends directly; "kind" only matters while a
+ *    run is in flight.
  */
 export function submitPrompt(
   shell: AppShell,
   kind: "queue" | "steer" | "reinject" = "queue",
 ): void {
-  // A Tab-accepted free-form hint sits in the prompt as placeholder text; bare
-  // Enter must dispatch the command, not submit the placeholder literal as
-  // its argument. The strip is shape-only: the untouched selection is lost to
-  // a single arrow key, so only the exact `/id <hint>` match strips — real
-  // arguments never equal the hint byte-for-byte.
+  // A Tab-accepted free-form hint is placeholder text; bare Enter must
+  // dispatch the command, not submit the literal. The strip is shape-only —
+  // the untouched selection is lost to an arrow key — so only the exact
+  // `/id <hint>` match strips; real arguments never equal the hint.
   const hintBase = stripUneditedSlashHint(
     resolvePaletteCatalog(shell),
     shell.prompt.value,
@@ -312,7 +305,7 @@ export function submitPrompt(
   const attachments = shell.pendingAttachments;
   if (t.length === 0 && attachments.length === 0) {
     // Empty Enter still reaches the exclusive host so multi-turn /feedback
-    // can cancel; non-exclusive shells have nothing to do with a blank line.
+    // can cancel.
     const hooks = getShellBridgeHooks(shell);
     if (hooks?.exclusive) {
       hooks.onSubmit(text, "immediate", attachments);
@@ -321,11 +314,11 @@ export function submitPrompt(
   }
   // Still guard idle for API callers.
   if (kind === "reinject" && shell.session.run !== "busy") return;
-  // Follow-up idle no-op lives on the Alt+Enter key handler (kind "queue" is
-  // also the default for submitPrompt and must still send when idle).
+  // Idle no-op lives on the Alt+Enter handler; "queue" is the default kind
+  // and must still send when idle.
 
-  // Shell/REPL muscle memory: a bare `exit` or `quit` quits rather than being
-  // sent to the model. Attachments mean the operator meant it as a message.
+  // Shell/REPL muscle memory: bare `exit`/`quit` quits rather than sending;
+  // attachments mean the operator meant it as a message.
   if (attachments.length === 0 && isExitCommand(t)) {
     const onExit = shellExitHandlers.get(shell);
     if (onExit !== undefined) {
@@ -388,18 +381,16 @@ export function submitPrompt(
       : enqueue(shell.session, t, "queue", undefined, attachments);
   shell.prompt.value = "";
   clearPendingAttachments(shell);
-  // No transcript echo while pending: the item lives in the column stacked on
-  // the prompt box and lands in the transcript as an ordinary user row when
-  // it actually delivers.
+  // No transcript echo while pending: the item sits in the pending column
+  // and lands as an ordinary user row when it delivers.
   paintChrome(shell);
 }
 
 /**
  * Pop the most recently queued or steered message back into the composer
- * (last-only: see `cancelLast`'s doc comment). An empty prompt gets the
- * item's text and attachments back for editing and resend; mid-compose it
- * is dropped, since merging it into an in-progress draft would send two
- * messages as one.
+ * (last-only, see `cancelLast`). An empty prompt gets the item's text and
+ * attachments back for editing and resend; mid-compose it is dropped so a
+ * merge into an in-progress draft cannot send two messages as one.
  */
 export function applyShellCancelLast(shell: AppShell): void {
   const { state, item } = cancelLast(shell.session);
@@ -441,10 +432,9 @@ export function clearPendingSelection(shell: AppShell): boolean {
 
 /**
  * ↑/↓ on the pending column. ↑ from the prompt's top edge selects the newest
- * held item (the row nearest the box); ↑/↓ walk the column; ↓ past the last
- * row hands the key back to the prompt's own motion. Selection only lands on
- * rows the column actually paints — a folded-away item can't be selected.
- * Returns whether the key was claimed.
+ * held item (nearest the box); ↑/↓ walk the column; ↓ past the last row
+ * hands the key back to the prompt's motion. Only rows the column paints can
+ * be selected. Returns whether the key was claimed.
  */
 export function applyPendingNav(shell: AppShell, delta: -1 | 1): boolean {
   const bag = shellInternals(shell);
@@ -472,10 +462,9 @@ export function applyPendingNav(shell: AppShell, delta: -1 | 1): boolean {
 }
 
 /**
- * No-runtime path for leaving the queue through the selected row: kill the
- * selected item out of the queue. Same contract as `applyShellCancelLast`:
- * an empty prompt gets the item back for editing; mid-draft it is dropped,
- * not merged.
+ * No-runtime leave through the selected row: kill the selected item out of
+ * the queue. Same contract as `applyShellCancelLast`: an empty prompt gets
+ * the item back for editing; mid-draft it is dropped, not merged.
  */
 function popSelectedToPrompt(shell: AppShell): void {
   const bag = shellInternals(shell);
@@ -499,10 +488,10 @@ function popSelectedToPrompt(shell: AppShell): void {
 }
 
 /**
- * Enter on a selected pending item: kill it out of the queue and force-push —
- * deliver it now through the runtime, skipping its boundary/idle wait. With
- * no runtime attached there is nothing to deliver to, so it falls back to
- * the cancel contract (`popSelectedToPrompt`).
+ * Enter on a selected pending item: kill it out of the queue and deliver now
+ * through the runtime, skipping its boundary/idle wait. With no runtime
+ * attached there is nothing to deliver to, so it falls back to
+ * `popSelectedToPrompt`.
  */
 export function applyPendingForcePush(shell: AppShell): void {
   const bag = shellInternals(shell);
@@ -522,8 +511,8 @@ export function applyPendingForcePush(shell: AppShell): void {
 }
 
 /**
- * Ctrl+G on a selected pending item: cancel that row, not the newest — the
- * operator pointed at it. It only cancels, never delivers.
+ * Ctrl+G on a selected pending item: cancel that row, not the newest. It
+ * only cancels, never delivers.
  */
 export function applyPendingCancelSelected(shell: AppShell): void {
   popSelectedToPrompt(shell);
@@ -531,8 +520,8 @@ export function applyPendingCancelSelected(shell: AppShell): void {
 
 /**
  * ^X on a selected pending item: kill it outright, keeping the selection on
- * whatever slides into the freed slot so a second ^X walks the list down
- * without re-entering the column.
+ * whatever slides into the freed slot so a second ^X walks down without
+ * re-entering the column.
  */
 export function applyPendingDrop(shell: AppShell): void {
   const bag = shellInternals(shell);

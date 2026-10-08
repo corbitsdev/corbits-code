@@ -1,6 +1,6 @@
 /**
- * Integration: `/` command popup and the double Ctrl+C exit, both driven
- * through the wired key path on a headless shell.
+ * Integration: `/` command popup and the double Ctrl+C exit through the
+ * wired key path on a headless shell.
  */
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -190,9 +190,9 @@ describe("slash command popup", () => {
       press("/");
       press("z");
       await render();
-      // The popup was already open (from "/") when the filter zeroed out;
-      // closing here would release the host, the gap a queued gate can drain
-      // into mid-filter. It stays owned and shows "(no matches)".
+      // The popup was already open when the filter zeroed out; closing
+      // here would release the host, a gap a queued gate can drain into
+      // mid-filter. It stays owned and shows "(no matches)".
       expect(isSlashPopupOpen(shell)).toBe(true);
       expect(shell.overlayList).not.toBeNull();
       expect(shell.prompt.value).toBe("/z");
@@ -223,7 +223,7 @@ describe("slash command popup", () => {
       expect(shell.prompt.value).toBe("/release <id>");
       expect(isSlashPopupOpen(shell)).toBe(false);
       expect(shell.prompt.hasSelection()).toBe(true);
-      // One arrow key drops the untouched selection without editing, so the
+      // An arrow key drops the untouched selection without editing, so the
       // shape is still the placeholder; submitting must dispatch the bare
       // command, not the placeholder.
       shell.prompt.setSelection(
@@ -246,8 +246,8 @@ describe("slash command popup", () => {
       expect(isSlashPopupOpen(shell)).toBe(true);
       expect(shell.paletteCommands.map((c) => c.id)).toEqual(["scale:high"]);
       for (const ch of " --force") press(ch);
-      // The popup's filtering job is over — real arguments are being typed —
-      // so it dismisses.
+      // The popup's filtering is over — real arguments are being typed — so
+      // it dismisses.
       expect(shell.prompt.value).toBe("/scale high --force");
       expect(isSlashPopupOpen(shell)).toBe(false);
       expect(shell.overlayList).toBeNull();
@@ -277,8 +277,8 @@ describe("slash command popup", () => {
       await Bun.sleep(60);
       expect(isSlashPopupOpen(shell)).toBe(false);
       expect(shell.overlayList).toBeNull();
-      // `release` is a catalog fixture, not a registry command, so the send —
-      // not a registry dispatch — is the signal.
+      // `release` is a catalog fixture, not a registry command, so the send
+      // is the signal, not a registry dispatch.
       press("Enter");
       expect(shell.prompt.value).toBe("");
       expect(shell.sentHistory.sent).toEqual(["/release"]);

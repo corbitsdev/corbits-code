@@ -1,6 +1,4 @@
-/**
- * Prompt chrome: bare exit/quit routing and the labels the box's border carries.
- */
+/** Prompt chrome: bare exit/quit routing and the box border's labels. */
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";
 import {

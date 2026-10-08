@@ -1,7 +1,6 @@
 /**
- * Integration: prompt-side features wired on the OpenTUI shell —
- * clipboard image attach, text paste, sent-message recall, and @-mention
- * suggestions.
+ * Integration: prompt features on the OpenTUI shell — clipboard image
+ * attach, text paste, sent-message recall, and @-mention suggestions.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -35,8 +34,8 @@ const CLIP: PendingImageAttachment = {
   contentHash: "hash-a",
 };
 
-// A second read of the same clipboard content: distinct id/name/timestamp
-// (as a real re-paste would produce) but identical decoded bytes and hash.
+// Same clipboard content re-pasted: distinct id/name/timestamp, identical
+// decoded bytes and hash.
 const CLIP_SAME_CONTENT: PendingImageAttachment = {
   id: "clip-2",
   name: "clipboard-later.png",
@@ -187,8 +186,8 @@ describe("image attachments", () => {
     );
   });
 
-  // Raw control bytes, not a synthetic KeyEvent: a binding that never matches
-  // what the terminal actually writes looks correct in the catalog and fails
+  // Raw control bytes, not a synthetic KeyEvent: a binding that never
+  // matches what the terminal writes looks right in the catalog and fails
   // silently in use.
   for (const [chord, byte] of [
     ["Ctrl+P", "\x10"],
@@ -236,9 +235,8 @@ describe("image attachments", () => {
       expect(await attachClipboardImage(shell)).toBe(false);
       expect(shell.pendingAttachments).toHaveLength(1);
       expect(shell.pendingAttachments[0]?.id).toBe("clip-1");
-      // Names the attachment already sitting in the pending set (CLIP), not
-      // the rejected paste (CLIP_SAME_CONTENT) -- the operator never saw the
-      // rejected paste's filename, so naming it would read as a bug.
+      // Names the attachment already in the pending set (CLIP), not the
+      // rejected paste — the operator never saw its filename.
       expect(shell.statusFlash).toContain(CLIP.name);
       expect(shell.statusFlash).not.toContain(CLIP_SAME_CONTENT.name);
     });
@@ -316,10 +314,10 @@ describe("image attachments", () => {
 });
 
 /**
- * A pasted newline must never reach the bare-return submit binding: that would
- * send half a message. The renderer negotiates bracketed paste (DEC 2004), so
- * a real paste arrives as OpenTUI's own `paste` event rather than as keys —
- * these drive the raw ESC[200~ … ESC[201~ bytes to prove it.
+ * A pasted newline must never reach the bare-return submit binding: that
+ * would send half a message. With bracketed paste (DEC 2004) negotiated,
+ * a real paste arrives as OpenTUI's `paste` event, not keys — these drive
+ * the raw ESC[200~ … ESC[201~ bytes to prove it.
  */
 describe("text paste", () => {
   const pasteCase = (
@@ -376,8 +374,7 @@ describe("text paste", () => {
     "first line\nsecond line\nthird line",
   );
 
-  // Terminals normalise pasted line endings differently; CRLF inside a
-  // bracketed paste must still be composed text, not a submit.
+  // CRLF inside a bracketed paste must stay composed text, not a submit.
   pasteCase(
     "a CRLF paste does not submit on the carriage return",
     async (h) =>
@@ -392,10 +389,10 @@ describe("text paste", () => {
     `${"x".repeat(4000)}\nend`,
   );
 
-  // A terminal that never negotiated DEC 2004 hands a paste to us as plain
-  // keystrokes -- CR included -- instead of one `paste` event. Without a
-  // burst guard, the bare CR would hit the same submit binding a deliberate
-  // Enter does, sending the message after its first line.
+  // A terminal without DEC 2004 hands a paste as plain keystrokes — CR
+  // included — instead of one `paste` event. Without a burst guard, that
+  // CR would hit the same submit binding a deliberate Enter does, sending
+  // the message after its first line.
   pasteCase(
     "a CRLF paste arriving as raw keystrokes still composes instead of submitting",
     async (h) =>
@@ -435,12 +432,11 @@ describe("un-bracketed paste vs. deliberate Enter", () => {
     );
   });
 
-  // The false-positive direction: once a terminal proves it negotiates DEC
-  // 2004 by firing one real bracketed paste, the raw-keystroke fallback must
-  // retire for the session -- otherwise a fast typist's genuine Enter risks
-  // being read as paste forever. Timing cannot separate the two (the harness
-  // dispatches keys synchronously), so the capability gate is the distinction
-  // -- this test exercises that gate.
+  // False-positive direction: once a terminal proves DEC 2004 by firing one
+  // real bracketed paste, the raw-keystroke fallback must retire for the
+  // session — otherwise a genuine Enter risks being read as paste forever.
+  // Timing cannot separate the two (keys dispatch synchronously), so the
+  // capability gate is the distinction — this test exercises that gate.
   test("a keystroke burst after a real paste no longer triggers the CRLF fallback", async () => {
     await withTestRenderer(
       async (h) => {
@@ -529,8 +525,8 @@ describe("sent-message recall", () => {
 describe("@-mention suggestions", () => {
   test("opens the mentions overlay for the token under the cursor", async () => {
     await withShell(async (shell) => {
-      // The popup lists the directory portion and narrows the listing itself,
-      // so the source is asked for `src/`, not the whole typed token.
+      // The popup narrows the listing itself, so the source gets `src/`,
+      // not the whole typed token.
       setMentionSuggestionSource(shell, async (prefix) => {
         expect(prefix).toBe("src/");
         return ["src/tui/", "src/telemetry/", "src/config/"];
