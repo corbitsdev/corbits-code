@@ -1,10 +1,9 @@
 /**
  * Density ramp — the activity primitive, replacing the braille spinner.
  *
- * corbits.dev renders an ordered dither at a 4-pixel cell; a terminal has
- * that texture natively as block-density characters, so the house motif
- * ports rather than being approximated. Two surfaces draw from it, at two
- * widths.
+ * The web build renders an ordered dither at a 4-pixel cell; a terminal has
+ * that texture natively as block density, so the motif ports rather than
+ * being approximated. Two surfaces draw from it.
  *
  * The wide fill (`rampFor`) is the provider-setup status line:
  *
@@ -12,28 +11,24 @@
  *   done       ██████████   green,  still
  *   blocked    █████▓▒░     orange, frozen mid-fill
  *
- * The single cell (`rampPulse`) is the session shell's bottom-left status
- * slot, where one column is all the border row can spare:
+ * The single cell (`rampPulse`) is the session shell's status slot, where
+ * one column is all the border row can spare:
  *
- *   working    █ ▓ ▒ ░ …    bronze, cycling density — it visibly moves
+ *   working    █ ▓ ▒ ░ …    bronze, cycling density — visibly moving
  *   done       █            green,  still
  *   blocked    ▌            orange, one static half block — stillness is the signal
  *   stalled    ! / █        orange, bangs alternating with a block, then static !
  *
- * `blocked` and `stalled` share a color on purpose — both name a turn
- * waiting on outside action — but differ by glyph and motion, so all four
- * states survive a monochrome terminal.
+ * `blocked` and `stalled` share a color — both wait on outside action — but
+ * differ by glyph and motion, so all four states survive a monochrome
+ * terminal.
  *
- * Pure and clock-injected: `nowMs` is the only time source, so the caller's
- * existing tick drives the animation and tests drive it deterministically.
+ * Pure and clock-injected: `nowMs` is the only time source.
  */
 
 import { UI } from "./theme.js";
 
-/**
- * Ten cells. Narrow enough to read as texture rather than implying a precision
- * the underlying work does not have.
- */
+/** Ten cells: narrow enough to read as texture, not precision. */
 export const RAMP_WIDTH = 10;
 
 /** Densest to sparsest. Index is distance behind the leading edge. */
@@ -45,8 +40,8 @@ const EMPTY = " ";
 const COMET_LENGTH = FEATHER.length;
 
 /**
- * One full traversal of the indeterminate comet. Slow enough to read as
- * deliberate motion rather than a strobe at the 250 ms status tick.
+ * One full comet traversal; slow enough to read as motion, not a strobe at
+ * the 250 ms status tick.
  */
 export const RAMP_CYCLE_MS = 1200;
 
@@ -65,19 +60,16 @@ export const STALL_BLINK_CYCLE_MS = 900;
 /**
  * How long the stall blink runs before settling to a static bang.
  *
- * A stall can last minutes (notice at 90s, abort at 900s), so an unbounded
- * blink would strobe the whole time and stop meaning anything — the burst
- * spends attention up front, where the state is news, then a static bang
- * still reads as a problem. The bang stays distinct from working (moves)
- * and blocked (block glyph), and settling lets the tick fall back to its
- * slow cadence.
+ * A stall can last minutes, so an unbounded blink would strobe until it
+ * stops meaning anything; the burst spends attention up front, where the
+ * state is news, then a static bang still reads as a problem, and the tick
+ * falls back to its slow cadence.
  */
 export const STALL_BLINK_BURST_MS = STALL_BLINK_CYCLE_MS * 9;
 
 /**
- * Whether `nowMs` falls in the "on" (solid) half of the stall blink. Exported
- * so any surface painting a stalled phase blinks on the same clock rather than
- * each inventing its own.
+ * Whether `nowMs` is in the solid half of the stall blink; exported so every
+ * stalled surface blinks on the same clock.
  */
 export function stallBlinkOn(nowMs: number): boolean {
   const phase =
@@ -99,9 +91,9 @@ function clamp01(value: number): number {
 }
 
 /**
- * Determinate fill: solid cells up to `progress`, then a short dither feather
- * at the leading edge so the boundary reads as texture instead of a hard stop.
- * A full ramp is entirely solid.
+ * Determinate fill: solid cells up to `progress`, then a short dither
+ * feather at the leading edge so the boundary reads as texture, not a hard
+ * stop. A full ramp is entirely solid.
  */
 export function renderRamp(progress: number, width = RAMP_WIDTH): string {
   if (width <= 0) return "";
@@ -115,8 +107,8 @@ export function renderRamp(progress: number, width = RAMP_WIDTH): string {
 }
 
 /**
- * Indeterminate fill: a comet traveling left to right and wrapping. Most coding
- * work has no denominator, so this animates rather than faking a percentage.
+ * Indeterminate fill: a comet traveling left to right and wrapping. Most
+ * work has no denominator, so it animates rather than faking a percentage.
  */
 export function renderIndeterminateRamp(
   nowMs: number,
@@ -137,16 +129,15 @@ export function renderIndeterminateRamp(
 export type RampPhase = "working" | "done" | "blocked" | "stalled";
 
 /**
- * The phases the wide fill draws. A stall is only ever reported by a live
- * session, and the only surface a live session paints is the single cell, so
- * widening a stall would produce glyphs nothing renders.
+ * Wide-fill phases. Only a live session reports a stall, and it paints the
+ * single cell, so a wide stall would produce glyphs nothing renders.
  */
 export type RampFillPhase = Exclude<RampPhase, "stalled">;
 
 /**
- * How long the turn has been stalled, or null when it is not stalled. Required
- * rather than defaulted: it is what decides whether the blink is still running,
- * and a caller that forgets it would silently paint a permanent strobe.
+ * Stalled duration, or null when not stalled. Required: it decides whether
+ * the blink still runs, and a caller that forgets it would paint a
+ * permanent strobe.
  */
 export type StallAge = number | null;
 
@@ -178,9 +169,9 @@ export function rampFg(phase: RampPhase): string {
 }
 
 /**
- * Whether the phase still has frames left to draw. False for the terminal and
- * waiting states, and false for a stall once its blink burst has settled, so
- * the caller's tick can fall back to its slow cadence.
+ * Whether the phase still has frames to draw. False for terminal and waiting
+ * states and for a settled stall, so the caller's tick can fall back to its
+ * slow cadence.
  */
 export function rampAnimating(
   phase: RampPhase,
