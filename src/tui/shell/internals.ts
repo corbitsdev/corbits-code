@@ -319,7 +319,7 @@ export interface AppShellOptions {
   /** Clipboard port for Alt+C and drag-select auto-copy; defaults to an
    * in-memory recorder, the product host injects the system clipboard. */
   readonly clipboard?: ClipboardPort;
-  /** Mouse-reporting switch behind Alt+M (see MouseCapturePort). */
+  /** Mouse-reporting switch (see MouseCapturePort). */
   readonly mouseCapture?: MouseCapturePort;
   /** How timed flashes arm their expiry; injectable so tests skip `RUNTIME_FLASH_MS`. */
   readonly flashSchedule?: FlashSchedule;
@@ -403,7 +403,7 @@ export interface AppShell {
   paletteCommands: readonly PaletteCommand[];
   /** Clipboard port for keyboard copy (tests inject recording port). */
   clipboard: ClipboardPort;
-  /** Mouse-reporting control for Alt+M, or null when the host has none. */
+  /** Mouse-reporting control, or null when the host has none. */
   mouseCapture: MouseCapturePort | null;
   /** Copy targets while the copy overlay is open (null when closed); confirm
    * writes from this snapshot, not live streamLog. */
@@ -488,8 +488,7 @@ export function stickyMode(shell: AppShell): "FOLLOW" | "PINNED" {
   return isTranscriptFollowing(shell) ? "FOLLOW" : "PINNED";
 }
 
-/** How a timed flash arms its expiry; injectable so tests can lapse it early.
- * Returns the cancel. */
+/** How a timed flash arms its expiry. Returns the cancel. */
 export type FlashSchedule = (fn: () => void, ms: number) => () => void;
 
 export interface FlashOptions {
@@ -501,7 +500,7 @@ export interface FlashOptions {
 /** Cancel for the flash currently counting down, per shell. */
 export const flashTimers = new WeakMap<AppShell, () => void>();
 
-/** Per-shell override for how timed flashes arm their expiry (tests). */
+/** Per-shell FlashSchedule override (tests). */
 export const shellFlashSchedules = new WeakMap<AppShell, FlashSchedule>();
 
 /** Free-text answer field an overlay can offer; `active` routes keystrokes
@@ -540,29 +539,29 @@ export interface OverlayList {
 }
 
 interface PrimaryOverlayBindings {
-  /** Optional stable ids aligned with overlayItems for the open primary. */
+  /** Optional stable ids aligned with overlayItems. */
   itemIds: readonly string[];
-  /** Optional plain chosen values aligned with overlayItems for the open primary. */
+  /** Optional plain chosen values aligned with overlayItems. */
   itemValues: readonly (string | undefined)[];
-  /** Per-open accept callback; cleared on close without invoke (Esc path). */
+  /** Per-open accept callback; cleared on close without invoke. */
   onAccept: ((selection: OverlaySelection) => void) | null;
   /** Per-open expand/collapse hook. */
   onToggleExpand: (() => void) | null;
-  /** Per-open ← → cycle hook (settings inline cycling). */
+  /** Per-open ← → cycle hook. */
   onCycle: ((itemId: string, direction: -1 | 1) => void) | null;
   /** Per-open description-zone source; null keeps the zone off (no rows charged). */
   describe: ((itemId: string) => ItemDescription | null) | null;
   /** Per-open bare-key claim. */
   onAction: ((itemId: string, key: KeyEvent) => boolean) | null;
-  /** Per-open bracketed-paste owner for synthetic text panes. */
+  /** Per-open bracketed-paste owner. */
   onPaste: ((text: string) => void) | null;
-  /** Per-open dismiss hook for promise-backed overlays (permissions, operator);
-   * Esc/closeInsetOverlay invokes it so the pending promise resolves. */
+  /** Per-open dismiss hook for promise-backed overlays; see
+   * OpenListOverlayOpts.onCancel. */
   onCancel: (() => void) | null;
-  /** Per-open cleanup on replace/dismiss (MCP unsubscribe).
-   * closeReplaceableOverlay runs it but skips `onCancel`. */
+  /** Per-open cleanup on replace/dismiss (MCP unsubscribe); see
+   * OpenListOverlayOpts.onDispose. */
   onDispose: (() => void) | null;
-  /** True while the open primary is a decision gate that must not be replaced. */
+  /** True while the open primary is a decision gate. */
   isGate: boolean;
   /** Whether the open primary advertises Alt+A and yields å/Å from type-to-filter. */
   addProviderHint: boolean;
@@ -860,14 +859,14 @@ export function slashPopupQuery(shell: AppShell): string | null {
 
 /** Second-stage arg parse: `/name` + whitespace + typed arg tail. */
 export interface SlashArgQuery {
-  /** Command name after the leading `/` (before the first whitespace). */
+  /** Command name before the first whitespace. */
   readonly name: string;
   /** Typed argument tail after the first whitespace run (may be empty). */
   readonly arg: string;
 }
 
-/** Arg-stage parse: `/name` + whitespace + arg tail. Null when the prompt has
- * no whitespace after the name. */
+/** Arg-stage parse; null when the prompt has no whitespace
+ * after the name. */
 export function slashArgQuery(shell: AppShell): SlashArgQuery | null {
   const value = shell.prompt.value;
   if (!value.startsWith("/")) return null;
