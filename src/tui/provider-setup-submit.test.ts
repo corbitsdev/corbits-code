@@ -8,9 +8,8 @@ import { COMMAND_NAME } from "../branding.js";
 import type { Telemetry, TelemetryEvent } from "../telemetry/index.js";
 import { withMockedModule } from "../../testkit/mock-module.js";
 
-// The oauth branch probes real provider scope over the network; stub the
-// check so these tests exercise buildProviderSubmitHandler's own branching
-// (ok / blocked / unavailable) without a live call.
+// The oauth branch probes provider scope over the network; stub the check so
+// these tests exercise the handler's own branching without a live call.
 let scopeCheckResult: OAuthScopeCheckResult = { status: "ok" };
 const scopeCheckCalls: unknown[][] = [];
 const connectionChecks: unknown[] = [];
@@ -646,8 +645,8 @@ describe("buildProviderSubmitHandler", () => {
     },
   );
 
-  // Every connect path writes the same local selection OAuth writes, so a
-  // restart in this repo resolves to the connected provider/model.
+  // Every connect path writes the local selection OAuth writes, so a restart
+  // resolves to the connected provider/model.
   test.each([
     {
       label: "API-key preset",

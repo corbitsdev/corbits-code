@@ -65,12 +65,10 @@ export function stepReady(step: SetupStep, value: string): boolean {
 }
 
 /**
- * Fold an edit of the masked apiKey display back into the real secret.
- *
- * The input never holds the key: every keystroke is mirrored back as bullets,
- * so an edit arrives as bullets plus whatever was just typed. Appends and
- * end-of-line deletes round-trip exactly; mid-string edits fall back to
- * truncation, so the field is re-typed rather than patched.
+ * Fold an edit of the masked apiKey display back into the real secret. The
+ * input never holds the key — every keystroke mirrors back as bullets, so an
+ * edit arrives as bullets plus what was typed. Appends and end-of-line
+ * deletes round-trip exactly; mid-string edits truncate instead of patching.
  */
 export function secretFromMaskedEdit(
   secret: string,

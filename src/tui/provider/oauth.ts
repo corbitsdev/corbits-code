@@ -39,10 +39,9 @@ export type OAuthProfileValidation =
   | { readonly ok: false; readonly error: string };
 
 /**
- * Validate and lowercase-normalize an operator-entered account slug. This is
- * the constraint owner for the slug shape — the auth store and the catalog
- * projection trust whatever they are handed, since a "/" here would silently
- * join into the compound catalog name they build.
+ * Validate and lowercase-normalize an account slug. Constraint owner for the
+ * slug shape: the auth store and catalog projection trust what they are
+ * handed, and a "/" would silently join into the compound catalog name.
  */
 export function validateOAuthProfileSlug(raw: string): OAuthProfileValidation {
   const slug = raw.trim().toLowerCase();
@@ -66,9 +65,8 @@ export function validateOAuthProfileSlug(raw: string): OAuthProfileValidation {
 }
 
 /**
- * A slug that does not collide with `existing`, so a first sign-in can
- * default to something usable without asking the operator to invent a name.
- * "default" first, then "default-2", "default-3", … on collision.
+ * A non-colliding slug for a first sign-in, so the operator need not invent a
+ * name: "default", then "default-2", "default-3", … on collision.
  */
 export function suggestOAuthProfileSlug(existing: readonly string[]): string {
   const taken = new Set(existing);
@@ -138,8 +136,8 @@ export const defaultLoginStarter = async ({
 };
 
 /**
- * Browser sign-in state machine for the `login` step: arms the deadline before
- * starting the flow, ignores late resolutions from superseded attempts, and
+ * Browser sign-in state machine for the `login` step: arms the deadline
+ * before starting, ignores late resolutions from superseded attempts, and
  * hands the screen back on denial, transport failure, or timeout.
  */
 export function createLoginFlow(
@@ -155,8 +153,8 @@ export function createLoginFlow(
   };
 
   /**
-   * Drop whatever attempt is in flight: stop its deadline, close its callback
-   * server, and bump the attempt counter so a late resolution is ignored.
+   * Drop the in-flight attempt: stop its deadline, close its callback server,
+   * and bump the attempt counter so a late resolution is ignored.
    */
   const abandonLogin = (): void => {
     state.loginAttempt += 1;
@@ -274,9 +272,9 @@ export function createLoginFlow(
 }
 
 /**
- * The multi-instance "name" step: an inline error from the last validation,
- * a suggested non-colliding slug prefilled on entry, and a collision confirm
- * (one more Enter) before the slug is settled and the flow advances.
+ * The multi-instance "name" step: inline error from the last validation, a
+ * suggested non-colliding slug prefilled on entry, and a collision confirm
+ * (one more Enter) before the slug is settled.
  */
 export function createAccountNameFlow(
   state: SetupState,
@@ -284,10 +282,9 @@ export function createAccountNameFlow(
   hooks: SetupFlowHooks,
 ): AccountNameFlow {
   /**
-   * Enter the step: reset per-visit state, show whatever slug is already
-   * typed, then resolve existing instance names to prefill a suggested,
-   * non-colliding slug when the field is still blank. OAuth reads the live
-   * auth store; API-key reads the settings catalog snapshot.
+   * Enter the step: reset per-visit state, show the typed slug, then prefill
+   * a suggested non-colliding slug when the field is blank. OAuth reads the
+   * live auth store; API-key reads the settings catalog snapshot.
    */
   const enter = (): void => {
     state.oauthProfileError = null;
@@ -341,9 +338,9 @@ export function createAccountNameFlow(
   };
 
   /**
-   * Validate the entered slug, then check collisions against a fresh source
-   * (auth store for OAuth, settings catalog for API-key). A collision needs
-   * one more Enter to confirm before the step advances.
+   * Validate the slug, then check collisions against a fresh source (auth
+   * store for OAuth, settings catalog for API-key). A collision needs one
+   * more Enter to confirm before advancing.
    */
   const advance = (): void => {
     if (state.choice === null || state.choice.custom) return;

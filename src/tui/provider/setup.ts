@@ -1,10 +1,10 @@
 /**
- * First-run provider setup on OpenTUI: the `runProviderSetup` surface
- * assembly and step navigation.
+ * First-run provider setup on OpenTUI: `runProviderSetup` surface assembly
+ * and step navigation.
  *
- * Selection first: the operator picks a known provider from the first-class
- * catalog (which prefills base URL and models), types only the API key, then
- * picks a model. "Custom" falls back to the full manual form.
+ * Selection first: the operator picks a known provider (prefills base URL and
+ * models), types only the API key, then picks a model. "Custom" falls back to
+ * the full manual form.
  *
  * The surface owns paint + input only; the caller owns the connection test
  * and the settings write via `onSubmit`.

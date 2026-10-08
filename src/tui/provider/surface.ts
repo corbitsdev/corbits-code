@@ -1,7 +1,7 @@
 /**
  * Renderable tree and paint pipeline for the provider setup screen. Built
- * once per mount; every paint reads the shared setup state, so the flows in
- * oauth/discovery/setup only mutate state and call `paint`/`paintStatus`.
+ * once per mount; paints read shared state, so the oauth/discovery/setup
+ * flows only mutate state and call `paint`/`paintStatus`.
  */
 
 import {
@@ -49,9 +49,9 @@ const SUMMARY_SLOTS = CUSTOM_STEPS.length;
 const LOGIN_ROWS = 4;
 const TELEMETRY_ROWS = 3;
 /**
- * Input capacity. The renderable defaults to 1000 characters and truncates a
- * longer paste silently, which a first run would read as "paste is broken";
- * long-lived service-account keys and JWT-shaped tokens clear that default.
+ * Input capacity. The renderable defaults to 1000 chars and truncates longer
+ * pastes silently — read as "paste is broken" on a first run. Service-account
+ * keys and JWT-shaped tokens clear that default.
  */
 const FIELD_MAX_LENGTH = 16_384;
 /** Ramp animation tick. Fast enough to read as motion at 30fps paint. */
@@ -72,9 +72,9 @@ export function stopRamp(state: SetupState): void {
 }
 
 /**
- * Unmount the surface: stop every in-flight flow, detach the input handlers,
- * and destroy the renderable tree. The renderer itself is destroyed only when
- * this mount created it — a caller-supplied renderer is owned by that caller.
+ * Unmount the surface: stop in-flight flows, detach input handlers, destroy
+ * the renderable tree. The renderer is destroyed only when this mount created
+ * it — a caller-supplied renderer is owned by that caller.
  */
 export function teardownSurface(
   state: SetupState,
@@ -125,11 +125,10 @@ export function createSurface(
     paddingRight: margin,
   });
 
-  // Every direct child of `root` needs flexShrink: 0, full stop — a plain
-  // TextRenderable defaults to shrinkable, and a short terminal makes the flex
-  // algorithm compress unprotected single-line rows into each other instead of
-  // clipping the column from the bottom. header/intro/step/instruction here,
-  // and statusLine/guidance/footer further down, all need this.
+  // Every direct child of `root` needs flexShrink: 0 — a plain
+  // TextRenderable defaults to shrinkable, and a short terminal compresses
+  // unprotected single-line rows into each other instead of clipping the
+  // column from the bottom.
   const header = new TextRenderable(renderer, {
     id: "provider-setup-header",
     content: `${PRODUCT_NAME.toLowerCase()} · setup`,
