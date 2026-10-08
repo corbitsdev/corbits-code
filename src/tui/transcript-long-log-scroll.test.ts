@@ -1,7 +1,6 @@
 /**
- * The full retained transcript (bounded by `MAX_RETAINED_STREAM_ROWS`) has
- * to stay reachable by scrolling, and appending a new row must not rebuild
- * the whole paint tree to do it.
+ * The full retained transcript must stay reachable by scrolling, and one
+ * append must not rebuild the whole paint tree.
  */
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";
@@ -11,8 +10,8 @@ import { streamRowCount } from "./shell/transcript";
 import { MAX_RETAINED_STREAM_ROWS } from "./long-log";
 
 async function settle(h: { renderOnce: () => Promise<void> }): Promise<void> {
-  // Markdown highlighting and viewport culling both settle a frame or two
-  // after the triggering mutation, not within it.
+  // Markdown highlighting and viewport culling settle a frame or two after
+  // the mutation, not within it.
   for (let i = 0; i < 5; i++) {
     await new Promise((resolve) => setTimeout(resolve, 10));
     await h.renderOnce();
@@ -38,15 +37,15 @@ describe("long-log transcript scrolling", () => {
           await settle(h);
           const frame = h.captureCharFrame();
 
-          // Rows 0-49 were evicted by the retention cap — gone by design, not
-          // a scrolling bug. Row 50 is the oldest still-retained row and sits
-          // 450 rows above the old 200-row paint window; it must be reachable
-          // in one scroll rather than staying stranded behind a collapsed marker.
+          // Rows 0-49 were evicted by the cap — gone by design, not a scroll
+          // bug. Row 50 is the oldest retained row, 450 rows above the old
+          // 200-row paint window; one scroll must reach it, not leave it
+          // stranded behind a collapsed marker.
           expect(frame).toContain("row-50");
           expect(frame).not.toContain("row-49");
-          // The boundary says rows were dropped rather than reading as the
-          // true start of history — eviction is permanent, unlike the old
-          // collapse marker, so scrolling further will never reveal row 0.
+          // The boundary says rows were dropped, not the true start of
+          // history — eviction is permanent, unlike the collapse marker, so
+          // scrolling never reveals row 0.
           expect(frame).toContain("50 earlier rows dropped");
         } finally {
           shell.dispose();
@@ -80,10 +79,10 @@ describe("long-log transcript scrolling", () => {
           appendStreamRow(shell, { role: "assistant", text: "one-more" });
           await settle(h);
 
-          // Before this fix, repaintTranscriptWindow ran on every append once
-          // the log passed LONG_LOG_COLLAPSE_THRESHOLD (500): it tore down every
-          // existing child and repainted windowSlice's LONG_LOG_WINDOW (200) rows
-          // from scratch — 200 removals for this one append, every append after.
+          // Before this fix, repaintTranscriptWindow ran on every append
+          // past LONG_LOG_COLLAPSE_THRESHOLD (500): it tore down every child
+          // and repainted windowSlice's LONG_LOG_WINDOW (200) rows from
+          // scratch — 200 removals per append.
           expect(removed).toBe(1);
         } finally {
           shell.dispose();
@@ -143,8 +142,8 @@ describe("long-log transcript scrolling", () => {
           };
 
           // Streaming token updates hit this path on every delta; past the
-          // retention cap it must still touch one node, not the eviction
-          // notice's presence forcing a full repaintTranscriptWindow.
+          // cap it must still touch one node, not the eviction notice forcing
+          // a full repaintTranscriptWindow.
           const lastIndex = streamRowCount(shell) - 1;
           replaceStreamRowAt(shell, lastIndex, {
             role: "assistant",
