@@ -3,10 +3,10 @@
  *
  * A `requires_tools` entry is a hard requirement: the named tool must be
  * mounted on the worker or the dispatch is rejected before any session,
- * telemetry, or worktree exists. Names are canonical engine ids on both sides
- * (wire/hidden aliases collapse via canonicalToolName), so `shell` and
- * `run_shell` are the same requirement. Fail-closed throughout: unknown names
- * and allowlist/denylist misses all reject.
+ * telemetry, or worktree exists. Names are canonical engine ids on both
+ * sides (aliases collapse via canonicalToolName), so `shell` and
+ * `run_shell` are the same requirement. Fail-closed: unknown names and
+ * allowlist/denylist misses reject.
  *
  * `stale_snapshot` is never emitted here — it is the mount-time echo in
  * run.ts (a tool stamped at dispatch is missing from the live mount). It
@@ -40,12 +40,11 @@ export interface PreflightCapabilitiesInput {
    */
   knownEngines: readonly string[];
   /**
-   * Canonical ids of the live inherited-MCP tools the parent session mounted
-   * (`mcp__<server>__<tool>`). An `mcp__*` requirement present here passes
-   * the known-engine and allowlist checks — run.ts retains only requested
-   * inherited MCP tools, so presence proves the worker mounts it on demand.
-   * An `mcp__*` name absent from this set rejects as `unknown_tool`.
-   * Fail-closed: availability is never inferred from the name shape alone.
+   * Live inherited-MCP tools the parent session mounted
+   * (`mcp__<server>__<tool>`). Presence passes the known-engine and
+   * allowlist checks — run.ts retains only requested inherited MCP tools,
+   * so presence proves the worker mounts it on demand. Absence rejects as
+   * `unknown_tool`; availability is never inferred from name shape alone.
    */
   availableMcpTools?: readonly string[] | undefined;
   /** Worker label for messages (director id or profile id). */
@@ -116,13 +115,14 @@ export const DEFAULT_KNOWN_ENGINES: readonly string[] =
   KNOWN_CAPABILITY_ENGINES;
 
 /**
- * Engines mounted outside the capability filter (run.ts appends manage_tasks
- * after filtering, and mounts the Tier 3 leaf channel submit_result/
- * ask_director when tier is "leaf"), so a requires_tools entry for them
- * passes even a narrow allowlist. The update_plan alias canonicalizes here
- * and rides the same exemption; the mount-time echo in run.ts runs after all
- * appends, so the stamped entry always matches the live mount. Fail-closed:
- * the tier gate in agent-fleet.ts still rejects these on non-leaf tiers.
+ * Engines mounted outside the capability filter (run.ts appends
+ * manage_tasks after filtering, and mounts the Tier 3 leaf channel
+ * submit_result/ask_director when tier is "leaf"), so requires_tools
+ * entries for them pass even a narrow allowlist. update_plan
+ * canonicalizes here and rides the same exemption; the mount-time echo
+ * runs after all appends, so the stamped entry matches the live mount.
+ * Fail-closed: the tier gate in agent-fleet.ts still rejects these on
+ * non-leaf tiers.
  */
 const POST_FILTER_MOUNTED_ENGINES: readonly string[] = [
   "manage_tasks",
@@ -180,10 +180,9 @@ function nearestToolName(raw: string): string | undefined {
 
 /**
  * Spawnable directors (closed set minus primary dispatch) whose mounted
- * tool set includes `canonical` — derived from packageToCapabilities over
- * DIRECTOR_REGISTRY, so the hint tracks the envelopes. Sorted before the cap
- * so the three named are the first alphabetically, not the first in registry
- * insertion order.
+ * tool set includes `canonical`, derived from packageToCapabilities over
+ * DIRECTOR_REGISTRY so the hint tracks the envelopes. Sorted before the
+ * cap, so the three named come first alphabetically.
  */
 export function rerouteAlternatives(canonical: string): readonly string[] {
   const want = canonicalToolName(canonical);
@@ -207,9 +206,9 @@ export function rerouteAlternatives(canonical: string): readonly string[] {
 /**
  * Tier-3 leaf directors (closed set, dispatch excluded) for the tier-gate
  * hint when requires_tools names the leaf reporting channel on a non-leaf
- * tier. submit_result/ask_director mount post-filter, so no envelope mentions
- * them and rerouteAlternatives would report none — this names the directors
- * that actually mount them instead of the allowlist-miss fallback.
+ * tier. submit_result/ask_director mount post-filter, so no envelope
+ * mentions them and rerouteAlternatives would report none; this names the
+ * directors that actually mount them.
  */
 export function leafTierAlternatives(): readonly string[] {
   return Object.values(DIRECTOR_REGISTRY)
@@ -329,7 +328,7 @@ export function checkMountedRequiresTools(
 /**
  * One user message per code. Every message ends in exactly one next-action
  * sentence — the caller re-dispatches deliberately; there is no auto
- * re-dispatch, successor, or retry path.
+ * re-dispatch, successor, or retry.
  */
 export function formatCapabilityUnavailable(
   unavailable: CapabilityUnavailable,

@@ -99,8 +99,7 @@ function inferWithSubAgentNudge(
 /**
  * Attach the armed nudge to an existing infer instead of building a fresh
  * one — a tool_use turn must be followed by tool_result, never a bare user
- * turn, so the nudge rides the infer that follows once the pending tool
- * calls have executed.
+ * turn, so the nudge rides the infer that follows the pending tool calls.
  */
 function withEphemeralNudge(
   options: ExtendedInferenceOptions | undefined,
@@ -170,12 +169,12 @@ export class SubAgentDirector extends DefaultDirector {
   // unsolicited-empty wait. Unset in tests and non-leaf runs.
   private isAskPending: () => boolean = () => false;
 
-  // A quiet leaf (e.g. parked on a long-running background command) emits no
-  // inbound events; directors are pure decide() functions, so the run loop
-  // pings this continuation channel periodically. Only a ping with no real
-  // activity since the last one is silence. In-flight tool calls are
+  // A quiet leaf (e.g. parked on a long-running background command) emits
+  // no inbound events; directors are pure decide() functions, so the run
+  // loop pings this continuation channel periodically. Only a ping with no
+  // real activity since the last one is silence. In-flight tool calls are
   // activity, so their ids are tracked. Sits below the turn-boundary stop
-  // checks (evaluateSubAgentStop), which always take priority.
+  // checks (evaluateSubAgentStop), which take priority.
   private readonly stallTimeoutMs: number | undefined;
   private readonly now: () => number;
   private lastActivityAt: number;
@@ -505,14 +504,14 @@ export class SubAgentDirector extends DefaultDirector {
   /**
    * Handle the periodic stall-check ping: an empty-content continuation on
    * the same channel compaction uses to re-enter an idle reactor, started
-   * when stallTimeoutMs is configured. In-flight tool calls reset the silence
-   * clock and wait instead of nudging.
+   * when stallTimeoutMs is configured. In-flight tool calls reset the
+   * silence clock and wait instead of nudging.
    *
-   * First silence past the timeout: one continuation nudge, record stallNudgeAt.
-   * Pings inside the grace after that nudge wait without stopping or
-   * restarting it; stop only when a ping arrives after the grace with still no
-   * activity. Returns null when not yet silence or when stall timing is
-   * unconfigured, so decide waits without stamping the silence clock.
+   * First silence past the timeout: one continuation nudge, record
+   * stallNudgeAt. Pings inside the grace wait without stopping or
+   * restarting it; stop only when a ping arrives after the grace with
+   * still no activity. Returns null when not yet silence or stall timing
+   * is unconfigured, so decide waits without stamping the silence clock.
    */
   private checkStallPing(
     event: ReactorInboundEvent,
@@ -582,10 +581,10 @@ export class SubAgentDirector extends DefaultDirector {
   }
 
   /**
-   * Write the coalesced tool-failure-recovery audit when the burst ends — the
-   * armed nudge lands on an infer, or the run goes terminal with the nudge
-   * undelivered. Without the terminal flush a burst never followed by an
-   * infer would vanish from the audit trail.
+   * Write the coalesced tool-failure-recovery audit when the burst ends —
+   * the armed nudge lands on an infer, or the run goes terminal with the
+   * nudge undelivered. Without the terminal flush a burst never followed
+   * by an infer would vanish from the audit trail.
    */
   private flushToolFailureRecoveryAudit(): void {
     if (this.pendingToolFailureRecoveryCount === 0) return;

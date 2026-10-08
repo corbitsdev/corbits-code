@@ -1,11 +1,10 @@
 /**
- * close_agent / resume_agent: the session-lifecycle half of
- * reusable worker sessions. spawn_agent/wait_agents start and
- * collect workers; these two verbs let an orchestrator tear one down on
- * purpose (close_agent) or start the next turn on a retained completed
- * or interrupted session (resume_agent), returning immediately so
- * wait_agents collects. send_input steers an in-flight running turn, or
- * answers a pending ask_director (soft; does not deliver a steer inbound).
+ * close_agent / resume_agent: the session-lifecycle half of reusable
+ * worker sessions. spawn_agent/wait_agents start and collect workers;
+ * these verbs tear one down (close_agent) or start the next turn on a
+ * retained completed or interrupted session (resume_agent), returning
+ * immediately so wait_agents collects. send_input steers an in-flight
+ * turn, or answers a pending ask_director (soft; no steer inbound).
  */
 
 import { tool } from "@intx/agent";
@@ -144,10 +143,10 @@ export type ResumeAgentToolDeps = LifecycleToolDeps & {
 };
 
 /**
- * Clip a late-send summary the same way digestCollectedReport clips its inline
- * digest section: structured reports keep up to MAILBOX_DIGEST_SECTION_CHARS,
- * unstructured (no envelope sections) keep a short teaser — the blob holds
- * the rest.
+ * Clip a late-send summary the same way digestCollectedReport clips its
+ * inline digest section: structured reports keep up to
+ * MAILBOX_DIGEST_SECTION_CHARS, unstructured (no envelope sections) keep
+ * a short teaser — the blob holds the rest.
  */
 function clipLateSendSummary(text: string, unstructured: boolean): string {
   const max = unstructured
@@ -158,11 +157,11 @@ function clipLateSendSummary(text: string, unstructured: boolean): string {
 }
 
 /**
- * Late-send_input redirect per terminal status. Only `completed` delivered a
- * report (via mailbox mail); `interrupted` never did, and `shutdown` sessions
- * are gone for good (resumeOne after closeOne fails), so only `completed`
- * names resume_agent. Shutdown/evicted point at read_agent_trace / a fresh
- * spawn instead.
+ * Late-send_input redirect per terminal status. Only `completed` delivered
+ * a report (via mailbox mail); `interrupted` never did; `shutdown`
+ * sessions are gone for good (resumeOne after closeOne fails). So only
+ * `completed` names resume_agent; shutdown/evicted point at
+ * read_agent_trace / a fresh spawn.
  */
 function lateSendRedirect(
   target: string,
@@ -417,8 +416,9 @@ export function createInterruptAgentTool(
         );
       }
       // Soft interrupt leaves the run in flight; projectWaitStatus treats
-      // interrupted+inFlight as running so resume cannot collect a stale stamp.
-      // Flip the wait mailbox overlay so in-flight wait_agents unblocks as interrupted.
+      // interrupted+inFlight as running so resume cannot collect a stale
+      // stamp. Flip the wait mailbox overlay so in-flight wait_agents
+      // unblocks as interrupted.
       deps.fleetRecords.interrupt(target);
       return lifecycleResult(
         call.id,

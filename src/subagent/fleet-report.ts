@@ -1,11 +1,11 @@
 /**
  * What the orchestrator says to the operator about the fleet, unprompted.
- * Only attention the activity strip cannot keep: a lane failed or cancelled,
- * and the moment the fleet runs dry. Per-lane "done" walls are never printed —
- * they restate the strip and the parent.
+ * Only attention the activity strip cannot keep: a lane failed or
+ * cancelled, and the moment the fleet runs dry. Per-lane "done" walls are
+ * never printed — they restate the strip and the parent.
  *
- * Pure and stateless per call: the caller keeps the returned watch and hands
- * it back on the next observation.
+ * Pure and stateless per call: the caller keeps the returned watch and
+ * hands it back on the next observation.
  */
 
 import {
@@ -102,9 +102,9 @@ function isStalled(lane: FleetLane, nowMs: number, stallMs: number): boolean {
 }
 
 /**
- * Lanes still live — the count the idle-with-fleet hold reads.
- * Same rule as the progress strip (`agentLaneIsLive`): interrupted leftovers
- * keep TUI status "running" but are not occupancy.
+ * Lanes still live — the count the idle-with-fleet hold reads. Same rule
+ * as the progress strip (`agentLaneIsLive`): interrupted leftovers keep
+ * TUI status "running" but are not occupancy.
  */
 export function liveFleetCount(lanes: readonly FleetLane[]): number {
   return lanes.filter((lane) => agentLaneIsLive(lane)).length;

@@ -3,11 +3,10 @@
  *
  * Threshold tuning used to be judgment calls with no data. Each record
  * carries the trigger's measured value beside its threshold, the model it
- * fired on, and enough run state to judge later whether the run was actually
- * stuck.
+ * fired on, and run state to judge later whether the run was stuck.
  *
- * Writes are best effort and never block or throw: a diagnostic must not be
- * able to fail a run.
+ * Writes are best effort and never block or throw: a diagnostic must
+ * never fail a run.
  */
 
 import { appendFile } from "node:fs/promises";
@@ -23,10 +22,10 @@ export const INTERVENTION_FILE = "interventions.jsonl";
  * What the harness did: `stop` ends the run, `nudge` injects text and keeps
  * running, `block` refuses a parent re-dispatch. `outcome` records what a
  * completed dispatch produced (a salvage kind or a clean complete),
- * independent of any stop/nudge/block — the log's real outcome signal, so a
- * `block` record can be read alongside later `outcome` records of the same
- * brief fingerprint. `conflict` records overlap between two concurrent lanes;
- * advisory only — the dispatch that triggered it was never blocked.
+ * independent of any stop/nudge/block — the log's real outcome signal, so
+ * a `block` record reads alongside later `outcome` records of the same
+ * brief fingerprint. `conflict` records overlap between two concurrent
+ * lanes; advisory only — it never blocked the dispatch.
  */
 export type InterventionClass =
   | "stop"
@@ -69,9 +68,10 @@ export interface InterventionRecord {
   /** Present on `class: "outcome"` records only. */
   outcome?: InterventionOutcome;
   /**
-   * Run state at the moment of the decision — the raw material for judging it
-   * later. `editedPaths` counts paths the run had already written when the
-   * trigger fired, so a stop can be weighed against what the run produced.
+   * Run state at the moment of the decision — the raw material for judging
+   * it later. `editedPaths` counts paths the run had already written when
+   * the trigger fired, so a stop can be weighed against what the run
+   * produced.
    */
   state?: {
     turnsCompleted?: number;

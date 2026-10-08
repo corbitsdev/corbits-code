@@ -3,9 +3,9 @@
  *
  * Workers write their turn history to segmented `turns.jsonl` under their
  * workdir, but nothing in the runtime reads it back, so a cancelled or
- * interrupted worker's completed work stays invisible to the orchestrator.
- * This reads it directly, independent of the in-memory SubAgentSessionStore
- * (which a restart or killed worker can leave empty).
+ * interrupted worker's completed work stays invisible to the
+ * orchestrator. This reads it directly, independent of the in-memory
+ * SubAgentSessionStore (a restart or killed worker can leave that empty).
  *
  * Every read is bounded on four axes — turn window, entry count, per-entry
  * chars, total output chars — each with a hard maximum, so no argument
@@ -93,10 +93,10 @@ interface DirEntry {
 }
 
 /**
- * Subdirectories of `dir`, symlinks resolved and de-duplicated by real path:
- * a `latest` symlink pointing at a sibling would otherwise be visited twice.
- * `name` is the resolved path's basename, so an alias and its target share
- * one canonical name.
+ * Subdirectories of `dir`, symlinks resolved and de-duplicated by real
+ * path: a `latest` symlink pointing at a sibling would otherwise be
+ * visited twice. `name` is the resolved path's basename, so an alias and
+ * its target share one canonical name.
  */
 export async function listUniqueSubdirs(dir: string): Promise<DirEntry[]> {
   let entries: fs.Dirent[];
@@ -167,9 +167,9 @@ function isRawTurn(value: unknown): value is RawTurn {
 }
 
 /**
- * Tolerant line-oriented parse: the file is appended live while we read, so
- * a torn or malformed line is skipped, not thrown. Stale null bytes are
- * stripped first (same as optimized-context-store.ts on resume).
+ * Tolerant line-oriented parse: the file is appended live while we read,
+ * so a torn or malformed line is skipped, not thrown. Stale null bytes
+ * are stripped first (same as optimized-context-store.ts on resume).
  */
 function parseTurnsTolerant(text: string): {
   turns: RawTurn[];
@@ -198,8 +198,8 @@ function parseTurnsTolerant(text: string): {
 /**
  * Read and parse every segment before the caller's bounds apply, so an
  * active, not-yet-rotated segment loads whole. Segments are capped at
- * ~256KB by the writer, so this cannot grow with total history the way one
- * big turns.jsonl could.
+ * ~256KB by the writer, so this cannot grow with total history the way
+ * one big turns.jsonl could.
  */
 async function readAllTurns(
   dir: string,

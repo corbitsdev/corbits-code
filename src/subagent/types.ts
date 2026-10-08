@@ -148,15 +148,15 @@ export type RunSubAgentParams = {
   capabilities?: CapabilityFilter;
   /**
    * Canonical tool names this worker hard-requires. The dispatcher verifies
-   * them pre-spawn; run.ts re-checks after the capability filter and fails
-   * the run as a stale snapshot when one is missing.
+   * pre-spawn; run.ts re-checks after the capability filter and fails the
+   * run as a stale snapshot when one is missing.
    */
   requiresTools?: readonly string[];
   /**
-   * Skill allowlist for the worker's skill_search + use_skill mounts,
-   * resolved by agent-fleet.ts as the union of DirectorPackage.attachedSkills
-   * and optionalSkills. Set: tools see only these names (unknown names
-   * refuse). Unset: every discovered skill.
+   * Skill allowlist for the worker's skill_search + use_skill mounts, the
+   * union of DirectorPackage.attachedSkills and optionalSkills. Set: tools
+   * see only these names (unknown names refuse). Unset: every discovered
+   * skill.
    */
   allowedSkillNames?: readonly string[];
   /**
@@ -171,9 +171,9 @@ export type RunSubAgentParams = {
    */
   skillDirs?: readonly string[];
   /**
-   * Pre-discovered skill catalog for this lane's cwd; skips the worker's own
-   * discovery scan. Unset (or a worktree lane with a different cwd) falls
-   * back to the cached discovery.
+   * Pre-discovered skill catalog for this lane's cwd; skips the worker's
+   * own discovery scan. Unset (or a worktree lane with a different cwd)
+   * falls back to the parent's cached discovery.
    */
   skills?: readonly SkillSummary[];
   /**
@@ -193,7 +193,7 @@ export type RunSubAgentParams = {
   /**
    * Fleet authority tier for this dispatch (from DirectorPackage.tier).
    * Required when orchestrator is true: runSubAgent denies fleet tools when
-   * this is undefined or "leaf". See src/subagent/authority.ts.
+   * this is undefined or "leaf". See authority.ts.
    */
   orchestratorTier?: SubagentTier;
   // Present only when orchestrator is true. Installs fleet tools so the
@@ -216,7 +216,7 @@ export type RunSubAgentParams = {
    * When true, a clean success skips end-of-turn teardown
    * (agent.close() / posixTools.dispose()) so the session stays open and
    * reusable; failures and aborts still tear down. The caller must
-   * eventually close_agent or it leaks its posix tools / workdir lock.
+   * close_agent or it leaks its posix tools / workdir lock.
    */
   persist?: boolean;
   /**
@@ -240,17 +240,17 @@ export type RunSubAgentParams = {
   };
   /**
    * Fired once the agent object exists (before the prompt is sent), with
-   * handles for later use against this session:
+   * handles for this session:
    *
    *  - `close`: bounded teardown for close_agent.
    *  - `interrupt`: stops the in-flight `agent.send()` via a signal scoped
-   *    to that call only; the reactor keeps running, the caller just stops
+   *    to that call only; the reactor keeps running, the caller stops
    *    waiting.
    *  - `followup`: sends a new message into the same live agent once the
    *    current turn is inactive — what `resume_agent` builds on.
    *
    * Always fired regardless of `persist`; a wedged close fails rather than
-   * reporting success while children are still live.
+   * reporting success while children are live.
    */
   onAgentReady?: (handles: {
     close: (deadlineMs?: number) => Promise<void>;
@@ -289,8 +289,7 @@ export interface RunSubAgentResult {
   /**
    * True only when `persist: true` skipped teardown on clean completion. A
    * deadline/cancel salvage always disposes its agent, so this stays falsy
-   * there — the store uses it to keep a disposed salvage from looking
-   * resumable.
+   * there — the store keeps a disposed salvage from looking resumable.
    */
   agentRetained?: boolean;
   /**

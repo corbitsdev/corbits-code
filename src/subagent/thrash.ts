@@ -1,12 +1,12 @@
 /**
  * Pure read/edit bookkeeping for dispatched workers, consumed by
- * evaluateSubAgentStop's requireEvidence check (CritiqueDirector). Reads
- * performed through run_shell count as evidence too — the prompt prohibits
- * shell file work, but a prompt violation deserves a correction, not a verdict
- * that the work never happened. `editedPaths` (from typed write tools only) is
- * diagnostics for interventions.jsonl; no stop decision depends on it. Cancel/
- * incomplete salvage also lists these paths via salvagePathsFromThrash so the
- * parent keeps file evidence when the leaf is force-stopped.
+ * evaluateSubAgentStop's requireEvidence check. Reads performed through
+ * run_shell count as evidence too — the prompt prohibits shell file work,
+ * but a prompt violation deserves a correction, not a verdict that the
+ * work never happened. `editedPaths` (from typed write tools only) is
+ * diagnostics for interventions.jsonl; no stop decision depends on it.
+ * Cancel/incomplete salvage lists these paths so the parent keeps file
+ * evidence on force-stop.
  */
 
 import {
@@ -92,9 +92,9 @@ function readKey(path: string, args: Record<string, unknown>): string {
 }
 
 /**
- * Advance read/edit bookkeeping from one turn's content (or an explicit tool
- * list). Only `tool_call` blocks are counted; path strings are used as given
- * (no resolve).
+ * Advance read/edit bookkeeping from one turn's content (or an explicit
+ * tool list). Only `tool_call` blocks are counted; path strings are used
+ * as given (no resolve).
  */
 export function nextThrashState(
   prev: ThrashState,

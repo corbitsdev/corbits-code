@@ -56,8 +56,8 @@ async function waitForChildExit(
  * is wedged. `leakOnAbort` models a stub that never kills: send-abort
  * rejects and close() releases the stream without killAll. The descendant
  * spawns outside the shell guard, so production teardown never sees it —
- * the run must settle with the child live, and the test reaps its own
- * orphan via the exposed killAll.
+ * the run must settle with the child live; the test reaps its own orphan
+ * via killAll.
  */
 function createShellChildAgent(opts?: {
   wedgeClose?: boolean;
@@ -352,11 +352,11 @@ describe("CL-7990 shell-child reap: sessions holding a live shell child settle",
 
 /**
  * Kill proof: the tests above prove the run settles under a wedged child,
- * but none proves a shell-guard-tracked child is actually KILLED on
+ * but none proves a shell-guard-tracked child is actually killed on
  * close/dispose. This drives a real `sleep` through `runGuardedShell` and
  * the exact `reapLiveChildren` call the plugin dispose runs, then asserts
- * on the ChildProcess handle itself that the process is dead — not just
- * that the run settled.
+ * on the ChildProcess handle that the process is dead — not just that the
+ * run settled.
  */
 describe("CL-7997 shell-guard kill proof: dispose leaves the tracked child dead", () => {
   test(

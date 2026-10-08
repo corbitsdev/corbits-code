@@ -23,20 +23,20 @@ export class WorktreeError extends Error {}
 
 export interface SubAgentWorktree {
   path: string;
-  // The repo's `git stash list` at create time (see stashList). Stash refs
-  // live on the shared repo, not the worktree, so cleanup diffs against this
-  // baseline to notice stash entries the sub-agent created. `null` means the
-  // baseline could not be read: cleanup preserves rather than risks removal.
+  // The repo's `git stash list` at create time. Stash refs live on the
+  // shared repo, not the worktree, so cleanup diffs against this baseline
+  // to notice stash entries the sub-agent created. `null` (read failed):
+  // cleanup preserves rather than risks removal.
   stashBaseline: string[] | null;
-  // `git rev-parse HEAD` at create time. Detached-HEAD commits leave a clean
-  // porcelain status but move HEAD — cleanup preserves when HEAD advanced so
-  // those commits are not left reflog-only after `worktree remove`.
+  // `git rev-parse HEAD` at create time. Detached-HEAD commits leave a
+  // clean porcelain status but move HEAD — cleanup preserves when HEAD
+  // advanced so those commits are not left reflog-only after removal.
   headAtCreate: string;
 }
 
 // The repo's stash list as "stash@{N}: <message>" lines, or null when the
 // lookup fails. A failed lookup must never make cleanup more willing to
-// remove a worktree, so callers treat null as "unknown → preserve".
+// remove a worktree, so null means "unknown → preserve".
 async function stashList(
   repoCwd: string,
   exec: WorktreeExec,
@@ -106,9 +106,8 @@ export interface CleanupSubAgentWorktreeOpts {
 // `git status` never reports a `git stash` the sub-agent ran mid-task — the
 // stash survives in shared refs/stash either way, but without this check it
 // goes silently orphaned. `stashBaseline` is diffed against the current
-// stash list so only entries created since checkout are attributed to it. A
-// null baseline (create-time lookup failed) or a failed stash lookup at
-// cleanup always preserves.
+// stash list so only entries created since checkout are attributed to it.
+// A null baseline or a failed stash lookup at cleanup always preserves.
 export async function cleanupSubAgentWorktree(
   repoCwd: string,
   path: string,

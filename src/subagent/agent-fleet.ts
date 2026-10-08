@@ -1,18 +1,16 @@
 /**
  * spawn_agent / wait_agents: the split fleet dispatch surface.
  *
- * spawn_agent starts workers and returns immediately; wait_agents later
- * blocks on this caller's own workers. Running state is the session store's
- * `WorkerLifecycle`; wait blocks on the store's `subscribe` raced against a
- * timer — never polling. Wait JSON projects stored lifecycle plus a
- * per-install wait mailbox (`FleetMailbox`): membership, pin, collected, and
- * an optional status override.
+ * spawn_agent starts workers and returns; wait_agents later blocks on this
+ * caller's workers. Wait state is the session store's `WorkerLifecycle`;
+ * wait blocks on the store's `subscribe` raced against a timer — never
+ * polling. Wait JSON adds a per-install mailbox overlay (`FleetMailbox`):
+ * membership, pin, collected, optional status override.
  *
- * Finished-session retention is a display cap: `complete()`/`fail()` evict
- * the oldest finished session once past `maxCompleted`; mailbox `register`
- * pins a session until collect unpins, and past `MAX_FLEET_RECORDS` the
- * oldest never-collected pin compacts to a tombstone (status plus a
- * `read_agent_trace` pointer). Implement/review dispatches fail closed
+ * Retention is a display cap: `complete()`/`fail()` evict the oldest
+ * finished session past `maxCompleted`; `register` pins until collect
+ * unpins, and past `MAX_FLEET_RECORDS` the oldest never-collected pin
+ * compacts to a tombstone. Implement/review dispatches fail closed
  * without non-empty success_criteria.
  */
 
@@ -254,8 +252,8 @@ class FleetMailbox {
 
   /**
    * Stop teardown: drop every mailbox record so no stale lane outlives the
-   * sessions it pins. Also reset the parked-ask fingerprint so a later
-   * session reusing an id re-surfaces cleanly.
+   * sessions it pins. Reset the parked-ask fingerprint so a later session
+   * reusing an id re-surfaces cleanly.
    */
   clear(): void {
     this.records.clear();
@@ -674,9 +672,9 @@ function fleetJson(value: unknown): string {
 
 /**
  * Tier gate for stamped requires_tools. run.ts mounts submit_result and
- * ask_director on leaves only and fleet verbs on orchestrators only; a
- * requirement the tier can never mount rejects pre-spawn as missing_tool
- * instead of surviving to a stale echo at mount time.
+ * ask_director on leaves only, fleet verbs on orchestrators only; a
+ * requirement the tier can never mount rejects pre-spawn instead of
+ * surviving to a stale echo at mount time.
  */
 export function tierGateRequiresTools(
   canonical: readonly string[],
@@ -887,8 +885,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   // warn, don't lock, when two live lanes share a cwd. Worktree lanes get
   // disjoint paths, so this fires only in the shared-cwd fallback; read-only
   // modelRoles never participate. A cwd warns once per wave while a live
-  // mutating writer remains. Keyed by call.id; the session store is
-  // authoritative for liveness.
+  // mutating writer remains. Keyed by call.id; the store decides liveness.
   const activeLanes = new Map<
     string,
     { description: string; cwd: string; modelRole: ModelRole | undefined }
@@ -1073,10 +1070,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       }
 
       // Fail closed before any session, telemetry, or worktree exists — no
-      // re-dispatch, successor, or retry. This tier is the single derivation
+      // re-dispatch, successor, or retry. The tier is the single derivation
       // shared by the tier gate and the run mount: run.ts mounts the leaf
-      // reporting channel exactly when tier is "leaf", so gating on any other
-      // value lets a requirement die as a stale snapshot at mount.
+      // reporting channel exactly when tier is "leaf", so gating on any
+      // other value lets a requirement die as a stale snapshot at mount.
       const dispatchTier: SubagentTier = resolved.orchestrator
         ? (resolved.orchestratorTier ?? resolved.pkg?.tier ?? "orchestrator")
         : "leaf";
@@ -1454,8 +1451,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
 
           const allowedSkillNames = packageAllowedSkillNames(resolved.pkg);
           const params: RunSubAgentParams = {
-            // Trace dir name = session-store id, so read_agent_trace can
-            // resolve this worker's parent chain.
+            // Trace dir = session id so read_agent_trace resolves the parent
+            // chain.
             id: session.id,
             permissionGate: deps.permissionGate,
             ...(deps.inheritMcpTools !== undefined
@@ -1518,9 +1515,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             ...(deps.skillDirs !== undefined
               ? { skillDirs: deps.skillDirs }
               : {}),
-            // Shared-cwd lanes reuse the dispatcher's skill snapshot; worktree
-            // lanes rediscover for their own directory. Every fleet worker
-            // skips the pricing seed — the parent applied it at boot.
+            // Shared-cwd lanes reuse the dispatcher's skill snapshot;
+            // worktree lanes rediscover. Every fleet worker skips the
+            // pricing seed — the parent applied it at boot.
             ...(deps.skillSnapshot !== undefined && worktreeCwd === undefined
               ? { skills: deps.skillSnapshot }
               : {}),
@@ -1721,9 +1718,9 @@ function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
 
 /**
  * Block until `mode` is satisfied for `targets`, or `timeoutMs` / abort /
- * yield elapses. Driven by the store's `subscribe` raced against a timer and
- * the tool signal — never polls. Timeout, abort, and yield never interrupt
- * workers; overlay writers wake it via `sessions.wake()`.
+ * yield elapses. Store `subscribe` raced against a timer and the tool
+ * signal — never polls. Timeout, abort, and yield never interrupt workers;
+ * overlay writers wake it via `sessions.wake()`.
  */
 async function waitForTerminal(
   sessions: SubAgentSessionStore,
@@ -1838,9 +1835,9 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
       const timedOut = finishReason !== "ready";
       const yielded = finishReason === "yield";
 
-      // Running records are peeked and stay waitable; terminals are taken
-      // once delivered, even on yield or timeout — an uncollected "done"
-      // blocks resume_agent and keeps every later wait yielding the same way.
+      // Running records stay waitable; terminals are taken once delivered,
+      // even on yield or timeout — an uncollected "done" blocks
+      // resume_agent and makes every later wait yield the same way.
       const results = targets.map((id) => {
         const record = deps.fleetRecords.peek(id);
         if (record === undefined) {
