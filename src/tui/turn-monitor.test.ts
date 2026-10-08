@@ -1,6 +1,6 @@
 /**
  * Bridge-level wiring for the progress label, quota auto-retry and stall
- * watchdog. The monitor clock is injected, so nothing here waits on wall time.
+ * watchdog. The clock is injected, so nothing here waits on wall time.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -149,7 +149,7 @@ describe("turn progress label", () => {
 
   /** A real chat turn: no `reactor.done` until the session closes, so
    * `connector.reply` is the only terminal event the shell sees — the
-   * regression this covers left the phase counting for the rest of the
+   * regression this covers left the phase live for the rest of the
    * session. */
   test("a full turn with a tool clears the phase on connector.reply", async () => {
     await withHarness(async (t) => {
@@ -409,10 +409,10 @@ describe("stall watchdog", () => {
     });
   });
 
-  // Awaiting the model's next token — after submit, after the last
-  // outstanding tool call resolves, or after compact continuation re-entry —
-  // still notices at the notice threshold, then auto-aborts at the stall
-  // budget so a reply that never lands cannot freeze the turn.
+  // Awaiting the model's next token — after submit, the last outstanding
+  // tool call, or compact continuation re-entry — still notices at the
+  // notice threshold, then auto-aborts at the stall budget so a reply that
+  // never lands cannot freeze the turn.
   test("a wait right after submit auto-aborts once the stall budget elapses", async () => {
     await withHarness(async (t) => {
       reachStallNotice(t);

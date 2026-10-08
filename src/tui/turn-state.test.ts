@@ -269,9 +269,9 @@ describe("turnStateFromEvent", () => {
 
   test("inference.done with no active tool calls settles the turn", () => {
     // Regression: a self-continuing workflow cycle may never emit
-    // connector.reply, the usual terminator. Without settling here too,
-    // isProcessing (and the "working" ramp it drives) stays true forever
-    // once nothing else arrives.
+    // connector.reply. Without settling here too, isProcessing (and the
+    // "working" ramp it drives) stays true forever once nothing else
+    // arrives.
     const s = fold([
       { type: "inference.start" },
       { type: "inference.text.delta" },
@@ -466,9 +466,9 @@ describe("repetition tracking", () => {
     // The gap this closes: an unconditional per-cycle reset (no cross-cycle
     // memory at all) never catches a model that loops while interleaving a
     // trivial tool call between every repeat — verified against a 500-cycle,
-    // 88,000-character run that never flipped `repeating`. A fingerprint of
-    // each completed cycle, compared to the one before it, catches this
-    // shape within a small, bounded number of cycles instead.
+    // 88,000-character run that never flipped `repeating`. A per-cycle
+    // fingerprint compared to the prior one catches it within a bounded
+    // number of cycles.
     const block = "xk4mQ2 loop unit that never varies at all here";
     expect(block.length).toBeGreaterThanOrEqual(24);
 
@@ -500,10 +500,9 @@ describe("repetition tracking", () => {
 
   test("a short narration line repeated before each of nine tool calls is not a loop", () => {
     // Verified false positive (CL-5577): "Let me check the next file now."
-    // fed in 4-char chunks before nine separate tool calls, interleaved with
-    // tool.start/connector.reply/tool.done, must not abort the turn. Nothing
-    // about saying a similar short thing before each of several tool calls
-    // in one turn is degenerate.
+    // fed in 4-char chunks before nine separate tool calls, must not abort
+    // the turn. Nothing about saying a similar short thing before each of
+    // several tool calls in one turn is degenerate.
     const narration = "Let me check the next file now.";
     const chunks: string[] = [];
     for (let i = 0; i < narration.length; i += 4) {
