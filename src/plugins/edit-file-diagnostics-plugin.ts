@@ -137,9 +137,10 @@ function diagnoseNotUnique(fileText: string, oldString: string): string {
 }
 
 /**
- * Per-line whitespace normalize for matching only; reported text is always original.
- * Full trim + internal collapse so indent drift (the dominant failure mode) still
- * near-matches; CR is stripped so CRLF files compare cleanly against LF needles.
+ * Per-line whitespace normalize for matching only; reported text is always
+ * original. Full trim + internal collapse so indent drift (the dominant
+ * failure mode) still near-matches; CR is stripped so CRLF files compare
+ * cleanly against LF needles.
  */
 export function normalizeLine(line: string): string {
   const noCr = line.replace(/\r/g, "");
@@ -153,10 +154,10 @@ export interface NearMiss {
 }
 
 /**
- * Find a unique multi-line span whose per-line whitespace normalization equals
- * the normalized old_string. Returns original (un-normalized) text.
- * Leading/trailing empty lines on the needle are ignored for matching (models
- * often paste a trailing newline) but do not expand the reported span.
+ * Find a unique multi-line span whose per-line whitespace normalization
+ * equals the normalized old_string. Returns original (un-normalized) text.
+ * Edge empty lines on the needle are ignored for matching (models often
+ * paste a trailing newline) but do not expand the reported span.
  */
 export function findWhitespaceNearMiss(
   fileText: string,
@@ -341,9 +342,9 @@ function fence(body: string): string {
 }
 
 /**
- * Prefer intact fences over a mid-body slice. When a near-miss span itself exceeds
- * the budget, drop the body and tell the caller to re-read by line range instead of
- * offering a half-truncated old_string that will fail again.
+ * Prefer intact fences over a mid-body slice. When a near-miss span exceeds
+ * the budget, drop the body and tell the caller to re-read by line range
+ * instead of offering a half-truncated old_string that will fail again.
  */
 export function truncateDiagnostic(text: string): string {
   if (text.length <= MAX_DIAGNOSTIC_CHARS) return text;

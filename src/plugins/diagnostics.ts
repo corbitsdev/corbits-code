@@ -50,10 +50,8 @@ export function stderrPluginWarning(msg: string): void {
  * collapsed to `N skills missing: a, b, c`; mixed warnings get a count line.
  * Returns undefined when there is nothing to report.
  *
- * Skill names are deduplicated because a skill is missing once no matter how
- * many plugins referenced it — the operator installs it once to fix all of
- * them — and the count comes from the deduplicated list so it never disagrees
- * with the names printed beside it.
+ * Skill names are deduplicated: a skill is missing once however many plugins
+ * referenced it, and the count matches the printed names.
  */
 export function formatPluginWarningsSummary(
   warnings: readonly string[],
@@ -101,12 +99,10 @@ export function emitPluginWarningSummary(
 
 /**
  * Emit a diagnostics summary through the structured logger instead of raw
- * stderr. Interactive callers (the TUI holds the alternate screen for the
- * whole session) must use this, not the raw-stderr default above — a bare
- * write lands mid-frame and corrupts the rendered transcript. The logger is
- * already routed to `~/.corbits/logs/corbits.log` by `installFileLogSink`
- * (first statement of `mainWithRunners`), so this reuses that sink rather
- * than adding a second suppression path.
+ * stderr. The TUI holds the alternate screen for the whole session, so a
+ * bare write lands mid-frame and corrupts the rendered transcript. The
+ * logger already routes to the file-log sink installed at startup, so this
+ * reuses it rather than adding a second path.
  */
 export function emitPluginWarningLog(diag: PluginLoadDiagnostics): void {
   emitPluginWarningSummary(diag, (line) => pluginDiagnosticsLogger.warn(line));
