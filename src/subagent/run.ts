@@ -210,9 +210,8 @@ import { runWithSubAgentIdentity } from "./identity-context.js";
 
 /**
  * Worker authorization denies without suspending, so Agent.send must settle
- * on "reply" — a parked gate would wedge the worker. Sound fallback if that
- * drifts: the thrown error still carries the correlationId and approval
- * snapshot.
+ * on "reply" — a parked gate would wedge the worker. If that drifts, the
+ * thrown error still carries the correlationId and approval snapshot.
  */
 export function assertReplySend(
   result: SendResult,
@@ -235,18 +234,18 @@ export function assertReplySend(
 
 // One outer retry after the harness's per-attempt retries give up (3x per
 // send, vendor/intx-inference/src/retry-policy.ts). Delay matches the first
-// backoff step below. createCorbitsRetryPolicy handles per-attempt retry
-// inside a live send, never this loop. Never retry after a tool started —
-// a second send would replay side effects.
+// backoff step below. Per-attempt retry runs inside the live send
+// (createCorbitsRetryPolicy), never this loop. Never retry after a tool
+// started — a second send would replay side effects.
 const MAX_OUTER_ATTEMPTS = 2;
 const OUTER_RETRY_DELAY_MS = 500;
 
 /**
  * Reap deadline for the session-stream drain on teardown. A worker parked
  * behind a live shell descendant holds `streamPromise` open, so awaiting
- * it unbounded would wedge interrupt/close forever — settling after this
- * deadline drops late stream events, matching the shell-guard reap scale
- * (2s), not the 30s close deadline.
+ * it unbounded would wedge interrupt/close forever — expiry drops late
+ * stream events, matching the shell-guard reap scale (2s), not the 30s
+ * close deadline.
  */
 const SUBAGENT_STREAM_DRAIN_REAP_MS = 2_000;
 
@@ -436,8 +435,8 @@ export interface SubAgentRunController {
 /**
  * Merges the caller's cancel signal with an optional wall-clock deadline
  * into one abort signal, so salvage can tell a genuine cancel apart from
- * the deadline firing (deadlineHit()). No timer when deadlineMs is omitted
- * — cancel is the only bound.
+ * the deadline firing (deadlineHit()). No timer when deadlineMs is
+ * omitted.
  */
 export function createSubAgentRunController(
   parentSignal: AbortSignal | undefined,
@@ -1582,11 +1581,11 @@ async function runSubAgentInner(
       });
     }
 
-    // Bounded, idempotent close handle (close_agent). Abort first stops a
+    // Bounded, idempotent close handle (close_agent). Abort stops a
     // still-running turn; a finished turn is a no-op. posix dispose/reap
     // runs before agent.close so a wedged close cannot skip killing
     // detached run_shell children; the deadline abandons a hung close
-    // rather than reporting success while children stay live.
+    // rather than report success while children stay live.
     if (params.onAgentReady !== undefined) {
       const boundedClose = async (
         deadlineMs = DEFAULT_CLOSE_DEADLINE_MS,
@@ -1608,7 +1607,7 @@ async function runSubAgentInner(
         } finally {
           // The finally block kept the parent-abort forwarding listener
           // alive for a persisted session (see runController.dispose's doc);
-          // now that this session is actually closing, tear it down for real.
+          // tear it down now that the session is actually closing.
           runController.dispose();
         }
       };

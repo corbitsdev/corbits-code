@@ -5,9 +5,8 @@
  * awaitBoundedTeardown): posixTools.dispose() reaps live shell children
  * (SIGKILL process groups, 2s wait), then agent.close() and the
  * session-stream drain are awaited — voided when the reap reports
- * leftovers.
- *
- * These tests drive the real `runSubAgent` with the stub below.
+ * leftovers. These tests drive the real `runSubAgent` with the stub
+ * below.
  */
 import { describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -186,7 +185,7 @@ async function runWithShellChildAgent(
 
 /**
  * Runs `body` with the live-tool-dispatch module mocked to hand out
- * `agent`; extracts the mock boilerplate shared by every test below.
+ * `agent`; shared mock boilerplate for every test below.
  */
 async function runWithStubAgent<T>(
   agent: ReturnType<typeof createShellChildAgent>,
@@ -282,7 +281,7 @@ describe("CL-7990 shell-child reap: sessions holding a live shell child settle",
           // Test injection: bounded teardown fires after this short deadline
           // instead of the production 30s bound, proving the wedged close
           // settles the run in ~0.4s. Kept above the close bound below so
-          // the close error surfaces before the run settles.
+          // the close error surfaces first.
           teardownDeadlineMs: 400,
         });
         const closeError = await handles.close(200).then(
@@ -316,8 +315,8 @@ describe("CL-7990 shell-child reap: sessions holding a live shell child settle",
       // The stub never kills: send-abort rejects and close() releases the
       // stream without killAll, staying non-wedged. The run must still
       // settle — teardown never waits on a descendant it cannot see. The
-      // stub-spawned sleep is untracked, so the test reaps its own orphan
-      // in the finally; waitForChildExit proves the collection.
+      // sleep is untracked, so the test reaps its own orphan in the
+      // finally; waitForChildExit proves the collection.
       const agent = createShellChildAgent({ leakOnAbort: true });
       try {
         const outcome = await runWithStubAgent(agent, async () => {
@@ -329,8 +328,8 @@ describe("CL-7990 shell-child reap: sessions holding a live shell child settle",
           return result;
         });
         expect(outcome.interrupted).toBe(true);
-        // The wedged-descendant shape, for real: the child is still live at
-        // settle time — no stub kill and no production reap collected it.
+        // The wedged shape, for real: the child is still live at settle
+        // time — no stub kill and no production reap collected it.
         expect(agent.children.length).toBeGreaterThan(0);
         for (const child of agent.children) {
           expect(child.exitCode).toBeNull();
@@ -351,9 +350,8 @@ describe("CL-7990 shell-child reap: sessions holding a live shell child settle",
  * Kill proof: the tests above prove the run settles under a wedged child,
  * but none proves a shell-guard-tracked child is actually killed on
  * close/dispose. This drives a real `sleep` through `runGuardedShell` and
- * the exact `reapLiveChildren` call dispose runs, then asserts on the
- * ChildProcess handle that the process is dead, not just that the run
- * settled.
+ * the exact `reapLiveChildren` call dispose runs, then asserts the
+ * ChildProcess handle is dead, not just that the run settled.
  */
 describe("CL-7997 shell-guard kill proof: dispose leaves the tracked child dead", () => {
   test(
