@@ -1,8 +1,7 @@
-// mcp_connect / mcp_oauth emission sites: every connect attempt reports one
-// enum-only outcome, and every browser-OAuth callback wait reports one
-// enum-only outcome. The leak assertions serialize the whole PostHog batch
-// body, so a server name, URL, command path, or provider denial smuggled
-// under another key must fail the test.
+// mcp_connect / mcp_oauth emission sites: every connect attempt and browser
+// wait reports one enum-only outcome. Leak assertions serialize the whole
+// PostHog batch, so a server name, URL, command path, or provider denial
+// smuggled under another key must fail the test.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
@@ -63,8 +62,8 @@ function harness(): {
   };
 }
 
-// Identifying fixtures: an employer-named server, its internal URL, and its
-// local command path. None of these strings may reach the wire.
+// Identifying fixtures: employer-named server, internal URL, local command
+// path. None of these strings may reach the wire.
 const SERVER_NAME = "acme-internal-hr";
 const SERVER_URL = "https://hr.acme-internal.example.com/mcp";
 const SERVER_COMMAND = "/opt/acme-internal/bin/hr-server";
@@ -108,8 +107,8 @@ await mockMcpTransportModule(mock, {
 });
 
 await mockMcpCallbackServerModule({
-  // Mirrors the real loopback server: an abort rejects the pending wait, a
-  // rejected gate surfaces the provider's denial, otherwise the code arrives.
+  // Mirrors the real loopback server: abort rejects the pending wait, a
+  // rejected gate surfaces the provider denial, otherwise the code arrives.
   waitForCode: async (signal) => {
     mock.waitForCodeCalls += 1;
     if (mock.callbackGate !== undefined) {
@@ -226,8 +225,8 @@ describe("classifyMcpConnectResult", () => {
 describe("classifyMcpOAuthResult", () => {
   test("only a timed-out wait reports timeout", () => {
     expect(classifyMcpOAuthResult(new Error("wait timed out"))).toBe("timeout");
-    // Abandoned waits, closed servers, and provider denials (whose text is
-    // provider-authored) are all the operator not completing the flow.
+    // Abandoned waits, closed servers, and provider denials are all the
+    // operator not completing the flow.
     expect(classifyMcpOAuthResult(new Error("aborted"))).toBe("cancelled");
     expect(
       classifyMcpOAuthResult(new Error("Authorization failed: access_denied")),
@@ -240,8 +239,8 @@ describe("mcp_connect emission", () => {
   test("a failed stdio spawn reports stdio/fail with no identity on the wire", async () => {
     const { telemetry, wire, events } = harness();
     setTelemetry(telemetry);
-    // The OS refuses the spawn, exactly like a missing local binary in
-    // production; the error text carries the command path and must stay local.
+    // The OS refuses the spawn, like a missing local binary in production;
+    // the error text carries the command path and must stay local.
     mock.failNextConnect = new Error(`spawn ${SERVER_COMMAND} ENOENT`);
 
     const result = await connectMCPServer({
@@ -360,8 +359,8 @@ describe("mcp_oauth emission", () => {
     mock.callbackGate = Promise.reject(
       new Error("Authorization failed: access_denied"),
     );
-    // Swallow the unhandled rejection surfacing through the gate handle: the
-    // wait path observes it via the mocked waitForCode await.
+    // Swallow the unhandled rejection through the gate handle: the wait path
+    // observes it via the mocked waitForCode await.
     mock.callbackGate.catch(() => undefined);
 
     const result = await connectMCPServer(

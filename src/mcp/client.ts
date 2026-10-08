@@ -39,15 +39,11 @@ export interface MCPContentBlock {
 }
 
 /**
- * Scope lock: the pinned @modelcontextprotocol/sdk v1 CallToolResult
- * is `{ content: blocks[] (default []), structuredContent?: Record<string,
- * unknown>, isError?: boolean }` — a tool-level failure still succeeds at the
- * protocol layer. The envelope carries all three so the plugin can surface
- * failures as errors and structured-only payloads as readable text.
- * `structuredContent` reaches the model JSON-serialized into the content
- * string under MCP_STRUCTURED_CONTENT_MARKER (see plugin.ts). Small
- * policy-scrubbed records are preserved under ToolResult `detail`; the full
- * scrubbed record is retained in the evidence archive — never raw.
+ * Pinned SDK CallToolResult: `{ content: blocks[] (default []),
+ * structuredContent?, isError? }` — a tool-level failure still succeeds at
+ * the protocol layer, so the envelope carries all three. structuredContent
+ * reaches the model JSON-serialized into the content string under
+ * MCP_STRUCTURED_CONTENT_MARKER (see plugin.ts).
  */
 export interface MCPToolResultEnvelope {
   blocks: MCPContentBlock[];
@@ -63,13 +59,15 @@ export interface MCPClient {
     args: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<string>;
-  /** Validated content blocks before flattening — for post-policy archive capture. */
+  /** Validated content blocks before flattening — for post-policy
+   * archive capture. */
   callBlocks?(
     toolName: string,
     args: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<MCPContentBlock[]>;
-  /** Full tool-result envelope: blocks plus tool-level isError/structuredContent. */
+  /** Full tool-result envelope: blocks plus tool-level
+   * isError/structuredContent. */
   callResult?(
     toolName: string,
     args: Record<string, unknown>,
@@ -85,8 +83,8 @@ export type MCPConnectResult =
       serverName: string;
       error: string;
       /**
-       * The failure is a browser authorization that was offered but never
-       * finished — a standing operator action, not a dead server.
+       * Browser authorization was offered but never finished — a standing
+       * operator action, not a dead server.
        */
       authPending?: boolean;
     };
@@ -95,14 +93,13 @@ export interface MCPConnectOptions {
   onAuthURL?: (serverName: string, authorizationUrl: string) => void;
   /**
    * Interactive OAuth finished and the retried operation succeeded. Callers
-   * that already registered tools for this server can re-emit a connected
-   * status so standing "needs auth" chrome clears mid-session.
+   * can re-emit connected so standing "needs auth" chrome clears mid-session.
    */
   onAuthorized?: (serverName: string) => void;
   signal?: AbortSignal;
-  // Close-event hook: wired to transport.onclose after connect so the owner
-  // learns the transport died under a live client. Never fired for
-  // intentional teardown — close() disarms it before closing the transport.
+  // Wired to transport.onclose after connect so the owner learns the
+  // transport died under a live client; close() disarms it before
+  // intentional teardown.
   onDisconnect?: () => void;
 }
 
@@ -191,8 +188,8 @@ interface BrowserAuthAttempts {
   count: number;
   cooldownUntil?: number | undefined;
 }
-// Keyed by server identity, not provider instance, so the cap survives the
-// provider re-creation that every reconnect performs.
+// Keyed by server identity, not provider instance, so it survives the
+// provider re-creation each reconnect performs.
 const browserAuthAttempts = new Map<string, BrowserAuthAttempts>();
 let browserAuthWaitMs = BROWSER_AUTH_WAIT_MS;
 
@@ -206,9 +203,9 @@ export function setBrowserAuthWaitMs(ms: number): void {
 }
 
 /**
- * Browser authorization was offered but never finished — the wait timed out
- * or hit the attempt cap. The TUI keeps the prompt-box auth marker for these
- * instead of painting a generic connect-failure row.
+ * Browser authorization was offered but never finished (wait timeout or
+ * attempt cap). The TUI keeps the prompt-box auth marker for these instead
+ * of a generic connect-failure row.
  */
 export class BrowserAuthPendingError extends Error {}
 
@@ -244,12 +241,11 @@ async function waitForBrowserAuthCode(
     captureMcpOAuth(liveTelemetry, { result: "completed" });
     return code;
   } catch (err) {
-    // waitForCode only rejects with "aborted" for both expiries, so the error
-    // text cannot tell a lapsed wait from an abandoned one — the signals can:
-    // a deadline abort with the lifecycle still alive means the wait expired.
-    // Anything else (lifecycle abort, close(), provider denial) is the
-    // operator not completing the flow. The denial text itself is
-    // provider-authored and never leaves the process.
+    // waitForCode rejects with "aborted" for both expiries, so the signals
+    // tell them apart: a deadline abort with the lifecycle alive is an
+    // expired wait; anything else (lifecycle abort, close(), provider denial)
+    // is the operator not completing the flow. Denial text is
+    // provider-authored, never shipped.
     captureMcpOAuth(liveTelemetry, {
       result:
         !lifecycle.aborted && deadline.aborted
@@ -383,9 +379,9 @@ function gateRedirectToAuthorization(context: HTTPAuthContext): void {
 }
 
 /**
- * Fetch that always attaches the connect AbortSignal. SDK 403 upscoping calls
- * `auth()` with raw `_fetch` (no `requestInit.signal`); `_fetchWithInit` still
- * uses this same function, so both paths abort when connect is cancelled.
+ * Fetch that always attaches the connect AbortSignal. SDK 403 upscoping
+ * calls `auth()` with raw `_fetch` (no signal); `_fetchWithInit` uses this
+ * same function, so both paths abort when connect is cancelled.
  */
 export function fetchWithConnectAbort(
   connectSignal: AbortSignal,
@@ -418,8 +414,8 @@ function streamableHTTPTransportOptions(
 }
 
 /**
- * Run interactive OAuth, retry the failed operation, and notify when the retry
- * succeeds or is aborted after auth completed — a failed re-auth must leave
+ * Run interactive OAuth, retry the failed operation, and notify when the
+ * retry succeeds or is aborted after auth — a failed re-auth must leave
  * standing "needs auth" chrome alone.
  */
 export async function retryAfterInteractiveAuth<T>(
@@ -450,7 +446,8 @@ async function driveRecovery(
     coordinator.browserFlow === undefined
   ) {
     await getOrStartRefresh(context);
-    // SDK redirects waiting on this refresh must reserve the browser flow before the probe.
+    // SDK redirects waiting on this refresh must reserve the browser flow
+    // before the probe.
     await Promise.resolve();
   }
 
@@ -852,10 +849,10 @@ export async function connectMCPServer(
   const result = await (isHttpServer(config)
     ? connectHttp(config, options)
     : connectStdio(config, options));
-  // The single funnel for every connect path (startup, late add, retry,
-  // backoff redial, web-search): one settled attempt reports one enum-only
-  // outcome. Transport is the connect-path predicate that actually ran, never
-  // the server name, URL, or command; the error text is never attached.
+  // Single funnel for every connect path (startup, late add, retry, backoff
+  // redial, web-search): one settled attempt reports one enum-only outcome.
+  // Transport is the connect-path predicate that actually ran, never the
+  // server name, URL, or command; error text is never attached.
   captureMcpConnect(liveTelemetry, {
     transport: classifyMcpTransport(config),
     result: classifyMcpConnectResult(result),
