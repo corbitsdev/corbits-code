@@ -95,8 +95,8 @@ describe("turn progress label", () => {
       expect(t.shell.lockupPhase).toBeNull();
 
       t.bridge.handle({ type: "inference.start", data: {} });
-      // What the slot paints from this phase is asserted in the ramp paint
-      // tests; here it is only that the phase itself tracks the run.
+      // What the slot paints is asserted in the ramp paint tests; here only
+      // that the phase itself tracks the run.
       expect(t.shell.lockupRampPhase).toBe("working");
       expect(t.shell.lockupPhase).toBe("working");
 
@@ -147,10 +147,10 @@ describe("turn progress label", () => {
     });
   });
 
-  /** The shape a real chat turn actually has. A chat session emits no
-   * `reactor.done` until it closes, so `connector.reply` is the only
-   * terminal event the shell sees — the regression this covers left the
-   * phase counting for the rest of the session. */
+  /** A real chat turn: no `reactor.done` until the session closes, so
+   * `connector.reply` is the only terminal event the shell sees — the
+   * regression this covers left the phase counting for the rest of the
+   * session. */
   test("a full turn with a tool clears the phase on connector.reply", async () => {
     await withHarness(async (t) => {
       t.bridge.handle({
@@ -364,9 +364,9 @@ describe("stall watchdog", () => {
       reachStallNotice(t);
 
       // The model starts producing again — the notice must not linger past
-      // the silence it was reporting. handle() itself has to take it down;
-      // waiting for the next tick leaves a window where the turn can settle
-      // and cancel the cadence, stranding the banner forever.
+      // the silence it was reporting. handle() itself must take it down; a
+      // later tick could settle the turn and cancel the cadence, stranding
+      // the banner.
       t.bridge.handle({
         type: "inference.text.delta",
         data: { token: "ok" },
@@ -412,7 +412,7 @@ describe("stall watchdog", () => {
   // Awaiting the model's next token — after submit, after the last
   // outstanding tool call resolves, or after compact continuation re-entry —
   // still notices at the notice threshold, then auto-aborts at the stall
-  // budget so a reply or continuation that never lands cannot freeze the turn.
+  // budget so a reply that never lands cannot freeze the turn.
   test("a wait right after submit auto-aborts once the stall budget elapses", async () => {
     await withHarness(async (t) => {
       reachStallNotice(t);
@@ -525,10 +525,10 @@ describe("stall watchdog", () => {
     });
   });
 
-  // The gate exemption and the parallel-tool-call exemption are independent
-  // guards feeding the same stall check — a run with both outstanding must
-  // stay exempt, and closing the gate while the tool call is still out must
-  // not re-expose it to the clock.
+  // The gate and parallel-tool-call exemptions are independent guards
+  // feeding the same stall check — a run with both outstanding must stay
+  // exempt, and closing the gate while the tool is still out must not
+  // re-expose it.
   test("a gate open alongside a live sibling tool call stays exempt", async () => {
     await withHarness(async (t) => {
       t.bridge.submit("build it", "immediate");
@@ -831,7 +831,7 @@ describe("reasoning settles to a summary", () => {
         });
       }
 
-      // Both bursts belong to one turn, so they share one row — its elapsed
+      // Both bursts belong to one turn, so they share one row — elapsed
       // time is the turn's thinking, not the last burst's.
       const thoughts = t.shell.streamLog
         .filter((row) => row.meta === "thinking")
