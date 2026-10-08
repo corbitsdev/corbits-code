@@ -40,28 +40,24 @@ export interface ZoneDeclaration {
 export const AGENTS_PANEL_MAX_VISIBLE = 10;
 
 /**
- * Share of the terminal the fleet board may take before it starts hiding
- * lanes. The board is sized to its content (one lane costs two rows, a dozen
- * thirteen); this only bounds the large fan-out.
+ * Share of the terminal the fleet board may take before hiding lanes. The
+ * board sizes to its content; this only bounds the large fan-out.
  */
 export const FLEET_BOARD_CAP_FRACTION = 0.62;
 
 /**
- * Transcript floor while a fleet is running. With two or more lanes live the
- * operator watches the fleet, not the conversation, so the transcript loses
- * its half-screen entitlement — but stays tall enough to read the last
- * orchestrator report, which is how it keeps reporting and asking.
+ * Transcript floor while a fleet runs: with two or more lanes live the
+ * operator watches the fleet, not the conversation, but the floor stays tall
+ * enough to read the last orchestrator report, which is how the session
+ * keeps reporting and asking.
  */
 export const FLEET_TRANSCRIPT_FLOOR = 4;
 
 /** Lanes live before the fleet floor replaces the idle one. */
 export const FLEET_FLOOR_MIN_LANES = 2;
 
-/**
- * Bound on rendered task rows in the live task-list panel. Mirrors
- * AGENTS_PANEL_MAX_VISIBLE: a larger task list degrades to a trailing
- * "+N more" row instead of growing the zone.
- */
+/** Bound on rendered task rows in the live task-list panel; a larger list
+ * degrades to a trailing "+N more" row (mirrors AGENTS_PANEL_MAX_VISIBLE). */
 export const TASKS_PANEL_MAX_VISIBLE = 5;
 
 /**
@@ -72,9 +68,9 @@ export const TASKS_PANEL_MAX_VISIBLE = 5;
 export const PENDING_MAX_VISIBLE = 4;
 
 /**
- * Fixed-with-test budgets from the constitution table.
- * Residual zones (transcript, overlay_host) use min/max as floor/cap hints;
- * actual heights are assigned by the geometry resolver.
+ * Row budgets from the constitution table. Residual zones (transcript,
+ * overlay_host) use min/max as floor/cap hints; the geometry resolver
+ * assigns actual heights.
  */
 export const ZONE_REGISTRY: Readonly<Record<ZoneId, ZoneDeclaration>> = {
   progress: { id: "progress", min: 0, max: 2, idleDefault: 0, alwaysOn: false },
@@ -176,18 +172,16 @@ export const PROMPT_CAP_FRACTION = 0.4;
 export const OVERLAY_MAX_FRACTION = 0.7;
 
 /**
- * Smallest overlay_host an open overlay can render into: two border rows plus
- * one content row. The transcript floor must not starve a just-opened overlay
- * below the rows its own border costs — that renders past its box instead of
- * shrinking. When even this minimum cannot sit beside the prompt floor, the
- * overlay may take rows from below PROMPT_BASE_ROWS.
+ * Smallest overlay_host an open overlay renders into: two border rows plus
+ * one content row. The transcript floor must not starve a just-opened
+ * overlay below its own border cost — that renders past its box instead of
+ * shrinking; when even this minimum cannot sit beside the prompt floor, the
+ * overlay takes rows from below PROMPT_BASE_ROWS.
  */
 export const OVERLAY_MIN_ROWS = 3;
 
-/**
- * Prompt floor: labelled borders + one content line. Only a terminal too short
- * to seat the transcript floor alongside a composing area gets squeezed here.
- */
+/** Prompt floor: labelled borders + one content line. Only a terminal too
+ * short to seat the transcript floor beside a composing area gets squeezed. */
 export const PROMPT_BASE_ROWS = 3;
 
 /** Input rows the prompt offers at rest, before anything has been typed. */
@@ -199,10 +193,8 @@ export const PROMPT_BORDER_ROWS = 2;
 /** Prompt bordered height at rest. */
 export const PROMPT_IDLE_ROWS = PROMPT_IDLE_INPUT_ROWS + PROMPT_BORDER_ROWS;
 
-/**
- * Collapse order when transcript would breach the floor (first cut first).
- * Matches docs/TUI.md "How it should look" collapse order.
- */
+/** Collapse order when the transcript would breach its floor (first cut
+ * first; matches docs/TUI.md "How it should look"). */
 export const COLLAPSE_ORDER = [
   "command_banner",
   "settings_notice",
@@ -219,11 +211,9 @@ export const COLLAPSE_ORDER = [
   "prompt",
 ] as const satisfies readonly ZoneId[];
 
-/**
- * Top-to-bottom paint order for y-stacked rects.
- * Transcript is residual at the top; orchestration chrome (agents, task) sits
- * at the bottom above the prompt, with notice closest to the prompt box.
- */
+/** Top-to-bottom paint order for y-stacked rects: transcript residual on top,
+ * orchestration chrome (agents, task) above the prompt, notice closest to the
+ * prompt box. */
 export const PAINT_ORDER = [
   "transcript",
   "overlay_host",
@@ -241,9 +231,8 @@ export const PAINT_ORDER = [
 
 /**
  * Gutter columns on each side once the terminal can afford them. One column
- * is enough to keep content off the frame edge — the whole job — and wider
- * only reads as excess air on a wide pane. No middle tier: a width that can
- * spare a column gets one; a width that cannot gets none.
+ * keeps content off the frame edge — the whole job — and wider reads as
+ * excess air. No middle tier: a width that can spare a column gets one.
  */
 export const SIDE_MARGIN = 1;
 
@@ -276,19 +265,14 @@ export function resolveTopPadRows(transcriptRows: number): number {
   return transcriptRows >= TOP_PAD_MIN_TRANSCRIPT_ROWS ? TOP_PAD_ROWS : 0;
 }
 
-/**
- * Rows below the prompt box once the terminal can afford them. One blank row
- * keeps the prompt off the terminal's last line, as TOP_PAD_ROWS clears the
- * top edge and SIDE_MARGIN clears the sides. More than one reads as the
- * interface floating; there is no middle tier.
- */
+/** Rows below the prompt box once the terminal can afford them. One blank row
+ * keeps the prompt off the last line (TOP_PAD_ROWS clears the top, SIDE_MARGIN
+ * the sides); more than one reads as the interface floating. */
 export const BOTTOM_MARGIN_ROWS = 1;
 
-/**
- * Below this terminal height the margin is not worth its row — the same
+/** Below this terminal height the margin is not worth its row — the same
  * 24-row line the resolver treats as "short terminal", so every yield point
- * agrees on where a terminal stops affording optional rows.
- */
+ * agrees on where optional rows stop. */
 export const BOTTOM_MARGIN_MIN_ROWS = 24;
 
 /** Bottom margin rows affordable for a terminal of `terminalRows` rows. */
@@ -297,21 +281,18 @@ export function resolveBottomMarginRows(terminalRows: number): number {
 }
 
 /**
- * How tall the prompt box is for what is being composed, in precedence
- * order: never below the resting size (an empty prompt still offers
- * PROMPT_IDLE_INPUT_ROWS lines to write into, and the first typed line must
- * not sit against the animated mark in the bottom rule); one row per visual
- * line of content so a longer prompt stays visible while being written; and
- * at most PROMPT_CAP_FRACTION of the terminal, past which the input scrolls
- * internally (OpenTUI's editor follows the caret) because rows here come
- * straight out of the transcript.
+ * Prompt box height for what is being composed, in precedence order: never
+ * below the resting size (the first typed line must not sit against the
+ * animated mark in the bottom rule); one row per visual line so a longer
+ * prompt stays visible while written; at most PROMPT_CAP_FRACTION of the
+ * terminal, past which the input scrolls internally (rows here come out of
+ * the transcript).
  *
- * On a short terminal the resolver collapses the box toward PROMPT_BASE_ROWS
- * when the transcript would breach its floor — reading the transcript
- * matters more than seeing the whole draft.
+ * On a short terminal the resolver collapses toward PROMPT_BASE_ROWS when
+ * the transcript would breach its floor — reading the transcript matters
+ * more than seeing the whole draft.
  *
- * Pure: line counts in, rows out; the caller measures wrapped lines and
- * applies the result.
+ * Pure: line counts in, rows out; the caller measures wrapped lines.
  */
 
 /** Tallest bordered box the prompt may ask for on a terminal of `rows` rows. */
