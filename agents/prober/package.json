@@ -1,5 +1,5 @@
 {
-  "name": "@corbits/agent-prober",
+  "name": "@corbits/code-agent-prober",
   "version": "0.1.0",
   "private": true,
   "type": "module",

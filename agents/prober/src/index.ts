@@ -3,7 +3,7 @@
  * Measure-only latency/behavior prober — report distributions per
  * family/model; never ship product code, never tune prompts or policy.
  *
- * Ships as the @corbits/agent-prober workspace package: the tool allowlist
+ * Ships as the @corbits/code-agent-prober workspace package: the tool allowlist
  * lives here so the package stays importable without the app. Drift against
  * the app build surface fails src/agent/directors/prober/package.test.ts.
  */
