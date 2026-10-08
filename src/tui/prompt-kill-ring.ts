@@ -1,16 +1,12 @@
 /**
  * Readline-style kill ring for the OpenTUI prompt.
  *
- * The prompt's text buffer lives in `@opentui/core`'s InputRenderable,
- * which implements the delete and word-motion keys natively but discards
- * deleted text, so Ctrl+Y (yank) and Alt+Y (yank-pop) have nothing to
- * restore.
- *
- * This module is the pure, testable half of that gap: shell.ts calls the
- * native delete methods (keeping column/width handling correct), diffs
- * value/cursor before and after to learn what was removed, and hands that
- * text to `recordKill`. `beginYank` / `rotateYank` hand back the text to
- * splice in; shell.ts performs the splice.
+ * InputRenderable implements the delete and word-motion keys natively but
+ * discards the deleted text, so yank has nothing to restore. This module is
+ * the pure, testable half of that gap: shell.ts runs the native deletes,
+ * diffs value/cursor to learn what was removed, and records it via
+ * `recordKill`; `beginYank` / `rotateYank` hand back text for shell.ts to
+ * splice in.
  */
 
 export const KILL_RING_MAX = 10;
@@ -44,9 +40,8 @@ export function breakKillSequence(ring: KillRing): KillRing {
   return { ...ring, lastAction: "other", lastYankSpan: null };
 }
 
-// Consecutive kills grow a single ring entry the way readline does: forward
-// kills append, backward kills prepend, so Ctrl+K Ctrl+K ... Ctrl+Y restores
-// the killed region in original order.
+// Consecutive kills grow one entry readline-style: forward appends, backward
+// prepends, so repeated Ctrl+K then Ctrl+Y restores the region in order.
 export function recordKill(
   ring: KillRing,
   text: string,
@@ -74,7 +69,9 @@ export function recordKill(
   };
 }
 
-/** Ctrl+Y: text to insert at the cursor, or null when nothing has been killed. */
+/**
+ * Ctrl+Y: text to insert at the cursor, or null when nothing has been killed.
+ */
 export function beginYank(
   ring: KillRing,
   cursor: number,
@@ -94,8 +91,8 @@ export function beginYank(
 }
 
 /**
- * Alt+Y immediately after a yank: the caller replaces the returned span with
- * the next-older kill. Rotation persists, so the next Ctrl+Y yanks that entry.
+ * Alt+Y after a yank: the next-older kill replaces the returned span.
+ * Rotation persists, so the next Ctrl+Y yanks that entry.
  */
 export function rotateYank(
   ring: KillRing,
@@ -119,9 +116,8 @@ export function rotateYank(
 }
 
 /**
- * Diff helper for forward kills (Ctrl+K, Alt+D): the cursor does not move
- * when text is removed ahead of it, so the killed text is the pre-delete
- * slice at the pre-delete cursor, sized by how much the buffer shrank.
+ * Forward kill (Ctrl+K, Alt+D): the cursor does not move, so the killed text
+ * is the pre-delete slice at the pre-delete cursor, sized by the shrink.
  */
 export function killedTextForward(
   beforeValue: string,
@@ -134,9 +130,9 @@ export function killedTextForward(
 }
 
 /**
- * Diff helper for backward kills (Ctrl+U, Ctrl+W): the cursor moves back to
- * where the deletion started, so the killed text is the slice of the
- * pre-delete value between the new cursor and the old one.
+ * Backward kill (Ctrl+U, Ctrl+W): the cursor moves back to the deletion
+ * start, so the killed text is the pre-delete slice between the new and old
+ * cursor.
  */
 export function killedTextBackward(
   beforeValue: string,
