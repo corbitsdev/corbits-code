@@ -1,9 +1,8 @@
 /**
  * Pure chrome zone formatter for setChromeZones: session state → task/agents
  * zone rows. The product host pushes a full snapshot, so absent zones clear
- * (`null` hides); the task checklist stays parked (`task: null`) until a
- * later rebuild. Live progress clocks stay with chrome only (see
- * `agentsChromeNeedsSticky`).
+ * (`null` hides); the task checklist stays parked until a later rebuild.
+ * Live progress clocks stay with chrome only (see `agentsChromeNeedsSticky`).
  */
 
 import {
@@ -35,12 +34,12 @@ export interface ChromeAgentSession {
   readonly description: string;
   readonly status: "running" | "done" | "failed" | "cancelled";
   readonly lifecycleStatus?: AgentProgressSession["lifecycleStatus"];
-  /** Current tool while running (optional detail). */
+  /** Current tool while running. */
   readonly currentToolName?: string | null;
   /** Bounded subject of the outstanding call (command/path/pattern);
    * painted instead of the bare tool name. */
   readonly currentToolPreview?: string | null;
-  /** Clock the worker started; feeds the panel row's elapsed time. */
+  /** Clock the worker started; feeds the row's elapsed time. */
   readonly startedAt?: number;
   /** Clock of the worker's last reported activity; feeds stalled detection. */
   readonly lastActivityAt?: number;
@@ -56,7 +55,7 @@ export interface ChromeAgentSession {
   readonly runInFlight?: boolean;
 }
 
-/** Lightweight task row: title + status, as written by manage_tasks. */
+/** Task row: title + status, as written by manage_tasks. */
 export interface ChromeTaskRow {
   readonly title: string;
   readonly status: "todo" | "doing" | "done" | "cancelled";
@@ -72,8 +71,8 @@ export interface TaskPanelRow {
 /** Full live chrome snapshot. Missing / null fields hide that zone; push a
  * complete snapshot on every update. */
 export interface ChromeLiveState {
-  /** Structured rows manage_tasks writes; a task is a checklist item with a
-   * status, not an executor (distinct from `agents`). */
+  /** Structured rows manage_tasks writes; a task is a checklist item, not an
+   * executor (distinct from `agents`). */
   readonly task?: readonly ChromeTaskRow[] | null;
   /** Subagent sessions for the strip summary (running preferred). */
   readonly agents?: readonly ChromeAgentSession[] | null;
@@ -95,9 +94,9 @@ export interface AgentPanelRow {
   /** Row kind, so the renderer can colour and align without parsing `label`;
    * absent means a lane row (the default). */
   readonly kind?: "header" | "lane" | "more";
-  /** Lane lifecycle for paint tone: live running uses primary `UI.text`;
-   * terminal linger done/error/dim; interrupted linger dim, not live.
-   * Absent ⇒ treat as running. */
+  /** Lane lifecycle for paint tone: live running uses `UI.text`; terminal
+   * linger done/error/dim; interrupted linger dim, not live. Absent ⇒ treat
+   * as running. */
   readonly status?: "running" | "done" | "failed" | "cancelled" | "interrupted";
 }
 
@@ -112,9 +111,9 @@ const BOARD_LANE_ORDER: readonly LaneState[] = [
 
 /** Always-populated result for setChromeZones (null = hide zone). */
 export interface FormattedChromeZones {
-  /** One row per rendered task-panel line (null = hide zone, zero rows). */
+  /** One row per task-panel line (null = hide zone). */
   readonly task: readonly TaskPanelRow[] | null;
-  /** One row per rendered agents-panel line (null = hide zone, zero rows). */
+  /** One row per agents-panel line (null = hide zone). */
   readonly agents: readonly AgentPanelRow[] | null;
 }
 
@@ -151,7 +150,7 @@ export function formatChromeZones(
 
 /** True while the strip needs wall-clock ticks: any live worker or a
  * finished row inside the linger window. Product host polls on it to keep
- * clocks fresh and freeze `syncAgentProgress` rewrites meanwhile. */
+ * clocks fresh and freeze `syncAgentProgress` rewrites. */
 export function agentsChromeNeedsSticky(
   agents: readonly ChromeAgentSession[] | null | undefined,
   nowMs: number,
@@ -470,11 +469,9 @@ function formatTerminalRow(session: ChromeAgentSession): AgentPanelRow {
 
 /** Overlay live per-agent tool names onto the agents zone. The subagent
  * store is the sole source of truth for what a worker is doing; the
- * `subagent.progress` ping carries only a name with no clock and fires on
+ * `subagent.progress` ping carries only a name, no clock, and fires on
  * completion too, so painting it could announce a dead tool (the false
  * "quiet · read_file" stall) or a stale one.
- *
- * Signature kept so call sites and tests migrate in their own diffs.
  */
 export function annotateAgentTools(
   state: ChromeLiveState,
@@ -581,7 +578,7 @@ function mapSessionAgents(
 // ---------------------------------------------------------------------------
 // Turn progress label + agent-send failure classification (pure; no renderer
 // or session deps, so the shell paints the phase without duplicating the
-// state machine that produces it)
+// state machine)
 // ---------------------------------------------------------------------------
 
 /** Agent lifecycle status the progress label reads (mirrors the stream
@@ -600,9 +597,9 @@ export interface TurnLabelInput {
   readonly status: TurnStatus;
   readonly currentToolName: string | null;
   readonly streamingType: "text" | "thinking" | "tool" | null;
-  /** Clock for cycling live-activity words. Missing means the first word. */
+  /** Clock for cycling live-activity words; missing means the first word. */
   readonly nowMs?: number;
-  /** Session is still occupied even if this parent turn has settled — live
+  /** Session still occupied even if this parent turn has settled — live
    * fleet occupancy or a pending dry-fleet continuation. */
   readonly sessionActive?: boolean;
 }
@@ -695,9 +692,8 @@ function sessionIsLive(
  * disappears.
  *
  * `isStalled` is the caller's own `isStalledForDisplay` result (see
- * stall-watchdog.ts); this only ranks "stalled" against the other phases,
- * required not defaulted — a caller that forgets it paints a wedged run as
- * ordinary work.
+ * stall-watchdog.ts); this only ranks "stalled" against the other phases —
+ * a caller that forgets it paints a wedged run as ordinary work.
  */
 export function resolveTurnLabel(
   input: TurnLabelInput,
@@ -777,7 +773,7 @@ function authProviderFromMessage(message: string): AuthProviderId | null {
   return null;
 }
 
-/** Classify agent.send() rejection so the TUI can settle UI state
+/** Classify agent.send() rejection so the TUI settles UI state
  * consistently. */
 export function classifyAgentSendFailure(
   err: unknown,

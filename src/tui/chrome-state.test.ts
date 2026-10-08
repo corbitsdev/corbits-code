@@ -523,9 +523,9 @@ describe("formatAgentsPanel", () => {
   });
 
   test("row order is stable across an activity update between frames", () => {
-    // Neither sort key churns: a lane's state changes only when something real
-    // happens to it, and startedAt never changes at all. Keying on
-    // lastActivityAt would reshuffle the board on every tool event.
+    // Neither sort key churns: state changes only on a real event and
+    // startedAt never; keying on lastActivityAt would reshuffle the board on
+    // every tool event.
     const frame1 = [
       {
         agentId: "b",
@@ -567,7 +567,7 @@ describe("formatAgentsPanel", () => {
 
   test("a stalled lane survives a truncated fan-out", () => {
     // The real feed sorts newest-first; the board must not take that order, or
-    // the one lane most likely to need attention is exactly the one hidden.
+    // the lane most likely to need attention is exactly the one hidden.
     const newest = Array.from({ length: 5 }, (_, i) => ({
       agentId: `fresh-${i}`,
       currentToolStartedAt: null,
@@ -672,9 +672,9 @@ describe("annotateAgentTools", () => {
   };
 
   test("is an identity: a progress map never paints a tool without a store clock", () => {
-    // The store is the sole source of truth for what a worker is doing.
-    // A progress ping carries only a tool name with no clock, and is also
-    // emitted on tool completion, so it must never fill in a dead lane.
+    // The store is the sole source of truth for what a worker is doing; a
+    // progress ping carries only a tool name, no clock, and fires on
+    // completion too, so it must never fill in a dead lane.
     const tools = new Map([["map callers", "grep"]]);
     expect(annotateAgentTools(state, tools)).toBe(state);
     expect(annotateAgentTools(state, new Map())).toBe(state);
@@ -682,10 +682,10 @@ describe("annotateAgentTools", () => {
 });
 
 describe("lane state survives the mapping hops", () => {
-  // The panel and the transcript trailer reach laneState by different routes.
-  // A hop that drops currentToolStartedAt silently reclassifies a busy lane as
-  // stalled; the types make the drop a compile error, and this proves the two
-  // routes still agree on a live example.
+  // The panel and the transcript trailer reach laneState by different routes;
+  // a hop that drops currentToolStartedAt reclassifies a busy lane as
+  // stalled. The types make the drop a compile error; this proves the routes
+  // still agree on a live example.
   const inTool = {
     id: "sess-1",
     agentId: "worker",
@@ -694,7 +694,7 @@ describe("lane state survives the mapping hops", () => {
     currentToolName: "run_shell",
     currentToolPreview: null as string | null,
     // Past DEFAULT_STALL_MS (300s) so laneState reaches the in_tool branch,
-    // still under IN_TOOL_STALL_MS (10 min). Tool clock stays at 3:00.
+    // still under IN_TOOL_STALL_MS (10 min); tool clock stays at 3:00.
     currentToolStartedAt: NOW - 180_000,
     startedAt: NOW - 200_000,
     lastActivityAt: NOW - 310_000,
@@ -735,8 +735,8 @@ describe("lane state survives the mapping hops", () => {
     expect(agentProgress(withPreview, NOW)?.stat).not.toContain("run_shell");
   });
 
-  // A progress ping renames the tool but carries no clock of its own and may
-  // arrive on tool completion — so it must not paint anything at all.
+  // A progress ping renames the tool but carries no clock and may arrive on
+  // completion — it must not paint anything at all.
   test("the tool annotation never repaints a live call with another name", () => {
     const annotated = annotateAgentTools(
       { agents: [inTool] },
@@ -748,8 +748,8 @@ describe("lane state survives the mapping hops", () => {
 
   test("the tool annotation never fills a gap when no call is outstanding", () => {
     // A lane with no outstanding call must stay null: the progress map is not
-    // a source of truth for what a worker is doing. Painting it here is what
-    // produced the false "quiet … · <tool>" stall on finished tools.
+    // a source of truth. Painting it here produced the false
+    // "quiet … · <tool>" stall on finished tools.
     const idle = {
       ...inTool,
       currentToolName: null,
