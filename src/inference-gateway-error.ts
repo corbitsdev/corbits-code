@@ -26,7 +26,7 @@ export interface InferenceErrorLike {
   statusCode?: number;
   raw?: unknown;
   retryAfterMs?: number;
-  /** Optional request base/url when known — used to scope Go error reclassification. */
+  /** Request base/url when known; scopes Go error reclassification. */
   requestURL?: string;
   /** Provider catalog id when known (e.g. opencode-go, codex/acme-labs). */
   providerId?: string;
@@ -34,7 +34,7 @@ export interface InferenceErrorLike {
   opencodeGo?: boolean;
 }
 
-/** Optional Go context so bare 429s reclassify without body markers. */
+/** Go context so bare 429s reclassify without body markers. */
 export interface OpenCodeGoErrorContext {
   requestURL?: string;
   providerId?: string;
@@ -58,10 +58,11 @@ const GATEWAY_OVERLOAD_TEXT_MARKERS = [
 export const GATEWAY_OVERLOAD_USER_MESSAGE =
   "Inference gateway overloaded — retrying…";
 
-/** User-visible line for a short known-provider 429; also terminal once retries are exhausted. */
+/** User-visible line for a short known-provider 429; terminal once retries
+ * are exhausted. */
 export const RATE_LIMIT_USER_MESSAGE = "Rate limited";
 
-/** Body markers that mean a real usage/quota window, not a short rate limit. */
+/** Body markers for a real usage/quota window, not a short rate limit. */
 const XAI_QUOTA_BODY_MARKERS = [
   "insufficient_quota",
   "usage limit",
@@ -83,7 +84,7 @@ function stringFromRaw(raw: unknown): string {
   }
 }
 
-/** Substring check over joined, lowercased parts; shared by the three detectors. */
+/** Substring check over joined, lowercased parts. */
 function combinedTextIncludesMarker(
   parts: string[],
   markers: readonly string[],
@@ -92,7 +93,7 @@ function combinedTextIncludesMarker(
   return markers.some((marker) => combined.includes(marker));
 }
 
-/** True when the payload looks like an HTML error page rather than API JSON/SSE. */
+/** True when the payload looks like an HTML error page, not API JSON/SSE. */
 export function looksLikeHtmlGatewayBody(text: string): boolean {
   const trimmed = text.trimStart().slice(0, 512).toLowerCase();
   if (trimmed.length === 0) return false;
@@ -123,8 +124,8 @@ function hasGatewayOverloadStatus(error: InferenceErrorLike): boolean {
 }
 
 /**
- * HTML-bodied 503 / reverse-proxy overload, mislabeled protocol_mismatch
- * when the stream body is not valid SSE/JSON.
+ * HTML-bodied 503/reverse-proxy overload, mislabeled protocol_mismatch
+ * when the stream body is invalid SSE/JSON.
  */
 export function isGatewayOverloadInferenceError(
   error: InferenceErrorLike,
@@ -142,7 +143,7 @@ export function isGatewayOverloadInferenceError(
 
   if (htmlLike && hasGatewayOverloadStatus(error)) return true;
 
-  // Malformed SSE where the first chunk is a plain HTML 503 page (no doctype).
+  // Malformed SSE whose first chunk is a bare HTML 503 page (no doctype).
   if (
     hasGatewayOverloadStatus(error) &&
     rawText.length > 0 &&
@@ -163,8 +164,8 @@ function tryParseJSON(text: string): unknown {
 }
 
 /**
- * Known OpenCode Go errors: provider context (id / flag / request URL) or Go
- * body markers. Bare `provider_rate_limit_exceeded` alone is not enough;
+ * Known OpenCode Go errors: provider context (id/flag/request URL) or Go
+ * body markers; bare `provider_rate_limit_exceeded` alone is not enough —
  * other proxies use it.
  */
 function isKnownOpenCodeGoError(
@@ -182,9 +183,8 @@ function isKnownOpenCodeGoError(
 }
 
 /**
- * Reclassify Go quota / rate-limit / auth failures when the request is known
- * Go or the body carries Go error types. A bare 429 in a known-Go context
- * becomes retryable rate_limit, not long-window quota.
+ * Reclassify known-Go quota/rate-limit/auth failures: a bare 429 in a
+ * known-Go context becomes retryable rate_limit, not long-window quota.
  */
 export function normalizeOpenCodeGoInferenceError(
   error: InferenceErrorWithGoContext,
@@ -240,14 +240,14 @@ function textHasXaiQuotaMarkers(...parts: string[]): boolean {
   return combinedTextIncludesMarker(parts, XAI_QUOTA_BODY_MARKERS);
 }
 
-/** User-visible line for an attributable xAI / Grok capacity error; also
- * terminal once retries are exhausted. */
+/** User-visible line for an attributable xAI/Grok capacity error; terminal
+ * once retries are exhausted. */
 export const XAI_CAPACITY_USER_MESSAGE = "xAI at capacity";
 
 /**
- * xAI / Grok capacity phrases arriving as protocol_mismatch. "Service
- * temporarily unavailable" matches exactly, never substring (would rematch
- * quota copy).
+ * xAI/Grok capacity phrases arriving as protocol_mismatch. "Service
+ * temporarily unavailable" matches exactly, never substring (substring
+ * would rematch quota copy).
  */
 const XAI_CAPACITY_TEXT_MARKERS = [
   "currently at capacity",
@@ -259,7 +259,8 @@ const XAI_CAPACITY_EXACT_MESSAGES = new Set([
   "service temporarily unavailable",
 ]);
 
-/** Exact-match only — never substring. Checks the part itself and common JSON message fields. */
+/** Exact-match only — never substring; checks the part and common JSON
+ * message fields. */
 function isXaiCapacityExactPhrase(part: string): boolean {
   if (XAI_CAPACITY_EXACT_MESSAGES.has(part.trim().toLowerCase())) return true;
   const parsed = tryParseJSON(part);
@@ -288,7 +289,7 @@ function textSuggestsXaiCapacity(...parts: string[]): boolean {
 }
 
 /**
- * Remap attributable xAI / Grok capacity protocol_mismatch errors to retryable.
+ * Remap attributable xAI/Grok capacity protocol_mismatch errors to retryable.
  * Unknown providers stay terminal; quota markers anywhere veto the remap.
  */
 export function normalizeXaiCapacityError(
@@ -315,8 +316,7 @@ export function normalizeXaiCapacityError(
 /**
  * Shared short-rate-limit predicate behind the twin provider checks: a known
  * provider's 429 (quota_exhausted or remapped retryable) with no usage-limit
- * markers. Provider identity and the veto differ per provider; check order
- * is fixed.
+ * markers. Identity and veto differ per provider; check order is fixed.
  */
 function isShortRateLimitInferenceError(
   error: InferenceErrorLike,
@@ -336,8 +336,8 @@ function hasXaiQuotaMarkers(error: InferenceErrorLike): boolean {
 }
 
 /**
- * Known-xAI 429 that is a short rate limit, not a usage/quota window;
- * discrimination is quota body markers, not Retry-After length.
+ * Known-xAI 429 that is a short rate limit, not a usage/quota window; quota
+ * body markers decide, not Retry-After length.
  */
 export function isXaiShortRateLimitInferenceError(
   error: InferenceErrorLike,
@@ -375,8 +375,8 @@ function normalizeProviderRateLimitError(
 }
 
 /**
- * Bare 429 in a known-xAI / Grok context reclassifies as retryable; intx
- * defaults bare 429 to quota_exhausted, and usage/quota markers keep it.
+ * Bare 429 in a known-xAI/Grok context reclassifies as retryable; intx
+ * defaults bare 429 to quota_exhausted; usage/quota markers keep it.
  */
 export function normalizeXaiRateLimitError(
   error: InferenceErrorWithGoContext,
@@ -417,8 +417,8 @@ function hasCodexUsageLimit(error: InferenceErrorLike): boolean {
 
 /**
  * Known-Codex 429 that is a short rate limit, not a `usage_limit_reached`
- * window; discrimination is the Codex usage-limit parser, not Retry-After
- * length or bare prose.
+ * window; the Codex usage-limit parser decides, not Retry-After length or
+ * prose.
  */
 export function isCodexShortRateLimitInferenceError(
   error: InferenceErrorLike,
@@ -432,8 +432,8 @@ export function isCodexShortRateLimitInferenceError(
 
 /**
  * Bare 429 in a known-Codex context reclassifies as retryable; intx
- * defaults bare 429 to quota_exhausted, and nested `usage_limit_reached`
- * keeps it.
+ * defaults bare 429 to quota_exhausted; nested `usage_limit_reached` keeps
+ * it.
  */
 export function normalizeCodexRateLimitError(
   error: InferenceErrorWithGoContext,
@@ -447,8 +447,8 @@ export function normalizeCodexRateLimitError(
 
 /**
  * Lift Codex `usage_limit_reached` bodies onto quota_exhausted with a reset
- * ETA and profile-switch hint; the nested diagnostic stays on `raw`. Known
- * non-Codex sources keep their own quota copy.
+ * ETA and profile-switch hint; the nested diagnostic stays on `raw`.
+ * Non-Codex sources keep their own quota copy.
  */
 function normalizeCodexUsageLimitError(
   error: InferenceErrorWithGoContext,
@@ -484,8 +484,8 @@ function normalizeCodexUsageLimitError(
 /**
  * Auth-rejection signals for the Codex credential-404 classifier: a
  * known-Codex fatal 404 reclassifies only when the message or raw body
- * carries one; bare / routing 404s stay fatal. No negative matching —
- * new phrasing would otherwise need an allowlist entry per phrase.
+ * carries one; bare/routing 404s stay fatal. No negative matching — new
+ * phrasing would need an allowlist entry per phrase.
  */
 const CODEX_CREDENTIAL_404_MARKERS = [
   "not authorized",
@@ -507,8 +507,8 @@ function hasCodexCredentialAuthSignal(error: InferenceErrorLike): boolean {
 /**
  * Model-deprecation signals that veto the credential-404 classifier. A
  * retired-model 404 can itself carry "expired" ("model 'gpt-4o' has expired");
- * reclassifying would send the operator to log in again for a model that no
- * longer exists. Needs a model mention plus a deprecation signal.
+ * reclassifying would send the operator to log in for a model that no longer
+ * exists. Needs a model mention plus a deprecation signal.
  */
 const CODEX_MODEL_DEPRECATION_MARKERS = [
   "model_expired",
@@ -534,9 +534,8 @@ function looksLikeCodexModelDeprecation(error: InferenceErrorLike): boolean {
 }
 
 /**
- * Shared predicate behind the Codex credential-404 re-login copy: the
- * classifier brands with it and the terminal-guidance dedup checks with it,
- * so the two cannot drift.
+ * Shared predicate behind the Codex credential-404 re-login copy; the
+ * classifier and terminal-guidance dedup share it so the two cannot drift.
  */
 export function carriesCodexReLoginHint(text: string): boolean {
   return /\/connect/i.test(text) && /codex profile/i.test(text);
@@ -557,8 +556,8 @@ function formatCodexCredential404Message(
 /**
  * A known-Codex fatal 404 with an auth-rejection signal is an expired/revoked
  * credential, not a bad model name; reclassify to credential_failure with
- * re-login copy. No auth signal — or a model-deprecation 404 even with the
- * word "expired" — keeps the fatal switch-models path.
+ * re-login copy. No auth signal — or a model-deprecation 404 even with
+ * "expired" — keeps the fatal switch-models path.
  */
 function normalizeCodexCredential404Error(
   error: InferenceErrorWithGoContext,
@@ -587,8 +586,8 @@ function normalizeCodexCredential404Error(
 
 /**
  * Fatal 400s arrive with statusText ("Bad Request") while the real diagnostic
- * sits on nested `detail.error` / `error.message`; lift it so the transcript
- * is actionable. Category stays fatal.
+ * sits on nested `detail.error`/`error.message`; lift it so the transcript is
+ * actionable. Category stays fatal.
  */
 function normalizeFatal400NestedMessage(
   error: InferenceErrorWithGoContext,
@@ -623,8 +622,8 @@ function normalizeFatal400NestedMessage(
 }
 
 /**
- * OAuth provider ids eligible for upgrade-class reconnect: known-xAI /
- * Grok-leaf and known-Codex ids. Shared with the transcript guidance and the
+ * OAuth provider ids eligible for upgrade-class reconnect: known-xAI/
+ * Grok-leaf and known-Codex ids. Shared with transcript guidance and the
  * reconnect descriptor so all three agree on the set.
  */
 export function isKnownOAuthProviderId(
@@ -637,9 +636,8 @@ export function isKnownOAuthProviderId(
 
 /**
  * Upgrade/auth-rejection signals for the OAuth 426 classifier: the 426 reason
- * phrase plus the auth-rejection phrasing shared with the Codex
- * credential-404 markers. A 426 on an OAuth profile means the request arrived
- * unauthenticated.
+ * phrase plus the Codex credential-404 auth markers. A 426 on an OAuth
+ * profile means the request arrived unauthenticated.
  */
 const OAUTH_UPGRADE_426_MARKERS = [
   "upgrade",
@@ -687,7 +685,7 @@ function looksLikeOAuthUpgrade426Deprecation(
 /**
  * Branded re-auth line for a non-Codex OAuth 426, mirroring
  * formatCodexCredential404Message; an empty diagnostic leaves the branded
- * line standing alone.
+ * line alone.
  */
 function formatOAuthUpgrade426Message(
   kindLabel: string,
@@ -706,8 +704,8 @@ function formatOAuthUpgrade426Message(
  * OAuth 426 is an unauthenticated-provider rejection, not a bad model name: a
  * fatal 426 on a known-OAuth id becomes credential_failure so the transcript
  * can offer a reconnect. Quota and deprecation markers veto. No body-signal
- * requirement — the reported xAI 426 arrives bare. Recognized phrasing is
- * echoed in the branded line; unrecognized copy stays on `raw`.
+ * requirement — the reported xAI 426 arrives bare. Recognized phrasing goes
+ * in the branded line; unrecognized copy stays on `raw`.
  */
 function normalizeOAuthUpgradeRequiredError(
   error: InferenceErrorWithGoContext,

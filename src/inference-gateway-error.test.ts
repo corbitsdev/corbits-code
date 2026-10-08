@@ -13,8 +13,8 @@ const CLOUDFLARE_503_HTML = `<!DOCTYPE html>
 <p>Cloudflare Ray ID: abc</p></body></html>`;
 
 // PROVISIONAL: the real xAI 426 body for xai/default-2 is unknown (reports show
-// a bare "HTTP 426 Upgrade Required"). Grounded in status code, reason phrase,
-// and OAuth id only; no body-signal assertions until a real payload lands.
+// a bare "HTTP 426 Upgrade Required"); grounded in status code, reason phrase,
+// and OAuth id only, with no body-signal assertions until a real payload lands.
 const PROVISIONAL_XAI_426_UPGRADE_REQUIRED = {
   category: "fatal" as const,
   message: "Upgrade Required",
@@ -264,8 +264,8 @@ describe("normalizeInferenceErrorForRetry", () => {
   });
 
   // intx defaults 429 → quota_exhausted; known-provider context reclassifies a
-  // bare 429 (no quota markers) as a plain rate limit, never claiming
-  // quota/usage-limit copy.
+  // bare 429 (no quota markers) as rate_limit, never claiming quota/usage-limit
+  // copy.
   const BARE_429 = {
     category: "quota_exhausted" as const,
     message: "Too Many Requests",
@@ -416,9 +416,9 @@ describe("normalizeInferenceErrorForRetry", () => {
 
   /**
    * Wire shape for a revoked Codex credential: the harness classifies the 404
-   * as fatal with the statusText message while the JSON body rides on raw. The
-   * body carries the auth-rejection signal; the status line alone must never
-   * reclassify.
+   * as fatal with the statusText message while the JSON body rides on raw.
+   * The body carries the auth-rejection signal; the status line alone must
+   * never reclassify.
    */
   const REVOKED_CREDENTIAL_404_RAW = {
     error: {
@@ -439,8 +439,8 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalized.category).toBe("credential_failure");
     expect(normalized.message).toContain('Codex profile "work"');
     expect(carriesCodexReLoginHint(normalized.message)).toBe(true);
-    // Original diagnostic rides along so the failure stays debuggable, and
-    // the wire body stays on raw for logs.
+    // Original diagnostic rides along so the failure stays debuggable; the
+    // wire body stays on raw for logs.
     expect(normalized.message).toContain("Not Found");
     expect(normalized.raw).toEqual(REVOKED_CREDENTIAL_404_RAW);
   });
@@ -567,7 +567,7 @@ describe("normalizeInferenceErrorForRetry", () => {
 
   // Live Codex 400: the harness classifies it as fatal with statusText "Bad
   // Request" while the nested diagnostic rides on raw; the lift must surface
-  // it without changing the category.
+  // it without changing category.
   const CODEX_FATAL_400_NESTED_RAW = {
     detail: {
       error: {
