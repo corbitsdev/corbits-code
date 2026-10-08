@@ -1,21 +1,19 @@
 /**
  * spawn_agent / wait_agents: the split fleet dispatch surface.
  *
- * spawn_agent starts several workers in one turn and returns immediately;
- * wait_agents later blocks on this caller's own workers. Running state is
- * the session store's `WorkerLifecycle`; wait blocks on the store's
- * `subscribe` raced against a timeout timer, never polling. Wait JSON is a
- * projection of stored lifecycle plus a per-install wait mailbox
- * (`FleetMailbox`): membership, pin, collected, and an optional status
- * override. Spawn/resume settlement writes only the session store.
+ * spawn_agent starts workers and returns immediately; wait_agents later
+ * blocks on this caller's own workers. Running state is the session store's
+ * `WorkerLifecycle`; wait blocks on the store's `subscribe` raced against a
+ * timer — never polling. Wait JSON projects stored lifecycle plus a
+ * per-install wait mailbox (`FleetMailbox`): membership, pin, collected, and
+ * an optional status override.
  *
- * Finished-session retention is a TUI display cap (`maxCompleted`, default
- * 20): `complete()`/`fail()` evict the oldest finished session — report and
- * all — once past it. Mailbox `register` pins the session (honored by
- * pruneCompleted and pruneRetained) until collect unpins; past
- * `MAX_FLEET_RECORDS` the oldest never-collected pin is compacted to a
- * tombstone (status only, plus a `read_agent_trace` pointer). Implement/
- * review dispatches fail closed without non-empty success_criteria.
+ * Finished-session retention is a display cap: `complete()`/`fail()` evict
+ * the oldest finished session once past `maxCompleted`; mailbox `register`
+ * pins a session until collect unpins, and past `MAX_FLEET_RECORDS` the
+ * oldest never-collected pin compacts to a tombstone (status plus a
+ * `read_agent_trace` pointer). Implement/review dispatches fail closed
+ * without non-empty success_criteria.
  */
 
 import { join } from "node:path";
@@ -154,8 +152,8 @@ interface FleetOverlay {
   pinHeld?: boolean;
   /** interrupt_agent / close_agent — wait interrupted while session may still be running. */
   forceInterrupted?: boolean;
-  /** A send_input interrupt:true followup owns this lane; suppresses terminal
-   * overlays so wait stays live until the followup settles. */
+  /** A send_input interrupt followup owns this lane; wait stays live
+   * until it settles. */
   followupLive?: boolean;
   /** Admission overlay: wait JSON `queued` while run() has not been admitted. */
   forceQueued?: boolean;
@@ -216,11 +214,8 @@ class FleetMailbox {
     });
   }
 
-  /**
-   * Snapshot the parked asks the parent already saw (TUI wake, wait_agents
-   * payload, or list_agents). Empty clears the stamp; distinct from TUI
-   * deliveredAskWake.
-   */
+  /** Stamp the parked asks the parent already saw (TUI wake, wait_agents,
+   * list_agents). Empty clears it. */
   noteParkedAsksSurfaced(rows: readonly ParkedAskSurface[]): void {
     this.lastSurfacedParkedAsks =
       rows.length === 0 ? undefined : parkedAskFingerprint(rows);
@@ -236,8 +231,8 @@ class FleetMailbox {
 
   register(id: string): void {
     const existing = this.records.get(id);
-    // start() drops pinCounts on call-id reuse. Re-pin whenever the overlay
-    // thought it still held a pin, so wait cannot desync against an empty map.
+    // start() drops pinCounts on call-id reuse; re-pin if the overlay still
+    // thought it held one, so wait cannot desync against an empty map.
     if (existing?.pinHeld === true) this.sessions.unpin(id);
     const wait = this.sessionWaitStatus(id);
     this.records.set(id, {
@@ -259,9 +254,8 @@ class FleetMailbox {
 
   /**
    * Stop teardown: drop every mailbox record so no stale lane outlives the
-   * sessions it pins. The store clears its refcounts wholesale, so dropping
-   * the records keeps both sides in agreement. Also resets the parked-ask
-   * fingerprint so a later session reusing an id re-surfaces cleanly.
+   * sessions it pins. Also reset the parked-ask fingerprint so a later
+   * session reusing an id re-surfaces cleanly.
    */
   clear(): void {
     this.records.clear();
@@ -275,11 +269,8 @@ class FleetMailbox {
     existing.providerFailure = true;
   }
 
-  /**
-   * Stamp a transient (retryable/timeout/overload) provider failure beside
-   * sessions.fail. Survives eviction like providerFailure — the snapshot
-   * projects it even once the payload is tombstoned.
-   */
+  /** Stamp a transient provider failure beside sessions.fail; the snapshot
+   * projects it even once the payload is tombstoned. */
   markRecoverable(id: string): void {
     const existing = this.records.get(id);
     if (existing === undefined) return;
@@ -300,11 +291,8 @@ class FleetMailbox {
     this.sessions?.wake();
   }
 
-  /**
-   * Overlay wait-status override so wait unblocks while the session may still
-   * be running (interrupt_agent / close_agent teardown). No-op once
-   * collected — frozen status stays interrupted.
-   */
+  /** Override wait status so wait unblocks during interrupt/close
+   * teardown. No-op once collected. */
   interrupt(id: string, _report?: string): void {
     const existing = this.records.get(id);
     if (existing === undefined) return;
@@ -318,11 +306,8 @@ class FleetMailbox {
     this.enforceCap();
   }
 
-  /**
-   * Mark that a send_input interrupt:true followup owns this lane. Suppresses
-   * interrupt overlays so wait stays live until the followup settles. No-op
-   * on an unknown id or a collected mailbox (frozen status still wins).
-   */
+  /** Mark that an interrupt followup owns this lane; wait stays live
+   * until it settles. */
   noteFollowup(id: string): void {
     const existing = this.records.get(id);
     if (existing === undefined) return;
@@ -332,10 +317,9 @@ class FleetMailbox {
   }
 
   /**
-   * send_input interrupt:true followup finished. Clear the followup lane flag
-   * (and any admission queued overlay) so wait projects the settled session.
-   * Keeps a close/interrupt overlay — a followup reply must not undo
-   * interrupt_agent or close_agent. No-op if already collected.
+   * The interrupt followup finished. Clear the followup and queued overlays
+   * so wait projects the settled session, but keep a close/interrupt overlay —
+   * a followup reply must not undo interrupt_agent or close_agent.
    */
   completeAfterInterrupt(id: string, _report?: string): void {
     const existing = this.records.get(id);
@@ -395,8 +379,8 @@ class FleetMailbox {
     for (const [id, overlay] of this.records) {
       const wait = this.sessionWaitStatus(id);
       if (wait === undefined) continue;
-      // Do not overwrite lastWait with the session's pending_init/running
-      // projection while the overlay is still admission-queued.
+      // Keep lastWait while admission-queued; the live projection would
+      // overwrite it.
       if (overlay.forceQueued === true && isLiveWaitStatus(wait)) continue;
       overlay.lastWaitStatus = wait;
     }
@@ -690,10 +674,9 @@ function fleetJson(value: unknown): string {
 
 /**
  * Tier gate for stamped requires_tools. run.ts mounts submit_result and
- * ask_director on leaves only and fleet verbs on orchestrator tiers only; a
- * requirement the tier can never mount rejects here pre-spawn as
- * missing_tool instead of surviving to a stale echo at mount time. Returns
- * the rejection, or undefined when the tier mounts all.
+ * ask_director on leaves only and fleet verbs on orchestrators only; a
+ * requirement the tier can never mount rejects pre-spawn as missing_tool
+ * instead of surviving to a stale echo at mount time.
  */
 export function tierGateRequiresTools(
   canonical: readonly string[],
@@ -901,13 +884,11 @@ function handoffRequiresSuccessCriteria(
 export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   const telemetry = deps.telemetry ?? NOOP_TELEMETRY;
   // Overlap detection (replaces the static per-package writePaths lock):
-  // warn, don't lock, when two live lanes share a cwd. spawn_agent declares
-  // no file scope, so cwd is the only knowable intent; worktree lanes get
-  // fresh disjoint paths, so this fires only in the shared-cwd fallback.
-  // Read-only modelRoles never participate; a cwd warns once per wave while
-  // a live mutating writer remains, cleared when that set empties. Keyed by
-  // call.id for finally cleanup; the session store is authoritative for
-  // liveness (cancel can stamp finishedAt before the run promise settles).
+  // warn, don't lock, when two live lanes share a cwd. Worktree lanes get
+  // disjoint paths, so this fires only in the shared-cwd fallback; read-only
+  // modelRoles never participate. A cwd warns once per wave while a live
+  // mutating writer remains. Keyed by call.id; the session store is
+  // authoritative for liveness.
   const activeLanes = new Map<
     string,
     { description: string; cwd: string; modelRole: ModelRole | undefined }
@@ -1386,9 +1367,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         deps.sessions.markRunInFlight(session.id);
         void (async () => {
           if (!stillAdmissible()) {
-            // Marked in flight above but will never start: settle through the
-            // normal terminal path, or the wait projection strands on
-            // "running" with nothing left to settle it.
+            // Marked in flight but will never start: settle through the normal
+            // terminal path, or the wait projection strands on "running".
             deps.sessions.settleRun(session.id);
             finalizeEnd();
             admission.release(session.id);
@@ -1425,8 +1405,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           }
 
           if (!stillAdmissible()) {
-            // Same stranded-run settle as above — the interrupt (or cancel)
-            // landed while worktree setup was in flight.
+            // The interrupt landed while worktree setup was in flight.
             deps.sessions.settleRun(session.id);
             finalizeEnd();
             await reclaimWorktree();
@@ -1434,9 +1413,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             return;
           }
 
-          // Same overlap policy as above: warn when another live mutating
-          // lane shares this cwd. Never blocks the spawn — a shared cwd does
-          // not prove the two lanes touch the same files, only that they could.
+          // Same overlap policy: warn when another live mutating lane shares
+          // this cwd. Never blocks — a shared cwd only means they could.
           const laneCwd = worktreeCwd ?? deps.cwd;
           const laneModelRole = resolved.pkg?.modelRole;
           const laneIsWriter = !isDeclaredReadOnly(laneModelRole);
@@ -1476,9 +1454,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
 
           const allowedSkillNames = packageAllowedSkillNames(resolved.pkg);
           const params: RunSubAgentParams = {
-            // Name the trace directory after the session-store id so
-            // read_agent_trace's descendant-scoping check can resolve this
-            // worker's parent chain.
+            // Trace dir name = session-store id, so read_agent_trace can
+            // resolve this worker's parent chain.
             id: session.id,
             permissionGate: deps.permissionGate,
             ...(deps.inheritMcpTools !== undefined
@@ -1541,10 +1518,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             ...(deps.skillDirs !== undefined
               ? { skillDirs: deps.skillDirs }
               : {}),
-            // Shared-cwd lanes reuse the dispatcher's skill snapshot
-            // (discovered for this exact cwd); worktree lanes rediscover for
-            // their own directory. Every fleet-spawned worker skips the
-            // pricing-cache seed read — the parent applied it at boot.
+            // Shared-cwd lanes reuse the dispatcher's skill snapshot; worktree
+            // lanes rediscover for their own directory. Every fleet worker
+            // skips the pricing seed — the parent applied it at boot.
             ...(deps.skillSnapshot !== undefined && worktreeCwd === undefined
               ? { skills: deps.skillSnapshot }
               : {}),
@@ -1565,9 +1541,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             ...(deps.deadlineMs !== undefined
               ? { deadlineMs: deps.deadlineMs }
               : {}),
-            // Same dispatchTier as the tier gate above, so mount and gate
-            // agree by construction. An orchestrator without a resolved
-            // package carries no tier; run.ts fails closed on fleet mounts.
+            // Same dispatchTier as the gate above, so mount and gate agree.
+            // An orchestrator without a resolved package carries no tier.
             ...(resolved.pkg !== undefined || !orchestrator
               ? { tier: dispatchTier }
               : {}),
@@ -1636,10 +1611,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               if (result.interrupted === true) {
                 keepWorktreeAlive = true;
                 runInterrupted = true;
-                // A followup stashed via send_input interrupt launches from
-                // attachReport, so the settling turn must attach its salvage
-                // here — attachReport records and launches atomically.
-                // Skipping it strands the stash and hangs wait_agents.
+                // The followup stashed via send_input launches from
+                // attachReport; attach the salvage here or wait_agents hangs.
                 deps.sessions.attachReport(session.id, result.report, {
                   ...(result.stopReason !== undefined
                     ? { stopReason: result.stopReason }
@@ -1689,10 +1662,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               if (isProviderFailure || providerFailureObserved) {
                 deps.fleetRecords.markProviderFailure(session.id);
               }
-              // A classified transient failure stays wait-terminal failed but
-              // carries a continuable marker so the parent can spawn one
-              // successor. Fatal categories (credential/quota/context-overflow)
-              // and unclassified throws never mark.
+              // A transient failure stays wait-terminal failed but carries a
+              // continuable marker so the parent can spawn one successor.
               if (
                 isResolvedProviderFailureError(err) &&
                 isRecoverableProviderFailureCategory(err.category)
@@ -1736,11 +1707,9 @@ interface WaitAgentsDeps {
   fleetRecords: FleetMailboxHandle;
   authority?: WaitAgentsAuthority;
   /**
-   * Supported but unwired in production (TUI does not mount wait_agents; exec
-   * mounts without it). When true, finish the wait as a timeout so occupancy
-   * can deliver mailbox mail or a queued operator steer. Live and
-   * awaiting_director records stay peeked; terminals are taken unless
-   * already bodyHanded.
+   * Unwired in production (TUI does not mount wait_agents; exec mounts
+   * without it). When true, finish the wait as a timeout so occupancy can
+   * deliver mailbox mail or a queued operator steer.
    */
   shouldYieldWait?: () => boolean;
 }
@@ -1751,12 +1720,10 @@ function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
 }
 
 /**
- * Blocks until `mode` is satisfied for `targets`, or `timeoutMs` / abort
- * elapses, or `shouldYieldWait` (currently unwired) is true. Driven by the
- * store's `subscribe` raced against a timer and the parent tool signal;
- * never polls. Timeout, abort, and yield never interrupt workers: live and
- * awaiting_director stay peeked; terminals are taken unless already
- * bodyHanded. Overlay writers wake it via `sessions.wake()`.
+ * Block until `mode` is satisfied for `targets`, or `timeoutMs` / abort /
+ * yield elapses. Driven by the store's `subscribe` raced against a timer and
+ * the tool signal — never polls. Timeout, abort, and yield never interrupt
+ * workers; overlay writers wake it via `sessions.wake()`.
  */
 async function waitForTerminal(
   sessions: SubAgentSessionStore,
@@ -1871,12 +1838,9 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
       const timedOut = finishReason !== "ready";
       const yielded = finishReason === "yield";
 
-      // Terminal projections are collected once delivered; running records
-      // are only peeked, so they stay waitable. A yield leaves live records
-      // for occupancy and keeps the awaiting_director question on the wake
-      // path. Terminals are always taken, even on yield or timeout: an
-      // uncollected "done" blocks resume_agent and keeps the occupancy yield
-      // predicate true, so every later wait yields the same way.
+      // Running records are peeked and stay waitable; terminals are taken
+      // once delivered, even on yield or timeout — an uncollected "done"
+      // blocks resume_agent and keeps every later wait yielding the same way.
       const results = targets.map((id) => {
         const record = deps.fleetRecords.peek(id);
         if (record === undefined) {
@@ -1909,9 +1873,8 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         if (isLiveWaitStatus(record.status)) {
           return { agent_id: id, status: record.status };
         }
-        // A terminal status shown here must be collected: fall through to
-        // takeAndProjectMailboxRecord even when yielded (see above) so a
-        // timed_out wait never reports done without its report.
+        // Terminals shown here must be collected, even when yielded, so a
+        // timed-out wait never reports done without its report.
         if (record.bodyHanded === true) {
           return {
             agent_id: id,

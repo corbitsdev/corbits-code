@@ -109,8 +109,7 @@ export type RunSubAgentParams = {
   /**
    * Stable id for the worker's trace directory (subagents/<id>); must match
    * the store record id when tracked, so read_agent_trace reuses the
-   * parentSessionId chain. Falls back to a fresh id when unset or unsafe as
-   * a path segment.
+   * parentSessionId chain. Falls back to a fresh id when unset or unsafe.
    */
   id?: string;
   provider: SubAgentProvider;
@@ -183,9 +182,8 @@ export type RunSubAgentParams = {
    */
   skipPricingSeed?: boolean;
   systemPromptRole?: string;
-  /** Resolved closed-director id (e.g. "reviewer") when the worker is one.
-   * Structured gate key — prefer over persona-string matching in
-   * systemPromptRole. */
+  /** Resolved closed-director id (e.g. "reviewer"); structured gate key,
+   * preferred over persona-string matching in systemPromptRole. */
   directorId?: string;
   // When true, the system prompt grants this sub-agent permission to call
   // `spawn_agent` (orchestrator exception to the no-recursion rule); set
@@ -193,10 +191,9 @@ export type RunSubAgentParams = {
   // advertising permission without the tools is a hard break.
   orchestrator?: boolean;
   /**
-   * Fleet authority tier for this dispatch, resolved by agent-fleet.ts from
-   * DirectorPackage.tier. Required when orchestrator is true: runSubAgent
-   * denies fleet tools when this is undefined or "leaf" — an unrecognized
-   * tier must never mount a fleet verb. See src/subagent/authority.ts.
+   * Fleet authority tier for this dispatch (from DirectorPackage.tier).
+   * Required when orchestrator is true: runSubAgent denies fleet tools when
+   * this is undefined or "leaf". See src/subagent/authority.ts.
    */
   orchestratorTier?: SubagentTier;
   // Present only when orchestrator is true. Installs fleet tools so the
@@ -209,10 +206,8 @@ export type RunSubAgentParams = {
    */
   deadlineMs?: number;
   /**
-   * Resolved director tier, independent of `orchestratorTier`; set by
-   * agent-fleet.ts from `DirectorPackage.tier`. runSubAgent mounts
-   * `submit_result` only when this is `"leaf"`, gated by the existing tier
-   * machinery, not a new mechanism.
+   * Resolved director tier, independent of `orchestratorTier`; runSubAgent
+   * mounts `submit_result` only when this is `"leaf"`.
    */
   tier?: SubagentTier;
   /** DirectorPackage.reportContract.outputType, when the resolved leaf declares one. */
@@ -249,14 +244,13 @@ export type RunSubAgentParams = {
    *
    *  - `close`: bounded teardown for close_agent.
    *  - `interrupt`: stops the in-flight `agent.send()` via a signal scoped
-   *    to that call only — never touches agent.close() or the workdir lock;
-   *    the reactor keeps running, only the caller stops waiting.
+   *    to that call only; the reactor keeps running, the caller just stops
+   *    waiting.
    *  - `followup`: sends a new message into the same live agent once the
    *    current turn is inactive — what `resume_agent` builds on.
    *
-   * Always fired regardless of `persist`. `close`'s deadline bounds
-   * teardown; a wedged close fails rather than reporting success while
-   * children are still live.
+   * Always fired regardless of `persist`; a wedged close fails rather than
+   * reporting success while children are still live.
    */
   onAgentReady?: (handles: {
     close: (deadlineMs?: number) => Promise<void>;
@@ -293,16 +287,15 @@ export interface RunSubAgentResult {
   report: string;
   stopReason?: ForcedStopReason;
   /**
-   * True only when `persist: true` actually skipped teardown on the
-   * clean-completion path. A deadline/cancel salvage always disposes its
-   * agent, so this stays falsy there — the session store uses it to keep a
-   * disposed salvage from ever looking resumable.
+   * True only when `persist: true` skipped teardown on clean completion. A
+   * deadline/cancel salvage always disposes its agent, so this stays falsy
+   * there — the store uses it to keep a disposed salvage from looking
+   * resumable.
    */
   agentRetained?: boolean;
   /**
-   * True only when interrupt_agent ended the run (not a plain
-   * cancel/deadline) — interrupt_agent already moved the session to
-   * "interrupted", so the caller must not run its normal complete()/fail()
+   * True only when interrupt_agent ended the run. The session is already
+   * "interrupted", so the caller must skip its normal complete()/fail()
    * bookkeeping.
    */
   interrupted?: boolean;

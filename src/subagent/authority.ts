@@ -2,21 +2,17 @@
  * Fleet authority: which tier may mount fleet verbs and target which agents.
  * Enforced here and at the tool-mount point in run.ts, never in a prompt.
  *
- * assertTierMayMountFleetVerb: Tier 3 leaves never mount fleet verbs; fleet
- * discovery (search_agents) is Tier 1 only. list_agents lists this install's
- * own workers, not the catalog, so nested orchestrators may mount it.
- * assertCanTargetAgent: Tier 2 nested orchestrators act only on their own
- * descendants, never a sibling or ancestor; Tier 1 may target anyone.
- * Callers pass the live fleet as a flat {id, parentSessionId} list, the same
- * shape SubAgentSessionStore tracks, so no parallel tree is needed.
+ * Tier 3 leaves never mount fleet verbs; fleet discovery is Tier 1 only;
+ * nested orchestrators act only on their own descendants. Callers pass the
+ * live fleet as a flat {id, parentSessionId} list, the shape
+ * SubAgentSessionStore tracks — no parallel tree.
  */
 
 import type { SubagentTier } from "../agent/directors/types.js";
 
 export type { SubagentTier } from "../agent/directors/types.js";
 
-/** Every tool that grants control over other agents (spawn, list, steer,
- * observe). Tier 3 leaves mount none of these, ever. */
+/** Tools that grant control over other agents. Tier 3 leaves mount none. */
 export const FLEET_VERBS = new Set([
   "search_agents",
   "spawn_agent",
@@ -29,8 +25,8 @@ export const FLEET_VERBS = new Set([
   "read_agent_trace",
 ]);
 
-/** Fleet discovery, Tier 1 only: nested orchestrators spawn from a closed
- * allowlist and must not index the full fleet. */
+/** Fleet discovery is Tier 1 only: nested orchestrators spawn from a
+ * closed allowlist. */
 export const ORCHESTRATOR_ONLY_FLEET_VERBS = new Set(["search_agents"]);
 
 export function isFleetVerb(toolName: string): boolean {
@@ -50,8 +46,7 @@ export class FleetAuthorityError extends Error {
 
 /**
  * Throw if the caller's tier may not mount this fleet verb. Called where
- * tools are assembled (run.ts), not from a prompt — a leaf never even holds
- * the tool; a nested orchestrator never holds fleet-discovery verbs.
+ * tools are assembled (run.ts), not from a prompt.
  */
 export function assertTierMayMountFleetVerb(
   tier: SubagentTier,
@@ -96,13 +91,8 @@ function isDescendant(
 
 /**
  * Throw unless `actor` is Tier 1, or `targetId` is `actor.id` itself or a
- * descendant in `nodes` (root owns its tree; a child manages only its own
- * descendants). A Tier 3 leaf holds no fleet verbs and fails closed here too.
- *
- * Production call sites: `read_agent_trace`, `wait_agents` explicit targets,
- * `send_input`, `interrupt_agent`, `close_agent`, `resume_agent` (nested
- * mounts pass authority from run.ts; Tier-1 primary omits it and stays
- * unrestricted).
+ * descendant in `nodes`. A Tier 3 leaf holds no fleet verbs and fails
+ * closed here too. Tier-1 primary omits authority and stays unrestricted.
  */
 export function assertCanTargetAgent(
   actor: { readonly id: string; readonly tier: SubagentTier },

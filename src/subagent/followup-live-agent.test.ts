@@ -1,17 +1,13 @@
 /**
  * Regression guard: lifecycle-tools.test.ts proves interrupt_agent /
- * resume_agent behave correctly against fake registered closures at the
- * tool/store layer — it never exercises run.ts's real wiring, where
- * `followup` calls `agent.send()` on the same live agent object created by
- * `createAgentWithLiveToolDispatch`. A future refactor could make
- * `resume_agent` rebuild the agent instead of reusing it (a rebuilt agent
- * means the worker re-reads the codebase from scratch) without failing any
- * existing test.
+ * resume_agent against fake registered closures, but never exercises run.ts
+ * wiring, where `followup` calls `agent.send()` on the same live agent
+ * object. A future refactor could rebuild the agent on resume (forcing a
+ * full codebase re-read) without failing any existing test.
  *
- * This test drives the real `runSubAgent` (run.ts) end to end with the one
- * real dependency that would require live inference credentials —
- * `createAgentWithLiveToolDispatch` — replaced by a stub `Agent`. Everything
- * else is the genuine run.ts code path.
+ * This drives the real runSubAgent end to end, replacing only
+ * `createAgentWithLiveToolDispatch` — the one dependency needing live
+ * credentials — with a stub `Agent`.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -26,10 +22,9 @@ import {
   withStubbedAgent,
 } from "./run-test-harness.js";
 
-/** Minimal stand-in for the vendored `Agent` (dist/agent.d.ts), instrumented
- * to prove reuse: `sendLog` accumulates every message across BOTH the
- * original send and the later followup send, and rejects like the real
- * `Agent.send`'s documented `signal` option when its signal fires. */
+/** Stand-in for the vendored `Agent`, instrumented to prove reuse:
+ * `sendLog` accumulates every message across both sends, and send rejects
+ * on its signal like the real `Agent.send`. */
 function createStubAgent(opts?: { hangFromSend?: number }) {
   const sendLog: string[] = [];
   const abortedSends: boolean[] = [];

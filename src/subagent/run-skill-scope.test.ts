@@ -1,13 +1,12 @@
 /**
  * runSubAgent mounts skill_search + use_skill on every worker, scoped to the
  * dispatch's allowedSkillNames (union of attachedSkills and optionalSkills).
- * The scope cannot widen: use_skill refuses names outside the allowlist
- * and skill_search hides them. Plugin skillDirs are
- * threaded through so bundled corbits-skills resolve.
+ * The scope cannot widen: use_skill refuses names outside the allowlist and
+ * skill_search hides them. Plugin skillDirs thread through so bundled
+ * corbits-skills resolve.
  *
  * Pattern follows run-authority.test.ts: drive the real runSubAgent with
- * failing inference (mount decisions run before the send) while wrapping the
- * real skill factories to capture the mounted tools.
+ * failing inference while wrapping the skill factories to capture mounts.
  */
 import { describe, expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";

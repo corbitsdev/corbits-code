@@ -1,8 +1,7 @@
 /**
- * Direct-call authority tests prove the assert functions throw, but not that
- * runSubAgent itself cannot be talked into mounting a fleet verb for a caller
- * whose tier cannot be established. These tests drive runSubAgent (the real
- * mount point) end to end.
+ * The direct authority tests prove the assert functions throw, but not that
+ * runSubAgent cannot be talked into mounting a fleet verb for an unknown
+ * tier. These drive runSubAgent, the real mount point, end to end.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -23,14 +22,10 @@ async function tmpCwd(): Promise<string> {
   return tmpSubAgentCwd("cl6941-run-authority-");
 }
 
-// Each mount-gate probe awaits a full runSubAgent cycle whose inference send
-// fails after the mount decisions have run. An unreachable-host target made
-// the failure retryable, so the client burned its full backoff schedule (3x
-// with 500ms + 1000ms sleeps) per test — enough to cross bun:test's 5s
-// timeout under load. A local 401 fails as credential_failure, never
-// retried: one local round trip, no timing-sensitive waiting. The 15s
-// timeouts below only absorb machine-load spikes; assertions are
-// timing-independent.
+// Each probe runs a full runSubAgent cycle whose inference send fails after
+// the mount decisions have run. A local 401 fails as credential_failure,
+// never retried: one local round trip, no timing-sensitive waiting. The 15s
+// timeouts only absorb machine-load spikes.
 function baseParams(
   cwd: string,
   baseURL = "http://localhost",
