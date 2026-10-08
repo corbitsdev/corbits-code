@@ -817,11 +817,10 @@ describe("CL-6943 reusable worker sessions", () => {
     });
   });
 
-  // maxCompleted originally folded open retained sessions into the TUI display
-  // cap, so resume_agent failed once too many workers had spawned even though
-  // every one was reusable. `maxRetained` caps them separately — this test
-  // asserts that cap evicts, with the same "handles still get released"
-  // guarantee.
+  // maxCompleted once folded open retained sessions into the TUI display cap,
+  // so resume_agent failed past a worker count even though every worker was
+  // reusable. `maxRetained` caps them separately — this test asserts that cap
+  // evicts with the same handle-release guarantee.
   test("pruneRetained evicts a retained, still-open session past maxRetained and releases it", () => {
     const store = createSubAgentSessionStore({
       maxCompleted: 1,
