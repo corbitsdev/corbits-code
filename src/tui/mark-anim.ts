@@ -1,10 +1,8 @@
 /**
- * The animated Corbits mark (ported from the web boot screen): the
- * silhouette draws solid, revealed left to right by `drawProg` and filled
- * bottom-up by `fillProg`. The web build dithers; at hero size a terminal
- * renders dithering as noise, so the mark is opaque. Pixel snow falls over
- * sky cells on the injected clock; mountain cells always win over flakes.
- * `still` / `reducedMotion` semantics live on the MarkInput fields.
+ * The animated Corbits mark (ported from the web boot screen). The web
+ * build dithers; at hero size a terminal renders dithering as noise, so
+ * the mark is opaque. Pixel snow falls over sky cells on the injected
+ * clock; mountain cells always win over flakes.
  */
 
 import { MARK_SMALL, type MarkGrid } from "./mark-shape.js";
@@ -36,8 +34,8 @@ export interface MarkFrame {
 }
 
 /**
- * The looping timeline: draw in (0-38%), hold (38-48%), fill bottom-up
- * (48-76%), hold full (76-90%), fade out (90-100%), repeat.
+ * The looping timeline: draw (0-38%), hold (38-48%), fill (48-76%),
+ * hold full (76-90%), fade (90-100%), repeat.
  */
 export function markFrame(seconds: number, still: boolean): MarkFrame {
   if (still) return { drawProg: 1, fillProg: 1, alpha: 1 };
@@ -58,10 +56,9 @@ export function markFrame(seconds: number, still: boolean): MarkFrame {
 const EIGHTHS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as const;
 
 /**
- * Exponent applied to filled coverage. The mark is a thin ridgeline, so
- * most cells it touches are only partly covered; the gamma lifts them into
- * one solid body while the sparsest edge cells stay short enough to keep
- * the slope.
+ * Exponent on filled coverage: the mark is a thin ridgeline, so most cells
+ * it touches are only partly covered; the gamma lifts them into one solid
+ * body while the sparsest edge cells keep the slope.
  */
 const FILL_GAMMA = 0.6;
 
@@ -103,8 +100,8 @@ function unitHash(a: number, b = 0): number {
 }
 
 /**
- * Whether a sky cell holds a flake at `seconds`. Sparse columns only, each
- * with one flake on a private phase and slight speed variation, so the
+ * Whether a sky cell holds a flake at `seconds`. Sparse columns only, one
+ * flake per column on a private phase with slight speed variation, so the
  * field does not march as a rigid lattice.
  */
 function snowflakeAt(
@@ -122,15 +119,12 @@ function snowflakeAt(
 }
 
 /**
- * Composite one frame into a row-major cell grid.
+ * Composite one frame. The silhouette is drawn solid: a fully covered cell
+ * is `█`, a partly covered one is the eighth block matching its coverage,
+ * so the ridgeline slopes instead of staircasing.
  *
- * The silhouette is drawn solid: a fully covered cell is `█`, a partly
- * covered one is the eighth block matching its coverage, so the ridgeline
- * slopes instead of staircasing. Flakes never overwrite mountain coverage;
- * `snowOn` below gates them (see the MarkInput field docs).
- *
- * `alpha` has no terminal equivalent, so it scales the block height instead:
- * the mark sinks toward empty rather than blending to black.
+ * `alpha` has no terminal equivalent, so it scales the block height: the
+ * mark sinks toward empty rather than blending to black.
  */
 export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
   const shape = input.grid ?? MARK_SMALL;
@@ -182,9 +176,9 @@ export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
 }
 
 /**
- * The row the fill is crossing. Interior cells change too little between
- * outline and filled to show the sweep, so the crossing row is drawn at the
- * fill's own height — capped by the cell to keep the wipe inside the
+ * The row the fill is crossing: interior cells change too little between
+ * outline and filled to show the sweep, so the crossing row draws at the
+ * fill's own height, capped by the cell to keep the wipe inside the
  * silhouette.
  */
 function fillEdgeChar(rowFill: number, height: number): string | null {
