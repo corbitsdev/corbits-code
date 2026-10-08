@@ -74,10 +74,8 @@ export interface PluginEntry {
   }[];
   /** Absolute path an untrusted path-origin plugin was discovered at. */
   readonly originPath?: string;
-  /**
-   * Standing load warnings attributable to this plugin (skill misses named by
-   * agent id, failed tool starts, …). Surfaced in the row hint and description.
-   */
+  /** Standing load warnings attributable to this plugin (skill misses named by
+   * agent id, failed tool starts, …). */
   readonly warnings?: readonly string[];
   /** Discovery origin stamped at load — never inferred from id. */
   readonly origin: PluginOrigin;
@@ -219,9 +217,11 @@ export interface SettingsSurfaceDeps {
   readonly setShowPromptCost: (value: boolean) => void;
   /** Pins the terminal palette (auto follows terminal/OS detection). */
   readonly setTheme: (value: ThemeSetting) => void;
-  /** Live counts for the hooks row summary. Omitted while hooks discovery is unbuilt. */
+  /** Live counts for the hooks row summary; omitted while hooks discovery
+   * is unbuilt. */
   readonly hooksSummary?: () => HooksSurfaceSummary;
-  /** Opens the hooks surface. Omitted while it is unbuilt (row still shows, Enter no-ops). */
+  /** Opens the hooks surface; omitted while unbuilt (row still shows,
+   * Enter no-ops). */
   readonly openHooks?: () => void;
 }
 
@@ -423,8 +423,7 @@ function cycleField<T extends string>(
     .join("  ");
 }
 
-/** The active option's plain label — the value an accept echo should
- * report, not the row's painted display string. */
+/** Plain label of the active option — see `SettingsCycleRow.chosenLabel`. */
 function activeOptionLabel<T extends string>(
   options: readonly CycleOption<T>[],
   activeId: T,
@@ -659,8 +658,7 @@ function renderSettingsMenu(
 
 /**
  * Settings menu, re-opened after every change so values stay current.
- * Without the permissions dep the open resolves synchronously — see
- * `settingsSyncNavRows`.
+ * See `settingsSyncNavRows` for the permissions-sync rule.
  */
 export function openSettingsSurface(
   shell: AppShell,
@@ -785,9 +783,8 @@ function credentialRowLabel(
 }
 
 /**
- * Credential entry pane for one plugin. Enter starts/commits an inline edit;
- * s saves; v saves then verifies. A secret never echoes in the clear — the
- * buffer renders only through `maskEcho`/`maskSecret`, so there is no
+ * Credential entry pane for one plugin. A secret never echoes in the clear:
+ * the buffer renders only through `maskEcho`/`maskSecret`, so there is no
  * masked-display round-trip to get wrong.
  */
 function openCredentialsPane(
