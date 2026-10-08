@@ -50,15 +50,15 @@ const LOGIN_ROWS = 4;
 const TELEMETRY_ROWS = 3;
 /**
  * Input capacity. The renderable defaults to 1000 chars and truncates longer
- * pastes silently — read as "paste is broken" on a first run. Service-account
+ * pastes silently — read as "paste is broken" on first run. Service-account
  * keys and JWT-shaped tokens clear that default.
  */
 const FIELD_MAX_LENGTH = 16_384;
 /** Ramp animation tick. Fast enough to read as motion at 30fps paint. */
 export const RAMP_TICK_MS = 120;
 
-// "testing" covers the connection-check call against the entered credentials;
-// "saving" covers the settings write that follows once the test succeeds.
+// "testing" covers the connection check; "saving" covers the settings write
+// that follows once it succeeds.
 const SUBMIT_PHASE_LABEL: Record<SubmitPhase, string> = {
   testing: "testing connection",
   saving: "writing settings",
@@ -73,8 +73,8 @@ export function stopRamp(state: SetupState): void {
 
 /**
  * Unmount the surface: stop in-flight flows, detach input handlers, destroy
- * the renderable tree. The renderer is destroyed only when this mount created
- * it — a caller-supplied renderer is owned by that caller.
+ * the renderable tree. Only a renderer this mount created is destroyed — a
+ * caller-supplied one is owned by that caller.
  */
 export function teardownSurface(
   state: SetupState,
@@ -126,9 +126,9 @@ export function createSurface(
   });
 
   // Every direct child of `root` needs flexShrink: 0 — a plain
-  // TextRenderable defaults to shrinkable, and a short terminal compresses
-  // unprotected single-line rows into each other instead of clipping the
-  // column from the bottom.
+  // TextRenderable defaults to shrinkable, so a short terminal compresses
+  // unprotected rows into each other instead of clipping the column from the
+  // bottom.
   const header = new TextRenderable(renderer, {
     id: "provider-setup-header",
     content: `${PRODUCT_NAME.toLowerCase()} · setup`,

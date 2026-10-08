@@ -1,7 +1,7 @@
 /**
  * Background model discovery for the setup surface: Ollama's installed-model
- * list (replaces the seeded pick-list once it resolves) and the OpenCode Go /
- * Zen catalog prefetches. All mutate shared state, repaint, and ignore
+ * list (replaces the seeded pick-list once it resolves) and the Go / Zen
+ * catalog prefetches. All mutate shared state, repaint, and ignore
  * resolutions from superseded attempts.
  */
 

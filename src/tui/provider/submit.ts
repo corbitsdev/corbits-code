@@ -75,7 +75,7 @@ export async function persistConnectedSelection(
 /**
  * The single write path every provider-setup exit takes, shared by first-run
  * onboarding and mid-session connect, so a credential is validated (or
- * explicitly marked unverified) the same way from anywhere.
+ * explicitly marked unverified) the same way everywhere.
  *
  * `localSettingsFile` is the project-local selection path, wired through from
  * callers that already own it — never re-derived, so tests and the

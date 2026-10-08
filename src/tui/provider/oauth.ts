@@ -1,7 +1,7 @@
 /**
  * OAuth profile slugs, login guidance, and the browser sign-in flow the
- * subscription step runs — plus the multi-instance account-name step shared by
- * OAuth accounts and API-key instances.
+ * subscription step runs — plus the multi-instance account-name step shared
+ * by OAuth and API-key instances.
  */
 
 import {
@@ -39,9 +39,9 @@ export type OAuthProfileValidation =
   | { readonly ok: false; readonly error: string };
 
 /**
- * Validate and lowercase-normalize an account slug. Constraint owner for the
- * slug shape: the auth store and catalog projection trust what they are
- * handed, and a "/" would silently join into the compound catalog name.
+ * Validate and lowercase-normalize an account slug. Constraint owner: the
+ * auth store and catalog projection trust what they are handed, and a "/"
+ * would silently join into the compound catalog name.
  */
 export function validateOAuthProfileSlug(raw: string): OAuthProfileValidation {
   const slug = raw.trim().toLowerCase();
@@ -213,7 +213,7 @@ export function createLoginFlow(
     const abort = new AbortController();
     state.loginAbort = abort;
     // A browser round-trip that never comes back must still give the screen
-    // back, so the deadline is armed before the flow is even started.
+    // back, so the deadline arms before the flow starts.
     state.loginTimer = setTimeout(() => {
       failLogin(attempt, LOGIN_TIMEOUT_MESSAGE);
     }, state.loginTimeoutMs);
@@ -274,7 +274,7 @@ export function createLoginFlow(
 /**
  * The multi-instance "name" step: inline error from the last validation, a
  * suggested non-colliding slug prefilled on entry, and a collision confirm
- * (one more Enter) before the slug is settled.
+ * (one more Enter) before the slug settles.
  */
 export function createAccountNameFlow(
   state: SetupState,
@@ -283,8 +283,8 @@ export function createAccountNameFlow(
 ): AccountNameFlow {
   /**
    * Enter the step: reset per-visit state, show the typed slug, then prefill
-   * a suggested non-colliding slug when the field is blank. OAuth reads the
-   * live auth store; API-key reads the settings catalog snapshot.
+   * a suggested non-colliding slug when blank. OAuth reads the live auth
+   * store; API-key reads the settings catalog snapshot.
    */
   const enter = (): void => {
     state.oauthProfileError = null;
@@ -354,9 +354,8 @@ export function createAccountNameFlow(
     }
     const slug = validated.slug;
     // Already confirmed this exact slug on the previous Enter — proceed
-    // without another round-trip. Any edit since then cleared the flag (see
-    // the input handler), so this only fires on a genuine second, unmodified
-    // Enter.
+    // without another round-trip. Any edit since then cleared the flag, so
+    // this only fires on a genuine second, unmodified Enter.
     if (state.oauthProfileConfirmPending && state.confirmedSlug === slug) {
       settleAccountNameSlug(slug);
       return;

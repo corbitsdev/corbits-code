@@ -1,6 +1,6 @@
 /**
  * Shared contracts for the provider setup split: the form/submit surface and
- * the mutable state bag `runProviderSetup` threads through its flows. A leaf
+ * the mutable state bag `runProviderSetup` threads through its flows. Leaf
  * module so submit/connect can import these without importing setup.
  */
 
@@ -55,8 +55,8 @@ export interface ProviderFormValues {
   model: string;
   /**
    * Pre-login account slug for multi-instance paths (e.g. "personal"). Apart
-   * from `name`, which is written once the account is settled and then carries
-   * the compound catalog name (`codex/personal`); Custom still edits `name`.
+   * from `name`, written once the account settles to carry the compound
+   * catalog name (`codex/personal`); Custom still edits `name`.
    */
   oauthProfile: string;
   /** Explicit enabled levels; an empty custom set cannot be saved. */

@@ -1,7 +1,7 @@
 /**
- * Catalog projection: the shared first-class provider catalog (plus the
- * subscription surfaces and the manual Custom row) as pick-list choices, so
- * onboarding and `/model` connect share one source.
+ * Catalog projection: the first-class provider catalog (plus subscription
+ * surfaces and the manual Custom row) as pick-list choices, so onboarding
+ * and `/model` connect share one source.
  */
 
 import {
@@ -44,11 +44,11 @@ export const PROVIDER_LIST_ROWS_MIN = 3;
 
 /**
  * List height budget: a guess, not a derivation. Runs before layout, so
- * nothing is measurable — Renderable.height/scrollHeight reflect only the
- * last completed layout. -14 is a hand count of the chrome rows around the
- * list (header, intro, step, instruction, summary, statusLine, guidance,
- * footer, padding) plus slack for a wrapped label; it goes stale if that
- * chrome changes and nothing here catches it.
+ * nothing is measurable — height/scrollHeight reflect only the last
+ * completed layout. -14 is a hand count of the chrome rows around the list
+ * (header, intro, step, instruction, summary, statusLine, guidance, footer,
+ * padding) plus label-wrap slack; it goes stale if that chrome changes and
+ * nothing here catches it.
  */
 export function providerListHeight(renderer: CliRenderer): number {
   const rows = renderer.height || 24;
@@ -73,10 +73,10 @@ export const CUSTOM_REASONING_EFFORTS: readonly ReasoningEffort[] = [
 export const TYPE_MODEL_ID = "__type_model__";
 
 /**
- * What a signed-in subscription provider resolves to: the same endpoint and
- * model constants the auth stack projects into the catalog, so first-run
- * onboarding and a later `/model` connect land on the same entry. Views over
- * the Codex/xAI live-fetch fallbacks, not a separate list —
+ * What a signed-in subscription provider resolves to: the endpoint and
+ * model constants the auth stack projects into the catalog, so onboarding
+ * and a later `/model` connect land on the same entry. Views over the
+ * Codex/xAI live-fetch fallbacks, not a separate list —
  * identity-divergence.test.ts pins them to those constants.
  */
 export const OAUTH_SURFACES: Record<
@@ -164,7 +164,7 @@ function choiceFromDef(def: FirstClassProviderDef): ProviderChoice | null {
 
 /**
  * The pick-list from the shared first-class catalog. Subscription providers
- * sit beside key-based ones: their step is a browser sign-in, but a first run
+ * sit beside key-based ones: their step is a browser sign-in, but first run
  * must be able to start there.
  */
 export function providerChoices(): readonly ProviderChoice[] {
@@ -208,9 +208,9 @@ export function providerChoiceById(id: string): ProviderChoice | undefined {
 }
 
 /**
- * How many connected accounts `choice` has in `providers`. OAuth and
- * first-class API-key kinds store instances as `kind/<slug>` (plus a legacy
- * bare `kind` key), so match by prefix. Custom is free-form and uncounted.
+ * Connected accounts for `choice` in `providers`. OAuth and first-class
+ * API-key kinds store instances as `kind/<slug>` (plus a legacy bare `kind`
+ * key), so match by prefix. Custom is free-form and uncounted.
  */
 export function connectedAccountCount(
   choice: ProviderChoice,
@@ -261,9 +261,9 @@ export function resolveApiKeyInstanceName(
 }
 
 /**
- * Rows for the model picker's Alt+A add-provider selector. Includes Custom —
- * filtering it out made free-form endpoints unreachable from Alt+A. Account
- * counts follow the onboarding list's rules.
+ * Rows for the model picker's Alt+A selector. Custom stays — filtering it
+ * out made free-form endpoints unreachable. Account counts follow the
+ * onboarding list's rules.
  */
 export function addProviderSelectorChoices(
   choices: readonly ProviderChoice[],
@@ -303,9 +303,9 @@ export function providerChoiceRows(
 }
 
 /**
- * Pick-list rows for the model step, from the shared models-first catalog so
- * labels match the `/model` picker (cross-product billing warnings included).
- * A trailing row escapes to free text for a model id the seeded list lacks.
+ * Rows for the model step, from the shared models-first catalog so labels
+ * match the `/model` picker (billing warnings included). A trailing row
+ * escapes to free text for a model id the seeded list lacks.
  */
 export function modelChoiceRows(
   choice: ProviderChoice,
