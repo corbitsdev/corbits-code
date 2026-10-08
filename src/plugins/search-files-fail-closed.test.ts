@@ -173,6 +173,28 @@ describe("CL-9469 search_files fails closed on unbounded root walks", () => {
       }
     });
   });
+
+  test("recursive glob pinned to a literal dir at the root is allowed", async () => {
+    await withFixture(async ({ cwd }) => {
+      for (const spawn of [undefined, rgMissingSpawn()] as const) {
+        const tools = createPosixTools({
+          cwd,
+          plugins: [ripgrepPlugin(cwd, {}, spawn)],
+        });
+        const result = await tools.run(
+          {
+            id: "1",
+            name: "search_files",
+            arguments: { pattern: "sub/**/*.ts" },
+          },
+          new AbortController().signal,
+        );
+        expect(result.isError !== true).toBe(true);
+        expect(String(result.content)).toContain("keep.ts");
+        expect(String(result.content)).toContain("deep.ts");
+      }
+    });
+  });
 });
 
 describe("CL-9469 unbounded-root predicate", () => {
@@ -208,6 +230,26 @@ describe("CL-9469 unbounded-root predicate", () => {
     expect(isUnboundedRootSearch({ path: undefined, pattern: "*", cwd })).toBe(
       true,
     );
+  });
+  // A recursive descent is only a whole-tree walk when nothing literal pins it
+  // down; a leading literal dir keeps it bounded even at the workspace root.
+  test("recursive glob with a leading literal dir is bounded", () => {
+    for (const pattern of [
+      "src/**/*.ts",
+      "packages/a/src/**/*.ts",
+      "docs/**",
+    ]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        false,
+      );
+    }
+  });
+  test("recursive descent with no leading literal dir stays unbounded", () => {
+    for (const pattern of ["**", "**/*.ts", "**/*", "/**/*.ts"]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        true,
+      );
+    }
   });
   test("refusal message carries scope guidance and never reads as a timeout", () => {
     const message = formatUnboundedSearchMessage("search_files", "**/*.ts");

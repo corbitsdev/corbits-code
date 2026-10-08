@@ -27,11 +27,29 @@ export function formatSearchTimeoutMessage(
   return `${trimmed}\n\n${notice}`;
 }
 
-// A search_files pattern that walks the whole tree: recursive descent or a
-// bare star with no literal constraint. Tighter globs (`*.ts`, `*config*`)
-// still match a bounded name space and stay allowed at the root.
+// A search_files pattern that has no bound on where a match can begin is a
+// whole-tree walk: bare stars, or a recursive descent that starts at the root
+// with nothing literal before it. A literal path segment before the first `**`
+// (`src/**/*.ts`) pins the walk to that subtree, so it is bounded even though
+// it recurses. Tighter globs (`*.ts`, `*config*`) still match a bounded name
+// space and stay allowed at the root.
 export function isUnboundedSearchGlob(pattern: string): boolean {
-  return pattern === "*" || pattern.includes("**");
+  if (pattern === "*") return true;
+  const firstRecursive = pattern.indexOf("**");
+  if (firstRecursive === -1) return false;
+  // Everything before the first `**` is only wildcard descent and separators,
+  // so the walk still reaches every file from the root.
+  return !hasLiteralBefore(pattern.slice(0, firstRecursive));
+}
+
+// True when the given glob prefix names any concrete path text (a character
+// that is neither a `*` wildcard nor a `/` separator), i.e. a segment that
+// anchors the walk to a real location.
+function hasLiteralBefore(prefix: string): boolean {
+  for (const char of prefix) {
+    if (char !== "*" && char !== "/") return true;
+  }
+  return false;
 }
 
 // The raw path argument resolved against the session root: omitted, empty,
