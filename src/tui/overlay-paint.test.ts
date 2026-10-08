@@ -1,8 +1,8 @@
 /**
  * Frame-level regression: an open overlay and the prompt border must never
- * share terminal cells. Asserting "the overlay opened" is not enough — the
- * earlier bug painted correct state into overlapping rects, so these tests
- * read the painted characters back out of the headless renderer.
+ * share terminal cells. "The overlay opened" is not enough — the earlier
+ * bug painted correct state into overlapping rects — so read the painted
+ * characters back out of the headless renderer.
  */
 
 import { describe, expect, test } from "bun:test";

@@ -167,11 +167,10 @@ function restorePrimaryFrame(
 }
 
 /**
- * Surfaces that yield the host to a decision gate: the live
- * `PrimaryOverlayKind` values they open with (`model_picker` /
- * `add_provider`, not the `models` / `add-provider` aliases). Stacking
- * popups (mentions, palette) are never suspended — that would strand their
- * owner — so gates behind them stay queued.
+ * Replaceable surfaces that yield the host to a decision gate, by the
+ * `PrimaryOverlayKind` they open with (`model_picker` / `add_provider`, not
+ * the `models` / `add-provider` aliases). Popups are never suspended — that
+ * would strand their owner — so gates behind them stay queued.
  */
 const GATE_PREEMPTABLE_SURFACE_KINDS: ReadonlySet<PrimaryOverlayKind> = new Set(
   [
@@ -189,8 +188,8 @@ const GATE_PREEMPTABLE_SURFACE_KINDS: ReadonlySet<PrimaryOverlayKind> = new Set(
 /**
  * Suspend the live replaceable surface for an arriving decision gate; it
  * returns after the gate settles (`resumeSuspendedCommandSurface`). Live
- * gates and stacked popups are never suspended; a second suspend while one
- * is held is a no-op.
+ * gates and popups are never suspended; a second suspend while one is held
+ * is a no-op.
  */
 export function suspendReplaceableOverlay(shell: AppShell): void {
   const bag = shellInternals(shell);
@@ -241,8 +240,6 @@ export function openListOverlay(
   const kind = opts?.kind ?? "demo";
   const isPalette = kind === "palette";
 
-  // Non-palette opens while anything is open are no-ops unless the caller
-  // used the one deferred slot.
   if (shell.overlayList) {
     if (!isPalette) {
       if (opts?.deferIfBusy === true) deferBusyCommandOpen(shell, opts);
@@ -400,10 +397,8 @@ export function repaintListFilter(shell: AppShell): void {
   setOverlayBody(shell, `> ${state.query}`);
 }
 
-/**
- * Move the open overlay's free-text field in or out of taking keystrokes.
- * Returns false when the overlay offers no such field.
- */
+/** Toggle whether the open overlay's free-text field takes keystrokes.
+ * False when the overlay offers no such field. */
 export function setOverlayAnswerActive(
   shell: AppShell,
   active: boolean,
@@ -565,8 +560,8 @@ export function closeInsetOverlay(
 /**
  * Close the current overlay unless it settles a decision gate (`isGate`).
  * Surfaces that need a fresh host (settings cycle, plugins, mcp) use this so
- * a live gate stays put and `openListOverlay` can defer. `onDispose` cleanup
- * still runs; `onCancel` (Esc/dismiss) is skipped.
+ * a live gate stays put and `openListOverlay` can defer. `onDispose` still
+ * runs; `onCancel` (Esc/dismiss) is skipped.
  */
 export function closeReplaceableOverlay(shell: AppShell): void {
   const bag = shellInternals(shell);
@@ -576,8 +571,8 @@ export function closeReplaceableOverlay(shell: AppShell): void {
 }
 
 /**
- * Subscribe to "overlay host is idle": no live list, no deferred surface,
- * no host reservations. Callers that must not lose an open (gate wiring)
+ * Subscribe to "overlay host is idle" (idle definition on
+ * `isOverlayHostIdle`). Callers that must not lose an open (gate wiring)
  * queue on this instead of racing a busy host.
  */
 export function onOverlayClosed(
@@ -813,8 +808,8 @@ export function setOwnedOverlayItems(
 }
 
 /** Replace the open overlay's item labels (and optionally ids) in place,
- * keeping the active row. Redraws instead of closing/reopening, which would
- * lose the cursor and retrigger the open animation for a one-key edit. */
+ * keeping the active row. No close/reopen: that would lose the cursor and
+ * retrigger the open animation for a one-key edit. */
 export function setOverlayItems(
   shell: AppShell,
   items: readonly string[],
