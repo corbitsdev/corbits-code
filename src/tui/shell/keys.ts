@@ -246,8 +246,17 @@ export function handleCtrlC(
     interruptShell(shell);
   }
   // The notice is exactly as true as the arming window is open, so it expires
-  // with it rather than waiting for some later flash to overwrite it.
-  setStatusFlash(shell, "press ctrl+c again to exit", {
+  // with it rather than waiting for some later flash to overwrite it. When
+  // live sub-agents exist the note is count-aware (Phase 5) so the operator
+  // knows the next press stops them rather than quitting; otherwise the plain
+  // two-press exit string is kept. Read fresh at press time so a fleet that
+  // drained before arming falls back to the plain string.
+  const { count } = readStopAffordance(shell);
+  const note =
+    count > 0
+      ? `${count} ${N_SUBAGENT_RUNNING_NOTE_PREFIX}press ctrl+c to stop, again to exit`
+      : "press ctrl+c again to exit";
+  setStatusFlash(shell, note, {
     ttlMs: CTRL_C_EXIT_WINDOW_MS,
     ...(options?.schedule !== undefined ? { schedule: options.schedule } : {}),
   });
