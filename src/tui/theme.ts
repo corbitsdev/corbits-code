@@ -1,10 +1,9 @@
 /**
- * Corbits terminal palette — the single source of truth for every color the
- * shell paints. Three rules the TUI depends on:
+ * Corbits terminal palette — the single source of every color the shell
+ * paints. Three rules the TUI depends on:
  *
  * 1. No neutral gray: dimmed text is a dimmed cream.
- * 2. Orange is spent once per screen — the session mark and pending human
- *    decisions only (diff removals excepted).
+ * 2. Orange is spent once per screen (diff removals excepted).
  * 3. The chrome ramp is warm but never saturated: every bronze stays below
  *    the action orange's saturation, so full orange reads as an event.
  *
@@ -12,11 +11,11 @@
  * and orange chrome.
  */
 
-/** Palette values a theme supplies. Call sites paint through `UI`, never a
- * theme directly, so a second theme is a data change here. */
+/** Call sites paint through `UI`, never a theme directly, so a second
+ * theme is a data change here. */
 export interface Theme {
   readonly name: string;
-  /** Terminal ground. Foreground-only discipline means almost nothing fills it. */
+  /** Terminal ground. Foreground-only discipline: almost nothing fills it. */
   readonly ground: string;
   /** All body text. Never white, never gray. */
   readonly text: string;
@@ -27,9 +26,9 @@ export interface Theme {
   /** The session mark and anything awaiting a human decision. */
   readonly action: string;
   readonly actionDim: string;
-  /** Work in progress: ramps, tool verbs, machine output threaded into prose. */
+  /** Work in progress: ramps, tool verbs, machine output in prose. */
   readonly inFlight: string;
-  /** The tier above body text that still reads as machine: keywords, links, args. */
+  /** Above body text but still machine: keywords, links, args. */
   readonly inFlightBright: string;
   /** Document structure: markdown headings and section rules. */
   readonly heading: string;
@@ -41,9 +40,9 @@ export interface Theme {
   readonly error: string;
 }
 
-/** Brand hues, plus the warm ramp that replaced Summit Blue. Lowercase: the
- * renderer normalizes hex that way and tests compare a painted span's `fg`
- * against these constants directly. */
+/** Brand hues and the warm ramp. Lowercase: the renderer normalizes hex
+ * that way and tests compare a painted span's `fg` against these constants
+ * directly. */
 export const BRAND = {
   // Charcoal, not pure black: lifts the interface off the host terminal
   // and keeps `textFaint` readable against the cream.
@@ -84,14 +83,14 @@ export const corbitsDark: Theme = {
 
 /**
  * Light companion to `corbitsDark`: the same roles on a warm light ground.
- * Data-only — no interface change, no new roles, no per-theme branches.
+ * Data-only: no per-theme branches.
  *
- * Values follow relative luminance against the cream ground, not eye: body
- * text ~14:1 (dark ~15:1), every essential role >=4.5:1. The dark rules
- * carry over: action stays a one-per-screen decision marker (darkened;
- * Breakthrough Orange is ~2.3:1 on cream), dimmed text is dimmed ink, and
- * the bronze ramp is darkened. Caution moves to a muted plum so a bronze
- * warning does not collapse into the machine ramp on cream.
+ * Values follow relative luminance, not eye: body text ~14:1 (dark ~15:1),
+ * every essential role >=4.5:1. Dark rules carry over: action stays a
+ * one-per-screen decision marker (darkened; Breakthrough Orange is ~2.3:1
+ * on cream), dimmed text is dimmed ink, and the bronze ramp is darkened.
+ * Caution moves to a muted plum so a bronze warning does not collapse into
+ * the machine ramp on cream.
  */
 export const corbitsLight: Theme = {
   name: "corbits-light",
@@ -123,9 +122,9 @@ export function resolveThemeName(name: string): Theme {
 
 let activeTheme: Theme = corbitsDark;
 
-/** Paint state derived from the palette registers a reset here; `setTheme`
- * runs every hook after swapping `UI`, so no stale palette survives a pin
- * change and call sites never reset caches themselves. */
+/** Palette-derived paint state registers a reset here; `setTheme` runs
+ * every hook after swapping `UI`, so no stale palette survives a pin change
+ * and call sites never reset caches themselves. */
 type ThemeCacheReset = () => void;
 
 const themeCacheResets = new Set<ThemeCacheReset>();
@@ -148,6 +147,6 @@ export function setTheme(name: ThemeName | string): Theme {
 }
 
 /** Semantic roles everything outside this file paints through. `setTheme`
- * copies the active palette onto this live binding; default dark, startup
- * detection picks the final theme before renderables are built. */
+ * copies the active palette onto this live binding; startup detection picks
+ * the final theme before renderables are built. */
 export const UI: Theme = { ...corbitsDark };

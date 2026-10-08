@@ -1,8 +1,8 @@
 /**
  * Light-palette legibility: every `corbitsLight` role holds >=4.5:1 against
- * the cream ground, and warm roles keep the lightness/hue structure the
- * palette header promises. Assertions compare computed values, never pinned
- * hex, so the palette can be re-tuned without rewriting the contract.
+ * the cream ground, and warm roles separate by lightness first, hue and
+ * saturation second. Assertions compare computed values, never pinned hex,
+ * so the palette can be re-tuned without rewriting the contract.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -60,7 +60,7 @@ function hue(hex: string): number {
   return h;
 }
 
-/** Every painted role: all Theme keys except the ground it sits on and its name. */
+/** Painted roles: every Theme key except the ground and the name. */
 function paintedRoles(theme: Theme): readonly [string, string][] {
   return (Object.entries(theme) as [string, string][]).filter(
     ([key, value]) =>
