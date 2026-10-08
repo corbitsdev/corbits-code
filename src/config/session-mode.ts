@@ -2,8 +2,8 @@ import type { LocalSettings, Settings } from "./settings.js";
 
 /**
  * Orchestrator is the only product path. The type is retained as a single
- * literal so call sites can drop the parameter without a big-bang rename;
- * `"single"` is never returned from resolve helpers.
+ * literal so call sites can drop the parameter later; `"single"` is never
+ * returned from resolve helpers.
  */
 export type SessionMode = "orchestrator";
 

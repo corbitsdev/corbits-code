@@ -6,9 +6,9 @@ import { codexProfilesToCatalogEntries } from "./codex-providers.js";
 import { xaiProfilesToCatalogEntries } from "./xai-providers.js";
 
 // Characterization tests pinning the projection behavior both provider
-// wrappers must preserve through the shared implementation. Name round-trips
-// and settings projection are characterized in codex-providers.test.ts and
-// xai-providers.test.ts — only cross-provider marker isolation lives here.
+// wrappers must preserve. Name round-trips and settings projection are
+// characterized in codex-providers.test.ts and xai-providers.test.ts — only
+// cross-provider marker isolation lives here.
 
 const codexProfile: CodexProfile = {
   name: "work",

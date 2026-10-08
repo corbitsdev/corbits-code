@@ -93,8 +93,7 @@ afterEach(() => {
 
 // Rejects immediately instead of touching the network. loadConfig's pricing
 // refresh is fire-and-forget, so a resolved run proves only that the injected
-// impl was reached — guarding the suite against the default impl's real
-// models.dev fetch.
+// impl was reached — not the default impl's real models.dev fetch.
 function offlineFetch(): { impl: typeof fetch; calls: () => number } {
   let count = 0;
   const impl = (() => {
@@ -104,8 +103,8 @@ function offlineFetch(): { impl: typeof fetch; calls: () => number } {
   return { impl, calls: () => count };
 }
 
-// Writes a minimal valid global settings file with a single provider so that
-// provider resolution succeeds; these tests only exercise flag parsing.
+// Writes a minimal valid global settings file so provider resolution
+// succeeds; these tests only exercise flag parsing.
 async function withSettings(
   fn: (opts: {
     cwd: string;
@@ -155,9 +154,9 @@ async function writeXaiAuthProfile(home: string): Promise<void> {
   );
 }
 
-// loadConfig's OAuth profile merge reads the real os.homedir() with no
-// override parameter (Bun's homedir ignores post-startup HOME changes), so
-// the only way to point it at a synthetic auth store is to stub node:os.
+// loadConfig's OAuth profile merge reads the real os.homedir() (Bun's
+// homedir ignores post-startup HOME changes), so the only way to point it at
+// a synthetic auth store is to stub node:os.
 async function loadConfigAtHome(
   home: string,
   args: string[],

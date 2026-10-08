@@ -107,9 +107,9 @@ import {
 } from "../mcp/exa.js";
 import { resolveProfile } from "./profiles.js";
 
-// Per-call token ceiling for inference sources. Lives here so agent creation
-// (runner.ts) and live provider switching (the /agent modal) build the source
-// the same way and a live switch cannot silently revert it.
+// Per-call token ceiling for inference sources, shared by agent creation
+// (runner.ts) and live provider switching (the /agent modal) so a live switch
+// cannot silently revert it.
 export const SOURCE_MAX_TOKENS = 16384;
 
 // Credential-cell placeholder for keyless local providers (e.g. Ollama). The
@@ -119,7 +119,7 @@ export const KEYLESS_API_KEY = "keyless";
 // Registers the secret behind a source id in the credential cell (see
 // ./source-credentials.ts), falling back to the keyless sentinel when no key
 // was configured. Every buildXSource below calls this so the vendored
-// credentialId auth model resolves the secret at send time.
+// credentialId model resolves the secret at send time.
 function registerSourceSecret(
   id: string,
   apiKey: string | undefined,
@@ -701,8 +701,8 @@ export interface UnconfiguredConfig {
   // The original error message, used for non-TUI (exec) error output.
   providerError: string;
   /**
-   * Fail-open diagnostics from local settings load, still threaded when
-   * provider setup fails early so junk local files surface via stderr/banner.
+   * Fail-open diagnostics from local settings load, threaded when provider
+   * setup fails early so junk local files surface via stderr/banner.
    */
   settingsDiagnostics?: SettingsLoadDiagnostic[];
 }
@@ -1333,8 +1333,7 @@ export function mergeOAuthCatalog(
   const settingsRows = buildProviderCatalog(settings, resolved);
   // A hand-named codex/<slug> or xai/<slug> API-key row is explicit config,
   // not an OAuth placeholder (see isHandNamedProviderEntry): keep it and skip
-  // the colliding live profile projection. Read the raw settings rows only:
-  // buildProviderCatalog
+  // the colliding live profile projection. buildProviderCatalog
   // synthesizes a [resolved] row when settings is null/empty, and when
   // resolved is itself codex/<slug> that row carries the live apiKey with no
   // profile marker — treating it as hand-named would eject the real marked

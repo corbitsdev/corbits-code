@@ -23,8 +23,8 @@ import {
 } from "../../packages/opencode-go/src/index.js";
 
 // A configured inference provider. `apiKey` is secret (global settings file
-// only); `models` is always an array so single- and multi-model providers are
-// handled uniformly; `defaultModel` (or the first entry) is the default.
+// only); `models` is always an array; `defaultModel` (or the first entry)
+// is the default.
 export interface ProviderSettings {
   name?: string;
   baseURL: string;
@@ -34,8 +34,8 @@ export interface ProviderSettings {
   models: string[];
   defaultModel?: string;
   keyless?: boolean;
-  // Hides the status-bar dollar cost regardless of model pricing — e.g. a
-  // prepaid coding plan or a gateway whose models.dev prices do not apply.
+  // Hide the status-bar dollar cost regardless of model pricing (e.g. prepaid
+  // plans, gateways whose models.dev prices do not apply).
   free?: boolean;
   // Token-window override for compaction and the status-bar meter, applied at
   // load into contextWindowFor; OAuth-projected Codex/xAI entries drop it.
@@ -46,7 +46,7 @@ export interface ProviderSettings {
   // topP — never send both on the wire.
   temperature?: number;
   // Sampling top-p (0..1, OpenAI-compatible); mutually exclusive with
-  // temperature — never send both on the wire.
+  // temperature.
   topP?: number;
   // Bifrost virtual key (sk-bf-...): routes through the Bifrost adapter
   // (injects the x-bf-vk header) and enables /v1/models auto-discovery.
@@ -57,10 +57,10 @@ export interface ProviderSettings {
   opencodeGo?: boolean;
   // False when persisted without a passing connection test ("save anyway"
   // bypass); absent/true means tested. Defaults to trusted so existing files
-  // are not flagged; only untested persists write `false`.
+  // are not flagged.
   verified?: boolean;
   // Custom reasoning-effort ladder; when present the runtime uses exactly
-  // these levels instead of the family table. Absent means "family table".
+  // these levels instead of the family table.
   reasoningEfforts?: ReasoningEffort[];
   // Starting level for new sessions; only meaningful alongside
   // `reasoningEfforts`.
@@ -76,13 +76,13 @@ export interface ModelRef {
 export const DEFAULT_RECENT_MODELS_STORED = 10;
 export const DEFAULT_RECENT_MODELS_SHOWN = 5;
 
-// Global settings: the set of providers plus which one to use by default.
+// Global settings: providers plus the default one.
 export interface Settings {
   defaultProvider?: string;
   providers: Record<string, ProviderSettings>;
   mcpServers?: MCPServerSettingsEntry[];
-  // Per-phase model overrides for workflows. Keyed by profile name, then
-  // workflow step profile key; a step's `profile` field selects the entry.
+  // Per-phase model overrides keyed by profile name, then workflow step
+  // profile key; a step's `profile` selects the entry.
   workflowProfiles?: Record<string, Record<string, string>>;
   // Per-plugin config keyed by plugin id: enabled flag plus manifest-declared
   // credentials (e.g. an Exa API key). Global-only because it carries secrets;
@@ -109,13 +109,13 @@ export interface Settings {
   // whether subsequent launches show "Welcome to" vs "Welcome back".
   onboarded?: boolean;
   // Last package version whose release notes were shown (or stamped on first
-  // interactive install). Stamps only after notes are actually shown.
+  // interactive install).
   lastChangelogVersion?: string;
   // Deprecated: compaction is always the evidence-backed LLM handoff now.
   // Legacy values still load but are ignored; new writes omit this field.
   compactionMode?: "llm" | "pruning";
   // Deprecated: orchestrator is the only product path. Legacy values still
-  // load but are ignored; kept on the type so old files load.
+  // load but are ignored.
   sessionMode?: SessionMode;
   // When a pinned agent profile has no viable provider leg: "active" (default)
   // falls back to the user's main session so the agent still runs; "none"
@@ -140,7 +140,7 @@ export interface Settings {
   mcp?: { timeoutMs?: number };
   // Anonymous PostHog telemetry, global only — never written to per-repo local
   // settings. `enabled` defaults to true (opt-out); `installationId` is a
-  // UUID generated once on first use; `noticeShown` marks the first-run notice.
+  // UUID; `noticeShown` marks the first-run notice.
   telemetry?: {
     enabled?: boolean;
     installationId?: string;
@@ -150,9 +150,8 @@ export interface Settings {
   // Prefer OTEL_* env vars for secrets; see docs/PERFTRACE.md. Local PerfTrace
   // stays always-on regardless of this block.
   otel?: OtelSettings;
-  // Models-first /model picker recents (newest first). Global preference only
-  // — no credentials. Stored list capped (~10); UI shows fewer via
-  // listRecentModels.
+  // /model picker recents (newest first). Global only — no credentials; UI
+  // shows fewer via listRecentModels.
   recentModels?: ModelRef[];
   // Operator-starred provider+model pairs for the models-first picker.
   favoriteModels?: ModelRef[];
@@ -358,8 +357,7 @@ export function removeProviderFromSettings(
 
 // Maps the settings shell block to the shape the shell-guard plugin expects.
 // Returns undefined when unset so the plugin applies the 120s foreground
-// default itself. timeoutMs overrides that default; maxTimeoutMs clamps the
-// default path only.
+// default itself.
 export function shellTimeoutFromSettings(
   settings?: Settings | null,
 ): { defaultMs?: number; maxMs?: number } | undefined {
@@ -420,8 +418,7 @@ export function shellEnvFromSettings(
 export interface PluginConfig {
   enabled?: boolean;
   // One-time consent for a tool plugin (kind "tool"): its tools add
-  // in-process capabilities, so they wire in only once the user has consented
-  // in the /plugins UI. Ignored for other kinds.
+  // in-process capabilities. Ignored for other kinds.
   consented?: boolean;
   credentials?: Record<string, string>;
 }
@@ -811,9 +808,8 @@ export function normalizeMcpServers(
   return undefined;
 }
 
-// Local settings are selection-only for provider/model (no credentials
-// allowed); mcpServers is permitted because MCP server configs are expected
-// to live in the repo.
+// Local settings are selection-only for provider/model (no credentials);
+// mcpServers is permitted because MCP configs live in the repo.
 export function isLocalSettings(value: unknown): value is LocalSettings {
   if (!LocalSettingsSchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
@@ -1387,8 +1383,8 @@ export async function loadGlobalSettingsWriteBase(
 }
 
 // Upsert one provider without dropping plugins, pluginPaths, sessionMode,
-// shell, tools, or any other non-provider field. Used by first-run onboarding
-// and similar single-provider writes.
+// shell, tools, or other fields. Used by first-run onboarding and similar
+// single-provider writes.
 export function mergeProviderIntoSettings(
   existing: Settings | null | undefined,
   providerName: string,
@@ -1459,8 +1455,7 @@ export async function markLastChangelogVersion(
 }
 
 // Ensure a persisted telemetry installationId exists, generating one on first
-// use. Reads on-disk settings fresh (same rationale as markOnboarded: never
-// trust an in-memory Settings that may carry injected credentials).
+// use. Reads on-disk settings fresh (same rationale as markOnboarded).
 export async function ensureTelemetrySettings(path: string): Promise<Settings> {
   const onDisk = await loadSettings(path);
   const base: Settings = onDisk ?? { providers: {} };

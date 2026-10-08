@@ -77,7 +77,6 @@ export async function loadProfile(path: string): Promise<ProfileConfig | null> {
 //   profileName argument (CLI --profile flag)
 //   project profile.json's "profile" key (named profile to inherit)
 //   project profile.json itself
-// Project profile field values override named profile field values.
 export async function resolveProfile(
   cwd: string,
   profileName?: string,
