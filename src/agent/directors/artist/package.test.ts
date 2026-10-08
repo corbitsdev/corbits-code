@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { artistPackage } from "@corbits/agent-artist";
+import { artistPackage } from "@corbits/code-agent-artist";
 import { PRODUCT_WRITE_TOOLS, READ_TOOLS } from "../tool-sets.js";
 import { DIRECTOR_REGISTRY } from "../registry.js";
 import type { DirectorPackage } from "../types.js";

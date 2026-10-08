@@ -3,7 +3,7 @@
  * Hand-crafts SVGs, visual diagrams (Mermaid, ASCII art), and structured
  * generative graphic prompts for image generation models.
  *
- * Ships as the @corbits/agent-artist workspace package: the tool allowlist
+ * Ships as the @corbits/code-agent-artist workspace package: the tool allowlist
  * lives here so the package stays importable without the app. Drift against
  * the app build surface fails src/agent/directors/artist/package.test.ts.
  */
