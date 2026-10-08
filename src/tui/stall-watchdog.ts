@@ -160,6 +160,13 @@ export const STALL_RECOVERY_MESSAGE =
   "stopped after no response — send again to retry";
 
 /**
+ * Shown while the watchdog re-presents an approval that was already parked.
+ * Names the attempt only: it never claims the parked call ran.
+ */
+export const STALL_APPROVAL_RESUME_MESSAGE =
+  "no response while waiting on approval, re-presenting the pending approval";
+
+/**
  * Shown once a repeated line aborts the turn. Named as degeneration, not a
  * generic failure, so a retry reads as the reasonable next step rather than
  * papering over a suspected hang or network fault.

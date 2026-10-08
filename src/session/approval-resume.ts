@@ -17,6 +17,7 @@ import type {
   ContextStore,
   InboundMessage,
 } from "@intx/types/runtime";
+import { isDeepStrictEqual } from "node:util";
 import { type } from "arktype";
 
 import { getLogger } from "@intx/log";
@@ -52,6 +53,138 @@ export interface ApprovalResume {
    * results so callers can forward them unchanged.
    */
   handle: (result: SendResult) => Promise<boolean>;
+  /**
+   * Where a correlation's settlement stands: `idle` when nothing is gating or
+   * has been handed over, so a fresh `handle` would open the operator surface.
+   */
+  status: (correlationId: string) => "idle" | "in-flight" | "handed-over";
+}
+
+/**
+ * What a watchdog resume attempt did. `code` is content-free (a fixed
+ * vocabulary, never approval or tool payload) so it can go into a turn marker.
+ */
+export interface StallResumeResult {
+  readonly handled: boolean;
+  readonly code: string;
+}
+
+/** The `reactor.gate.blocked` payload fields recovery reads. */
+export interface ParkedGate {
+  readonly reason: string;
+  readonly correlationId?: string | undefined;
+  readonly approvalSnapshot?: ApprovalSnapshot | undefined;
+}
+
+export interface SuspendedApprovalRecovery {
+  capture: (
+    result: Extract<SendResult, { type: "suspended" }>,
+    stillCurrent: () => boolean,
+  ) => void;
+  /**
+   * A gate parked outside a `send()` (a delivered wake, shell exit, or queued
+   * prompt starts a cycle with no caller awaiting a result), so nothing else
+   * hands the suspension to the operator. Presents it through the same
+   * correlated approval path a send would, and keeps it as the watchdog's
+   * candidate if presenting fails. A no-op when a settlement already exists.
+   */
+  observeParked: (gate: ParkedGate, stillCurrent: () => boolean) => void;
+  clear: () => void;
+  tryResumeOnce: (onPresenting?: () => void) => Promise<StallResumeResult>;
+}
+
+export function createSuspendedApprovalRecovery(args: {
+  storage: () => Pick<ContextStore, "load"> | undefined;
+  resume: ApprovalResume;
+}): SuspendedApprovalRecovery {
+  type Candidate = {
+    readonly result: Extract<SendResult, { type: "suspended" }>;
+    readonly stillCurrent: () => boolean;
+    attempted: boolean;
+  };
+  let candidate: Candidate | undefined;
+  const capture: SuspendedApprovalRecovery["capture"] = (
+    result,
+    stillCurrent,
+  ) => {
+    candidate = { result, stillCurrent, attempted: false };
+  };
+  const refused = (code: string): StallResumeResult => ({
+    handled: false,
+    code,
+  });
+  return {
+    capture,
+    observeParked: (gate, stillCurrent) => {
+      const { correlationId, approvalSnapshot } = gate;
+      if (
+        gate.reason !== "approval" ||
+        correlationId === undefined ||
+        approvalSnapshot === undefined
+      )
+        return;
+      // Whichever of this route and a send's suspended result arrives first
+      // presents it and the other joins, so the operator is asked once.
+      if (args.resume.status(correlationId) !== "idle") return;
+      const result = {
+        type: "suspended" as const,
+        correlationId,
+        approvalSnapshot,
+      };
+      capture(result, stillCurrent);
+      const owned = candidate;
+      args.resume.handle(result).then(
+        () => {
+          if (candidate === owned) candidate = undefined;
+        },
+        () => {
+          logger.warn`parked approval not presented correlation=${correlationId}`;
+        },
+      );
+    },
+    clear: () => {
+      candidate = undefined;
+    },
+    tryResumeOnce: async (onPresenting) => {
+      const current = candidate;
+      if (current === undefined) return refused("no-candidate");
+      if (current.attempted) {
+        candidate = undefined;
+        return refused("already-attempted");
+      }
+      if (!current.stillCurrent()) {
+        candidate = undefined;
+        return refused("stale");
+      }
+      current.attempted = true;
+      const { correlationId } = current.result;
+      // Re-running `handle` only helps when no settlement exists for this
+      // correlation. An in-flight one would be joined (it is the wedge), and a
+      // handed-over one would be ignored, so both fall back to the abort.
+      const standing = args.resume.status(correlationId);
+      if (standing !== "idle") return refused(`settlement-${standing}`);
+      const storage = args.storage();
+      if (storage === undefined) return refused("no-storage");
+      try {
+        const verified = await resolveSuspendedApprovalFromStore(
+          storage,
+          current.result,
+        );
+        if (!verified.ok) return refused(`unverified-${verified.code}`);
+        if (!current.stillCurrent()) return refused("stale");
+        onPresenting?.();
+        await args.resume.handle(current.result);
+        // `handle` also settles true when it dropped the decision (timed out,
+        // superseded, unrenderable), so only a delivered decision counts.
+        if (args.resume.status(correlationId) !== "handed-over")
+          return refused("not-delivered");
+        candidate = undefined;
+        return { handled: true, code: "resumed" };
+      } catch {
+        return refused("error");
+      }
+    },
+  };
 }
 
 // Rebuild the operator-facing request from the persisted snapshot. The parked
@@ -101,6 +234,62 @@ export async function resolveParkedCallIdFromStore(
       operation.correlationId === correlationId,
   );
   return matches.length === 1 ? matches[0]?.suspendedCall?.id : undefined;
+}
+
+export type SuspendedApprovalResolution =
+  | { readonly ok: true; readonly parkedCallId: string }
+  | {
+      readonly ok: false;
+      readonly code:
+        | "not-pending"
+        | "ambiguous-pending"
+        | "snapshot-invalid"
+        | "snapshot-mismatch"
+        | "settled";
+    };
+
+/**
+ * Proves that the suspended result still identifies the one persisted call.
+ * Failure codes are intentionally content-free so watchdog diagnostics cannot
+ * disclose approval or tool payloads.
+ */
+export async function resolveSuspendedApprovalFromStore(
+  storage: Pick<ContextStore, "load">,
+  result: Extract<SendResult, { type: "suspended" }>,
+): Promise<SuspendedApprovalResolution> {
+  const { pendingOperations } = await storage.load();
+  const matches = pendingOperations.filter(
+    (operation) =>
+      operation.kind === "approval" &&
+      operation.correlationId === result.correlationId,
+  );
+  if (matches.length === 0) return { ok: false, code: "not-pending" };
+  if (matches.length !== 1) return { ok: false, code: "ambiguous-pending" };
+  const operation = matches[0];
+  if (operation === undefined) return { ok: false, code: "not-pending" };
+  if (operation.timeoutAt !== undefined && operation.timeoutAt <= Date.now())
+    return { ok: false, code: "settled" };
+  const parked = operation.suspendedCall;
+  const persisted = operation.approvalSnapshot;
+  const captured = result.approvalSnapshot;
+  const parsedPersisted = persisted && ApprovalSnapshotShape(persisted);
+  const parsedCaptured = ApprovalSnapshotShape(captured);
+  if (
+    parked === undefined ||
+    parked.id.length === 0 ||
+    !parsedPersisted ||
+    parsedPersisted instanceof type.errors ||
+    parsedCaptured instanceof type.errors
+  )
+    return { ok: false, code: "snapshot-invalid" };
+  if (
+    parked.name !== parsedPersisted.name ||
+    parked.name !== parsedCaptured.name ||
+    !isDeepStrictEqual(parked.arguments, parsedPersisted.arguments ?? {}) ||
+    !isDeepStrictEqual(parked.arguments, parsedCaptured.arguments ?? {})
+  )
+    return { ok: false, code: "snapshot-mismatch" };
+  return { ok: true, parkedCallId: parked.id };
 }
 
 function timeoutResult(
@@ -355,6 +544,12 @@ export function createApprovalResume(args: {
   };
 
   return {
+    status: (correlationId) =>
+      handedOver.has(correlationId)
+        ? "handed-over"
+        : inflight.has(correlationId)
+          ? "in-flight"
+          : "idle",
     handle: (result) => {
       if (result.type !== "suspended") return Promise.resolve(false);
       const { correlationId } = result;
