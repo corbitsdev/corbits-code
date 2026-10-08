@@ -1,9 +1,9 @@
 /**
- * The density ramp is the activity primitive. Every assertion here reads the
- * rendered frame, pinned to the prompt box's bottom border — the row the
+ * The density ramp is the activity primitive. Every assertion reads the
+ * rendered frame pinned to the prompt box's bottom border — the row the
  * status slot rides. Shell fields are not evidence: the bug this indicator
- * exists to fix was a slot whose state was correct but whose painted row
- * never changed.
+ * fixes was a slot whose state was correct but whose painted row never
+ * changed.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -16,7 +16,7 @@ import { createAppShell } from "./shell/index";
 const BRAILLE = /[⠀-⣿]/;
 const DENSITY = /[░▒▓█]/;
 
-/** Drives the bridge monitor tick by hand so the ramp animates deterministically. */
+/** Drives the bridge monitor tick by hand for deterministic ramp animation. */
 function fakeMonitor(stall?: {
   readonly noticeMs: number;
   readonly timeoutMs: number;
@@ -62,9 +62,9 @@ function statusRow(frame: string): string {
 }
 
 /**
- * The status slot's single state cell: the first glyph after the border's
- * opening corner and rule. Pinning to it is what keeps these assertions honest
- * — a bang or a block elsewhere in the frame must not satisfy them.
+ * The slot's single state cell: the first glyph after the border's opening
+ * corner and rule. Pinning to it keeps these assertions honest — a bang or
+ * a block elsewhere in the frame must not satisfy them.
  */
 function slotGlyph(frame: string): string {
   const match = /╰─ (\S)/.exec(statusRow(frame));
@@ -273,7 +273,7 @@ describe("turn ramp paint", () => {
           expect(slotGlyph(h.captureCharFrame())).toMatch(DENSITY);
           expect(slotGlyph(h.captureCharFrame())).not.toBe("!");
 
-          // The slot keeps moving: still a live working pulse, not a settled bang.
+          // The slot keeps moving: a live working pulse, not a settled bang.
           const first = slotGlyph(h.captureCharFrame());
           advance(RAMP_CYCLE_MS / 4);
           await h.renderOnce();

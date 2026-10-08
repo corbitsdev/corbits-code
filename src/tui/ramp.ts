@@ -1,24 +1,17 @@
 /**
- * Density ramp — the activity primitive.
+ * Density ramp — the activity primitive. Two surfaces draw from it.
  *
- * Two surfaces draw from it.
+ * The wide fill (`rampFor`) is the provider-setup status line; the single
+ * cell (`rampPulse`) is the session shell's status slot, where one column
+ * is all the border row can spare:
  *
- * The wide fill (`rampFor`) is the provider-setup status line:
- *
- *   working    ███████▓▒░   bronze, comet crawling left to right
- *   done       ██████████   green,  still
- *   blocked    █████▓▒░     orange, frozen mid-fill
- *
- * The single cell (`rampPulse`) is the session shell's status slot, where
- * one column is all the border row can spare:
- *
- *   working    █ ▓ ▒ ░ …    bronze, cycling density — visibly moving
- *   done       █            green,  still
- *   blocked    ▌            orange, one static half block — stillness is the signal
- *   stalled    ! / █        orange, bangs alternating with a block, then static !
+ *   working    █ ▓ ▒ ░ …  cycling density — visibly moving
+ *   done       █          still
+ *   blocked    ▌          static half block — stillness is the signal
+ *   stalled    ! / █      bang/block alternation, then static !
  *
  * `blocked` and `stalled` share a color (both wait on outside action) but
- * differ by glyph and motion, so all states survive a monochrome terminal.
+ * differ by glyph and motion, so all states read without color.
  *
  * Pure and clock-injected: `nowMs` is the only time source.
  */
@@ -57,7 +50,7 @@ export const STALL_BLINK_CYCLE_MS = 900;
 /**
  * How long the stall blink runs before settling to a static bang. A stall
  * can last minutes; an unbounded blink would strobe until it means
- * nothing. The burst spends attention up front, then the static bang still
+ * nothing. The burst spends attention up front; the static bang still
  * reads as a problem.
  */
 export const STALL_BLINK_BURST_MS = STALL_BLINK_CYCLE_MS * 9;
@@ -73,7 +66,7 @@ export function stallBlinkOn(nowMs: number): boolean {
   return phase < STALL_BLINK_CYCLE_MS / 2;
 }
 
-/** Whether the burst is still running for a stall that began `stalledForMs` ago. */
+/** Whether the burst still runs for a stall that began `stalledForMs` ago. */
 export function stallBlinkActive(stalledForMs: number): boolean {
   return stalledForMs >= 0 && stalledForMs < STALL_BLINK_BURST_MS;
 }

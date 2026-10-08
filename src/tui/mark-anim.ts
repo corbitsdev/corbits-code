@@ -1,17 +1,10 @@
 /**
- * The animated Corbits mark, ported from the web boot screen.
- *
- * The silhouette (`mark-shape.ts`) draws solid, revealed left to right by
- * `drawProg` and filled bottom-up by `fillProg`. The web build dithers; at
- * hero size a terminal renders dithering as noise, so the terminal mark is
- * opaque.
- *
- * Pixel snow falls over sky cells on the same injected clock. `still` freezes
- * the mountain's timeline on its full frame but leaves snow drifting — an
- * idle landing must stay alive — while `reducedMotion` is the separate snow
- * gate. Mountain cells always win over flakes.
- *
- * Pure and clock-injected: `nowMs` is the only time source.
+ * The animated Corbits mark (ported from the web boot screen): the
+ * silhouette draws solid, revealed left to right by `drawProg` and filled
+ * bottom-up by `fillProg`. The web build dithers; at hero size a terminal
+ * renders dithering as noise, so the mark is opaque. Pixel snow falls over
+ * sky cells on the injected clock; mountain cells always win over flakes.
+ * `still` / `reducedMotion` semantics live on the MarkInput fields.
  */
 
 import { MARK_SMALL, type MarkGrid } from "./mark-shape.js";
@@ -44,9 +37,7 @@ export interface MarkFrame {
 
 /**
  * The looping timeline: draw in (0-38%), hold (38-48%), fill bottom-up
- * (48-76%), hold full (76-90%), fade out (90-100%), repeat. `still` freezes
- * it on a fully-filled mark (idle landing); reduced motion is a separate
- * snow gate.
+ * (48-76%), hold full (76-90%), fade out (90-100%), repeat.
  */
 export function markFrame(seconds: number, still: boolean): MarkFrame {
   if (still) return { drawProg: 1, fillProg: 1, alpha: 1 };
@@ -68,9 +59,9 @@ const EIGHTHS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as cons
 
 /**
  * Exponent applied to filled coverage. The mark is a thin ridgeline, so
- * most cells it touches are only partly covered; the gamma lifts them far
- * enough to read as one solid body while the sparsest edge cells stay short
- * enough to keep the slope.
+ * most cells it touches are only partly covered; the gamma lifts them into
+ * one solid body while the sparsest edge cells stay short enough to keep
+ * the slope.
  */
 const FILL_GAMMA = 0.6;
 
@@ -112,9 +103,9 @@ function unitHash(a: number, b = 0): number {
 }
 
 /**
- * Whether a sky cell holds a flake at `seconds`. Sparse columns only; each
- * active column carries one flake with a private phase and slight speed
- * variation, so the field does not march as a rigid lattice.
+ * Whether a sky cell holds a flake at `seconds`. Sparse columns only, each
+ * with one flake on a private phase and slight speed variation, so the
+ * field does not march as a rigid lattice.
  */
 function snowflakeAt(
   row: number,
@@ -135,11 +126,8 @@ function snowflakeAt(
  *
  * The silhouette is drawn solid: a fully covered cell is `█`, a partly
  * covered one is the eighth block matching its coverage, so the ridgeline
- * slopes instead of staircasing.
- *
- * Sky cells (zero coverage) may hold one falling snow pixel; flakes never
- * overwrite mountain coverage. `reducedMotion` suppresses them, `still`
- * does not (see `snowOn` below).
+ * slopes instead of staircasing. Flakes never overwrite mountain coverage;
+ * `snowOn` below gates them (see the MarkInput field docs).
  *
  * `alpha` has no terminal equivalent, so it scales the block height instead:
  * the mark sinks toward empty rather than blending to black.
@@ -150,9 +138,8 @@ export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
   const { drawProg, fillProg, alpha } = markFrame(seconds, input.still);
   const revealed = drawProg * shape.cols;
   const fillLine = shape.rows * (1 - fillProg);
-  // Not gated by `still`: the mountain can sit frozen while snow drifts
-  // (idle landing). Fade-out drops the snow too, so it never outlasts the
-  // mark it drifts over.
+  // Not gated by `still`; fade-out drops the snow so it never outlasts
+  // the mark it drifts over.
   const snowOn = alpha === 1 && !input.reducedMotion;
 
   const grid: MarkCell[][] = [];

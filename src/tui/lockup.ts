@@ -6,9 +6,8 @@
  * the running tool's name — led by a single density cell (`rampPulse` in
  * `ramp.ts`): the word alone printed the same static `working` for a live
  * run and a hung one. The cell cycles while the turn moves, holds a static
- * half block on an operator gate, and blinks a bang when stalled — glyph
- * and motion before color, so the states separate on a monochrome
- * terminal.
+ * half block on an operator gate, and blinks a bang when stalled (glyph
+ * and motion carry the states — see ramp.ts).
  *
  * The cell and the word share the phase's color rather than re-deriving
  * it, so the slot can never disagree with the phase.
@@ -64,11 +63,9 @@ export function lockupWidth(input: LockupInput): number {
 
 /**
  * The slot as coloured cells, left to right. `still` is the settled state:
- * the idle wordmark at its resting tones, nothing left to animate.
- *
- * A live turn leads with the phase's density cell and tint — the cell makes
- * the state readable without colour. The idle wordmark keeps the neutral
- * crossfade; nothing is running, so there is no phase to draw from.
+ * the idle wordmark at its resting tones, nothing left to animate. A live
+ * turn leads with the phase's density cell and tint; idle keeps the
+ * neutral crossfade because nothing is running to draw a phase from.
  */
 export function lockupCells(input: LockupInput): readonly MarkCell[] {
   const live = (input.phase?.trim().length ?? 0) > 0;
@@ -95,8 +92,8 @@ export function lockupCells(input: LockupInput): readonly MarkCell[] {
 
 /**
  * 0 the moment the text changes, 1 once the fade has run. A settled slot
- * skips it: idle is genuinely still, and the monitor tick that would carry
- * the frames has already stopped.
+ * skips it: idle is genuinely still and the monitor tick that would carry
+ * the frames has stopped.
  */
 function fadeProgress(input: LockupInput): number {
   if (input.still) return 1;

@@ -1,19 +1,19 @@
 /**
  * The Corbits mark, rasterized once into terminal cell grids.
  *
- * The mark is an immutable SVG path, so the coverage grids are baked in
- * here rather than parsed at startup: each entry is the fraction of the
- * cell the filled path covers. Cells are twice as tall as they are wide,
- * so a W x H grid fits W x 2H square units and the 1.62 aspect holds.
+ * The mark is an immutable SVG path, so the coverage grids are baked in:
+ * each entry is the fraction of the cell the filled path covers. Cells are
+ * twice as tall as they are wide, so a W x H grid fits W x 2H square units
+ * and the 1.62 aspect holds.
  *
  * Three sizes are baked because one cannot serve every job — below the
  * largest, the ridgeline crossings collapse and the silhouette drifts
  * toward noise:
  *
  *   `MARK_LARGE`  40x12 — the landing hero.
- *   `MARK_MID`    30x9  — a tall terminal that still cannot seat 12 rows.
- *   `MARK_SMALL`  16x5  — the compact fallback; the bottom-left lockup
- *                 downsamples it into its one-row ridgeline.
+ *   `MARK_MID`    30x9  — when the terminal cannot seat the hero.
+ *   `MARK_SMALL`  16x5  — the compact fallback; the lockup downsamples it
+ *                 into its one-row ridgeline.
  */
 
 export interface MarkGrid {
