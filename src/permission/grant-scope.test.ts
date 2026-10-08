@@ -14,11 +14,9 @@ import { createPermissionRequestQueue } from "./queue.js";
 import { buildRequests } from "./classify.js";
 
 // approvalCoversSubject is the single grant-evaluation owner; evaluateApprovals
-// delegates to it and isRequestCoveredByGrant must agree with it on scope.
-// This test drives the same grant+request pairs through all three and asserts
-// they agree — a regression where one call site reimplements the check with
-// subtly different semantics would fail here even if each function still
-// "looks right" in isolation.
+// delegates to it and isRequestCoveredByGrant must agree on scope. Driving
+// the same grant+request pairs through all three catches a call site that
+// reimplements the check with subtly different semantics.
 describe("grant tool/providerModel/cwd scoping agrees across call sites", () => {
   const workspace: GrantWorkspace = { resolvedCwd: "/proj", roots: ["/proj"] };
   const noopRestricted = () => false;
@@ -80,10 +78,9 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
           workspace,
         );
 
-        // Both live call sites additionally require the pattern to match the
-        // subject, which is true for every case here ("npm test" grants an
-        // exact "npm test" subject), so a scope mismatch is the only thing
-        // that can make either disagree with the shared predicate.
+        // Both live call sites also require the pattern to match the subject —
+        // true for every case here ("npm test" exact) — so only a scope
+        // mismatch can make either disagree with the predicate.
         expect(viaApprovalCoversSubject).toBe(expected);
         expect(viaGate).toBe(expected);
       });
@@ -108,11 +105,9 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
   });
 });
 
-// Seeded grants enter the gate in native key space. Pure renames collapse onto
-// the engine id (capability-identical, behavior-preserving); a stored
-// update_plan key has no native representation that preserves its narrow
-// create-only capability, so it is dropped fail-closed instead of widening
-// onto manage_tasks.
+// Normalization to native key space: pure renames collapse onto the engine id;
+// update_plan keys drop fail-closed (no native key preserves their narrow
+// create-only capability). See normalizeSeededApprovals.
 describe("normalizeSeededApprovals", () => {
   test("collapses pure renames onto the engine id, preserving other fields", () => {
     expect(
@@ -154,11 +149,9 @@ describe("normalizeSeededApprovals", () => {
   });
 });
 
-// Grant minting decomposes a multi-segment chain scope into one grant per
-// real segment (see mintGrant in gate.ts). A grant whose pattern is the full
-// chain string is legacy shape: evaluate() and isRequestCoveredByGrant both
-// match per segment only, so that shape never replays. Per-segment grants are
-// the live path (see permission.test.ts).
+// mintGrant decomposes a chain scope into one grant per real segment; a grant
+// patterned on the full chain is legacy shape and never replays, because
+// evaluate() and isRequestCoveredByGrant both match per segment only.
 describe("a scope-mismatched grant never replays a multi-segment chain", () => {
   const full = "npm i && curl x";
   const shellCall = (command: string): ToolCall => ({
@@ -225,10 +218,9 @@ describe("a scope-mismatched grant never replays a multi-segment chain", () => {
   });
 });
 
-// Explicit rejection of the legacy whole-string chain grant shape: both
-// evaluate() and isRequestCoveredByGrant match per segment only, so a stored
-// pattern equal to the full chain never short-circuits. Dual paths stay
-// aligned — neither honors legacy while the other rejects it.
+// Explicit counterpart: a stored pattern equal to the full chain never
+// short-circuits on either path (both match per segment only), and the two
+// paths stay aligned.
 describe("legacy whole-string chain grants are explicitly rejected", () => {
   const full = "npm i && curl x";
   const shellCall = (command: string): ToolCall => ({
@@ -295,9 +287,8 @@ describe("legacy whole-string chain grants are explicitly rejected", () => {
 });
 
 // After the operator approves `a && b`, mintGrant emits one grant per segment
-// and onGrant's covers predicate sees the live approvals list — so a queued
-// identical chain drains once both segments are present, without a second
-// prompt.
+// and onGrant's covers predicate sees the live approvals list, so a queued
+// identical chain drains once both segments are present — no second prompt.
 describe("queue reconcile drains an identical chain after per-segment mint", () => {
   const full = "npm i && curl x";
   const shellCall = (command: string): ToolCall => ({
@@ -361,9 +352,8 @@ describe("queue reconcile drains an identical chain after per-segment mint", () 
       (o) => outcomes.push({ allow: o.allow }),
     );
 
-    // Seed only the first segment via a one-segment persist, then assert the
-    // queued full chain stays put — draining on a partial grant would let an
-    // unapproved tail through.
+    // Seed only the first segment, then assert the queued full chain stays
+    // put — draining on a partial grant would let an unapproved tail through.
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async () => ({
@@ -389,15 +379,12 @@ describe("queue reconcile drains an identical chain after per-segment mint", () 
   });
 });
 
-// A project-scoped grant is confined to the session that minted it, so it may
-// replay only inside THIS gate's workspace. The grant cwd must equal the gate
-// workspace resolvedCwd before roots membership (or an exact request-cwd
-// match) is considered. The bug this pins: grantCwd === requestCwd
-// short-circuited first, so a foreign grant stamped for /foreign replayed for
-// any request with that same cwd even under a gate whose workspace is /proj —
-// a cross-project replay. The predicate, the shared scoping predicate, and
-// both live call sites (approvalCoversSubject, isRequestCoveredByGrant) must
-// all reject the foreign case and agree.
+// A project-scoped grant replays only inside the gate that minted it: the
+// grant cwd must equal the gate's resolvedCwd before roots membership (or an
+// exact request-cwd match) is considered. Pinned bug: grantCwd === requestCwd
+// short-circuited first, so a /foreign grant replayed for any request with
+// that cwd even under a /proj gate. cwdMatchesGrant, grantScopeMatches, and
+// both live call sites must all reject the foreign case and agree.
 describe("foreign grant cwd matching request cwd under a different workspace is rejected (CL-6706)", () => {
   const workspace: GrantWorkspace = {
     resolvedCwd: "/proj",
