@@ -3,10 +3,6 @@
  * on the model family: each family sees exactly one name per tool, the one it
  * was trained on. Incoming calls accept every name any profile advertises, so
  * dispatch, grants, and history replay never depend on the active profile.
- *
- * default: read write edit delete bash glob todowrite skill webfetch
- *   websearch question
- * gpt (Codex): default, except shell, update_plan, wait
  */
 
 import { type } from "arktype";
@@ -56,9 +52,8 @@ const PATCH_FOLDED_ENGINES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * gpt models are trained on apply_patch, not write/edit/delete. Replace the
- * first folded name with apply_patch and drop the rest; other profiles and
- * lists with no file-mutation tool pass through unchanged.
+ * gpt models are trained on apply_patch, not write/edit/delete. Other
+ * profiles and lists with no file-mutation tool pass through unchanged.
  */
 export function foldFileToolNames(
   names: readonly string[],
@@ -151,9 +146,9 @@ export function nameMatchesAdvertisedListing(
   return wire !== name && isListed(wire);
 }
 
-// update_plan dispatches through translateUpdatePlanArgs, which only accepts
-// the Codex { plan: [{ step, status }] } shape. Advertising manage_tasks's
-// schema under that name sends the model into a rejected-call loop.
+// update_plan dispatches through translateUpdatePlanArgs, so advertising
+// manage_tasks's schema under that name sends the model into a rejected-call
+// loop.
 const UPDATE_PLAN_DEFINITION = {
   description:
     "Your work checklist for multi-step jobs. Send the full plan each call; keep at most one step in_progress. Skip for one-step work.",
@@ -200,13 +195,11 @@ export function projectToolDefinitions(
 }
 
 /**
- * Authz parity definitions: every def unchanged, plus one `{...def, name:
- * alias}` copy for each alias in ALIAS_TO_ENGINE whose engine equals the
- * def's canonical name. The reactor authz snapshot is keyed by parked wire
- * name, so without these copies an ask-tier `bash`/`shell` call throws a
+ * Authz parity: the reactor authz snapshot is keyed by parked wire name, so
+ * without per-alias copies an ask-tier `bash`/`shell` call throws a
  * wiring-defect error instead of suspending. `update_plan` is never
  * snapshotted (its grant is create-only narrow); non-aliased defs (MCP,
- * leaf-only) pass through unchanged. Deduplicated by name.
+ * leaf-only) pass through unchanged.
  */
 export function authzParityDefinitions(
   defs: readonly ToolDefinition[],
@@ -233,9 +226,6 @@ export function authzParityDefinitions(
 /**
  * Tool bundle wrapper (e.g. DynamicToolRunner): identical except the
  * `definitions` getter returns `authzParityDefinitions` over the live set.
- * Run/dispatch and mutation entry points delegate verbatim; only the
- * authz-facing set gains parity copies, the advertised wire set is
- * untouched.
  */
 export function withAuthzParityDefinitions<
   T extends { readonly definitions: readonly ToolDefinition[] },
@@ -266,8 +256,8 @@ export function shellQuote(arg: string): string {
 }
 
 /**
- * Codex `shell` sends `command` as a string or argv array. `run_shell` takes a
- * single shell string. Unwrap `[shell, "-lc"|"-c", script]` to the script.
+ * Codex `shell` sends `command` as a string or argv array, while `run_shell`
+ * takes a single shell string.
  */
 export function normalizeShellCommand(command: string | string[]): string {
   if (typeof command === "string") return command;
@@ -363,8 +353,8 @@ function incomingAlias(requested: string): string {
 }
 
 /**
- * Coerce hidden Codex-shaped arguments onto the engine tool, and rewrite the
- * dispatched name to the engine id. Callers pass the already-resolved engine.
+ * Coerce hidden Codex-shaped arguments onto the engine tool. Callers pass the
+ * already-resolved engine.
  */
 export function prepareDispatchedToolCall(
   call: ToolCall,
