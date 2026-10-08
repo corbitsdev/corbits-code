@@ -8,9 +8,9 @@
  * `TextTableRenderable` does the column alignment; we do not reimplement
  * layout.
  *
- * The module also owns what a collapsed tool result says: one sentence
- * derived from the payload's shape ("Grabbed 10 Linear issues"), not from
- * the arguments that asked for it.
+ * It also owns what a collapsed tool result says: one sentence derived
+ * from the payload's shape ("Grabbed 10 Linear issues"), not from the
+ * arguments that asked for it.
  */
 
 import { isSameTool } from "../agent/canonical-tool-name.js";

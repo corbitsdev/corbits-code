@@ -3,9 +3,9 @@
  * (credential_failure on a known-OAuth provider id): re-authenticate the
  * failed `kind/profile` scope, then replay the turn once when nothing was
  * committed. Mirrors credential-recovery's begin/observe/settle/accept shape
- * — the two offers share one submit/exit seat and one continuation slot, so
- * they must speak the same state language. Enter re-keys via a pre-scoped
- * /connect; Esc returns to the composer.
+ * — the two offers share one submit/exit seat and continuation slot, so they
+ * speak the same state language. Enter re-keys via a pre-scoped /connect;
+ * Esc returns to the composer.
  */
 
 import type { InboundMessage } from "@intx/types/runtime";
@@ -235,8 +235,8 @@ export function applyReconnectRecoverySelection(args: {
  * replay-once when nothing committed, Esc into a clean cancel with no
  * cascade to the credential picker. Mirrors the inline
  * presentCredentialRecovery wiring in runner/index.ts — the two offers
- * share one submit/exit seat, so the dismiss/accept shapes must stay
- * identical. Factored (rather than inline) so the wiring is unit-testable.
+ * share one submit/exit seat, so their dismiss/accept shapes must stay
+ * identical. Factored so the wiring is unit-testable.
  */
 export function createReconnectRecoveryPresenter(args: {
   recovery: ReturnType<typeof createReconnectRecoveryState>;

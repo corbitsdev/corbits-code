@@ -9,11 +9,10 @@
  * failure — a deadline race settles the waiter, logs, and lets the tail
  * advance.
  *
- * Retry safety: once deliver() returns, the reactor may hold the decision
- * even with no acceptance observed, so a retry for the same correlationId
- * re-awaits acceptance only — handing the decision over twice could
- * re-dispatch the parked call. A retry after a deliver() throw re-delivers;
- * nothing was handed over.
+ * Retry safety: once deliver() returns the reactor may hold the decision
+ * unseen, so a retry for the same correlationId re-awaits acceptance only —
+ * handing it over twice could re-dispatch the parked call. A retry after a
+ * deliver() throw re-delivers; nothing was handed over.
  */
 
 import type { InboundMessage } from "@intx/types/runtime";

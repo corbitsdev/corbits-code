@@ -1,8 +1,8 @@
 /**
- * Runner-facing mount for the OpenTUI product host. Keeps every
- * renderer-specific concern out of the session runner: catalog assembly
- * from live config, chrome pushes on session change, subagent observe
- * resolution, and the quit key that resolves `waitUntilExit`.
+ * Runner-facing mount for the OpenTUI product host. Keeps renderer-specific
+ * concerns out of the session runner: catalog assembly from live config,
+ * chrome pushes on session change, subagent observe resolution, and the
+ * quit key that resolves `waitUntilExit`.
  */
 
 import type { EventEmitter } from "node:events";
@@ -187,9 +187,9 @@ export type RunnerHost = ProductHost & {
    * push it into the already-open host, so a same-session selection shows in
    * the picker.
    *
-   * `providers` defaults to the value last passed here; pass a fresh one
-   * after a live provider connect so a newly authorized provider's models
-   * appear without a restart.
+   * `providers` defaults to the last value passed; pass a fresh one after a
+   * live provider connect so newly authorized models appear without a
+   * restart.
    */
   readonly refreshModels: (
     recentModels: readonly ModelCatalogRef[],

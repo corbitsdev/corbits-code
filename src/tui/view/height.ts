@@ -13,8 +13,8 @@ export interface RowRange {
  *
  * OpenTUI resolves Ambiguous as narrow under both width methods (`wcwidth`
  * and `unicode`). Passed explicitly so the choice is greppable;
- * `src/tui/width-contract.ts` probes OpenTUI's table at startup so a
- * divergence is caught rather than painted.
+ * `src/tui/width-contract.ts` probes OpenTUI's table at startup, catching a
+ * divergence instead of painting it.
  */
 export const AMBIGUOUS_IS_NARROW = true;
 

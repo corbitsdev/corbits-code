@@ -141,8 +141,8 @@ export function slashArgItems(
  * exactly a Tab-accepted free-form hint: the hint lands as selected text so
  * typing replaces it, but submitting it untouched would send the
  * placeholder as the argument. The guard is shape-only, not
- * selection-gated — the selection is trivially lost without editing, and a
- * bare Enter would then submit the literal. An exact `/id <hint>` match is
+ * selection-gated — the selection is trivially lost without editing, so a
+ * bare Enter would submit the literal. An exact `/id <hint>` match is
  * always the placeholder: real arguments never equal the hint
  * byte-for-byte. Pure; `submitPrompt` applies the result. Returns null when
  * the value is real content (subcommand accepts, typed text, unknown

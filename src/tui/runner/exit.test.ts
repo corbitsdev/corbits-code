@@ -570,9 +570,9 @@ function rebuildManageTasksEvent(): ReactorInboundEvent {
  * The services surface every rebuild path touches: holder swap, fleet store,
  * workflow reattach, recorder reset, and a buildAgent that mints a fresh
  * director from the static `allowIdleWithFleet: true` seed — the same seed
- * the TUI session assembly uses, since fleet lanes may appear mid-session.
- * The rotation-only stubs (buildSessionSources, hostHolder, the resetters)
- * are inert on interrupt/reload paths.
+ * the TUI session assembly uses (fleet lanes may appear mid-session). The
+ * rotation-only stubs (buildSessionSources, hostHolder, the resetters) are
+ * inert on interrupt/reload paths.
  */
 function wireRebuildServices(
   services: RunnerServices,

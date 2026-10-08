@@ -1,9 +1,9 @@
 /**
- * Shared mutable state for the runner split, following the provider-setup
- * `SetupState` pattern: index.ts threads one state bag plus one const
- * services object through the runner factories so the extracted modules see
- * the same live bindings the old closure did. Lives in its own leaf module:
- * siblings must not import each other (only index composes them).
+ * Shared mutable state for the runner split: index.ts threads one state bag
+ * plus one const services object through the runner factories so the
+ * extracted modules see the same live bindings the old closure did. Lives
+ * in its own leaf module: siblings must not import each other (only index
+ * composes them).
  */
 
 import type { Agent, SendResult } from "@intx/agent";
@@ -57,10 +57,10 @@ export type RunnerHost = Awaited<ReturnType<typeof mountRunnerHost>>;
  * Why a run.json snapshot is being written. Only "run-end" ends the run
  * and clears the active-run handle the crash handler in index.ts reads.
  *
- * RunState.status cannot stand in for this: a /clear or /new rotation
- * persists a terminal "done" for the outgoing session while the process
- * keeps running under a fresh session id, so a non-"running" status would
- * disarm crash finalization after the first rotation.
+ * RunState.status cannot stand in: a /clear or /new rotation persists a
+ * terminal "done" for the outgoing session while the process keeps running
+ * under a fresh session id, so a non-"running" status would disarm crash
+ * finalization after the first rotation.
  */
 export type SnapshotKind = "progress" | "session-rotation" | "run-end";
 
@@ -199,7 +199,7 @@ export interface RunnerServices {
  * The mutable bindings of the old runTUI closure: every `let` the split
  * modules read or reassign lives here. Late-wired cross-module callbacks
  * (systemNotice, persistRunSnapshot, ...) are optional slots invoked with
- * `?.` — they can only fire after index.ts wires them.
+ * `?.` — they fire only after index.ts wires them.
  */
 export interface RunnerState {
   config: Config;
@@ -380,8 +380,8 @@ export function hostOf(state: RunnerState): RunnerHost {
  * Seed the state bag from the pre-try startup results. Everything here is
  * available before the session lifecycle assembles; later sections assign
  * the rest in place, mirroring the old closure's `let` order. The initial
- * source bundle resolves eagerly — a pure function of the still-unmutated
- * config and session id.
+ * source bundle resolves eagerly — a pure function of the unmutated config
+ * and session id.
  */
 export function createRunnerState(start: TUIStart): RunnerState {
   const config = start.config;

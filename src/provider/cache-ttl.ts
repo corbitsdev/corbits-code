@@ -100,7 +100,7 @@ export function anthropicCacheWriteAt(
 /**
  * Seed for a resumed session's pre-infer fold. Absent unless the provider
  * about to be called speaks the Anthropic messages protocol — a stamp alone
- * is not enough: a non-Anthropic live adapter must not fold.
+ * is not enough; a non-Anthropic adapter must not fold.
  *
  * `liveProvider` is the catalog id (`source.id`): runners persist
  * `${id}:${model}` with that id (`zen`, `opencode-go`, or a custom account

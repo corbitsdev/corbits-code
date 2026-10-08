@@ -67,9 +67,9 @@ export type SubmissionRoute =
 
 /**
  * Command names a leading-`/` token may dispatch to. Call sites own the set
- * — registry `listCommands()` names, the same source the `/` popup catalog
- * searches. A supplier stays fresh across registry reloads; a plain set or
- * array is a snapshot.
+ * — registry `listCommands()` names, the `/` popup catalog's source. A
+ * supplier stays fresh across registry reloads; a plain set or array is a
+ * snapshot.
  */
 export type KnownCommandNames =
   | readonly string[]
@@ -88,12 +88,12 @@ function hasKnownCommand(known: KnownCommandNames, name: string): boolean {
 /**
  * What a submitted composer line is. A leading `/` is a slash command only
  * when its first token (lowercased, to whitespace) exactly matches a
- * registered command id; anything else — paths like `/Users/you/notes`,
- * typos like `/cler` — is a model prompt and reaches it verbatim. Bare `/`
- * stays empty. Callers that omit `knownCommands` keep the legacy
- * any-leading-slash-is-a-command rule; product call sites pass the registry
- * set. The returned name is the canonical lowercase registry id, so the
- * exact `getCommand` lookup hits mixed-case input like `/CLEAR`.
+ * registered command id; anything else — absolute paths, unknown slashes —
+ * is a model prompt and reaches it verbatim. Bare `/` stays empty. Callers
+ * omitting `knownCommands` keep the legacy any-leading-slash-is-a-command
+ * rule; product call sites pass the registry set. The returned name is the
+ * canonical lowercase id, so the exact `getCommand` lookup hits mixed-case
+ * input like `/CLEAR`.
  */
 export function routeSubmission(
   raw: string,
@@ -137,13 +137,12 @@ export interface SubmitHandlerDeps {
 }
 
 /**
- * Composer submit handler. Leading-`/` input dispatches against the command
- * registry only on a registered-id hit; anything else goes to the model as
- * a prompt. When feedback capture is armed (bare `/feedback`), the next
- * non-command line is captured as survey text.
+ * Composer submit handler: registered slash commands dispatch, anything else
+ * goes to the model as a prompt. When feedback capture is armed (bare
+ * `/feedback`), the next non-command line is captured as survey text.
  *
- * Returns an outcome so the session bridge can keep local-only submits off
- * the agent busy path and out of the mid-run queue.
+ * Returns an outcome so the session bridge keeps local-only submits off the
+ * agent busy path and out of the mid-run queue.
  */
 export type SubmitOutcome = "agent" | "local" | "empty";
 
@@ -232,11 +231,11 @@ export function createSubmitHandler(
 export const IMAGE_ONLY_PROMPT = "Please inspect the attached image.";
 
 /**
- * Build the inbound message for a genuine operator submit — the real
- * prompt-submit path in the TUI (sendUserPrompt / the "send" command
- * result), with or without attachments. Carries OPERATOR_ORIGINATED_FLAG so
- * director.ts's loop-protection backstop can tell it apart from
- * system-originated sends (compaction continuations, retries, nudges).
+ * Build the inbound message for a genuine operator submit (sendUserPrompt /
+ * the "send" command result), with or without attachments. Carries
+ * OPERATOR_ORIGINATED_FLAG so director.ts's loop-protection backstop can
+ * tell it apart from system-originated sends (compaction continuations,
+ * retries, nudges).
  */
 export function userInboundMessage(
   text: string,
@@ -264,10 +263,10 @@ export function userInboundMessage(
 
 /**
  * Present at most one recovery surface when a send settles. The reconnect
- * offer re-auths the exact scope that failed, so it wins whenever it arms
- * and its presenter is wired; otherwise fall through to the credential
- * picker. An armed reconnect with no presenter must not swallow the
- * credential fallback; dismissing it never cascades — one offer per failure.
+ * offer re-auths the exact scope that failed, so it wins when armed and its
+ * presenter is wired; otherwise the credential picker. An armed reconnect
+ * with no presenter must not swallow the credential fallback; dismissing
+ * never cascades — one offer per failure.
  */
 export function presentSendRecoveryOffer(args: {
   credential: PendingCredentialRecovery | null;

@@ -256,7 +256,7 @@ function createRunPersistence(state: RunnerState, services: RunnerServices) {
 /**
  * Fan one sink event out to whichever recovery attempts track the current
  * provider-failure attempt. The credential picker and the reconnect offer
- * share this submit/exit seat, so both observe the same retry/error stream
+ * share the submit/exit seat, so both observe the same retry/error stream
  * and settle independently when the send ends.
  */
 export function observeRecoveryAttempts(

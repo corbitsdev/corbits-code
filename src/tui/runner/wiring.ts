@@ -104,12 +104,12 @@ export function surfaceSavedSkipPermissionsWarning(
 /**
  * One tick of the periodic fleet stall poll.
  *
- * The subscribe-time mailbox edge is missable (parent mid-turn, or a
+ * The subscribe-time mailbox edge is missable (a parent mid-turn or a
  * swallowed driver send), so re-flushing here bounds the stall to one poll
  * interval. The stall bound rides the same tick, deadline first: expired
  * asks settle before the abort reconciles, then a still-silent wake turn
- * aborts. Expire-abort fires only when asks expired this tick and nothing
- * is left to re-surface; send_input emptying pending is not an expire.
+ * aborts. Expire-abort fires only for asks expired this tick with nothing
+ * left to re-surface; send_input emptying pending is not an expire.
  */
 export function createFleetStallPollTick(
   reportFleet: () => void,

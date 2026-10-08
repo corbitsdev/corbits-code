@@ -1,11 +1,10 @@
 /**
  * Session assembly for the TUI runner: everything the old runTUI closure
- * built once inside its try block before the first agent build — the session
- * lifecycle (hooks sink, run sink, cycle recorder), the permission gate,
- * plugin/tool resolution, the agent toolset, the workflow host, and
- * the chat agent factory. Returns the const `RunnerServices` bag index.ts
- * threads through the other runner modules; mutable bindings live on
- * RunnerState.
+ * built once before the first agent build — the session lifecycle (hooks
+ * sink, run sink, cycle recorder), the permission gate, plugin/tool
+ * resolution, the agent toolset, the workflow host, and the chat agent
+ * factory. Returns the const `RunnerServices` bag index.ts threads through
+ * the other runner modules; mutable bindings live on RunnerState.
  */
 
 import { join } from "node:path";
@@ -174,11 +173,10 @@ export async function assembleTUISession(
     });
 
   // Auto-continue runs must not park on any gate forever. No caller arms
-  // this today — the goal subsystem was the only source of an
-  // auto-deny/auto-cancel deadline and has been removed. The timeout
-  // plumbing (gate-events.ts / request-approval.ts, and every gate emission
-  // site below) stays for a future generalized auto-continue mechanism to
-  // re-arm by giving this a body.
+  // this today — the goal subsystem, its only former source, has been
+  // removed. The timeout plumbing (gate-events.ts / request-approval.ts, and
+  // every gate emission site below) stays for a future generalized
+  // auto-continue mechanism to re-arm by giving this a body.
   const approvalTimeout = ():
     | { timeoutMs: number; timeoutMessage: string }
     | undefined => undefined;

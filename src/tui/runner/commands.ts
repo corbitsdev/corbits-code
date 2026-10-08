@@ -68,8 +68,7 @@ export const HANDOFF_DEFAULT_PIVOT = "Continue from the handoff summary above.";
  * Populate the slash-command registry for a session: built-ins first, then
  * enabled plugin commands and workflows, then the hidden-command filter.
  * Exported so the production wiring is testable — built-in registration
- * previously rode on an import side effect and vanished with its only
- * importer.
+ * previously rode on an import side effect.
  */
 export function setUpCommandRegistry(
   settings: Settings | undefined,

@@ -41,11 +41,10 @@ function formatRecord(record: LogRecord): string {
  *
  * `@intx/log` installs a console sink as a side effect of its first import
  * (see its `default-sink` module), so a bare `getLogger` import is enough
- * for a log call to reach stdout/stderr before Corbits does anything. This
- * must run before any other Corbits code executes — first statement in
- * `mainWithRunners` — so that race is never live: the TUI holds the
- * alternate screen for the rest of the process, and anything landing on
- * the real terminal mid-frame corrupts it.
+ * for a log call to reach stdout/stderr first. This must be the first
+ * statement in `mainWithRunners`: the TUI holds the alternate screen for
+ * the rest of the process, and anything landing on the real terminal
+ * mid-frame corrupts it.
  */
 export function installFileLogSink(path: string = corbitsLogFilePath()): void {
   mkdirSync(dirname(path), { recursive: true });

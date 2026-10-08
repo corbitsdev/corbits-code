@@ -952,12 +952,11 @@ export function applyThemePinLive(
 }
 
 /**
- * Unconditional post-pin repaint for the settings surface. The cost/context
- * meter path skips painting when the meter did not move — the common
- * pin-cycle case — so cycling pins repainted nothing behind the overlay.
- * Force the chrome, repaint the border, and rebuild the transcript rows so
- * markdown bodies pick up the fresh SyntaxStyle registry. Synchronous, like
- * the swap.
+ * Unconditional post-pin repaint for the settings surface. The meter path
+ * skips painting when the meter did not move — the common pin-cycle case —
+ * so cycling pins repainted nothing behind the overlay. Force the chrome,
+ * repaint the border, and rebuild the transcript rows so markdown bodies
+ * pick up the fresh SyntaxStyle registry. Synchronous, like the swap.
  */
 export function repaintShellForTheme(shell: AppShell): void {
   paintChrome(shell, { force: true });

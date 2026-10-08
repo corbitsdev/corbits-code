@@ -1,8 +1,8 @@
 /**
  * Settings-pin live-apply: cycling the theme pin repaints the shell at once
- * — it never records-and-waits-for-relaunch. Pins resolve exactly as
- * startup does; explicit pins are deterministic regardless of terminal state,
- * so these tests never touch `process.env` or spawn an OS probe.
+ * — never records-and-waits-for-relaunch. Pins resolve exactly as startup
+ * does; explicit pins are deterministic regardless of terminal state, so
+ * these tests never touch `process.env` or spawn an OS probe.
  *
  * Assertions read painted content or the live style registry — never a
  * repaint counter. The pin cycle runs with no cost movement, so a
