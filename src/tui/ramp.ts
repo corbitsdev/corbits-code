@@ -1,19 +1,11 @@
 /**
- * Density ramp — the activity primitive. Two surfaces draw from it.
- *
- * The wide fill (`rampFor`) is the provider-setup status line; the single
- * cell (`rampPulse`) is the session shell's status slot, where one column
- * is all the border row can spare:
- *
- *   working    █ ▓ ▒ ░ …  cycling density — visibly moving
- *   done       █          still
- *   blocked    ▌          static half block — stillness is the signal
- *   stalled    ! / █      bang/block alternation, then static !
- *
- * `blocked` and `stalled` share a color (both wait on outside action) but
- * differ by glyph and motion, so all states read without color.
- *
- * Pure and clock-injected: `nowMs` is the only time source.
+ * Density ramp — the activity primitive. The wide fill (`rampFor`) is the
+ * provider-setup status line; the single cell (`rampPulse`) is the session
+ * shell's status slot, where one column is all the border row can spare.
+ * `blocked` and `stalled` share a color (both wait on outside action), but
+ * every phase differs by glyph and motion — working cycles density, done
+ * and blocked hold still, stalled blinks then sits on `!` — so states read
+ * without color. Pure and clock-injected: `nowMs` is the only time source.
  */
 
 import { UI } from "./theme.js";
@@ -30,8 +22,8 @@ const EMPTY = " ";
 const COMET_LENGTH = FEATHER.length;
 
 /**
- * One full comet traversal; slow enough to read as motion, not a strobe at
- * the 250 ms status tick.
+ * One full comet traversal, slow enough to read as motion at the 250 ms
+ * status tick, not a strobe.
  */
 export const RAMP_CYCLE_MS = 1200;
 
@@ -48,16 +40,16 @@ const BLOCKED_GLYPH = "▌";
 export const STALL_BLINK_CYCLE_MS = 900;
 
 /**
- * How long the stall blink runs before settling to a static bang. A stall
- * can last minutes; an unbounded blink would strobe until it means
- * nothing. The burst spends attention up front; the static bang still
- * reads as a problem.
+ * How long the stall blink runs before settling to a static bang: a
+ * minutes-long stall would strobe an unbounded blink into noise, so the
+ * burst spends attention up front and the static bang still reads as a
+ * problem.
  */
 export const STALL_BLINK_BURST_MS = STALL_BLINK_CYCLE_MS * 9;
 
 /**
  * Whether `nowMs` is in the solid half of the stall blink; exported so every
- * stalled surface blinks on the same clock.
+ * stalled surface blinks in sync.
  */
 export function stallBlinkOn(nowMs: number): boolean {
   const phase =
@@ -81,7 +73,7 @@ function clamp01(value: number): number {
 /**
  * Determinate fill: solid cells up to `progress`, then a short dither
  * feather at the leading edge so the boundary reads as texture, not a hard
- * stop. A full ramp is entirely solid.
+ * stop.
  */
 export function renderRamp(progress: number, width = RAMP_WIDTH): string {
   if (width <= 0) return "";
@@ -95,8 +87,8 @@ export function renderRamp(progress: number, width = RAMP_WIDTH): string {
 }
 
 /**
- * Indeterminate fill: a comet traveling left to right and wrapping. Most
- * work has no denominator, so it animates rather than faking a percentage.
+ * Indeterminate fill: a left-to-right wrapping comet. Most work has no
+ * denominator, so it animates rather than faking a percentage.
  */
 export function renderIndeterminateRamp(
   nowMs: number,
@@ -117,14 +109,14 @@ export function renderIndeterminateRamp(
 export type RampPhase = "working" | "done" | "blocked" | "stalled";
 
 /**
- * Wide-fill phases. Only a live session reports a stall, and it paints the
- * single cell, so a wide stall would produce glyphs nothing renders.
+ * Only a live session reports a stall, and it paints the single cell, so
+ * a wide stall would produce glyphs nothing renders.
  */
 export type RampFillPhase = Exclude<RampPhase, "stalled">;
 
 /**
- * Stalled duration, or null when not stalled. Required: it decides whether
- * the blink still runs; forgetting it paints a permanent strobe.
+ * Stalled duration, or null when not stalled. It decides whether the blink
+ * still runs; forgetting it paints a permanent strobe.
  */
 export type StallAge = number | null;
 
@@ -156,9 +148,9 @@ export function rampFg(phase: RampPhase): string {
 }
 
 /**
- * Whether the phase still has frames to draw. False for terminal and waiting
- * states and for a settled stall, so the caller's tick can fall back to its
- * slow cadence.
+ * Whether the phase still has frames to draw. False for terminal, waiting,
+ * and settled-stall states, so the caller's tick can fall back to its slow
+ * cadence.
  */
 export function rampAnimating(
   phase: RampPhase,

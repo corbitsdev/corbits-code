@@ -1,9 +1,8 @@
 /**
- * The density ramp is the activity primitive. Every assertion reads the
- * rendered frame pinned to the prompt box's bottom border — the row the
- * status slot rides. Shell fields are not evidence: the bug this indicator
- * fixes was a slot whose state was correct but whose painted row never
- * changed.
+ * Every assertion reads the rendered frame pinned to the prompt box's
+ * bottom border — the row the status slot rides. Shell fields are not
+ * evidence: the bug this indicator fixes was a slot whose state was
+ * correct but whose painted row never changed.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -63,8 +62,8 @@ function statusRow(frame: string): string {
 
 /**
  * The slot's single state cell: the first glyph after the border's opening
- * corner and rule. Pinning to it keeps these assertions honest — a bang or
- * a block elsewhere in the frame must not satisfy them.
+ * corner and rule, so a bang or a block elsewhere in the frame must not
+ * satisfy these assertions.
  */
 function slotGlyph(frame: string): string {
   const match = /╰─ (\S)/.exec(statusRow(frame));
