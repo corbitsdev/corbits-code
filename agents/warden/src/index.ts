@@ -2,7 +2,7 @@
  * Warden trust-review worker (CL-7657).
  * Permission / provider-auth / plugin-loader diffs only; findings, never fixes.
  *
- * Ships as the @corbits/agent-warden workspace package: the tool allowlist
+ * Ships as the @corbits/code-agent-warden workspace package: the tool allowlist
  * lives here so the package stays importable without the app. Drift against
  * the app build surface fails src/agent/directors/warden/package.test.ts.
  */

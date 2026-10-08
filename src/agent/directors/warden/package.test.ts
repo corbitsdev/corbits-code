@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { wardenPackage } from "@corbits/agent-warden";
+import { wardenPackage } from "@corbits/code-agent-warden";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 import { DIRECTOR_REGISTRY } from "../registry.js";
 import type { DirectorPackage } from "../types.js";
