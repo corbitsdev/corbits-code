@@ -1,13 +1,8 @@
 /**
- * The landing screen: what a session looks like before it has said anything.
- *
- * Three parts, split across the prompt box so the box lands in the vertical
- * middle of the terminal: the animated dither mark above (the two way-in keys
- * beside its shoulder), the prompt box and hint row, then the telemetry
- * disclosure and selectable starter prompts below.
- *
- * Layout math is pure so the composition is testable without a renderer; the
- * mark repaints off an injected clock.
+ * The landing screen: the mark above the prompt box, the telemetry
+ * disclosure and starter prompts below, split so the box lands mid-terminal.
+ * Pure layout math keeps it testable without a renderer; the mark repaints
+ * off an injected clock.
  */
 
 import {
@@ -29,11 +24,8 @@ import { renderMark } from "./mark-anim.js";
 import { UI } from "./theme.js";
 import { stringWidth } from "./view/height.js";
 
-/**
- * Left gutter inside the shell's side margin, one column to match the
- * transcript gutter so the landing and first transcript row share a left
- * edge.
- */
+/** One-column left gutter matching the transcript so both share a left
+ * edge. */
 export const LANDING_MARGIN = 1;
 
 /** One blank row between the mark and the prompt box. */
@@ -42,17 +34,12 @@ const MARK_GAP_ROWS = 1;
 /** Columns of air between the mark's right edge and the hint block. */
 export const LANDING_HERO_GAP = 3;
 
-/**
- * The running build, read from `package.json` so it cannot drift from what
- * shipped. Rendered in the shell's persistent chrome, not here.
- */
+/** The running build, read from `package.json` so it cannot drift;
+ * rendered in the persistent chrome, not here. */
 export const LANDING_VERSION = `v${pkg.version}`;
 
-/**
- * Minimum terminal size before the version badge hides: above the transcript
- * floor (12 rows) and below the bottom-margin threshold (24), so the badge
- * is gone before the transcript would be squeezed.
- */
+/** Minimum size for the version badge: below it, the badge hides before
+ * the transcript is squeezed. */
 export const VERSION_BADGE_MIN_COLUMNS = 60;
 export const VERSION_BADGE_MIN_ROWS = 16;
 
@@ -60,17 +47,14 @@ export function versionBadgeVisible(columns: number, rows: number): boolean {
   return columns >= VERSION_BADGE_MIN_COLUMNS && rows >= VERSION_BADGE_MIN_ROWS;
 }
 
-/**
- * The two doors off the landing screen: `/` for commands and `/yolo` so
- * permission prompts do not have to be discovered the hard way.
- */
+/** The two doors off the landing: `/` for commands, `/yolo` for
+ * permission-free runs. */
 export const LANDING_HINTS: readonly {
   readonly key: string;
   readonly rest: string;
 }[] = [
   { key: "/", rest: "for commands" },
-  // One character shorter than the spoken line ("does not") so an 80-column
-  // terminal still seats the compact mark beside the aligned descriptions.
+  // "doesn't" is one char shorter, so 80 columns still seat the compact mark.
   { key: "/yolo", rest: "so Corbits Code doesn't have to ask for permissions" },
 ];
 
@@ -94,10 +78,9 @@ export const LANDING_HINT_WIDTH = LANDING_HINTS.reduce(
 const MARK_TIERS: readonly MarkGrid[] = [MARK_LARGE, MARK_MID, MARK_SMALL];
 
 /**
- * The mark grid that fits the zone above the prompt box, or null when even
- * the compact grid would push the box off screen. Rows bind on a short
- * terminal, columns on a narrow one, so both are checked; the prompt box
- * never moves to make room for the mark.
+ * The largest mark grid that fits above the prompt box, or null. Rows bind
+ * on short terminals, columns on narrow ones; the prompt box never moves
+ * for the mark.
  */
 export function resolveMarkGrid(
   aboveRows: number,
@@ -113,17 +96,15 @@ export function resolveMarkGrid(
 }
 
 export interface LandingSuggestion {
-  /** The key that fills the prompt with this prompt. */
+  /** Key that fills the prompt with this starter's text. */
   readonly key: string;
   readonly label: string;
   /** Text dropped into the prompt verbatim. */
   readonly prompt: string;
 }
 
-/**
- * Starter prompts: real first moves on an unfamiliar repo, worded as prompts
- * we would send as-is.
- */
+/** Starter prompts: first moves on an unfamiliar repo, worded as we
+ * would send them. */
 export const LANDING_SUGGESTIONS: readonly LandingSuggestion[] = [
   {
     key: "1",
@@ -145,16 +126,13 @@ export const LANDING_SUGGESTIONS: readonly LandingSuggestion[] = [
   },
 ];
 
-/** The suggestion a keypress selects, or null when the key selects nothing. */
+/** The suggestion a key selects, or null. */
 export function landingSuggestionFor(key: string): LandingSuggestion | null {
   return LANDING_SUGGESTIONS.find((item) => item.key === key) ?? null;
 }
 
-/**
- * Split the transcript zone around the prompt box so the box's middle row
- * sits on the terminal's middle row. The landing frame is transcript + model
- * bar + 3 prompt rows + hint, so an even split centres the box.
- */
+/** Even split so the box's middle row sits mid-terminal; the frame is
+ * transcript + model bar + 3 prompt rows + hint. */
 export function splitLandingRows(transcriptRows: number): {
   readonly above: number;
   readonly below: number;
@@ -199,7 +177,7 @@ export function landingBelowContent(input: {
     input.telemetryNotice === undefined || input.telemetryNotice.length === 0
       ? []
       : wrapLanding(input.telemetryNotice, width);
-  // Notice rows: one blank plus the text. Starters add a blank row, a header,
+  // Notice rows: one blank plus the text; starters add a blank, a header,
   // and one row each.
   const noticeRows = 1 + notice.length;
   const starterRows =
@@ -212,12 +190,9 @@ export function landingBelowContent(input: {
 const SUGGESTION_HEADER = "try";
 
 /**
- * Text rows painted below the prompt box, top to bottom.
- *
- * `suggestionsVisible` is false once the operator has typed: the starters are
- * whole-prompt replacements, so a visible numbered list would advertise keys
- * that do nothing. The rows stay blank so the layout does not jump on the
- * first keystroke.
+ * Rows below the prompt box. Once the operator has typed they stay blank:
+ * the starters are whole-prompt replacements, and blank rows keep the layout
+ * from jumping on the first keystroke.
  */
 export function landingBelowRows(
   content: LandingBelowContent,
@@ -265,11 +240,9 @@ export interface LandingAbove {
 }
 
 /**
- * The mark bottom-anchored in its zone (it sits on the prompt box, not
- * floating above it), with the hint block beside its shoulder.
- *
- * Rows are allocated for the largest tier once and hidden from the top down
- * as smaller tiers are selected, so a resize never rebuilds the subtree.
+ * The mark bottom-anchored to the prompt box, the hint block beside its
+ * shoulder. Rows are allocated for the largest tier once and hidden from the
+ * top, so a resize never rebuilds the subtree.
  */
 export function createLandingAbove(
   ctx: CliRenderer,
@@ -340,8 +313,8 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
     id: "shell-landing-hints",
     flexGrow: 1,
     flexDirection: "column",
-    // Centred against the mark's full height: top-aligned against the peak,
-    // the lines read as unfinished.
+    // Centred against the mark's full height; against the peak they read
+    // unfinished.
     justifyContent: "center",
     paddingLeft: LANDING_HERO_GAP,
     backgroundColor: UI.ground,
@@ -364,10 +337,8 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
   return block;
 }
 
-/**
- * Seat the mark in `grid`, or suppress it when `grid` is null. The hint block
- * stays either way: it is the way off the screen.
- */
+/** Seat the mark in `grid`, or suppress it when null. The hints stay:
+ * they are the way off the screen. */
 export function fitLandingMark(
   above: LandingAbove,
   grid: MarkGrid | null,
@@ -384,11 +355,8 @@ export function fitLandingMark(
   });
 }
 
-/**
- * Repaint the mark for the given clock. `still` holds the mountain's
- * draw/fill/fade timeline on its fully-filled frame (idle); `reducedMotion`
- * suppresses snow and does not affect `still`'s mountain framing.
- */
+/** Repaint the mark for the clock. `still` freezes the draw/fill/fade
+ * timeline on its filled frame; `reducedMotion` suppresses snow only. */
 export function paintLandingMark(
   above: LandingAbove,
   nowMs: number,

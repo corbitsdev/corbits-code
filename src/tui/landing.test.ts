@@ -1,8 +1,5 @@
-/**
- * Landing anatomy: the animated mark, a vertically centred prompt box, the
- * telemetry disclosure, and selectable starters — gone once the transcript
- * has content.
- */
+/** Landing anatomy: mark, centred prompt box, telemetry disclosure,
+ * starters — gone once the transcript has content. */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { CapturedSpan } from "@opentui/core";
 import { rgbToHex } from "@opentui/core";
@@ -58,10 +55,8 @@ interface IdleTimerHandle {
   unref?: () => void;
 }
 
-/**
- * Intercepts the product idle interval so the reduced-motion assertion can
- * see a still-armed timer regardless of cadence.
- */
+/** Intercepts the idle interval so tests can see a still-armed timer
+ * regardless of cadence. */
 function wrapLandingIdleTimer(): {
   armed: IdleTimerHandle[];
   cleared: IdleTimerHandle[];
@@ -173,13 +168,13 @@ describe("landing layout math", () => {
   });
 
   test("the mark degrades through its tiers and then disappears", () => {
-    // Roomy: the hero grid, the only size that reads unambiguously.
+    // Roomy: only the hero reads unambiguously.
     expect(resolveMarkGrid(20, 120)).toBe(MARK_LARGE);
-    // A row short of the hero, a tier down rather than a clipped hero.
+    // A row short of the hero: a tier down, not a clipped hero.
     expect(resolveMarkGrid(12, 120)).toBe(MARK_MID);
     expect(resolveMarkGrid(9, 120)).toBe(MARK_SMALL);
-    // 80-column terminal: contentWidth is 78 after gutters; the compact mark
-    // still seats beside the two doors.
+    // 80-column terminal: 78 columns after gutters; the compact mark still
+    // seats beside the doors.
     expect(resolveMarkGrid(20, 78)).toBe(MARK_SMALL);
     // Narrow enough that the mark would crowd the hints: the hints win.
     expect(resolveMarkGrid(20, 50)).toBeNull();
@@ -198,8 +193,8 @@ describe("landing screen", () => {
       async (_shell, h) => {
         await settle(h);
         const painted = rows(h);
-        // Either corner set: the prompt border's glyphs are the box's
-        // business; only its position is asserted.
+        // The prompt border glyphs are the box's business; only position is
+        // asserted.
         const top = painted.findIndex((row) => /[┌╭]/.test(row));
         const bottom = painted.findIndex((row) => /[└╰]/.test(row));
         expect(top).toBeGreaterThan(0);
@@ -210,8 +205,8 @@ describe("landing screen", () => {
 
         // Mark above, bottom-anchored against the box; disclosure below it.
         const mark = markRows(h);
-        // Whichever tier this terminal seats, the mark is whole: a clipped
-        // grid would read as a different shape.
+        // Whichever tier this terminal seats, the mark is whole; a clipped
+        // grid reads as a different shape.
         expect([MARK_LARGE, MARK_MID, MARK_SMALL].map((g) => g.rows)).toContain(
           mark.length,
         );
@@ -227,8 +222,7 @@ describe("landing screen", () => {
           descriptionColumns.add(defined(row).indexOf(hint.rest));
         }
         expect(descriptionColumns.size).toBe(1);
-        // The version is chrome, not part of the hero: it never shares a row
-        // with a hint.
+        // The version is chrome, not hero: it never shares a row with a hint.
         for (const hint of LANDING_HINTS) {
           const row = painted.find((line) => line.includes(hint.rest));
           expect(row).not.toContain(LANDING_VERSION);
@@ -237,8 +231,7 @@ describe("landing screen", () => {
           row.includes(LANDING_VERSION),
         );
         expect(versionRow).toBeGreaterThanOrEqual(0);
-        // Bottom-right: on the terminal's last content row, hugging the right
-        // edge rather than sitting under the hints.
+        // Bottom-right: on the last content row, not under the hints.
         expect(versionRow).toBeGreaterThanOrEqual(SIZE.height - 2);
         const versionCol = defined(painted[versionRow]).lastIndexOf(
           LANDING_VERSION,
@@ -290,18 +283,15 @@ describe("landing screen", () => {
   });
 
   test("an idle mount keeps the snow drifting on its own, with nothing pumping frames by hand", async () => {
-    // Regression: the other tests drive the mark by hand via `paintLanding` —
-    // how frozen snow shipped. This one mounts the shell for real: no
-    // `paintLanding`/`renderMark` calls and no `renderOnce` pumping, so a
-    // hand-pumped test cannot stay green when the self-driver is dead.
+    // Regression: hand-pumped tests drove the mark — how frozen snow shipped.
+    // Mount the shell for real so the self-driver has to work.
     await withAppShell(
       async (_shell, h) => {
         await settle(h);
         const before = markRows(h).join("\n");
 
-        // Poll until the idle timer moves the snow or a deadline passes: a
-        // fixed sleep races the timer under CI load, while polling keeps the
-        // frozen-timer failure and drops the old fixed 3s wait.
+        // Poll until the idle timer moves the snow or a deadline passes; a
+        // fixed sleep races the timer under CI load.
         const deadline = performance.now() + 5_000;
         let after = before;
         while (performance.now() < deadline) {
@@ -517,9 +507,8 @@ describe("landing screen", () => {
         expect(shell.layout.overlayMode).toBe("inset");
         await settle(h);
         const after = rows(h);
-        // Every anchor stays on screen in the same relative order; the
-        // overlay may still slide the composition (mark re-grid) for its
-        // content height.
+        // Anchors stay on screen in the same order; the overlay may still
+        // re-grid the mark for its content height.
         const nowAt = anchors.map((text) =>
           after.findIndex((row) => row.includes(text)),
         );
@@ -543,8 +532,7 @@ describe("landing screen", () => {
   });
 
   // Regression: an inset list taller than the even split used to starve to a
-  // row or two — the float asked the split for one row. It now asks for the
-  // overlay's real height, so a tall-enough terminal shows every choice.
+  // row or two; the float now asks for the overlay's real height.
   test("a landing overlay with many choices shows them all when there is room", async () => {
     await withAppShell(
       async (shell, h) => {
@@ -652,8 +640,8 @@ describe("landing screen", () => {
   });
 
   test("startup MCP/load errors keep the mountain and ride the notice strip", async () => {
-    // Load-time notices used to wipe the brand hero via appendStreamRow →
-    // clearLandingMark; they must surface as secondary chrome instead.
+    // Load-time notices used to wipe the brand hero via appendStreamRow; they
+    // surface as secondary chrome instead.
     await withAppShell(
       async (shell, h) => {
         await settle(h);
@@ -729,9 +717,8 @@ describe("landing screen", () => {
   });
 
   test("a flushed startup notice never carries a plumbing gutter label", async () => {
-    // The transcript must never label a row "command": the row text already
-    // says what it is, and the meta column is the operator's. (MCP notices
-    // still use the notice strip; plugin skill-miss summaries do not.)
+    // The transcript never labels a row "command": the row text says what it
+    // is, and the meta column is the operator's.
     await withAppShell(
       async (shell, h) => {
         await settle(h);
@@ -836,9 +823,8 @@ describe("landing screen", () => {
   });
 
   test("the task panel and the version badge both paint while landing is still mounted, without clipping the prompt", async () => {
-    // A resumed session can land with tasks visible before teardown:
-    // restored chrome and the badge's reserved row compete on the same short
-    // terminal.
+    // A resumed session can land with tasks visible before teardown; chrome
+    // and the badge row compete on a short terminal.
     const size = { width: 100, height: 17 };
     await withAppShell(
       async (shell, h) => {
