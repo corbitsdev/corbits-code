@@ -26,8 +26,8 @@ const log = getLogger([LOG_NAMESPACE_ROOT, "session"]);
 // UUIDv7 generator (no external dependencies)
 // ---------------------------------------------------------------------------
 // UUIDv7 is time-ordered: the first 48 bits are a Unix ms timestamp, followed
-// by version/variant bits and random data. This makes IDs sortable by creation
-// time, which lets us use `latest` as the highest sortable value.
+// by version/variant bits and random data, so IDs sort by creation time and
+// `latest` is simply the highest sortable value.
 //
 // Format: tttttttt-tttt-7xxx-yxxx-xxxxxxxxxxxx
 //   t = timestamp (48 bits)
@@ -269,10 +269,9 @@ export async function listSessions(
     if (loaded.kind === "unreadable") {
       continue;
     }
-    // Missing run.json: a session directory with context/ never reached its
-    // first saveState call (see src/tui/runner.ts's early "running" write)
-    // and therefore isn't actually running: report it as crashed rather
-    // than fabricating liveness.
+    // Missing run.json: a session dir with context/ never reached its first
+    // saveState call and therefore is not actually running; report it as
+    // crashed rather than fabricating liveness.
     try {
       const dirStat = await stat(dir);
       await stat(sessionContextDir(cwd, entry, home));

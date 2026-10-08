@@ -4,11 +4,11 @@
 // settles with { type: "suspended", correlationId, approvalSnapshot }. The
 // parked call has no tool result and no resolve closure — its identity is the
 // correlationId, persisted as a PendingOperation by the reactor. This module
-// rebuilds the operator-facing request from the approval snapshot, resolves it
-// through the gate's requestApproval seam, and delivers the operator's
-// decision back to the reactor as a correlated inbound message. An approved
-// decision grants the call's one-shot bypass and the reactor re-dispatches the
-// exact parked call; a rejected one answers it with an error result.
+// rebuilds the operator-facing request from the snapshot, resolves it through
+// the gate's requestApproval seam, and delivers the decision back to the
+// reactor as a correlated inbound message: approved grants the call's one-shot
+// bypass and the reactor re-dispatches the exact parked call; rejected answers
+// it with an error result.
 
 import type { Agent, SendResult } from "@intx/agent";
 import type {
@@ -48,8 +48,8 @@ export interface ApprovalResume {
    * Settle a suspended send: show the approval surface, then deliver the
    * operator's decision to the reactor on the correlationId signal channel.
    * Resolves once the decision is delivered (the resumed run continues
-   * asynchronously on the reactor loop). Returns false for non-suspension
-   * results so callers can forward them unchanged.
+   * asynchronously on the reactor loop); returns false for non-suspension
+   * results so callers forward them unchanged.
    */
   handle: (result: SendResult) => Promise<boolean>;
   /**
@@ -396,14 +396,14 @@ export function createApprovalResume(args: {
   const isExtraDenied = createExtraDeniedPathMatcher(
     args.extraDeniedPaths ?? [],
   );
-  // Retry re-await wiring: correlation ids whose decision was handed to the
-  // reactor reuse that acceptance. A retry after an observed acceptance
-  // returns without opening the gate or delivering again, so the parked call
-  // resumes exactly once and a late duplicate acceptance is a no-op. Ids are
-  // recorded only when the decision is actually handed over — a failed send
-  // (deliver threw, so nothing reached the reactor) retries as before.
+  // Correlation ids whose decision was handed to the reactor reuse that
+  // acceptance: a retry after an observed acceptance returns without opening
+  // the gate or delivering again, so the parked call resumes exactly once and
+  // a late duplicate acceptance is a no-op. Ids are recorded only when the
+  // decision is actually handed over — a failed send (deliver threw, so
+  // nothing reached the reactor) retries as before.
   const handedOver = new Set<string>();
-  // Settlements currently gating-and-delivering, keyed by correlation id. A
+  // Settlements currently gating-and-delivering, keyed by correlation id: a
   // concurrent duplicate handle shares the one in-flight outcome instead of
   // opening a second gate, so no waiter is lost and none double-resumes.
   const inflight = new Map<string, Promise<boolean>>();

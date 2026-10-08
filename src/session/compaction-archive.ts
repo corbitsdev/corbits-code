@@ -1,11 +1,9 @@
-// Authorized evidence archive for primary-session compaction.
-//
-// Captures the exact post-policy representation that enters (or is about to
-// enter) durable history — never raw secrets, never a divergent scrubbed copy
-// while history stays raw. Storage is owned by the session context directory
-// via ContextStore blobs plus an append-only occurrence index. Completeness is
-// an explicit certificate over an expected occurrence range and verified
-// blobs; readAt salvage is not a certificate.
+// Authorized evidence archive for primary-session compaction: captures the
+// exact post-policy representation that enters durable history — never raw
+// secrets, never a divergent scrubbed copy while history stays raw. Storage
+// lives in the session context directory (ContextStore blobs + an
+// append-only occurrence index). Completeness is a certificate over an
+// expected occurrence range and verified blobs; readAt salvage is not.
 
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -174,10 +172,10 @@ export function isControlOrEmptyInbound(message: InboundMessage): boolean {
 }
 
 /**
- * Primary admission hook (Corbits-owned). Scrubs inbound content before it
- * enters the reactor. History then envelopes that admitted content via
- * `createInboundTurn`; the archive records that history text, not the
- * pre-envelope inbound string. Workers omit this hook.
+ * Primary admission hook: scrubs inbound content before it enters the
+ * reactor. History envelopes the admitted content via `createInboundTurn`,
+ * so the archive records that history text, not the pre-envelope inbound
+ * string. Workers omit this hook.
  */
 export function admitPrimaryInboundMessage(
   message: InboundMessage,
@@ -913,10 +911,10 @@ function isSyntheticHandoffText(text: string): boolean {
 }
 
 /**
- * Persist genuinely new user text in the proposed output (the new spine)
- * as archive occurrences so a later fold can drop them. Output units already
- * present verbatim in the input need no recording; the spine never passed
- * through inbound admission. Best effort: callers treat adoption as certified.
+ * Persist new user text in the proposed output (the new spine) as archive
+ * occurrences so a later fold can drop them. Output units already present
+ * verbatim in the input need no recording; the spine never passed through
+ * inbound admission. Best effort: callers treat adoption as certified.
  */
 async function recordFreshHandoffOutput(
   archive: CompactionArchive,
@@ -944,16 +942,15 @@ async function recordFreshHandoffOutput(
 }
 
 /**
- * Refuse a destructive compact when the evidence archive cannot certify the
- * dropped prefix. Historical gap:true rows are not part of the expected set.
- * Synthetic handoff spines (and pre-format fat summaries) are adopted into
- * the archive as user_message so a later fold may change the live spine.
- * After the fold certifies, the new spine is recorded so the next fold can
- * drop it even when the summarizer does not echo it verbatim. `isAborted`
- * skips that record: the TUI wrapCompactor race can discard a certified
- * stub, and a handoff for a fold that never landed is a phantom.
- * `getSignal` is captured at apply start so onBuilt `reset()` cannot
- * un-abort an in-flight fold that wrapCompactor already discarded.
+ * Refuse a destructive compact when the archive cannot certify the dropped
+ * prefix; historical gap:true rows are not part of the expected set.
+ * Synthetic handoff spines are adopted as user_message so a later fold can
+ * drop them, and after a fold certifies the new spine is recorded so the
+ * next fold can drop it even when the summarizer does not echo it verbatim.
+ * `isAborted` skips that record: a stub the TUI wrapCompactor race discarded,
+ * or a handoff for a fold that never landed, is a phantom. `getSignal` is
+ * captured at apply start so onBuilt `reset()` cannot un-abort an in-flight
+ * fold that wrapCompactor already discarded.
  */
 export function wrapCompactorWithCompletenessGate(
   inner: Compactor,
@@ -1011,8 +1008,8 @@ export function wrapCompactorWithCompletenessGate(
 // Archive occurrence refs (pure addressing)
 // ---------------------------------------------------------------------------
 // The archive's own addressing scheme: `archive:///<occurrenceId>` refs name
-// where an occurrence's payload bytes live. Kept on the archive module so the
-// URI scheme and the store that honors it cannot drift apart.
+// where an occurrence's payload bytes live. Kept here so the URI scheme and
+// the store that honors it cannot drift apart.
 /** Prefix for every archive target, including the bare `archive:///` root. */
 export const ARCHIVE_URI_PREFIX = "archive:";
 const ARCHIVE_URI_CANONICAL = "archive:///";

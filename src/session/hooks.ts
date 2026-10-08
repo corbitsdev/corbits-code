@@ -95,10 +95,10 @@ const emptyUsage: TokenUsage = {
 
 export const RETAINED_TURN_CONTEXT_LIMIT = 200;
 
-// Retained turns are only built when a hook consumes them (over stdin, not
-// the model), so a tail-anchored budget well below any model context limit
-// keeps up to 200 turns of tool output from becoming a second full copy of
-// recent history in memory.
+// Retained turns exist only for hooks (over stdin, not the model), so a
+// tail-anchored budget well below any model context limit keeps up to 200
+// turns of tool output from becoming a second full copy of recent history in
+// memory.
 export const HOOK_PAYLOAD_TOOL_RESULT_CHARS = 4_000;
 export function localHooksDirectory(cwd: string = process.cwd()): string {
   return join(cwd, SETTINGS_DIR_NAME, "hooks");
@@ -170,10 +170,10 @@ async function discoverHooksInDirectory(
 }
 
 export interface TurnContextCollectorOptions {
-  // Turn/token/tool-call counts are cheap scalars needed regardless of
-  // consumers. The turns array (with truncated tool results) is the actual
-  // standing copy of recent history, so callers with nothing to hand it to
-  // (no lifecycle hook) can opt out of retaining it.
+  // Counts are cheap scalars needed regardless of consumers. The turns array
+  // (with truncated tool results) is the standing copy of recent history, so
+  // callers with nothing to hand it to (no lifecycle hook) can opt out of
+  // retaining it.
   retainHistory?: boolean;
   // Resuming a session should continue the persisted run.json turn count
   // rather than restart it at zero.
@@ -188,9 +188,9 @@ export function createTurnContextCollector(
   getTurns(): TurnContext[];
   getTurnCount(): number;
   getTokenUsage(): TokenUsage;
-  // Usage reported for the most recent turn alone (not summed across turns),
-  // since a provider's per-turn `input` already reflects the whole resent
-  // conversation — the right basis for "how full is the context window now."
+  // Usage for the most recent turn alone (not summed), since a provider's
+  // per-turn `input` already reflects the whole resent conversation — the
+  // right basis for "how full is the context window now."
   getLastTurnUsage(): TokenUsage;
   getToolCallCount(): number;
 } {
@@ -420,12 +420,12 @@ async function runLifecycleHook(
 }
 
 /**
- * Writes the payload to the hook and says whether the hook took it. A hook
- * that exits before reading — a shell hook that handles one lifecycle kind
- * and ignores the other — closes its end of the pipe, and a payload larger
- * than the pipe buffers (a long session's run summary) then fails with
- * EPIPE. Unawaited, that rejection was fatal to the whole process at the end
- * of a finished run. It is the hook's outcome, not the run's.
+ * Writes the payload and says whether the hook took it. A hook that exits
+ * before reading — a shell hook handling one lifecycle kind and ignoring the
+ * other — closes its end of the pipe; a payload larger than the pipe buffers
+ * (a long session's run summary) then fails with EPIPE. Unawaited, that
+ * rejection was fatal to the whole process at the end of a finished run; it
+ * is the hook's outcome, not the run's.
  */
 async function deliverPayload(
   stdin: FileSink,

@@ -8,13 +8,12 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 
 /**
- * Partial-output capture for streaming inference cycles.
- *
- * The context store persists a turn only on inference.done, so a cycle that is
- * cancelled, aborted, or errors mid-stream leaves nothing on disk. The recorder
- * buffers the current cycle's streamed text in memory (no disk writes on the
- * happy path) and appends one record to `partial.jsonl` in the session context
- * dir when a cycle ends abnormally, so the output survives for diagnosis.
+ * Partial-output capture for streaming inference cycles. The context store
+ * persists a turn only on inference.done, so a cancelled, aborted, or errored
+ * cycle leaves nothing on disk. The recorder buffers the cycle's streamed text
+ * in memory (no disk writes on the happy path) and appends one `partial.jsonl`
+ * record in the session context dir when a cycle ends abnormally, so the
+ * output survives for diagnosis.
  */
 
 export const PARTIAL_FILE = "partial.jsonl";
@@ -99,7 +98,7 @@ export interface CycleTextRecorder {
 
 export function createCycleTextRecorder(
   // Resolved per flush because the TUI rotates its session context dir in
-  // place. Callers that rotate must flush before repointing the dir — the
+  // place; callers that rotate must flush before repointing, since the
   // recorder cannot tell which session a stale buffer belongs to.
   resolveContextDir: () => string,
 ): CycleTextRecorder {
@@ -126,7 +125,7 @@ export function createCycleTextRecorder(
       text,
     };
     // Omitted when empty: a text-only abort (the common case) keeps the
-    // existing record shape, and diagnosing a thinking-loop abort needs the
+    // existing record shape; diagnosing a thinking-loop abort needs the
     // looped window that never reached visible text.
     if (thinkingText.length > 0) {
       record.thinkingChars = thinkingText.length;
