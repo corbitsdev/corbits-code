@@ -1,12 +1,8 @@
 /**
  * Offline attribution report over PerfSpan snapshots or PerfDump JSON.
  * Pure: no I/O, no module state, no OTEL. Exclusive buckets partition turn
- * wall so shares sum to ~1 (remainder → other); a nested exclusive child
- * (tool under subagent) counts only toward the parent bucket.
- *
- * Open turns use max completed-descendant endNs − turn.startNs as wall, so
- * mid-stall dumps stay usable; openPhases marks them as incomplete so shares
- * of completed children are not read as a full stall diagnosis.
+ * wall (see categorySharesFromBucket); open turns use an estimated wall
+ * (see turnWallNs), reported open so their shares read as incomplete.
  */
 
 import type { PerfSpan, SpanName } from "./index.js";
@@ -343,9 +339,9 @@ function countTopExclusiveUnder(
 
 /**
  * Attribute a PerfSpan snapshot into exclusive phase shares per turn and
- * session. Exclusive children never double-count (they land in the parent
- * bucket); diagnostics roll up separately. Open turns use the estimated wall
- * and report openPhases.
+ * session. Exclusive children never double-count (see accumulate);
+ * diagnostics roll up separately. Open turns use the estimated wall and
+ * report openPhases.
  */
 export function attributionFromSpans(
   spans: readonly PerfSpan[],
@@ -396,8 +392,7 @@ export function attributionFromSpans(
     };
   });
 
-  // Session wall includes open-turn estimates so stall-dump shares keep
-  // summing to ~1; open children contribute 0 ns.
+  // Session wall includes open-turn estimates; open children contribute 0 ns.
   const sessionBucket = emptyBucket();
   let wallNs = 0;
   let completedTurnCount = 0;
