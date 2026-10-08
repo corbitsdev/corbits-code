@@ -167,9 +167,9 @@ export function setPluginNeedsAttention(shell: AppShell, needs: boolean): void {
 }
 
 /**
- * Every input the chrome compose paths read, as one comparable key. Missing
- * one leaves stale chrome — keep the list exhaustive. Landing and zone
- * paints read their own state.
+ * One comparable key over every input chrome paint reads; missing one
+ * leaves stale chrome — keep the list exhaustive. Landing and zone paints
+ * read their own state.
  */
 function chromeComposeKey(shell: AppShell, notice: string): string {
   const meter = shell.costContext;
@@ -208,9 +208,8 @@ export function chromeComposeCount(shell: AppShell): number {
 }
 
 /**
- * Repaint chrome only when the composed key changed. `force` bypasses the
- * gate — a layout application can move the column budget and render tree
- * under identical text.
+ * Repaint chrome only when the composed key changed; `force` bypasses the
+ * gate when a layout moved the render tree under identical text.
  */
 export function paintChrome(
   shell: AppShell,
@@ -237,8 +236,8 @@ export function paintChrome(
 }
 
 /**
- * Rebuild pendingBox's rows when the painted content moved; unchanged queues
- * cost a signature compare, not a rebuild.
+ * Rebuild pendingBox rows only when the painted content moved; unchanged
+ * queues cost a signature compare, not a rebuild.
  */
 function syncPendingRows(shell: AppShell): void {
   const bag = shellInternals(shell);
@@ -306,9 +305,8 @@ function syncPendingColumn(shell: AppShell): void {
 }
 
 /**
- * Give the notice row a row only while it has something to say; the
- * relayout re-enters paintChrome, which finds the visibility already
- * correct.
+ * Give the notice row a row only while it has something to say; relayout
+ * re-enters paintChrome with the visibility already correct.
  */
 function syncNoticeRow(shell: AppShell, notice: string): void {
   paintedNotice.set(shell, notice);
@@ -321,8 +319,8 @@ function syncNoticeRow(shell: AppShell, notice: string): void {
 
 /**
  * Re-read the notice after layout: `pinned` reflects the last completed
- * layout, so a row-mutation paint can misread a tail-following transcript
- * as pinned for one frame.
+ * layout, so a mid-paint read can misread a tail-following transcript as
+ * pinned for one frame.
  */
 export function syncNoticeAfterLayout(shell: AppShell): void {
   if (noticeText(shell) !== paintedNotice.get(shell)) paintChrome(shell);
@@ -346,8 +344,8 @@ function syncLandingSuggestions(shell: AppShell): void {
 
 /**
  * Callers own the tick; the shell repaints only when the frame differs.
- * A phase change stamps the fade's origin; settling snaps to idle — a
- * transition with no frames left is worse than none.
+ * A phase change stamps the fade's origin; settling snaps to idle — no
+ * frames left is worse than none.
  */
 export interface LockupFrame {
   readonly nowMs: number;
@@ -390,8 +388,8 @@ const defaultFlashSchedule: FlashSchedule = (fn, ms) => {
 
 /**
  * Set a non-destructive flash and repaint (does not touch streamLog).
- * A `ttlMs` flash self-clears when its window lapses; omit it for conditions
- * that stay until replaced (stall notice, landing hold).
+ * A `ttlMs` flash self-clears when its window lapses; omit it for
+ * conditions that stay until replaced.
  */
 export function setStatusFlash(
   shell: AppShell,
@@ -411,8 +409,7 @@ export function setStatusFlash(
     shell,
     schedule(() => {
       flashTimers.delete(shell);
-      // Only this flash expires: a later one has its own window and the row
-      // it holds is not this one's to take back.
+      // Only this flash expires — a later one owns its own row.
       if (shell.statusFlash !== message) return;
       shell.statusFlash = null;
       paintChrome(shell);
@@ -423,8 +420,8 @@ export function setStatusFlash(
 /** Apply focus state to OpenTUI focusables. */
 export function applyFocus(shell: AppShell): void {
   const owner = focusOwner(shell.focus);
-  // Observe is a read-only child view: the parent prompt must not swallow its
-  // keystrokes, so blur it exactly as an overlay does.
+  // Observe is a read-only child view; blur it so the parent prompt cannot
+  // swallow its keystrokes.
   if (owner === "overlay" || owner === "palette" || owner === "observe") {
     if (typeof shell.prompt.blur === "function") {
       shell.prompt.blur();
@@ -466,8 +463,8 @@ const OVERLAY_FLOAT_Z = 10;
 
 /**
  * Float the overlay host over the root's column, or back in. On the landing
- * it floats as a modal — absolute positioning keeps the mark beneath; with
- * a transcript, pushing rows beats covering them.
+ * it floats as a modal so the mark stays beneath; with a transcript,
+ * pushing rows beats covering them.
  */
 function floatOverlayHost(
   shell: AppShell,
@@ -478,8 +475,8 @@ function floatOverlayHost(
   if (!floating) {
     host.position = "relative";
     host.zIndex = 0;
-    // A stale absolute top from a landing float acts as an in-flow offset
-    // under relative positioning — clear it so the band sits where flow put it.
+    // A stale absolute top from a landing float acts as an in-flow offset;
+    // clear it so the band sits where flow put it.
     host.top = 0;
     host.left = 0;
     host.width = "100%";
@@ -487,7 +484,7 @@ function floatOverlayHost(
   }
   host.position = "absolute";
   // Absolute positioning escapes root's padding: give the sideMargin back
-  // explicitly, and use the same contentWidth the prompt box resolves to.
+  // and use the same contentWidth the prompt box resolves to.
   host.left = shell.layout.sideMargin;
   host.width = shell.layout.contentWidth;
   host.top = top;
@@ -510,8 +507,8 @@ export function activeOverlayItemId(
 export function paintOverlayList(shell: AppShell): void {
   const list = shell.overlayList;
   if (!list) return;
-  // Use geometry's assigned host rows, not overlayHost.height: OpenTUI still
-  // reports the dummy height 1 until the next layout pass.
+  // Use geometry's host rows, not overlayHost.height: OpenTUI still reports
+  // the dummy height 1 until the next layout pass.
   const hostH = Math.max(0, shell.layout.overlayHeight);
   if (hostH > 0) {
     fitOverlayListToHost(shell, hostH);
@@ -546,8 +543,8 @@ function paintOverlayListContents(shell: AppShell): void {
 }
 
 /**
- * Faint frame so labels read brighter; the brand run is swapped for the
- * lockup's own cells (the only animating part of the border).
+ * Faint frame so labels read brighter; the brand run swaps in the lockup's
+ * cells — the only animating part of the border.
  */
 function ruleChunks(shell: AppShell, parts: readonly RulePart[]): TextChunk[] {
   const chunks: TextChunk[] = [];
@@ -629,8 +626,8 @@ export function paintPromptBorder(shell: AppShell): void {
   });
   shell.promptTopRule.content = new StyledText(ruleChunks(shell, top));
 
-  // The workspace shares the row with the lockup only when both fit; when it
-  // affords one, the information wins and the mark goes.
+  // The workspace shares the row with the lockup only when both fit; when
+  // only one fits, the information wins and the mark goes.
   const withBrand = Math.max(
     0,
     width - 9 - lockupWidth(lockupFrameInput(shell)),
@@ -641,8 +638,8 @@ export function paintPromptBorder(shell: AppShell): void {
     branch: shell.workspace.branch,
     home: homedir(),
   };
-  // A workspace without a path is a bare branch — the mark yields when it
-  // would starve the path, not only when the label cannot fit.
+  // A pathless workspace is a bare branch; the mark yields when it would
+  // starve the path, not only when the label cannot fit.
   const roomyRaw = composeWorkspaceLabel({
     ...workspaceInput,
     maxWidth: withBrand,
@@ -823,9 +820,9 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
 
   // Sized last: the float anchors against chrome sized earlier in this pass.
   const floating = landing !== null && overlayH > 0;
-  // A floated host's bottom edge must land above the landing box, which sits
-  // mid-screen; covering it would hide what the operator types. Stack: topPad,
-  // transcript, agents, task, prompt (notice and pending are transient).
+  // A floated host's bottom edge must land above the mid-screen landing box;
+  // covering it would hide what the operator types. Stack: topPad, transcript,
+  // agents, task, prompt (notice and pending are transient).
   const promptTop = padH + transcriptBody + agentsH + taskH;
   const hostH = floating
     ? Math.min(overlayH, Math.max(1, promptTop))
@@ -859,14 +856,14 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
     }
   }
 
-  // Forced: a relayout can move the column budget and the render tree under
-  // identical composed text, so the trailing chrome pass always recomposes.
+  // Forced: a relayout can move the render tree under identical composed
+  // text, so the trailing chrome pass always recomposes.
   paintChrome(shell, { force: true });
 }
 
 /**
- * Re-size the prompt box for its content. Cheap on every change: geometry
- * re-resolves only when the row count moves (once per wrapped line).
+ * Re-size the prompt box to its content; geometry re-resolves only when the
+ * row count moves (once per wrapped line).
  */
 export function syncPromptRows(shell: AppShell): void {
   const rows = promptBoxRows(
@@ -878,12 +875,12 @@ export function syncPromptRows(shell: AppShell): void {
 }
 
 /**
- * Resize the transcript's leading filler to soak up leftover viewport space,
- * reading `scrollHeight` minus the filler.
+ * Resize the transcript's leading filler to soak up leftover viewport
+ * space, reading `scrollHeight` minus the filler.
  *
- * Not at row-mutation time — a mid-layout row reads shorter for one frame,
- * and growing the filler on that stale reading would bury it. The render-
- * frame hook calls this after that pass.
+ * Not at row-mutation time: a mid-layout row reads short for one frame, and
+ * growing the filler on that stale reading would bury it. The render-frame
+ * hook calls this after that pass.
  */
 export function syncTranscriptSpacer(shell: AppShell): void {
   const spacer = transcriptSpacers.get(shell);
@@ -937,9 +934,9 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
               : {}),
           },
     ...(promptContentRows !== undefined ? { promptContentRows } : {}),
-    // The landing owns the screen until the first transcript row lands; a
-    // transcript floor would only clip overlays. An open overlay is the
-    // exception — without the floor a long list would claim the whole screen.
+    // The landing owns the screen until the first row lands; a transcript
+    // floor would only clip overlays. An open overlay is the exception —
+    // without the floor a long list claims the whole screen.
     ...(isLanding(shell) && overlayMode === "closed"
       ? { transcriptFloor: 0 }
       : fleetTranscriptFloor(shell)),
@@ -1042,8 +1039,8 @@ export function appendObserveStreamRow(
 /**
  * Collapse a system row identical to the one on top (startup echoes read as
  * stutter), but only when nothing painted since. Observe rows paint without
- * touching the parent log, so adjacency alone would swallow farewells like
- * "left observe"; the sequence check restores them.
+ * touching the parent log, so adjacency alone would swallow a "left
+ * observe" farewell; the sequence check restores it.
  */
 const paintSequence = new WeakMap<AppShell, number>();
 const systemPushSequence = new WeakMap<AppShell, number>();
@@ -1060,8 +1057,8 @@ function isDuplicateSystemEcho(shell: AppShell, row: StreamRow): boolean {
   ) {
     return false;
   }
-  // The in-flight call already advanced the sequence, so the top row is
-  // back-to-back only when it was pushed by the immediately previous paint.
+  // The in-flight call already advanced the sequence; the top row is
+  // back-to-back only when the immediately previous paint pushed it.
   const seq = paintSequence.get(shell) ?? 0;
   return systemPushSequence.get(shell) === seq - 1;
 }
@@ -1117,8 +1114,8 @@ function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
 
 /**
  * Drop every row from absolute `length` onward. A failed attempt re-streams
- * from scratch, so the transcript retracts what it painted instead of piling
- * the replay under it. A cap-evicted boundary is a no-op.
+ * from scratch, so the transcript retracts what it painted rather than
+ * piling the replay under it. A cap-evicted boundary is a no-op.
  */
 export function truncateStreamRows(shell: AppShell, length: number): void {
   const parentLog = shell.parentStreamLog;
@@ -1144,8 +1141,8 @@ export function truncateStreamRows(shell: AppShell, length: number): void {
  */
 export function clearTranscript(shell: AppShell): void {
   if (shell.observe !== null) {
-    // Drop observe without the "left observe" system row — the log is about
-    // to go and a farewell would only flash then vanish.
+    // Drop observe without the "left observe" row — the log is about to go,
+    // and a farewell would only flash then vanish.
     shell.observe = null;
     shell.parentStreamLog = null;
     shell.parentStreamLogBase = null;
@@ -1242,9 +1239,9 @@ export function repaintTranscriptWindow(shell: AppShell): void {
   }
 
   // Evicted rows are gone for good, not just scrolled past — say so, or the
-  // boundary reads as the true start of history. Truncated resume can leave
-  // older history on disk without a painted splice; that path must not fake
-  // `streamLogBase`.
+  // boundary reads as the true start of history. A truncated resume can
+  // leave older history on disk without a painted splice; that path must
+  // not fake `streamLogBase`.
   if (shell.streamLogBase > 0 || shell.unloadedHistory) {
     const marker = new TextRenderable(shell.renderer as CliRenderer, {
       content: droppedHistoryNotice(shell),
@@ -1295,8 +1292,8 @@ function clearLandingMark(shell: AppShell): void {
   const deferred = bag.landingDeferredRows;
   if (deferred.length > 0) {
     bag.landingDeferredRows = [];
-    // The notice strip held the latest wording while the mark was up; the
-    // rows are durable now, so drop the flash rather than double-paint.
+    // The notice strip held the latest wording; the rows are durable now,
+    // so drop the flash rather than double-paint.
     setStatusFlash(shell, null);
     for (const row of deferred) appendStreamRow(shell, row);
   }
@@ -1312,8 +1309,8 @@ export const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
  * the landing is gone, so callers can always drive it.
  *
  * Still repaints when idle — snow drifts across a frozen mountain. Reduced
- * motion (a mount-time flag) freezes the mountain and drops snow even when
- * asked for `animating`.
+ * motion (a mount-time flag) freezes the mountain and drops snow even under
+ * `animating`.
  */
 export function paintLanding(
   shell: AppShell,
@@ -1355,8 +1352,8 @@ export function createStreamRowRenderable(
   const ctx = shell.renderer as CliRenderer;
   const layout = transcriptRowLayout(shell);
   // `index` is absolute (see `streamLogBase`) so it survives retention-cap
-  // trims; `toggleRowExpandedAt` converts it back to a local position at
-  // click time, not here.
+  // trims; `toggleRowExpandedAt` converts it back to local at click time,
+  // not here.
   const onToggle =
     index === undefined || !isCollapsibleRow(row)
       ? undefined
@@ -1404,10 +1401,10 @@ export function setShellRunState(shell: AppShell, run: RunState): void {
 }
 
 /**
- * Expand or collapse one transcript row — a click on its arrow, while a key
- * with nothing under it means all (see `toggleCollapsedRow`). `index` is
- * absolute (see `streamLogBase`), matching the closures
- * `createStreamRowRenderable` builds.
+ * Expand or collapse one transcript row — a click on its arrow; a key with
+ * nothing under it means all (see `toggleCollapsedRow`). `index` is
+ * absolute (see `streamLogBase`), matching `createStreamRowRenderable`'s
+ * closures.
  */
 export function toggleRowExpandedAt(shell: AppShell, index: number): boolean {
   const row = shell.streamLog[index - shell.streamLogBase];
@@ -1416,11 +1413,10 @@ export function toggleRowExpandedAt(shell: AppShell, index: number): boolean {
   return true;
 }
 
-/** Expand or collapse every row hiding a body behind a summary — same key
- * as overlay payloads, one expand idiom. All-or-nothing: opening just the
- * newest of several collapsed rows reads as a miss. Any still-collapsed row
- * opens the whole set; only once nothing is left does the key close them
- * again. */
+/** Expand or collapse every collapsed row — same key as overlay payloads,
+ * one expand idiom. All-or-nothing: opening just the newest of several
+ * reads as a miss. Any still-collapsed row opens the whole set; only once
+ * nothing is left does the key close them again. */
 export function toggleCollapsedRow(shell: AppShell): boolean {
   const collapsible = shell.streamLog.flatMap((row, local) =>
     row !== undefined && isCollapsibleRow(row)
@@ -1461,7 +1457,7 @@ function taskStatusMarker(status: TaskPanelRow["status"]): string {
 function fitAgentRow(row: AgentPanelRow, maxWidth: number): string {
   const full = ` ${row.label}${row.tail}`;
   if (stringWidth(full) <= maxWidth) {
-    // Right-align every lane's tail so the clocks line up as a column; a lane
+    // Right-align lane tails so the clocks line up as a column; a lane
     // silent far longer than its neighbours stands out by shape alone.
     if (row.kind === "lane") {
       const pad = maxWidth - stringWidth(full);
@@ -1543,9 +1539,9 @@ function renderAgentsRows(
     destroySubtree(child);
   }
   for (const row of rows) {
-    // Live lanes are body text (cream), not bronze in-flight chrome;
-    // stalled/failed keep the decision orange; done is green; cancelled and
-    // "+N more" sit back in dim.
+    // Live lanes are body text, not in-flight chrome; stalled/failed keep
+    // decision orange; done is green; cancelled and "+N more" sit back in
+    // dim.
     const text = new TextRenderable(shell.renderer as CliRenderer, {
       content: fitAgentRow(row, maxWidth),
       fg: agentRowFg(row),
