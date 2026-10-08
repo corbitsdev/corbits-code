@@ -120,7 +120,7 @@ async function clockedBridge(
   );
 }
 
-/** A tool-less turn settles on inference.done — the spawn_agent dispatch shape. */
+/** A tool-less turn settles on inference.done — the spawn_agent shape. */
 function settleToollessTurn(
   bridge: ReturnType<typeof attachSessionBridge>,
 ): void {
@@ -445,7 +445,7 @@ describe("attachSessionBridge", () => {
   });
 
   test("queued item delivers on a tool-less turn (inference.done, no tool calls)", async () => {
-    // Regression: reactor.done only fires once, at agent shutdown, never
+    // Regression: reactor.done fires only once, at agent shutdown, never
     // between turns — a plain-text reply with no tool calls must still drain
     // the queue, or a queued message sits forever.
     await withBridge({ run: "busy" }, async ({ shell, port, bridge }) => {
@@ -471,13 +471,10 @@ describe("attachSessionBridge", () => {
   });
 
   test("run and the phase ramp both return to idle after a tool-less inference.done, with no connector.reply", async () => {
-    // Regression: a self-continuing workflow cycle may never emit
-    // connector.reply, the only other event that clears `run` and the
-    // turn's `isProcessing`. Without this, every future Enter resolves to
-    // "queue" (busy is sticky) and, once the workflow stops producing
-    // cycles, that queued message is never drained — the bug moved one
-    // layer over. The ramp indicator reads `isProcessing`, not `run`, so
-    // it can say "working" forever even once dispatch itself is fixed.
+    // Regression: a self-continuing workflow may never emit connector.reply,
+    // the only other event that clears `run` and `isProcessing`. Without this,
+    // every future Enter resolves to "queue" (busy is sticky), the queued
+    // message is never drained, and the ramp can say "working" forever.
     await withBridge({ run: "busy" }, async ({ shell, port, bridge }) => {
       bridge.handle({ type: "inference.start" });
       bridge.handle({
@@ -650,11 +647,9 @@ describe("failed sends", () => {
 });
 
 describe("committed inference retry", () => {
-  /**
-   * The reactor re-streams a committed attempt from a fresh inference.start
-   * after a same-source quota retry, so the transcript must retract the failed
-   * attempt rather than append the replay underneath it.
-   */
+  /** The reactor re-streams a committed attempt after a same-source quota
+   * retry, so the transcript must retract the failed attempt rather than
+   * append the replay underneath it. */
   const COMMITTED_RETRY_EVENTS = [
     { type: "inference.start", data: {} },
     { type: "inference.text.delta", data: { token: "partial answer" } },
@@ -758,7 +753,7 @@ describe("same-turn retry after inference.error", () => {
       expect(
         shell.streamLog.filter((r) => r.role === "user").map((r) => r.text),
       ).toEqual(["retry this"]);
-      // Same-turn retry, not an operator stop — recovery must not borrow interrupt.
+      // Same-turn retry, not an operator stop — must not borrow interrupt.
       expect(port.calls.some((c) => c.op === "interrupt")).toBe(false);
       expect(shell.streamLog.some((r) => r.meta === "stop")).toBe(false);
     });
@@ -883,9 +878,9 @@ describe("same-turn retry after inference.error", () => {
       // painting its transcript row after the armed attempt mark.
       bridge.handle({ type: "tool.boundary" });
       expect(port.calls.some((c) => c.op === "deliver")).toBe(true);
-      // Same-attempt failure: the retry rolls back to the attempt mark.
-      // The delivered row must survive — delivery already happened, so
-      // retracting it would show a transcript the runtime never saw.
+      // Same-attempt failure: the retry rolls back to the attempt mark. The
+      // delivered row must survive — retracting it would show a transcript
+      // the runtime never saw.
       bridge.handle({
         type: "inference.error",
         data: {
@@ -971,12 +966,10 @@ describe("same-turn retry after inference.error", () => {
 });
 
 describe("parallel sub-agent dispatch on the live session bridge", () => {
-  // The live main-session path tracks a call's row by callId in its own map
+  // The live main-session path tracks a call's row by callId
   // (applyToolCall/applyToolResult), independent of tool-rows.ts's name-based
-  // pendingCallIndex — pinned here so a future change to either path cannot
-  // silently reintroduce misattribution on the parent transcript (the observe
-  // overlay and resumed history are covered in tool-rows.test.ts /
-  // history-hydrate.test.ts).
+  // pendingCallIndex — pinned so a change to either path cannot silently
+  // reintroduce misattribution on the parent transcript.
   test("three parallel spawn_agent calls resolve to three rows, each with its own result", async () => {
     await withBridge({ run: "idle" }, async ({ shell, bridge }) => {
       const events = [
@@ -1325,8 +1318,8 @@ describe("idle-with-fleet (CL-7057)", () => {
       bridge.submit("follow up later", "queue");
       port.clear();
       settleToollessTurn(bridge);
-      // The parent turn settled but the fleet is live: the run stays
-      // busy and the follow-up does not drain at mere parent-idle.
+      // The parent turn settled but the fleet is live: the run stays busy
+      // and the follow-up does not drain at mere parent-idle.
       expect(shell.session.run).toBe("busy");
       expect(shell.lockupPhase).not.toBeNull();
       expect(
@@ -1399,8 +1392,8 @@ describe("idle-with-fleet (CL-7057)", () => {
       port.clear();
       settleToollessTurn(bridge);
       // The parent the steer was addressing has stopped, so it delivers
-      // as its own turn right away instead of sitting out the hold — but
-      // the run itself stays held by the live fleet.
+      // as its own turn right away instead of sitting out the hold — the run
+      // stays held by the live fleet.
       expect(shell.session.run).toBe("busy");
       expect(badgeCount(shell.session)).toBe(0);
       const deliver = port.calls.find((c) => c.op === "deliver");
@@ -1418,8 +1411,8 @@ describe("idle-with-fleet (CL-7057)", () => {
     await withBridge({ run: "idle" }, async ({ shell, bridge }) => {
       bridge.submit("dispatch workers", "immediate");
       bridge.handle({ type: "fleet", running: 1 });
-      // The lone worker fails immediately while the parent is still
-      // streaming its reply: no release, no premature idle.
+      // The lone worker fails while the parent is still streaming its reply:
+      // no release, no premature idle.
       bridge.handle({ type: "fleet", running: 0 });
       expect(shell.session.run).toBe("busy");
       settleToollessTurn(bridge);
