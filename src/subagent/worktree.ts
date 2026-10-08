@@ -23,11 +23,10 @@ export class WorktreeError extends Error {}
 
 export interface SubAgentWorktree {
   path: string;
-  // The repo's `git stash list` output at create time (see stashList). Stash
-  // refs live on the shared repo, not the worktree, so cleanup diffs against
-  // this baseline to notice stash entries the sub-agent created while it ran.
-  // `null` means the baseline could not be read: cleanup must preserve rather
-  // than risk removing a worktree that may have stashed.
+  // The repo's `git stash list` at create time (see stashList). Stash refs
+  // live on the shared repo, not the worktree, so cleanup diffs against this
+  // baseline to notice stash entries the sub-agent created. `null` means the
+  // baseline could not be read: cleanup preserves rather than risks removal.
   stashBaseline: string[] | null;
   // `git rev-parse HEAD` at create time. Detached-HEAD commits leave a clean
   // porcelain status but move HEAD — cleanup preserves when HEAD advanced so
@@ -35,9 +34,9 @@ export interface SubAgentWorktree {
   headAtCreate: string;
 }
 
-// The repo's stash list as an array of "stash@{N}: <message>" lines, or null
-// when the lookup itself fails. A failed lookup must never make cleanup more
-// willing to remove a worktree, so callers treat null as "unknown → preserve".
+// The repo's stash list as "stash@{N}: <message>" lines, or null when the
+// lookup fails. A failed lookup must never make cleanup more willing to
+// remove a worktree, so callers treat null as "unknown → preserve".
 async function stashList(
   repoCwd: string,
   exec: WorktreeExec,
@@ -100,17 +99,16 @@ export interface CleanupSubAgentWorktreeOpts {
   headAtCreate?: string;
 }
 
-// Removes the worktree if it has no uncommitted changes, no new commits on
-// detached HEAD, and no new stash entries; otherwise leaves it in place (the
-// sub-agent's work is not ours to discard) and returns a notice the caller
-// should surface to the operator.
+// Remove the worktree only if it has no uncommitted changes, no new commits
+// on detached HEAD, and no new stash entries; otherwise leave it in place
+// (the sub-agent's work is not ours to discard) and return a notice the
+// caller surfaces to the operator.
 // `git status` never reports a `git stash` the sub-agent ran mid-task — the
-// stash itself survives in the repo's shared refs/stash either way, but
-// without this check it goes silently orphaned with no indication of which
-// worktree it came from. `stashBaseline` (from createSubAgentWorktree) is
-// diffed against the current stash list so only entries created since this
-// worktree was checked out are attributed to it. A null baseline (lookup
-// failed at create) or a failed stash lookup at cleanup always preserves.
+// stash survives in shared refs/stash either way, but without this check it
+// goes silently orphaned. `stashBaseline` is diffed against the current
+// stash list so only entries created since checkout are attributed to it. A
+// null baseline (create-time lookup failed) or a failed stash lookup at
+// cleanup always preserves.
 export async function cleanupSubAgentWorktree(
   repoCwd: string,
   path: string,

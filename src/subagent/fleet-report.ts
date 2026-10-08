@@ -1,14 +1,13 @@
 /**
  * What the orchestrator says to the operator about the fleet, unprompted.
  *
- * Live lanes already paint on the activity strip. Parent prose already narrates
- * phase plans. This module only emits transcript lines for attention the strip
- * cannot keep: a lane failed or cancelled, and the single moment the fleet runs
- * dry. Per-lane "done — summary" walls are intentionally never printed — they
- * restate the strip and the parent and turn the transcript into a second
- * status log.
+ * Live lanes already paint on the activity strip; parent prose narrates phase
+ * plans. This module only emits transcript lines for attention the strip
+ * cannot keep: a lane failed or cancelled, and the single moment the fleet
+ * runs dry. Per-lane "done — summary" walls are never printed — they restate
+ * the strip and the parent and turn the transcript into a second status log.
  *
- * Pure and stateless per call — the caller keeps the returned watch and hands
+ * Pure and stateless per call: the caller keeps the returned watch and hands
  * it back on the next observation. No painting, no store access.
  */
 
@@ -49,8 +48,8 @@ interface LaneMark {
   readonly status: SubAgentSessionStatus;
   /**
    * Sticky once set. A lane that flaps either side of the stall threshold
-   * would otherwise re-announce itself every time it went quiet, which is the
-   * wall of noise this module exists to avoid.
+   * would otherwise re-announce itself every time it went quiet — the wall of
+   * noise this module exists to avoid.
    */
   readonly stallReported: boolean;
 }
@@ -68,8 +67,8 @@ export function createFleetWatch(): FleetWatch {
 
 /**
  * Above this many changes in one observation the individual lines stop being
- * readable and start being a scroll, so they collapse into one tally. Set by
- * what a glance can take in, not by fleet size.
+ * readable and become a scroll, so they collapse into one tally. Set by what
+ * a glance can take in, not by fleet size.
  */
 const COALESCE_ABOVE = 3;
 
@@ -77,15 +76,16 @@ const COALESCE_ABOVE = 3;
 const OUTCOME_CHARS = 56;
 
 /**
- * One update is one row. A line that wraps doubles the cost of every update on
- * screen, which is how a report meant to be glanced at turns into a scroll.
+ * One update is one row. A line that wraps doubles the cost of every update
+ * on screen, which is how a report meant to be glanced at turns into a
+ * scroll.
  */
 const MAX_UPDATE_CHARS = 76;
 
 /**
- * A lane going quiet is the one change that produces no event, so it has to be
- * looked for. Coarse on purpose: the stall threshold is tens of seconds, and
- * the observation is a cheap diff either way.
+ * A lane going quiet is the one change that produces no event, so it has to
+ * be looked for. Coarse on purpose: the stall threshold is tens of seconds,
+ * and the observation is a cheap diff either way.
  */
 export const FLEET_STALL_POLL_MS = 5_000;
 
@@ -171,8 +171,8 @@ export const ASK_DIRECTOR_WAKE_PREFIX = "ask_director wake";
 
 /**
  * The wake turn text. It must read as the worker's question reaching the
- * parent, not as the operator being asked — the parent answers via
- * send_input itself and only escalates when it genuinely cannot.
+ * parent, not as the operator being asked — the parent answers via send_input
+ * itself and only escalates when it genuinely cannot.
  */
 export function pendingAskWakeText(
   wake: PendingAskWake,
@@ -184,10 +184,10 @@ export function pendingAskWakeText(
     wake.question,
     "",
   ];
-  // Escalation for a re-surfaced question: the earlier wake turn
-  // stalled past the bound and was aborted without an answer, so say so and
-  // restate the routing — otherwise a second identical wake reads as a
-  // duplicate rather than as proof the first one never landed.
+  // Escalation for a re-surfaced question: the earlier wake turn stalled past
+  // the bound and was aborted without an answer, so say so and restate the
+  // routing — otherwise a second identical wake reads as a duplicate rather
+  // than as proof the first one never landed.
   if (options?.resurface !== undefined && options.resurface > 0) {
     lines.push(
       `Re-surface ${options.resurface}: the earlier wake turn stalled and was aborted without an answer — reconcile against the live question before replying.`,

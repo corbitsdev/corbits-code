@@ -3,11 +3,10 @@
  *
  * Every worker writes its full turn history to `turns.jsonl` (segmented — see
  * incremental-jsonl.ts) under its own workdir, but nothing in the runtime
- * reads it back. That means a cancelled or interrupted worker's completed
- * work — everything it did before it stopped — is invisible to the
- * orchestrator even though it is on disk. This module reads it directly,
- * independent of the in-memory SubAgentSessionStore (which a process restart
- * or a killed worker can leave with nothing).
+ * reads it back. A cancelled or interrupted worker's completed work is thus
+ * invisible to the orchestrator even though it is on disk. This module reads
+ * it directly, independent of the in-memory SubAgentSessionStore (which a
+ * process restart or killed worker can leave with nothing).
  *
  * Every read is bounded on four axes — turn window, entry count, per-entry
  * characters, and total output characters — each with a hard maximum
@@ -29,13 +28,13 @@ export const DEFAULT_TRACE_ENTRY_LIMIT = 200;
 export const MAX_TRACE_ENTRY_LIMIT = 500;
 export const MAX_TRACE_ENTRY_CHARS = 4_000;
 // Per-entry/entry-count/turn-window caps each bound one axis, but multiply
-// together (500 entries * 4,000 chars = 2,000,000 chars in one call). This
+// together (500 entries × 4,000 chars = 2,000,000 chars in one call). This
 // caps the total regardless of how the axes combine.
 export const MAX_TRACE_TOTAL_CHARS = 20_000;
 
 // Fail the search cheaply on a pathological or runaway fleet tree instead of
-// walking forever; a worker this deep or a fleet this large is itself a signal
-// something upstream is wrong.
+// walking forever; a worker this deep or a fleet this large is itself a
+// signal something upstream is wrong.
 const MAX_SEARCH_DIRS = 4_000;
 const MAX_SEARCH_DEPTH = 16;
 
@@ -176,8 +175,8 @@ function isRawTurn(value: unknown): value is RawTurn {
 
 /**
  * Tolerant line-oriented parse: a torn or malformed line (the file is being
- * appended to live while we read it) is skipped, not thrown. Null bytes from a
- * stale truncate-past-EOF are stripped first for the same reason
+ * appended to live while we read it) is skipped, not thrown. Null bytes from
+ * a stale truncate-past-EOF are stripped first for the same reason
  * optimized-context-store.ts strips them on resume.
  */
 function parseTurnsTolerant(text: string): {

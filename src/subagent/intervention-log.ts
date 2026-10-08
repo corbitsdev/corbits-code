@@ -1,12 +1,10 @@
 /**
  * Intervention log: one record every time the harness decides a run is stuck.
  *
- * Threshold tuning was a record of judgment calls with no way to tell how
- * often a stop or nudge trigger was wrong. This file exists so a threshold
- * change can cite data: each record carries the trigger's measured value
- * beside its threshold, the model it fired on, and enough run state to judge
- * afterwards whether the run was actually stuck — did it edit files, how far
- * into its budget was it, did the parent later succeed on a mutated brief.
+ * Threshold tuning used to be judgment calls with no data. Each record
+ * carries the trigger's measured value beside its threshold, the model it
+ * fired on, and enough run state to judge later whether the run was actually
+ * stuck.
  *
  * Writes are best effort and never block or throw: a diagnostic must not be
  * able to fail a run.
@@ -24,12 +22,11 @@ export const INTERVENTION_FILE = "interventions.jsonl";
 /**
  * What the harness did: `stop` ends the run, `nudge` injects text and keeps
  * running, `block` refuses a parent re-dispatch. `outcome` records what a
- * completed dispatch actually produced (a salvage kind or a clean complete),
+ * completed dispatch produced (a salvage kind or a clean complete),
  * independent of any stop/nudge/block — the log's real outcome signal, so a
  * `block` record can be read alongside later `outcome` records of the same
- * brief fingerprint. `conflict` records a detected overlap between two
- * concurrently running lanes; advisory only — the dispatch that triggered it
- * was never blocked.
+ * brief fingerprint. `conflict` records overlap between two concurrent lanes;
+ * advisory only — the dispatch that triggered it was never blocked.
  */
 export type InterventionClass =
   | "stop"
@@ -72,10 +69,9 @@ export interface InterventionRecord {
   /** Present on `class: "outcome"` records only. */
   outcome?: InterventionOutcome;
   /**
-   * Run state at the moment of the decision — the raw material for judging the
-   * decision later. `editedPaths` is the count of paths the run had already
-   * written when the trigger fired, so a stop can be weighed against what the
-   * run had already produced.
+   * Run state at the moment of the decision — the raw material for judging it
+   * later. `editedPaths` counts paths the run had already written when the
+   * trigger fired, so a stop can be weighed against what the run produced.
    */
   state?: {
     turnsCompleted?: number;
@@ -104,9 +100,9 @@ export type InterventionSink = (
     "ts" | "role" | "provider" | "model" | "family" | "intent"
   > &
     // Outcome records are written parent-side, one per completed dispatch, so
-    // provider/model/family vary per call with the child actually dispatched.
-    // Omitting these keys (not passing undefined) leaves the sink's bound
-    // context untouched for callers that do have a fixed context.
+    // provider/model/family vary per call. Omitting the keys (not passing
+    // undefined) leaves the sink's bound context untouched for fixed-context
+    // callers.
     Partial<Pick<InterventionRecord, "provider" | "model" | "family">>,
 ) => void;
 
@@ -116,9 +112,9 @@ export const NOOP_INTERVENTION_SINK: InterventionSink = () => undefined;
 /**
  * Append-only sink over `<dir>/interventions.jsonl`.
  *
- * Appends are fire-and-forget: the caller is a director decision path, and a
- * diagnostic write must not add latency or fail the run. Ordering within a
- * run is preserved by chaining each append onto the previous one.
+ * Fire-and-forget: the caller is a director decision path, and a diagnostic
+ * write must not add latency or fail the run. Ordering within a run is
+ * preserved by chaining each append onto the previous one.
  */
 export function createInterventionLog(
   dir: string,

@@ -15,17 +15,14 @@ import {
 } from "./report.js";
 import type { ThrashState } from "./thrash.js";
 
-// Gap between an opt-in internal deadline and the outer tool-execution
-// watchdog, so the salvage report can unwind before the outer watchdog
-// discards the run wholesale.
+// Keep the opt-in deadline below the outer tool-execution watchdog so a
+// salvage report can unwind before the watchdog discards the run wholesale.
 export const SUBAGENT_DEADLINE_MARGIN_MS = 30_000;
 
 /**
- * Clamp an explicit wall-clock deadline to stay a margin below the outer
- * tool-execution watchdog. Returns the requested deadline unchanged when no
- * outer watchdog is set (an absent timeout must not clamp an explicit
- * deadline), and undefined when the outer watchdog is at or below the margin
- * (no room to return a salvage report).
+ * Clamp a wall-clock deadline to a margin below the outer tool-execution
+ * watchdog. No watchdog → return the request unchanged; watchdog at or below
+ * the margin → undefined (no room to salvage).
  */
 export function resolveSubAgentDeadlineMs(
   requestedMs: number,
@@ -40,10 +37,9 @@ export function resolveSubAgentDeadlineMs(
 }
 
 /**
- * After agent.send resolves: keep a non-empty reply even if abort fired in the
- * completion window. Empty replies still honor abort so the catch path can
- * salvage from partial text / tools instead of inventing success over a
- * cancelled run.
+ * After agent.send resolves, keep a non-empty reply even if abort fired in
+ * the completion window. Empty replies honor abort so the catch path salvages
+ * from partial text / tools instead of inventing success over a cancelled run.
  */
 export function preferCompletedSubAgentReply(
   reply: string,
@@ -57,11 +53,10 @@ export type SubAgentCatchOutcome =
   | "rethrow";
 
 /**
- * Decide what a cancelled/aborted sub-agent run should return to the parent.
- * A fired deadline always salvages, even with zero output, so the parent gets
- * a graceful report instead of a bare AbortError. A genuine pre-progress
- * operator cancel rethrows (spawn_agent's cancel path stays a bare abort);
- * mid-run cancel with progress salvages.
+ * Map a cancelled/aborted run to what the parent sees. A fired deadline
+ * always salvages, even with zero output, so the parent gets a report instead
+ * of a bare AbortError. A pre-progress operator cancel rethrows (spawn_agent's
+ * cancel path stays a bare abort); mid-run cancel with progress salvages.
  */
 export function resolveSubAgentCatchOutcome(input: {
   deadlineHit: boolean;
@@ -95,8 +90,8 @@ export function evaluateToolLessNarrationSpiral(
  * A tool-less turn completes only with a four-heading envelope (Summary,
  * Findings, Blockers, Paths); a missing envelope nudges once
  * (`incomplete-report`) then salvages (`incomplete-report-stop`). With
- * `requireEvidence` (CritiqueDirector), an empty `readCounts` is not complete
- * even with all four headings — a wrap-up envelope cannot fake a real review.
+ * `requireEvidence` (CritiqueDirector), empty `readCounts` is not complete
+ * even with all four headings — a wrap-up envelope cannot fake a review.
  * With `requirePlanSubstance` (planner / intent=plan), stub Findings are the
  * same spiral — not a finished plan.
  */
@@ -153,11 +148,11 @@ export function evaluateSubAgentStop(input: {
   return null;
 }
 
-// A worker is not a chat partner: it runs until it stops calling tools, at
-// which point its final text is the result handed to the dispatcher. It has no
-// ask_operator (it uses ask_director); consequential tools still go through the
-// parent's permission gate. Runs terminate only on a report envelope or an
-// operator/deadline/stall interrupt — no turn cap.
+// A worker is not a chat partner: it runs until it stops calling tools, and
+// its final text is the result handed to the dispatcher. No ask_operator (it
+// uses ask_director); consequential tools still pass the parent's permission
+// gate. Runs end only on a report envelope or an operator/deadline/stall
+// interrupt — no turn cap.
 
 export function lastText(content: readonly { type: string }[]): string {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -242,7 +237,7 @@ function normalizeSalvagePaths(
 
 /**
  * Build the parent-facing report when a leaf is force-stopped. No further
- * inference happens, so this must already be a full envelope — not an
+ * inference happens, so this must already be a full envelope, not an
  * instruction to summarize. Options carry the cancel `detail` (Stopped line)
  * and salvage `paths` (Paths section).
  */
@@ -255,9 +250,9 @@ export function forcedStopReport(
   const pathText = normalizeSalvagePaths(options.paths);
   const summary = FORCED_STOP_SUMMARIES[reason];
   const blockers = forcedStopBlockers(reason);
-  // Demote nested report-section headings so runSubAgent's parse/format pass
-  // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
-  // stuffed into Findings (cancel after a structured partial).
+  // Demote nested headings so runSubAgent's parse/format pass cannot clobber
+  // this outer Summary/Blockers with an agent-shaped envelope in Findings
+  // (cancel after a structured partial).
   const trimmed = partialText.trim();
   const findings =
     trimmed.length > 0
