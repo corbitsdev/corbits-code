@@ -2,14 +2,12 @@
  * Live progress for a dispatched sub-agent's pending transcript row, plus the
  * fleet-level roll-up of those same lanes.
  *
- * The row is tracked for the worker's lifetime, not just while the tool call
- * is in flight — the immediate `{status:running}` result must not drop live
- * clocks — so a bare pending mark can show how long the worker has run, what
- * it is doing now, and whether it has been quiet long enough to read as hung.
+ * The row lives for the worker's lifetime, not just the tool call in flight
+ * — the immediate `{status:running}` result must not drop live clocks — so
+ * the pending mark keeps showing run time, current work, and silence.
  *
- * Lane state and the fleet roll-up share one "stalled" definition
- * (`laneState` below); the fleet summary never re-derives staleness from raw
- * timestamps.
+ * Lane and fleet share one "stalled" definition (`laneState` below); the
+ * roll-up never re-derives staleness from raw timestamps.
  */
 
 /** Minimal session shape this module reads — avoids a hard dep on the store. */
@@ -42,10 +40,9 @@ export interface AgentProgressSession {
 /**
  * What a lane is doing, not how long it has been alive.
  *
- * `in_tool` keeps the surface honest: a worker inside one long tool call
- * emits nothing, so silence alone cannot tell a wedged reactor from a
- * ten-minute test run. A lane reads `stalled` only when it is quiet with no
- * outstanding tool to explain it — the one case an operator can act on.
+ * A worker inside one long tool call emits nothing, so silence alone cannot
+ * tell a wedged reactor from a ten-minute test run. `stalled` is quiet with
+ * no outstanding tool to explain it — the one case an operator can act on.
  */
 export type LaneState = "queued" | "working" | "in_tool" | "stalled";
 
@@ -77,13 +74,12 @@ export const DEFAULT_STALL_MS = 300_000;
  *
  * Without it `in_tool` would be terminal — a wedged build or a shell blocked
  * on stdin would read as busy forever. Generous on purpose: real test suites
- * and builds run for minutes, and crying stall over those is the defect this
- * surface was fixed to remove.
+ * and builds run for minutes, and false-stalling those is the defect this
+ * surface removes.
  *
  * Also backstops calls that never report a result: the approval-suspend path
  * emits no completion, so a before-tool extension returning suspend would
- * leave a call outstanding permanently. This bound degrades that to a late
- * stall rather than a lane that never stops looking busy.
+ * leave a call outstanding permanently; this degrades that to a late stall.
  */
 export const IN_TOOL_STALL_MS = 600_000;
 
@@ -142,9 +138,9 @@ export function agentLaneIsLive(session: {
  * Progress for a running session's pending row, or null once it has finished
  * (a terminal session resolves its row through the tool-result path instead).
  *
- * The number beside the state word always explains it: lifetime for a healthy
- * lane, tool runtime for one stuck in a tool, silence length for a quiet one —
- * a lifetime clock next to "stalled" tells an operator nothing.
+ * The number always explains the state: lifetime for a healthy lane, tool
+ * runtime for one stuck in a tool, silence length for a quiet one — a
+ * lifetime clock next to "stalled" tells an operator nothing.
  */
 export function agentProgress(
   session: AgentProgressSession,
@@ -212,8 +208,8 @@ export function agentProgress(
 /**
  * What the whole fleet is doing, rolled up from the per-lane states.
  *
- * The top-level indicator otherwise reports the parent's own activity, and at
- * fleet scale the parent is almost always just awaiting children — so it
+ * The top-level indicator otherwise reports the parent's own activity; at
+ * fleet scale the parent is almost always just awaiting children, so it
  * reads "working" even while every lane is stuck.
  */
 export interface FleetProgress {
