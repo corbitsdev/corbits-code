@@ -1,7 +1,7 @@
 import { director as shakespeareDirector } from "@corbits/code-agent-shakespeare";
 import { director as proberDirector } from "@corbits/code-agent-prober";
 import { director as dispatchDirector } from "@corbits/code-agent-dispatch";
-import { wardenPackage } from "@corbits/code-agent-warden";
+import { director as wardenDirector } from "@corbits/code-agent-warden";
 import type { AgentProfile, CapabilityFilter } from "../profile-types.js";
 import { director as artistDirector } from "@corbits/code-agent-artist";
 import { coderPackage } from "./coder/package.js";
@@ -44,7 +44,7 @@ export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> =
     reviewer: reviewerPackage,
     designer: designerPackage,
     artist: artistDirector,
-    warden: wardenPackage,
+    warden: wardenDirector,
     shakespeare: shakespeareDirector,
     prober: proberDirector,
     "qa-lead": qaLeadPackage,
