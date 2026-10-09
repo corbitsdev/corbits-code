@@ -543,6 +543,8 @@ export function driveOpenTasksAfterFleetDry(args: {
   running?: number | undefined;
   openTasks: readonly Task[];
   parentProcessing: boolean;
+  /** Live check after awaited collect; occupancy must not start a turn already claimed. */
+  isParentProcessing?: () => boolean;
   deferredDryEdge?: boolean;
   mailbox: FleetDryMailbox | undefined;
   lanes: readonly FleetDryLane[];
@@ -601,6 +603,13 @@ async function driveOpenTasksAfterFleetDrySpill(
     const reports = dedupeByAgentId([...digested, ...stubs]);
     prompt = buildFleetDryContinuationPrompt(tasks, reports);
     args.beginSystemContinuation(prompt);
+    // begin is a no-op while paused. Do not send; release the delivering
+    // claim so a later explicit send can still deliver. The dry latch
+    // unclaims when this drive returns false.
+    if (args.isParentProcessing?.() === false) {
+      releaseOccupancyDelivering(args.mailbox, takeIds);
+      return false;
+    }
   } catch {
     return fail();
   }

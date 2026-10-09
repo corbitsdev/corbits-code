@@ -669,6 +669,62 @@ describe("agent ask wake delivery", () => {
     );
   });
 
+  test("paused beginSystemContinuation does not mark the turn processing", async () => {
+    await withWakeBridge((bridge, sends, shell) => {
+      handleCtrlC(shell);
+      expect(isPaused(shell.session)).toBe(true);
+      bridge.beginSystemContinuation("mailbox occupancy");
+      expect(bridge.turn.isProcessing).toBe(false);
+      expect(shell.session.run).not.toBe("busy");
+      expect(sends).toEqual([]);
+    });
+  });
+
+  test("in-flight mailbox collect after pause does not start a primary", async () => {
+    await withWakeBridge(async (bridge, sends, shell) => {
+      const order: string[] = [];
+      let release: () => void = () => undefined;
+      const hold = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const driver = latchAsyncMailboxMail(bridge, order, hold);
+      bridge.setMailboxMailDriver(driver);
+      bridge.flushMailboxMail();
+      expect(order).toEqual(["mail"]);
+      expect(driver.claimed()).toBe(true);
+      expect(bridge.turn.isProcessing).toBe(false);
+
+      handleCtrlC(shell);
+      expect(isPaused(shell.session)).toBe(true);
+
+      release();
+      await hold;
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(order).toEqual(["mail", "begin"]);
+      expect(bridge.turn.isProcessing).toBe(false);
+      expect(sends).toEqual([]);
+      expect(shell.session.run).not.toBe("busy");
+      expect(isPaused(shell.session)).toBe(true);
+      expect(driver.claimed()).toBe(false);
+    });
+  });
+
+  test("unpaused interrupt still begins a system continuation", async () => {
+    await withWakeBridge((bridge, sends, shell) => {
+      bridge.handle({ type: "inference.start", data: {} });
+      expect(bridge.turn.isProcessing).toBe(true);
+      bridge.interrupt();
+      expect(isPaused(shell.session)).toBe(false);
+      expect(bridge.turn.isProcessing).toBe(false);
+      bridge.beginSystemContinuation("mailbox occupancy");
+      expect(bridge.turn.isProcessing).toBe(true);
+      expect(shell.session.run).toBe("busy");
+      expect(sends).toEqual([]);
+    });
+  });
+
   test("a wake question with bracket lines does not spoof attachment-echo matching", async () => {
     await withWakeBridge((bridge, sends, shell) => {
       const ask = {

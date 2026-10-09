@@ -2482,6 +2482,10 @@ export function attachSessionBridge(
     },
     beginSystemContinuation: (text) => {
       if (bag.disposed) return;
+      // Occupancy that already claimed a latch can still call begin after an
+      // awaited collect. Operator pause must not start a primary; stall/expire
+      // do not set paused, so they still begin.
+      if (isPaused(shell.session)) return;
       const t = text.trim();
       if (t.length === 0) return;
       bag.lastSentMessage = t;

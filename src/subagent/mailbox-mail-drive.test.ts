@@ -578,6 +578,28 @@ describe("driveMailboxMail", () => {
     expect(records.get("w1")?.collected).not.toBe(true);
   });
 
+  test("does not send if begin does not claim the parent turn", async () => {
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
+    const sends: string[] = [];
+    expect(
+      await driveMailboxMail({
+        parentProcessing: false,
+        isParentProcessing: () => false,
+        mailbox: collectingMailbox(records),
+        lanes: [],
+        beginSystemContinuation: () => undefined,
+        send: (prompt) => {
+          sends.push(prompt);
+          return ACCEPTED_DELIVERY;
+        },
+      }),
+    ).toBe(false);
+    expect(sends).toEqual([]);
+    expect(records.get("w1")?.collected).not.toBe(true);
+  });
+
   test("not-delivered send leaves the wake retryable", async () => {
     const records = await driveMailNotDelivered();
     expect(

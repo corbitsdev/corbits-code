@@ -407,6 +407,7 @@ export function wirePostStartup(
       deferredDryEdge: true,
       openTasks: services.directorHolder.instance?.getTasks() ?? [],
       parentProcessing: false,
+      isParentProcessing: () => sessionBridge.turn.isProcessing,
       mailbox: services.toolset.fleetRecords,
       lanes: services.subAgentSessions.list(),
       ...(storage !== null
