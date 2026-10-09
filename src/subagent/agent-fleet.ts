@@ -1015,6 +1015,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
 
       let provider: SubAgentProvider = resolveDep(deps.provider);
       const parentEffort = provider.reasoningEffort;
+      // Operator-chosen parent effort signal, captured BEFORE applyResolvedProvider
+      // may rebuild `provider` from settings (which drops any marker). Read from
+      // this captured value everywhere so the explicit fleet-pin survives the
+      // rebuild; `true` is the only value the type allows.
+      const parentExplicit = provider.explicitReasoningEffort === true;
       const diskSettings =
         deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
       const catalog =
@@ -1067,6 +1072,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             ? { apiKey: providerSettings.apiKey }
             : {}),
           model: resolved.model,
+          // The operator-chosen parent-effort marker is not a provider fact:
+          // it survived the rebuild so an effort-carrying director/profile
+          // spawn keeps its explicit fleet-pin signal (re-read at resolve time).
+          ...(parentExplicit ? { explicitReasoningEffort: true } : {}),
         };
         return null;
       };
@@ -1183,6 +1192,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           ? { roleDefault: resolved.roleDefault }
           : {}),
         ...(parentEffort !== undefined ? { parentEffort } : {}),
+        ...(parentEffort !== undefined && parentExplicit
+          ? { explicitParentEffort: true }
+          : {}),
         model: provider.model,
         isCodex: isCodexProviderName(provider.providerName),
         ...(reasoning?.reasoningEfforts !== undefined
@@ -1190,9 +1202,31 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           : {}),
       });
       if (effort !== undefined) {
-        provider = { ...provider, reasoningEffort: effort };
+        // The explicit marker travels only when the re-resolved effort is
+        // exactly the operator-chosen parent value. Clamping an explicit
+        // parent effort onto the supported set yields a derived (not
+        // operator-chosen) value, so the flag is dropped — a clamped value
+        // must not mislabel itself as a fleet-wide explicit pin for every
+        // descendant. `true` is the only value the type allows.
+        const carriedExplicit =
+          provider.explicitReasoningEffort === true &&
+          parentEffort !== undefined &&
+          effort === parentEffort;
+        provider = {
+          ...provider,
+          reasoningEffort: effort,
+          ...(carriedExplicit ? { explicitReasoningEffort: true } : {}),
+        };
+        if (!carriedExplicit) {
+          const { explicitReasoningEffort: _drop, ...rest } = provider;
+          provider = rest;
+        }
       } else {
-        const { reasoningEffort: _drop, ...rest } = provider;
+        const {
+          reasoningEffort: _drop,
+          explicitReasoningEffort: _dropExplicit,
+          ...rest
+        } = provider;
         provider = rest;
       }
 

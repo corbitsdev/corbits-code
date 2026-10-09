@@ -72,6 +72,7 @@ import {
   createSessionPruningCompactor,
   loadSessionChatPrompt,
   skillDirsFromEnabledPlugins,
+  type SubAgentSourcesConfig,
 } from "../../session/runtime-assembly.js";
 import {
   createModelSummarizer,
@@ -227,7 +228,12 @@ export async function assembleTUISession(
   // live config binding on every spawn, so every switch path that reassigns
   // config (model picker, /agent, post-connect refresh) is picked up without
   // a separate cache to keep in sync.
-  const liveSubAgent = createLiveSubAgentSources(() => state.config);
+  const liveSubAgent = createLiveSubAgentSources((): SubAgentSourcesConfig => ({
+    ...state.config,
+    ...(state.config.reasoningEffort !== undefined
+      ? { explicitReasoningEffort: true }
+      : {}),
+  }));
 
   // Dedicated child-session records for enter-session inspection. Child events
   // land here only — never in the parent chat transcript.

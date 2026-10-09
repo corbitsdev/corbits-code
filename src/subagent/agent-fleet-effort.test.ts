@@ -166,4 +166,187 @@ describe("custom worker efforts", () => {
       expect(effort).toBe("medium");
     },
   );
+
+  // CL-10227: an explicit (operator-chosen) primary effort is a fleet-wide pin
+  // that overrides the role default for spawned workers.
+  const explicitProvider: ProviderCatalogEntry = {
+    ...provider,
+    reasoningEfforts: ["none", "high", "max"],
+  };
+  test.each([
+    { parent: "none" as const, expected: "none" },
+    { parent: "high" as const, expected: "high" },
+  ])(
+    "explicit parent %j pins the worker effort",
+    async ({ parent, expected }) => {
+      let worker: RunSubAgentParams | undefined;
+      const deps = createFleetDeps(
+        async (params) => {
+          worker = params;
+          return { report: "done" };
+        },
+        {
+          settings: { providers: { custom: explicitProvider } },
+          catalog: [explicitProvider],
+        },
+      );
+      deps.provider = {
+        providerName: explicitProvider.name,
+        baseURL: explicitProvider.baseURL,
+        model: "custom-model",
+        reasoningEffort: parent,
+        explicitReasoningEffort: true,
+      };
+      const result = await callFleetToolRaw(createSpawnAgentTool(deps), {
+        description: "inspect",
+        prompt: "inspect",
+        intent: "explore",
+      });
+      expect(result.isError).not.toBe(true);
+      await callFleetToolRaw(fleetTools(deps).wait, { timeout_ms: 2000 });
+      expect(worker?.provider.reasoningEffort).toBe(expected);
+    },
+  );
+
+  test("clamped explicit parent drops the explicit marker (CL-10227)", async () => {
+    // An explicit parent `none` on a model whose ladder rejects `none` is
+    // clamped onto the supported set (low). The clamped value is derived, not
+    // operator-chosen, so the explicit marker must not survive — otherwise the
+    // worker would carry a fleet-wide explicit pin it never actually received.
+    let worker: RunSubAgentParams | undefined;
+    const noNoneProvider: ProviderCatalogEntry = {
+      ...provider,
+      reasoningEfforts: ["low", "high", "max"],
+    };
+    const deps = createFleetDeps(
+      async (params) => {
+        worker = params;
+        return { report: "done" };
+      },
+      {
+        settings: { providers: { custom: noNoneProvider } },
+        catalog: [noNoneProvider],
+      },
+    );
+    deps.provider = {
+      providerName: noNoneProvider.name,
+      baseURL: noNoneProvider.baseURL,
+      model: "custom-model",
+      reasoningEffort: "none",
+      explicitReasoningEffort: true,
+    };
+    const result = await callFleetToolRaw(createSpawnAgentTool(deps), {
+      description: "inspect",
+      prompt: "inspect",
+      intent: "explore",
+    });
+    expect(result.isError).not.toBe(true);
+    await callFleetToolRaw(fleetTools(deps).wait, { timeout_ms: 2000 });
+    expect(worker?.provider.reasoningEffort).toBe("low");
+    // The clamped value is derived, so the flag is dropped (absent), not `true`.
+    expect(worker?.provider.explicitReasoningEffort).toBeUndefined();
+  });
+
+  test("explicit parent pin survives the applyResolvedProvider rebuild (CL-10227)", async () => {
+    // A profile/director spawn with a resolving inference rebuilds `provider`
+    // from settings via applyResolvedProvider. That rebuild must not drop the
+    // operator-explicit parent-effort marker — otherwise the operator pin is
+    // demoted to a derived parent and the leaf role default (medium) wins,
+    // violating the CL-10227 fleet-pin contract. Here the model ladder supports
+    // both the parent ("none") and the role default ("medium"), so only the
+    // surviving explicit flag can pick "none".
+    let worker: RunSubAgentParams | undefined;
+    const pinProvider: ProviderCatalogEntry = {
+      ...provider,
+      reasoningEfforts: ["none", "medium", "max"],
+    };
+    const deps = createFleetDeps(
+      async (params) => {
+        worker = params;
+        return { report: "done" };
+      },
+      {
+        settings: { providers: { custom: pinProvider } },
+        catalog: [pinProvider],
+        profiles: [
+          {
+            id: "custom-leaf",
+            inference: {
+              mode: "pin",
+              order: [
+                {
+                  provider: pinProvider.name,
+                  model: "custom-model",
+                },
+              ],
+            },
+          },
+        ],
+      },
+    );
+    deps.provider = {
+      providerName: pinProvider.name,
+      baseURL: pinProvider.baseURL,
+      model: "custom-model",
+      reasoningEffort: "none",
+      explicitReasoningEffort: true,
+    };
+    const result = await callFleetToolRaw(createSpawnAgentTool(deps), {
+      description: "inspect",
+      prompt: "inspect",
+      agent: "custom-leaf",
+    });
+    expect(result.isError).not.toBe(true);
+    await callFleetToolRaw(fleetTools(deps).wait, { timeout_ms: 2000 });
+    // The operator-explicit parent pin ("none") survives the rebuild and beats
+    // the leaf role default ("medium").
+    expect(worker?.provider.reasoningEffort).toBe("none");
+    expect(worker?.provider.explicitReasoningEffort).toBe(true);
+  });
+
+  test("explicit effortPin still wins over an explicit parent", async () => {
+    // An explicit parent is a fleet pin, but the cascade still lets an explicit
+    // effortPin outrank it — the legacy pin-max case stays.
+    let worker: RunSubAgentParams | undefined;
+    const deps = createFleetDeps(
+      async (params) => {
+        worker = params;
+        return { report: "done" };
+      },
+      {
+        settings: { providers: { custom: explicitProvider } },
+        catalog: [explicitProvider],
+        profiles: [
+          {
+            id: "custom-leaf",
+            inference: {
+              mode: "pin",
+              order: [
+                {
+                  provider: explicitProvider.name,
+                  model: "custom-model",
+                  reasoningEffort: "max",
+                },
+              ],
+            },
+          },
+        ],
+      },
+    );
+    deps.provider = {
+      providerName: explicitProvider.name,
+      baseURL: explicitProvider.baseURL,
+      model: "custom-model",
+      reasoningEffort: "none",
+      explicitReasoningEffort: true,
+    };
+    const result = await callFleetToolRaw(createSpawnAgentTool(deps), {
+      description: "inspect",
+      prompt: "inspect",
+      agent: "custom-leaf",
+    });
+    expect(result.isError).not.toBe(true);
+    await callFleetToolRaw(fleetTools(deps).wait, { timeout_ms: 2000 });
+    expect(worker?.provider.reasoningEffort).toBe("max");
+  });
 });
