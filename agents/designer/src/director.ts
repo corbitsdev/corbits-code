@@ -15,8 +15,8 @@ export const director = {
   description:
     "UI/UX designer — owns DESIGN.md, impeccable style design laws, tokens, and interface polish",
   systemPrompt: systemPrompt.build(),
-  tools: { allow: tools },
+  tools: { allow: [...tools] },
   spawn: config.spawn,
-  modelRole: config.modelRole,
   tier: config.tier,
+  modelRole: config.modelRole,
 } as const;

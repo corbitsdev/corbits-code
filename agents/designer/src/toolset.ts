@@ -1,5 +1,5 @@
-// BUILD_TOOLS literal (= REVIEW_TOOLS); drift-guarded against REVIEW_TOOLS in
-// src/agent/directors/tool-sets.ts.
+// BUILD_TOOLS literal (= REVIEW_TOOLS); drift-guarded against REVIEW_TOOLS
+// by src/agent/directors/designer/package.test.ts.
 const BUILD_TOOLS = [
   "read_file",
   "grep",

@@ -2,11 +2,8 @@
 
 ## What this is
 
-A ready-to-go Corbits agent for the **designer** role (`@corbits/code-agent-designer`)
-plus its named component parts so a consumer can recreate or remix it. Designer is
-the UI/UX design engineering specialist: it owns DESIGN.md creation and updates,
-impeccable.style design laws, design tokens, typography, spatial layout, and
-micro-interaction polish.
+Ready `@corbits/code-agent-designer` agent + independently importable components:
+`agent`, `defineAgent`, `director`, `tools`, `systemPrompt`, `config`.
 
 ## Consume (runLocal)
 
@@ -17,32 +14,22 @@ const run = runLocal(defining(agent), env);
 
 ## Consume (deploy runWorkflow / hub / sidecar)
 
-Hand the same `AgentDefinition` (`agent`) to a workflow, hub, or sidecar. The
-package never exports a workflow itself — a workflow _consumes_ `agent`.
+Hand the same `AgentDefinition` to a workflow — the package never exports a
+workflow itself.
 
 ## Remix components
 
 ```ts
-import {
-  director,
-  tools,
-  systemPrompt,
-  config,
-  defineAgent,
-} from "@corbits/code-agent-designer";
-
-// Swap components at the consumer side.
-defineAgent({ director, tools, systemPrompt, config }); // or spread overrides
+import { director, tools, systemPrompt, config } from "@corbits/code-agent-designer";
+defineAgent({ director, ... }); // or swap tools / systemPrompt / config
 ```
 
-Each of `agent`, `defineAgent`, `director`, `tools`, `systemPrompt`, `config` is a
-named, independently importable part.
+Each of `director`, `tools`, `systemPrompt`, and `config` is a named,
+independently importable part.
 
-## Byte-stability & single authority
+## Single authority
 
-- `systemPrompt.build()` is pure and byte-stable — identical string every call.
-- `tools` is content-equal to the app's `REVIEW_TOOLS` surface constant
-  (`src/agent/directors/tool-sets.ts`); the in-tree drift-guard
-  (`src/agent/directors/designer/package.test.ts`) enforces they match.
-- This package is the single prompt authority for designer; the in-tree
-  `src/agent/directors/designer/package.ts` is deleted.
+`prompt.ts` `systemPrompt.build()` is byte-stable (the raw card, no formatting).
+`toolset.ts` `tools` literal equals the `REVIEW_TOOLS` surface constant in
+`src/agent/directors/tool-sets.ts`; drift is enforced by the in-tree drift-guard
+`src/agent/directors/designer/package.test.ts`.
