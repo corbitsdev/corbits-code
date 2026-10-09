@@ -77,10 +77,6 @@ agents/planner/src/config.ts: satisfies
 agents/planner/src/config.ts: boolean
 agents/coder/src/index.ts: agent
 agents/coder/src/index.ts: defineAgent
-agents/coder/src/index.ts: director
-agents/coder/src/index.ts: tools
-agents/coder/src/index.ts: systemPrompt
-agents/coder/src/index.ts: config
 agents/coder/src/config.ts: satisfies
 agents/coder/src/config.ts: boolean
 
