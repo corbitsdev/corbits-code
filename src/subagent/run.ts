@@ -1196,8 +1196,7 @@ async function runSubAgentInner(
             skillDirs,
           })
         : undefined;
-    const roleBody =
-      modelFamilyPolicy.leafRoleBody ?? params.systemPromptRole;
+    const roleBody = modelFamilyPolicy.leafRoleBody ?? params.systemPromptRole;
     const extensions = [
       ...(roleBody !== undefined ? [roleBody] : []),
       ...(attachedSection !== undefined ? [attachedSection] : []),

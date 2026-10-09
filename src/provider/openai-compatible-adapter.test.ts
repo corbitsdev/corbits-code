@@ -201,8 +201,12 @@ describe("openai-compatible adapter DeepSeek V4 Flash wire params", () => {
   });
 
   test("folds Corbits' ladder onto low/high/max", () => {
-    expect(v4Body({ reasoning_effort: "minimal" })["reasoning_effort"]).toBe("low");
-    expect(v4Body({ reasoning_effort: "medium" })["reasoning_effort"]).toBe("high");
+    expect(v4Body({ reasoning_effort: "minimal" })["reasoning_effort"]).toBe(
+      "low",
+    );
+    expect(v4Body({ reasoning_effort: "medium" })["reasoning_effort"]).toBe(
+      "high",
+    );
     expect(v4Body({ reasoning_effort: "max" })["reasoning_effort"]).toBe("max");
   });
 
@@ -214,7 +218,11 @@ describe("openai-compatible adapter DeepSeek V4 Flash wire params", () => {
   });
 
   test("an explicitly configured temperature/top_p wins", () => {
-    const body = v4Body({ reasoning_effort: "high", temperature: 0.6, top_p: 0.9 });
+    const body = v4Body({
+      reasoning_effort: "high",
+      temperature: 0.6,
+      top_p: 0.9,
+    });
     expect(body["temperature"]).toBe(0.6);
     expect(body["top_p"]).toBe(0.9);
   });

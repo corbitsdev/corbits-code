@@ -52,8 +52,7 @@ export function createOpenAICompatibleAdapter(
     // present, so stripping it renders each prior tool turn as an empty
     // thinking response and the model copies that and stops thinking.
     const v4Flash = isDeepSeekV4Flash(model);
-    const stripReasoning =
-      model.toLowerCase().includes("deepseek") && !v4Flash;
+    const stripReasoning = model.toLowerCase().includes("deepseek") && !v4Flash;
     needsDeepSeekPatch = model.toLowerCase().includes("deepseek");
     const v4FlashParams = v4Flash;
     if (!hasProviderOptions && !stripReasoning && !v4FlashParams)
@@ -110,7 +109,9 @@ const DSV4_EFFORT: Record<string, "low" | "high" | "max"> = {
  *   explicitly configured temperature/top_p still wins.
  * - stream usage is requested so token counts are observable.
  */
-export function applyDeepSeekV4FlashParams(body: Record<string, unknown>): void {
+export function applyDeepSeekV4FlashParams(
+  body: Record<string, unknown>,
+): void {
   const raw = body["reasoning_effort"];
   const effort = typeof raw === "string" ? raw.toLowerCase() : undefined;
   const thinking =

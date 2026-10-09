@@ -390,15 +390,21 @@ describe("resolveModelFamilyPolicy", () => {
   });
 
   describe("deepseek-v4-flash bake-in (CL-10242)", () => {
-    function v4(input: {
-      orchestrator?: boolean;
-      directorId?: string;
-    } = {}) {
+    function v4(
+      input: {
+        orchestrator?: boolean;
+        directorId?: string;
+      } = {},
+    ) {
       return resolveModelFamilyPolicy({
         providerName: "vast",
         model: "deepseek-ai/DeepSeek-V4-Flash-0731",
-        ...(input.orchestrator !== undefined ? { orchestrator: input.orchestrator } : {}),
-        ...(input.directorId !== undefined ? { directorId: input.directorId } : {}),
+        ...(input.orchestrator !== undefined
+          ? { orchestrator: input.orchestrator }
+          : {}),
+        ...(input.directorId !== undefined
+          ? { directorId: input.directorId }
+          : {}),
       });
     }
 
