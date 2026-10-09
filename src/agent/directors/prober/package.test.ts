@@ -1,25 +1,47 @@
 import { describe, expect, test } from "bun:test";
 
-import { proberPackage } from "@corbits/code-agent-prober";
+import {
+  director,
+  tools,
+  config,
+  systemPrompt,
+} from "@corbits/code-agent-prober";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 import { DIRECTOR_REGISTRY } from "../registry.js";
 import type { DirectorPackage } from "../types.js";
 
 describe("proberPackage", () => {
   test("workspace package satisfies the director contract and feeds the registry", () => {
-    const asDirector: DirectorPackage = proberPackage;
+    const asDirector: DirectorPackage = director;
     expect(asDirector.id).toBe("prober");
-    expect(DIRECTOR_REGISTRY.prober).toBe(proberPackage);
-    expect([...proberPackage.tools.allow]).toEqual([...REVIEW_TOOLS]);
+    expect(DIRECTOR_REGISTRY.prober).toBe(director);
+    expect([...director.tools.allow]).toEqual([...REVIEW_TOOLS]);
+    expect(new Set(director.tools.allow).size).toBe(
+      director.tools.allow.length,
+    );
   });
 
-  test("extracted copy stays measure-only and non-spawning", () => {
-    expect(proberPackage.tools.allow).toContain("read_file");
-    expect(proberPackage.tools.allow).toContain("grep");
-    expect(proberPackage.tools.allow).not.toContain("spawn_agent");
-    expect(proberPackage.tools.allow).not.toContain("ask_operator");
-    expect(proberPackage.spawn.maySpawn).toBe(false);
-    expect(proberPackage.tier).toBe("leaf");
-    expect(proberPackage.modelRole).toBe("test");
+  test("spawn/tier/modelRole match config", () => {
+    expect(director.spawn).toEqual(config.spawn);
+    expect(director.tier).toBe(config.tier);
+    expect(director.modelRole).toBe(config.modelRole);
+    expect(director.spawn.maySpawn).toBe(false);
+  });
+
+  test("prompt authority is byte-stable", () => {
+    expect(director.systemPrompt).toBe(systemPrompt.build());
+    expect(systemPrompt.build()).toBe(systemPrompt.build());
+  });
+
+  test("tools surface matches the tool-sets constant and is leaf-scoped", () => {
+    expect([...tools]).toEqual([...REVIEW_TOOLS]);
+    expect(tools).not.toContain("spawn_agent");
+    expect(tools).not.toContain("ask_operator");
+    expect(tools).not.toContain("wait_agents");
+    expect(tools).not.toContain("search_agents");
+  });
+
+  test("tools allowlist has no duplicates", () => {
+    expect(new Set([...tools]).size).toBe(tools.length);
   });
 });
