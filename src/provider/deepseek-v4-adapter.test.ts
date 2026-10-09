@@ -148,6 +148,24 @@ describe("deepseek-v4 adapter inherits base quirks", () => {
     expect(assistant?.["reasoning_content"]).toBe("ponder");
   });
 
+  test("vendor-qualified V4 id keeps reasoning_content on replays (org/ prefix)", () => {
+    const adapter = createDeepSeekV4Adapter(source);
+    const built = adapter.buildRequest(
+      withThinking,
+      "deepseek-ai/DeepSeek-V4-Flash-0731",
+      {
+        providerOptions: { reasoning_effort: "xhigh" },
+      } as InferenceOptions,
+    );
+    const body = JSON.parse(built.body) as {
+      messages: Record<string, unknown>[];
+      reasoning_effort?: unknown;
+    };
+    const assistant = body.messages.find((m) => m["role"] === "assistant");
+    expect(assistant?.["reasoning_content"]).toBe("ponder");
+    expect(body.reasoning_effort).toBe("xhigh");
+  });
+
   test("non-V4 select a generic body build (base short-circuits, no V4 fields)", () => {
     const adapter = createDeepSeekV4Adapter({
       ...source,
