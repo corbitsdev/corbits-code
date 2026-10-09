@@ -20,7 +20,8 @@
     "packages/**/*.ts",
     "e2e/**/*.ts",
     "evals/**/*.ts",
-    "scripts/**/*.ts"
+    "scripts/**/*.ts",
+    "agents/**/*.ts"
   ],
   // Excluded: hermetic sandbox repos for the capability eval suite, not real
   // application code. They own their own package.json and are copied into

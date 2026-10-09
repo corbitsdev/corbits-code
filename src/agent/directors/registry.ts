@@ -1,5 +1,5 @@
 import type { AgentProfile, CapabilityFilter } from "../profile-types.js";
-import { artistPackage } from "@corbits/code-agent-artist";
+import { director as artistDirector } from "@corbits/code-agent-artist";
 import { coderPackage } from "./coder/package.js";
 import { designerPackage } from "./designer/package.js";
 import { dispatchPackage } from "./dispatch/package.js";
@@ -43,7 +43,7 @@ export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> =
     coder: coderPackage,
     reviewer: reviewerPackage,
     designer: designerPackage,
-    artist: artistPackage,
+    artist: artistDirector,
     warden: wardenPackage,
     shakespeare: shakespearePackage,
     prober: proberPackage,
