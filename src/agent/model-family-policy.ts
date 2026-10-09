@@ -13,8 +13,8 @@ import {
 
 /**
  * Per-model-family tuning for the shared directors (main chat director and
- * SubAgentDirector). One policy object, resolved once per session/leaf from
- * the provider/model — directors stay generic and branch on data, never on
+ * SubAgentDirector). One policy object, resolved once per session from the
+ * provider/model — directors stay generic and branch on data, never on
  * per-family subclasses.
  */
 export interface ModelFamilyPolicy {
@@ -29,7 +29,7 @@ export interface ModelFamilyPolicy {
   toolOnlyTurnNudgeAt: number;
   /** Ephemeral nudge text injected at toolOnlyTurnNudgeAt. */
   wrapUpNudgeText: string;
-  /** Wall-clock inactivity, in ms, before a silent sub-agent leaf is nudged. */
+  /** Wall-clock inactivity, in ms, before a silent sub-agent is nudged. */
   subAgentStallTimeoutMs: number;
   /** Grok's finish-bias residual (withhold from orchestrators; see provider-family.ts). */
   applyGrokFinishBias: boolean;
@@ -47,10 +47,10 @@ export interface ModelFamilyPolicy {
    */
   toolDisciplineRules?: string;
   /**
-   * Provider-family residual appended once to the assembled leaf system
+   * Provider-family residual appended once to the assembled sub-agent system
    * prompt (CL-8297). Tool-budget text for grok, the XML task_guidance block
    * for claude, the narrate-before-tools note for gpt (CL-8310, primary and
-   * leaf alike).
+   * sub-agent alike).
    * Withheld from orchestrators and appended at the tail so it cannot
    * disturb the cached prompt prefix. Undefined for families that need none.
    */
@@ -84,11 +84,11 @@ const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   advertisedToolDeny: [],
 };
 
-// Generic 4-line tool-budget residual (CL-8297). Grok leaves get this via
+// Generic 4-line tool-budget residual (CL-8297). Grok sub-agents get this via
 // promptResidual today; other families leave the seam unfilled until their
 // own lanes land. Deliberately free of ceremony lines and family-specific
-// routing — pure tool-loop budget. Single-sourced from the versioned
-// prompt-variance package (CL-8269); the name stays for existing importers.
+// routing — pure tool-loop budget. Source is grokToolBudgetResidual
+// (prompt-variance CL-8269); the old name stays for existing importers.
 export const GROK_TOOL_BUDGET_RESIDUAL = grokToolBudgetResidual;
 
 // A directly observed 14-turn pure-tool-call session for this family
@@ -107,7 +107,7 @@ const GROK_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   subAgentStallTimeoutMs: DEFAULT_POLICY.subAgentStallTimeoutMs,
   applyGrokFinishBias: true,
   advertisedToolDeny: [],
-  // Leaf value; the resolver clears it for orchestrators below.
+  // Sub-agent value; the resolver clears it for orchestrators below.
   promptResidual: GROK_TOOL_BUDGET_RESIDUAL,
 };
 
@@ -123,8 +123,8 @@ const KIMI_POLICY: Omit<ModelFamilyPolicy, "family"> = { ...DEFAULT_POLICY };
 // and ran out the 8-turn ceiling without finishing. The same run with these
 // three rules appended finished in 3 turns on 4.3x fewer input tokens. At
 // minimal effort it terminates either way, so the rules earn their keep exactly
-// at the rungs where each wasted turn is most expensive. See CL-7869.
-// Single-sourced from the versioned prompt-variance package (CL-8269).
+// at the rungs where each wasted turn is most expensive. See CL-7869. Source is
+// museRow.residual (prompt-variance CL-8269).
 const MUSE_TOOL_DISCIPLINE_RULES = museRow.residual;
 
 const MUSE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
@@ -137,21 +137,19 @@ const MUSE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
 // pre-plan, verify once), merged into one block with no line twice. The don't
 // re-read idea appears exactly once (the "re-open paths" bullet) — it is not
 // repeated. Grok-only: detectModelFamily has no glm family, so per the <30min
-// rule no GLM row ships here. The text lives here once; exported for
-// buildGrokLeafAntiThrashNote (prompts.ts), which returns it verbatim, so the
-// prompt carries exactly one copy. This is a different block from the CL-8297
-// tool-budget hook (GROK_TOOL_BUDGET_RESIDUAL, surfaced via the
-// ModelFamilyPolicy.promptResidual field): grok leaves carry both, each once.
-// Single-sourced from the versioned prompt-variance package (CL-8269); the
-// name stays for existing importers.
+// rule no GLM row ships here. Source is grokRow.residual (prompt-variance
+// CL-8269); the old name stays for existing importers. buildGrokLeafAntiThrashNote
+// (prompts.ts) returns it verbatim so the prompt carries one copy. This is a
+// different block from the CL-8297 tool-budget hook (GROK_TOOL_BUDGET_RESIDUAL,
+// surfaced via the ModelFamilyPolicy.promptResidual field): grok sub-agents
+// carry both, each once.
 export const GROK_PROMPT_RESIDUAL = grokRow.residual;
 // Claude (Anthropic) ships one XML residual, not prose: a prose residual did
 // nothing, but a single <task_guidance> block cut Sonnet tokens. The block is
 // the whole residual — never a full-prompt XML renderer. The text lives here
 // (policy owns data); buildClaudeTaskGuidanceNote (prompts.ts) returns it
-// verbatim so the prompt carries exactly one copy. Single-sourced from the
-// versioned prompt-variance package (CL-8269); the name stays for existing
-// importers.
+// verbatim so the prompt carries exactly one copy. Source is claudeRow.residual
+// (prompt-variance CL-8269); the old name stays for existing importers.
 export const CLAUDE_TASK_GUIDANCE_NOTE = claudeRow.residual;
 
 const CLAUDE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
@@ -168,9 +166,8 @@ const CLAUDE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
 // Served cells (sol/terra/…) are never named here — CL-8265 characterizes
 // them later. Astra is the one exception: forensics (CL-9027) showed the
 // gpt-6-astra cell evading the shared threshold guard via trivial argument
-// deltas, so it carries its own residual below. Single-sourced from the
-// versioned prompt-variance package (CL-8269); the name stays for existing
-// importers.
+// deltas, so it carries its own residual below. Source is gptRow.residual
+// (prompt-variance CL-8269); the old name stays for existing importers.
 export const GPT_NARRATE_BEFORE_TOOLS_NOTE = gptRow.residual;
 
 // GPT (Codex / gpt-*) thresholds are provisional: we have no eval
@@ -180,7 +177,7 @@ export const GPT_NARRATE_BEFORE_TOOLS_NOTE = gptRow.residual;
 // GPT_NARRATE_BEFORE_TOOLS_NOTE above), not a threshold.
 const GPT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   ...DEFAULT_POLICY,
-  // Primary and leaf alike, so unlike the grok finish-bias there is no
+  // Primary and sub-agent alike, so unlike the grok finish-bias there is no
   // orchestrator carve-out: the resolver below returns this as-is.
   promptResidual: GPT_NARRATE_BEFORE_TOOLS_NOTE,
 };
@@ -196,7 +193,7 @@ export const ASTRA_PROMPT_RESIDUAL = `${GPT_NARRATE_BEFORE_TOOLS_NOTE}\n${astraR
 
 const ASTRA_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   ...GPT_POLICY,
-  // Like gpt, primary and leaf alike: no orchestrator carve-out.
+  // Like gpt, primary and sub-agent alike: no orchestrator carve-out.
   promptResidual: ASTRA_PROMPT_RESIDUAL,
 };
 
@@ -210,7 +207,7 @@ export function resolveModelFamilyPolicy(input: {
   switch (family) {
     case "grok": {
       const policy = { family, ...GROK_POLICY };
-      // The finish-bias residual only makes sense on leaf workers, mirroring
+      // The finish-bias residual only makes sense on sub-agents, mirroring
       // shouldApplyGrokAntiThrash: orchestrators dispatch other agents rather
       // than doing the work directly.
       return {
@@ -228,17 +225,18 @@ export function resolveModelFamilyPolicy(input: {
       return { family, ...MUSE_POLICY };
     case "claude":
       // Like the grok finish-bias residual, the task_guidance block only makes
-      // sense on leaf workers — orchestrators dispatch rather than doing the
+      // sense on sub-agents — orchestrators dispatch rather than doing the
       // work directly, so they resolve to the permissive default (no residual).
       return orchestrator
         ? { family, ...DEFAULT_POLICY }
         : { family, ...CLAUDE_POLICY };
     case "gpt":
-      // Primary and leaf alike: no orchestrator carve-out.
+      // Primary and sub-agent alike: no orchestrator carve-out.
       return { family, ...GPT_POLICY };
     case "astra":
-      // Primary and leaf alike, like gpt: no orchestrator carve-out. Generic
-      // gpt prompts are byte-identical — only astra carries the residual.
+      // Like gpt, primary and sub-agent alike: no orchestrator carve-out.
+      // Generic gpt prompts are byte-identical — only astra carries the
+      // residual.
       return { family, ...ASTRA_POLICY };
     default:
       return { family: "default", ...DEFAULT_POLICY };
