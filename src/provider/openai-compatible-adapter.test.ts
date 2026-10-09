@@ -150,12 +150,23 @@ describe("openai-compatible adapter reasoning_content handling", () => {
       .messages;
   }
 
-  test("strips reasoning_content from input messages for DeepSeek models", () => {
-    const assistant = messagesFor("deepseek-v4").find(
+  test("strips reasoning_content from input messages for pre-V4 DeepSeek models", () => {
+    const assistant = messagesFor("deepseek-v3").find(
       (m) => m["role"] === "assistant",
     );
     expect(assistant).toBeDefined();
     expect("reasoning_content" in defined(assistant)).toBe(false);
+  });
+
+  test.each([
+    "deepseek-v4",
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
+  ])("V4 keeps reasoning_content on replayed assistant turns (%s)", (model) => {
+    const assistant = messagesFor(model).find((m) => m["role"] === "assistant");
+    expect(assistant).toBeDefined();
+    expect(assistant?.["reasoning_content"]).toBe("ponder");
   });
 
   test("keeps reasoning_content for non-DeepSeek models", () => {
@@ -163,6 +174,33 @@ describe("openai-compatible adapter reasoning_content handling", () => {
       (m) => m["role"] === "assistant",
     );
     expect(assistant?.["reasoning_content"]).toBe("ponder");
+  });
+
+  test("non-V4/non-DeepSeek models are byte-identical on reasoning_content", () => {
+    for (const model of [
+      "gpt-5",
+      "gpt-5.1",
+      "kimi-k2",
+      "grok-4.6",
+      "claude-sonnet-4.5",
+      "glm-5.3",
+      "openai-compatible-generic",
+    ]) {
+      const assistant = messagesFor(model).find(
+        (m) => m["role"] === "assistant",
+      );
+      expect(assistant?.["reasoning_content"]).toBe("ponder");
+    }
+  });
+
+  test("pre-V4 DeepSeek ids still strip reasoning_content (byte-identical)", () => {
+    for (const model of ["deepseek-v3", "deepseek-r1"]) {
+      const assistant = messagesFor(model).find(
+        (m) => m["role"] === "assistant",
+      );
+      expect(assistant).toBeDefined();
+      expect("reasoning_content" in defined(assistant)).toBe(false);
+    }
   });
 });
 

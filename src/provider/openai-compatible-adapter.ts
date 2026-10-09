@@ -52,11 +52,17 @@ export function createOpenAICompatibleAdapter(
     const hasProviderOptions =
       providerOptions !== undefined && Object.keys(providerOptions).length > 0;
     // DeepSeek returns HTTP 400 if `reasoning_content` appears in input messages,
-    // whereas the base adapter emits it for any model with thinking enabled.
+    // whereas the base adapter emits it for any model with thinking enabled. V4
+    // keeps each turn's reasoning on replay, so only pre-V4 DeepSeek strips it.
     const m = model.toLowerCase().trim();
-    const stripReasoning = m.includes("deepseek");
-    needsDeepSeekPatch = stripReasoning;
-    if (!hasProviderOptions && !stripReasoning) return ensureAccept(built);
+    const isDeepSeek = m.includes("deepseek");
+    const stripReasoning = isDeepSeek && !/^deepseek-v4/i.test(m);
+    needsDeepSeekPatch = isDeepSeek;
+    // V4 always runs the settings step below, even with no providerOptions, so
+    // its sampling/stream defaults reach the wire; non-V4 models without
+    // providerOptions short-circuit here and stay byte-identical.
+    if (!hasProviderOptions && !stripReasoning && !/^deepseek-v4/i.test(m))
+      return ensureAccept(built);
 
     const body = JSON.parse(built.body) as Record<string, unknown>;
     if (hasProviderOptions) Object.assign(body, providerOptions);
