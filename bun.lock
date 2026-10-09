@@ -84,6 +84,10 @@
       "name": "@corbits/code-agent-coder",
       "version": "0.1.0",
     },
+    "agents/explorer": {
+      "name": "@corbits/code-agent-explorer",
+      "version": "0.1.0",
+    },
     "packages/first-class-providers": {
       "name": "@corbits/first-class-providers",
       "version": "0.1.0",
@@ -284,6 +288,7 @@
     "@corbits/code-agent-reviewer": ["@corbits/code-agent-reviewer@workspace:agents/reviewer"],
     "@corbits/code-agent-planner": ["@corbits/code-agent-planner@workspace:agents/planner"],
     "@corbits/code-agent-coder": ["@corbits/code-agent-coder@workspace:agents/coder"],
+    "@corbits/code-agent-explorer": ["@corbits/code-agent-explorer@workspace:agents/explorer"],
 
     "@corbits/codex-provider": ["@corbits/codex-provider@0.1.1", "", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.2.0", "@corbits/openai-responses": "^0.2.0", "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-MiGA5djQNtRpHqLvJAGdFgHEbUl808AbveMPwt7krLjOH0i20DyElpitHPZF3ltCXkFMhcKIoyTAEpRDqeB/Rw=="],
 
