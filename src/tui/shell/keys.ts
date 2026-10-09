@@ -277,15 +277,17 @@ export function handleCtrlC(
 }
 
 /**
- * Pure read of the registered stop affordance scalars for the second-press
- * branch (Phase 2). The shell stays service-free: it never constructs a
+ * Pure read of the registered stop affordance scalars backing the Ctrl+C
+ * three-press machine. This is the live source for both the stop-press branch
+ * and the count-aware note in `handleCtrlC`: an in-window press that finds
+ * live workers becomes a "stop the fleet, stay up" press (`state: "stopped"`),
+ * routing the quit off to a third press; the note's count also comes straight
+ * from here, so the operator sees that the next press stops the sub-agents
+ * rather than exiting. The shell stays service-free: it never constructs a
  * worker-count itself, only mirrors what the runner registered. Defaults keep
- * an unregistered shell on today's two-press contract (count 0, no-op stop) so
- * the armed branch stays safe before Phase 4 wires the runner.
- *
- * Phase 1 establishes this seam only; it is NOT yet consulted by `handleCtrlC`.
- * It is exported so Phase 1 consumes it honestly (pinned by the stop-affordance
- * test) instead of leaving it dead until Phase 2 wires the second-press branch.
+ * an unregistered shell on the plain two-press contract (count 0, no-op stop)
+ * so a runner that has not wired the affordance still quits on the second
+ * press.
  */
 export function readStopAffordance(shell: AppShell): {
   count: number;
