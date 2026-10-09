@@ -12,9 +12,6 @@ export function defineAgent(): AgentDefinition {
     systemPrompt: systemPrompt.build(),
     tools: [],
     capabilities: [],
-    inference: {
-      sources: [{ provider: "openai", model: "gpt-5" }],
-    },
-    tags: { fleet: "0.3.36", lane: "shakespeare" },
+    inference: { sources: [] },
   });
 }

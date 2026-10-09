@@ -1,4 +1,4 @@
-const SHAKESPEARE_TOOLS = [
+export const tools: readonly string[] = [
   "read_file",
   "grep",
   "search_files",
@@ -12,5 +12,3 @@ const SHAKESPEARE_TOOLS = [
   "edit_file",
   "delete_file",
 ] as const;
-
-export const tools: readonly string[] = [...SHAKESPEARE_TOOLS];
