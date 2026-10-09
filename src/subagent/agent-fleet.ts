@@ -66,6 +66,7 @@ import {
   validateEffort,
   type ReasoningEffort,
 } from "../provider/reasoning-effort.js";
+import { isDeepSeekV4Model } from "../provider/deepseek-v4-effort.js";
 import type { AgentProfile, CapabilityFilter } from "../agent/profiles.js";
 import {
   DEFAULT_KNOWN_ENGINES,
@@ -1183,11 +1184,18 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         settings?.providers[provider.providerName],
         catalog?.find((entry) => entry.name === provider.providerName),
       );
+      // DeepSeek V4 pins the coder leaf to low unless the profile explicitly
+      // pins effort (winning config).
+      const coderEffortPin =
+        resolved.effortPin ??
+        (!orchestrator &&
+        resolved.directorId === "coder" &&
+        isDeepSeekV4Model(provider.model)
+          ? "low"
+          : undefined);
       const effort = resolveEffortForRole({
         orchestrator,
-        ...(resolved.effortPin !== undefined
-          ? { pin: resolved.effortPin }
-          : {}),
+        ...(coderEffortPin !== undefined ? { pin: coderEffortPin } : {}),
         ...(resolved.roleDefault !== undefined
           ? { roleDefault: resolved.roleDefault }
           : {}),

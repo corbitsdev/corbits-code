@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolveModelFamilyPolicy } from "./model-family-policy.js";
+import { buildSubAgentSystemPrompt } from "./prompts.js";
 
 describe("resolveModelFamilyPolicy", () => {
   test("defaults are permissive for an unrecognized provider", () => {
@@ -387,5 +388,73 @@ describe("resolveModelFamilyPolicy", () => {
         expect(policy.promptResidual).toBe(generic.promptResidual);
       }
     }
+  });
+
+  describe("deepseek-v4 bake-in (CL-10242)", () => {
+    function v4(
+      input: {
+        orchestrator?: boolean;
+        directorId?: string;
+      } = {},
+    ) {
+      return resolveModelFamilyPolicy({
+        providerName: "vast",
+        model: "deepseek-v4-flash",
+        ...(input.orchestrator !== undefined
+          ? { orchestrator: input.orchestrator }
+          : {}),
+        ...(input.directorId !== undefined
+          ? { directorId: input.directorId }
+          : {}),
+      });
+    }
+
+    test("orchestrators get the d1 primary residual, no leaf role body", () => {
+      const p = v4({ orchestrator: true });
+      expect(p.family).toBe("deepseek-v4");
+      expect(p.promptResidual).toBeDefined();
+      expect(p.promptResidual).toContain("DeepSeek V4 Flash");
+      expect(p.leafRoleBody).toBeUndefined();
+    });
+
+    test("coder leaves get the tuned slim coder body, no residual", () => {
+      const p = v4({ orchestrator: false, directorId: "coder" });
+      expect(p.family).toBe("deepseek-v4");
+      expect(p.leafRoleBody).toBeDefined();
+      expect(p.leafRoleBody).toContain("Coder");
+      expect(p.promptResidual).toBeUndefined();
+    });
+
+    test("reviewer leaves get the tuned slim reviewer body", () => {
+      const p = v4({ orchestrator: false, directorId: "reviewer" });
+      expect(p.family).toBe("deepseek-v4");
+      expect(p.leafRoleBody).toBeDefined();
+      expect(p.leafRoleBody).toContain("Reviewer");
+      expect(p.promptResidual).toBeUndefined();
+    });
+
+    test("explorer leaves get the g2 leaf residual only", () => {
+      const p = v4({ orchestrator: false, directorId: "explorer" });
+      expect(p.family).toBe("deepseek-v4");
+      expect(p.promptResidual).toBeDefined();
+      expect(p.promptResidual).toContain("DeepSeek V4 Flash");
+      expect(p.leafRoleBody).toBeUndefined();
+    });
+
+    test("a leaf without a tuned director id gets the default policy, no body/residual", () => {
+      const p = v4({ orchestrator: false });
+      expect(p.family).toBe("deepseek-v4");
+      expect(p.leafRoleBody).toBeUndefined();
+      expect(p.promptResidual).toBeUndefined();
+    });
+
+    test("the slim coder body lands in the assembled sub-agent prompt via the extensions seam", () => {
+      const p = v4({ orchestrator: false, directorId: "coder" });
+      const slimBody = p.leafRoleBody;
+      expect(slimBody).toBeDefined();
+      const prompt = buildSubAgentSystemPrompt([slimBody as string]);
+      expect(prompt).toContain("You are Coder");
+      expect(prompt).toContain("implement one brief");
+    });
   });
 });
