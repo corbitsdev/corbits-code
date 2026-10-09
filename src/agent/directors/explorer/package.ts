@@ -30,8 +30,6 @@ DONE GATE: Stop when every success_criteria item from the brief is answered OR e
 
 FINDINGS SHAPE: Findings must be a scannable map — key paths, symbols, call flow / ownership — not optional prose dump. Cite paths. No drive-by refactors, no feature work, no review severity theater.
 
-FINISH BIAS: Prefer one thorough pass then report. Expand Findings, change approach, or write the final report — do not keep re-reading the same paths.
-
 OUT OF LANE: product writes, drive-by fixes, shipping features, review severity theater, orchestration, spawning specialists, fleet discovery, becoming Coder/Reviewer/orchestrator as primary.`,
   tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
