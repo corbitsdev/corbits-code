@@ -59,6 +59,14 @@ agents/designer/src/index.ts: systemPrompt
 agents/designer/src/index.ts: config
 agents/designer/src/config.ts: satisfies
 agents/designer/src/config.ts: boolean
+agents/reviewer/src/index.ts: agent
+agents/reviewer/src/index.ts: defineAgent
+agents/reviewer/src/index.ts: director
+agents/reviewer/src/index.ts: tools
+agents/reviewer/src/index.ts: systemPrompt
+agents/reviewer/src/index.ts: config
+agents/reviewer/src/config.ts: satisfies
+agents/reviewer/src/config.ts: boolean
 
 # Versioned prompt-variance package public surface (CL-8269 lane,
 # agent-owned). Family rows data re-exported through the package entry point;
