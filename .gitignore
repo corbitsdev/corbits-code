@@ -30,6 +30,14 @@ subagents/
 
 # Working notes and design spikes — local only, never committed
 docs/plans/
+# Fleet/harness working notes — local only, never committed
+plans/
+
+# Benchmark/eval scratch — local only, never committed
+tb-dataset/
+tb-rerun-50/
+terminal-bench/
+evals/**/__pycache__/
 
 # Scratch repro tests — never committed
 __repro/
