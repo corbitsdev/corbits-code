@@ -411,7 +411,7 @@ describe("resolveModelFamilyPolicy", () => {
 
     test("orchestrators get the d1 primary residual, no leaf role body", () => {
       const p = v4({ orchestrator: true });
-      expect(p.family).toBe("deepseek-v4");
+      expect(p.family).toBe("deepseek");
       expect(p.promptResidual).toBeDefined();
       expect(p.promptResidual).toContain("DeepSeek V4 Flash");
       expect(p.leafRoleBody).toBeUndefined();
@@ -419,7 +419,7 @@ describe("resolveModelFamilyPolicy", () => {
 
     test("coder leaves get the tuned slim coder body, no residual", () => {
       const p = v4({ orchestrator: false, directorId: "coder" });
-      expect(p.family).toBe("deepseek-v4");
+      expect(p.family).toBe("deepseek");
       expect(p.leafRoleBody).toBeDefined();
       expect(p.leafRoleBody).toContain("Coder");
       expect(p.promptResidual).toBeUndefined();
@@ -427,7 +427,7 @@ describe("resolveModelFamilyPolicy", () => {
 
     test("reviewer leaves get the tuned slim reviewer body", () => {
       const p = v4({ orchestrator: false, directorId: "reviewer" });
-      expect(p.family).toBe("deepseek-v4");
+      expect(p.family).toBe("deepseek");
       expect(p.leafRoleBody).toBeDefined();
       expect(p.leafRoleBody).toContain("Reviewer");
       expect(p.promptResidual).toBeUndefined();
@@ -435,7 +435,7 @@ describe("resolveModelFamilyPolicy", () => {
 
     test("explorer leaves get the g2 leaf residual only", () => {
       const p = v4({ orchestrator: false, directorId: "explorer" });
-      expect(p.family).toBe("deepseek-v4");
+      expect(p.family).toBe("deepseek");
       expect(p.promptResidual).toBeDefined();
       expect(p.promptResidual).toContain("DeepSeek V4 Flash");
       expect(p.leafRoleBody).toBeUndefined();
@@ -443,7 +443,7 @@ describe("resolveModelFamilyPolicy", () => {
 
     test("a leaf without a tuned director id gets the default policy, no body/residual", () => {
       const p = v4({ orchestrator: false });
-      expect(p.family).toBe("deepseek-v4");
+      expect(p.family).toBe("deepseek");
       expect(p.leafRoleBody).toBeUndefined();
       expect(p.promptResidual).toBeUndefined();
     });

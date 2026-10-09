@@ -2,6 +2,7 @@ import { type ProviderAdapter } from "@intx/inference";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 import {
   DEEPSEEK_V4_MODEL_CARD,
+  isDeepSeekModel,
   isDeepSeekV4Model,
   mapV4Effort,
   V4_STREAM_OPTIONS,
@@ -13,7 +14,9 @@ type AdapterSource = Parameters<typeof createOpenAICompatibleAdapter>[0];
 
 // Wraps the patched openai-compatible adapter so V4 requests inherit the
 // providerOptions merge, NIM null-delta patch, and Accept header; this layer
-// only applies the V4 effort/sampling/stream quirks to the built body.
+// routes the whole DeepSeek family through this family adapter and applies the
+// V4 effort/sampling/stream quirks to the built body only for the V4 variant
+// (pre-V4 deepseek stays on the generic openai-compatible body, byte-identical).
 export function createDeepSeekV4Adapter(
   source: AdapterSource,
 ): ProviderAdapter {
@@ -25,12 +28,12 @@ export function createDeepSeekV4Adapter(
     options,
   ) => {
     const req = base.buildRequest(messages, model, options);
-    if (!isDeepSeekV4Model(model)) return req;
+    if (!isDeepSeekModel(model) || !isDeepSeekV4Model(model)) return req;
     const body = JSON.parse(req.body) as Record<string, unknown>;
 
     // V4 effort ladder (none/xhigh/max): none drops reasoning_effort and
-    // turns thinking off; xhigh/max go out raw with thinking on; off-ladder
-    // or absent efforts are left untouched.
+    // turns thinking off; xhigh/max go out raw with thinking on. Off-ladder
+    // efforts throw inside mapV4Effort (rejected, never passed to the wire).
     if ("reasoning_effort" in body) {
       const effort = body["reasoning_effort"] as Parameters<
         typeof mapV4Effort
@@ -39,7 +42,7 @@ export function createDeepSeekV4Adapter(
       if (wire === null) {
         delete body["reasoning_effort"];
         mergeThinking(body, false);
-      } else if (wire !== undefined) {
+      } else {
         body["reasoning_effort"] = wire;
         mergeThinking(body, true);
       }

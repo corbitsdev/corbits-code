@@ -1,7 +1,7 @@
 import { type BuiltRequest, type ProviderAdapter } from "@intx/inference";
 import { createOpenAIAdapter } from "@intx/inference/providers";
 import { normalizeNullDeltaFields } from "./null-delta-fields.js";
-import { isDeepSeekV4Model } from "./deepseek-v4-effort.js";
+import { isDeepSeekModel, isDeepSeekV4Model } from "./deepseek-v4-effort.js";
 
 // The stock OpenAI adapter builds the request body from a fixed set of fields
 // (max_tokens, temperature, tools, messages, response_format) and ignores
@@ -51,7 +51,7 @@ export function createOpenAICompatibleAdapter(
     // keeps each turn's reasoning on replay (handled by its own adapter), so only
     // pre-V4 DeepSeek strips it here.
     const m = model.toLowerCase().trim();
-    const isDeepSeek = m.includes("deepseek");
+    const isDeepSeek = isDeepSeekModel(m);
     const stripReasoning = isDeepSeek && !isDeepSeekV4Model(m);
     needsDeepSeekPatch = isDeepSeek;
     if (!hasProviderOptions && !stripReasoning) return ensureAccept(built);

@@ -1,7 +1,7 @@
 import { GROK_RESPONSES_PROVIDER } from "../provider/grok-responses.js";
 import { isXaiProviderName } from "../config/xai-providers.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
-import { isDeepSeekV4Model } from "../provider/deepseek-v4-effort.js";
+import { isDeepSeekModel } from "../provider/deepseek-v4-effort.js";
 
 /**
  * True when the leaf inference path is xAI / Grok family.
@@ -65,15 +65,15 @@ export function isAstraLeafProvider(input: {
 }
 
 /**
- * True when the model is the DeepSeek V4 family. Single-sourced from the
- * shared V4 effort module (isDeepSeekV4Model, /^deepseek-v4/i) so the adapter
- * family, effort routing, and model-family key stay consistent.
+ * True when the model is the DeepSeek family. Single-sourced from the shared
+ * effort module (isDeepSeekModel, /(^|\/)deepseek/i) so the adapter family,
+ * effort routing, and model-family key stay consistent.
  */
-export function isDeepSeekV4LeafProvider(input: {
+export function isDeepSeekLeafProvider(input: {
   providerName: string;
   model?: string;
 }): boolean {
-  return input.model !== undefined && isDeepSeekV4Model(input.model);
+  return input.model !== undefined && isDeepSeekModel(input.model);
 }
 
 /**
@@ -104,7 +104,7 @@ export type ModelFamily =
   | "claude"
   | "gpt"
   | "astra"
-  | "deepseek-v4"
+  | "deepseek"
   | "default";
 
 /**
@@ -122,7 +122,7 @@ export function detectModelFamily(input: {
   if (isMuseSparkLeafProvider(input)) return "muse";
   if (isClaudeLeafProvider(input)) return "claude";
   if (isAstraLeafProvider(input)) return "astra";
-  if (isDeepSeekV4LeafProvider(input)) return "deepseek-v4";
+  if (isDeepSeekLeafProvider(input)) return "deepseek";
   if (isGptProvider(input)) return "gpt";
   return "default";
 }
