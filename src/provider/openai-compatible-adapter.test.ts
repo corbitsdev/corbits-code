@@ -1,6 +1,7 @@
 import { defined } from "../../testkit/defined.js";
 import { describe, test, expect } from "bun:test";
 import { ProtocolMismatchError } from "@intx/inference";
+import { createOpenAIAdapter } from "@intx/inference/providers";
 import type { ConversationTurn, InferenceOptions } from "@intx/types/runtime";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 
@@ -178,33 +179,123 @@ describe("openai-compatible adapter V4 effort wiring", () => {
     return JSON.parse(built.body) as Record<string, unknown>;
   }
 
-  test("none drops reasoning_effort and sets thinking off", () => {
-    const body = bodyForModel("deepseek-v4-pro", {
-      providerOptions: { reasoning_effort: "none" },
-    } as InferenceOptions);
-    expect("reasoning_effort" in body).toBe(false);
-    expect(body["chat_template_kwargs"]).toEqual({ thinking: false });
-  });
-
   test.each(["xhigh", "max"] as const)(
-    "maps ladder %s through verbatim",
+    "wires V4 effort %s through raw and turns thinking on",
     (effort) => {
       const body = bodyForModel("deepseek-v4-pro", {
         providerOptions: { reasoning_effort: effort },
       } as InferenceOptions);
       expect(body["reasoning_effort"]).toBe(effort);
+      expect(body["chat_template_kwargs"]).toEqual({ thinking: true });
     },
   );
 
-  test.each(["low", "medium", "high"] as const)(
-    "leaves off-ladder %s untouched",
-    (effort) => {
+  describe("V4 request settings (PR4)", () => {
+    test("none → chat_template_kwargs.thinking false and NO reasoning_effort", () => {
       const body = bodyForModel("deepseek-v4-pro", {
-        providerOptions: { reasoning_effort: effort },
+        providerOptions: { reasoning_effort: "none" },
       } as InferenceOptions);
-      expect(body["reasoning_effort"]).toBe(effort);
-    },
-  );
+      expect(body["chat_template_kwargs"]).toEqual({ thinking: false });
+      expect("reasoning_effort" in body).toBe(false);
+    });
+
+    test("stream_options include_usage is true", () => {
+      const body = bodyForModel("deepseek-v4-pro", {} as InferenceOptions);
+      expect(body["stream_options"]).toEqual({ include_usage: true });
+      // An unset effort must not force the encoder's thinking pass on nor
+      // inject an empty chat_template_kwargs object.
+      expect(body["chat_template_kwargs"]).toBeUndefined();
+    });
+
+    test("top_p 0.95 and temperature 1.0 defaulted when absent", () => {
+      const body = bodyForModel("deepseek-v4-pro", {} as InferenceOptions);
+      expect(body["top_p"]).toBe(0.95);
+      expect(body["temperature"]).toBe(1.0);
+      // An unset effort must not force the encoder's thinking pass on nor
+      // inject an empty chat_template_kwargs object.
+      expect(body["chat_template_kwargs"]).toBeUndefined();
+    });
+
+    test("top_p and temperature preserved when providerOptions set them", () => {
+      const body = bodyForModel("deepseek-v4-pro", {
+        providerOptions: { temperature: 0.7, top_p: 0.9 },
+      } as InferenceOptions);
+      expect(body["top_p"]).toBe(0.9);
+      expect(body["temperature"]).toBe(0.7);
+    });
+
+    test("chat_template_kwargs merge preserves existing keys", () => {
+      const body = bodyForModel("deepseek-v4-pro", {
+        providerOptions: {
+          reasoning_effort: "xhigh",
+          chat_template_kwargs: { some: "existing" },
+        },
+      } as InferenceOptions);
+      expect(body["chat_template_kwargs"]).toEqual({
+        thinking: true,
+        some: "existing",
+      });
+    });
+
+    test("off-ladder effort is left untouched (no high→xhigh coercion)", () => {
+      const body = bodyForModel("deepseek-v4-pro", {
+        providerOptions: { reasoning_effort: "high" },
+      } as InferenceOptions);
+      expect(body["reasoning_effort"]).toBe("high");
+      expect("chat_template_kwargs" in body).toBe(false);
+    });
+
+    test("none merges thinking off into, never replaces, existing kwargs", () => {
+      const body = bodyForModel("deepseek-v4-pro", {
+        providerOptions: {
+          reasoning_effort: "none",
+          chat_template_kwargs: { some: "existing" },
+        },
+      } as InferenceOptions);
+      expect(body["chat_template_kwargs"]).toEqual({
+        thinking: false,
+        some: "existing",
+      });
+    });
+
+    test("provider-set thinking is preserved (absent-only thinking)", () => {
+      // A provider-supplied thinking value beats the V4 effort's implied one:
+      // `none` normally forces thinking off, but an explicit thinking:true
+      // must be kept (never force-stamped), and vice versa.
+      const noneThenTrue = bodyForModel("deepseek-v4-pro", {
+        providerOptions: {
+          reasoning_effort: "none",
+          chat_template_kwargs: { thinking: true },
+        },
+      } as InferenceOptions);
+      expect(noneThenTrue["chat_template_kwargs"]).toEqual({ thinking: true });
+
+      const xhighThenFalse = bodyForModel("deepseek-v4-pro", {
+        providerOptions: {
+          reasoning_effort: "xhigh",
+          chat_template_kwargs: { thinking: false },
+        },
+      } as InferenceOptions);
+      expect(xhighThenFalse["chat_template_kwargs"]).toEqual({
+        thinking: false,
+      });
+    });
+
+    test("unset effort does not inject empty chat_template_kwargs", () => {
+      const body = bodyForModel("deepseek-v4-pro", {} as InferenceOptions);
+      expect("chat_template_kwargs" in body).toBe(false);
+      expect(body["reasoning_effort"]).toBeUndefined();
+    });
+
+    test("provider-set stream_options is preserved (absent-only)", () => {
+      const body = bodyForModel("deepseek-v4-pro", {
+        providerOptions: {
+          stream_options: { include_usage: false },
+        },
+      } as InferenceOptions);
+      expect(body["stream_options"]).toEqual({ include_usage: false });
+    });
+  });
 
   describe("v4-effort is no-op for non-V4", () => {
     const models = [
@@ -219,28 +310,50 @@ describe("openai-compatible adapter V4 effort wiring", () => {
       "deepseek-v3",
     ];
 
-    test.each(models)(
-      "merged body for %s is byte-identical to a manual base+merge (V4 step no-op)",
-      (model) => {
+    test.each(
+      models.flatMap((model) =>
+        (["high", "none", "max"] as const).map((effort) => [model, effort]),
+      ),
+    )(
+      "merged body for %s with effort %s is byte-identical to a manual base+merge (V4 step no-op)",
+      (model, effort) => {
         const base = bodyForModel(model, {} as InferenceOptions);
         const withEffort = bodyForModel(model, {
-          providerOptions: { reasoning_effort: "high" },
+          providerOptions: { reasoning_effort: effort },
         } as InferenceOptions);
+        // For a non-V4 model the V4 step must not run: the output body equals
+        // the base body shallow-merged with providerOptions verbatim (no
+        // effort mapping, no chat_template_kwargs injection) — including V4
+        // ladder values like none (delete + thinking:false) and max (verbatim),
+        // so a regression routing any V4 rung through the V4 branch is caught.
         const expected = {
           ...base,
-          ...({ reasoning_effort: "high" } as const),
+          ...({ reasoning_effort: effort } as const),
         };
         expect(withEffort).toEqual(expected);
       },
     );
 
     test.each(models)(
-      "merged body for %s carries reasoning_effort verbatim",
+      "V4 settings (top_p/temperature/stream_options/chat_template_kwargs) not injected for %s",
       (model) => {
-        const body = bodyForModel(model, {
-          providerOptions: { reasoning_effort: "high" },
-        } as InferenceOptions);
-        expect(body["reasoning_effort"]).toBe("high");
+        const body = bodyForModel(model, {} as InferenceOptions);
+        // Full-body equality against the raw base OpenAI adapter output: for a
+        // non-V4 model the wrapper must short-circuit the V4 step entirely, so
+        // the body matches the base build byte-for-byte (a regression that
+        // injects a 5th field or mutates an existing one would fail here).
+        const baseAdapter = createOpenAIAdapter({
+          ...source,
+          model,
+        } as typeof source);
+        const baseBuilt = baseAdapter.buildRequest(
+          messages,
+          model,
+          {} as InferenceOptions,
+        );
+        expect(body).toEqual(
+          JSON.parse(baseBuilt.body) as Record<string, unknown>,
+        );
       },
     );
   });

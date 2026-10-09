@@ -1,7 +1,11 @@
 import { type BuiltRequest, type ProviderAdapter } from "@intx/inference";
 import { createOpenAIAdapter } from "@intx/inference/providers";
 import type { ReasoningEffort } from "../agent/profile-types.js";
-import { isDeepSeekV4Model, mapV4Effort } from "./deepseek-v4-effort.js";
+import {
+  DEEPSEEK_V4_MODEL_CARD,
+  mapV4Effort,
+  V4_STREAM_OPTIONS,
+} from "./deepseek-v4-effort.js";
 import { normalizeNullDeltaFields } from "./null-delta-fields.js";
 
 // The stock OpenAI adapter builds the request body from a fixed set of fields
@@ -47,40 +51,57 @@ export function createOpenAICompatibleAdapter(
     const providerOptions = options.providerOptions;
     const hasProviderOptions =
       providerOptions !== undefined && Object.keys(providerOptions).length > 0;
-    // Normalize the model once so every predicate below reads from the same
-    // lower-cased, trimmed string rather than re-normalizing per call.
-    const m = model.toLowerCase().trim();
     // DeepSeek returns HTTP 400 if `reasoning_content` appears in input messages,
     // whereas the base adapter emits it for any model with thinking enabled.
+    const m = model.toLowerCase().trim();
     const stripReasoning = m.includes("deepseek");
     needsDeepSeekPatch = stripReasoning;
-    const isV4 = isDeepSeekV4Model(m);
     if (!hasProviderOptions && !stripReasoning) return ensureAccept(built);
 
     const body = JSON.parse(built.body) as Record<string, unknown>;
     if (hasProviderOptions) Object.assign(body, providerOptions);
-    // V4's ladder (none/xhigh/max) is translated here: `none` drops
-    // reasoning_effort and toggles the encoder's thinking off (it is illegal
-    // on the wire), while `xhigh`/`max` go out raw. Effort absent under V4 is
-    // left absent. Off-ladder efforts (low/medium/high) are left untouched.
-    if (isV4) {
+
+    // Merge a thinking toggle into a clone of the existing chat_template_kwargs
+    // (never overwrite the object wholesale, and never mutate the caller's
+    // providerOptions ref). The toggle is absent-only: a provider-supplied
+    // thinking value wins over the V4 effort's implied value.
+    const applyV4Thinking = (thinking: boolean): void => {
+      const existing =
+        body["chat_template_kwargs"] !== null &&
+        typeof body["chat_template_kwargs"] === "object"
+          ? (body["chat_template_kwargs"] as Record<string, unknown>)
+          : {};
+      const merged = { ...existing };
+      merged.thinking ??= thinking;
+      Object.assign(body, { chat_template_kwargs: merged });
+    };
+    // V4 drives its own effort ladder (none/xhigh/max) and encodes thinking via
+    // chat_template_kwargs. `none` is a toggle, never a wire effort — drop
+    // reasoning_effort and tell the encoder to skip the reasoning pass; xhigh/
+    // max go out raw. Off-ladder efforts stay untouched, and an absent effort
+    // is never invented here (no empty chat_template_kwargs either). Sampling
+    // defaults and stream include_usage are absent-field-only — provider-set
+    // values always win.
+    if (/^deepseek-v4/i.test(m)) {
+      let wireEffort: "xhigh" | "max" | null | undefined;
       if ("reasoning_effort" in body) {
         const raw = body["reasoning_effort"] as ReasoningEffort;
-        const wireEffort = mapV4Effort(raw);
+        wireEffort = mapV4Effort(raw);
         if (wireEffort === null) {
           delete body["reasoning_effort"];
-          // Merge into any existing kwargs so provider-supplied keys survive.
-          const kwargs =
-            body["chat_template_kwargs"] !== null &&
-            typeof body["chat_template_kwargs"] === "object"
-              ? (body["chat_template_kwargs"] as Record<string, unknown>)
-              : {};
-          kwargs.thinking = false;
-          Object.assign(body, { chat_template_kwargs: kwargs });
+          applyV4Thinking(false);
         } else if (wireEffort !== undefined) {
           body["reasoning_effort"] = wireEffort;
+          applyV4Thinking(true);
         }
       }
+      if (body["top_p"] === undefined)
+        body["top_p"] = DEEPSEEK_V4_MODEL_CARD.topP;
+      if (body["temperature"] === undefined)
+        body["temperature"] = DEEPSEEK_V4_MODEL_CARD.temperature;
+      // Absent-only, mirroring the sampling guard: provider-set stream_options
+      // is never overwritten.
+      body["stream_options"] ??= V4_STREAM_OPTIONS.stream_options;
     }
     if (stripReasoning && Array.isArray(body["messages"])) {
       for (const msg of body["messages"]) {
