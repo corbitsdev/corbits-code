@@ -277,8 +277,6 @@ describe("CL-9469 unbounded-root predicate", () => {
       true,
     );
   });
-  // A recursive descent is only a whole-tree walk when nothing literal pins it
-  // down; a leading literal dir keeps it bounded even at the workspace root.
   test("recursive glob with a leading literal dir is bounded", () => {
     for (const pattern of [
       "src/**/*.ts",
@@ -299,9 +297,7 @@ describe("CL-9469 unbounded-root predicate", () => {
       );
     }
   });
-  // F1 soundness hole: `.`/`..` are relative-notation, not literal pins, so a
-  // leading dot segment must not whitelist a root walk (`./**`, `./**/*.ts`)
-  // and `..` must not be readable as an anchored workspace-escape.
+  // A leading `.`/`..` is relative notation, not a literal pin.
   test("leading dot or dotdot is not a literal pin", () => {
     for (const pattern of [
       "./**",
@@ -315,11 +311,7 @@ describe("CL-9469 unbounded-root predicate", () => {
       );
     }
   });
-  // F3 soundness hole: interior `..` collapse must be normalized, not read
-  // verbatim. `a/../**` collapses to `./**` (root-wide walk), `src/../../**`
-  // pops above the workspace root (escape), and `./a/../**` is still root
-  // relative. Only a prefix that collapses to a surviving name-bearing pin
-  // (`src/../packages/**` -> `packages/**`) stays bounded.
+  // Interior `..` collapses first, so the pin must survive the fold.
   test("interior dotdot collapse is normalized, so the pin must survive", () => {
     for (const pattern of [
       "a/../**",

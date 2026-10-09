@@ -42,44 +42,25 @@ export function isUnboundedSearchGlob(pattern: string): boolean {
   return !hasLiteralBefore(pattern.slice(0, firstRecursive));
 }
 
-// True when the pre-`**` prefix collapses to a real, name-bearing directory
-// that anchors the walk away from the workspace root. The prefix is split on
-// `/` and collapsed left-to-right on a stack: `.` and empty segments are
-// skipped and `..` pops the preceding segment. A segment of only `*` wildcards
-// is pushed as a non-name pin (it occupies a slot but cannot anchor the walk);
-// the first surviving name-bearing segment is the pin. A prefix whose collapse
-// runs the stack empty (the pattern reaches the root, e.g. `a/../**`) or where
-// a `..` pops above the root (`src/../../**` escapes the workspace) leaves no
-// literal pin, so the recursion is a whole-tree walk. A leading separator or
-// dot-relative step (`/`, `./src/**`) likewise never pins to a real boundary.
+// True when the pre-`**` prefix names a real directory that anchors the walk
+// away from the root. Leading root-relative notation (`.`/`..`/empty) does not
+// pin; interior `.`/`..`/empty segments collapse first, so only a surviving
+// name segment counts.
 function hasLiteralBefore(prefix: string): boolean {
   const segments = prefix.split("/");
-  // A leading separator, dot, or dotdot step is root-relative notation that
-  // does not pin to a concrete boundary, even when a name follows (`./src/**`
-  // still walks from the root). `*/src/**` is unaffected: `*` is not a `..`.
   if (segments[0] === "" || segments[0] === "." || segments[0] === "..") {
     return false;
   }
-  // Stack of surviving segments (true = name-bearing pin). `.`/empty are
-  // skipped; `..` pops the top; all-wildcard runs push a non-name slot.
-  const stack: boolean[] = [];
+  const names: string[] = [];
   for (const segment of segments) {
-    if (segment.length === 0 || segment === ".") continue;
+    if (segment === "" || segment === ".") continue;
     if (segment === "..") {
-      if (stack.length === 0) return false; // pop above the workspace root
-      stack.pop();
+      names.pop();
       continue;
     }
-    let isName = false;
-    for (const char of segment) {
-      if (char !== "*") {
-        isName = true;
-        break;
-      }
-    }
-    stack.push(isName);
+    names.push(segment);
   }
-  return stack.some(Boolean); // at least one name-bearing pin survives
+  return names.some((segment) => [...segment].some((char) => char !== "*"));
 }
 
 // The raw path argument resolved against the session root: omitted, empty,
