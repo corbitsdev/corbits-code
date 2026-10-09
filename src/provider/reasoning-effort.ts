@@ -294,7 +294,7 @@ export function defaultEffortForModel(
   }
   if (model.startsWith("grok")) return pick("high");
   if (GLM_53_MODELS.includes(model)) return pick("max");
-  if (isDeepSeekV4Model(model)) return "max";
+  if (isDeepSeekV4Model(model)) return pick("max");
   if (isMuseSparkModel(model)) return pick("low");
   if (!isCodex && supported.includes("none")) return "none";
   if (isCodex || isKnownOpenAIReasoningModel(model)) return pick("medium");

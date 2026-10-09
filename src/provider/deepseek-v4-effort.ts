@@ -19,15 +19,12 @@ export const DEEPSEEK_V4_EFFORTS: readonly ReasoningEffort[] = [
 
 // Translate a V4 effort to its raw wire value: `none` maps to null (the caller
 // drops `reasoning_effort`, since `reasoning_effort:"none"` is illegal on the
-// wire), otherwise `xhigh`/`max` pass through verbatim.
-export function mapV4Effort(effort: ReasoningEffort): "xhigh" | "max" | null {
+// wire), `xhigh`/`max` pass through verbatim, and any off-ladder value returns
+// undefined so the caller leaves effort untouched.
+export function mapV4Effort(
+  effort: ReasoningEffort,
+): "xhigh" | "max" | null | undefined {
   if (effort === "none") return null;
-  return effort === "max" ? "max" : "xhigh";
-}
-
-// chat_template_kwargs thinking toggle for a V4 effort: off for `none`, on for
-// any wire effort. The caller pairs the dropped reasoning_effort with
-// `{thinking:false}` so the encoder still bypasses the reasoning pass.
-export function v4Thinking(effort: ReasoningEffort): { thinking: boolean } {
-  return { thinking: effort !== "none" };
+  if (effort === "xhigh" || effort === "max") return effort;
+  return undefined;
 }

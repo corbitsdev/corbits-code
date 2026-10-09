@@ -3,7 +3,6 @@ import {
   DEEPSEEK_V4_EFFORTS,
   isDeepSeekV4Model,
   mapV4Effort,
-  v4Thinking,
 } from "./deepseek-v4-effort.js";
 
 describe("isDeepSeekV4Model", () => {
@@ -45,13 +44,10 @@ describe("mapV4Effort", () => {
   test("maps none to null (drop the wire effort)", () => {
     expect(mapV4Effort("none")).toBeNull();
   });
-});
-
-describe("v4Thinking", () => {
-  test("thinking off for none", () => {
-    expect(v4Thinking("none")).toEqual({ thinking: false });
-  });
-  test.each(["xhigh", "max"] as const)("thinking on for %s", (effort) => {
-    expect(v4Thinking(effort)).toEqual({ thinking: true });
-  });
+  test.each(["low", "medium", "high"] as const)(
+    "maps off-ladder %s to undefined",
+    (effort) => {
+      expect(mapV4Effort(effort)).toBeUndefined();
+    },
+  );
 });

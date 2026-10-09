@@ -186,6 +186,26 @@ describe("openai-compatible adapter V4 effort wiring", () => {
     expect(body["chat_template_kwargs"]).toEqual({ thinking: false });
   });
 
+  test.each(["xhigh", "max"] as const)(
+    "maps ladder %s through verbatim",
+    (effort) => {
+      const body = bodyForModel("deepseek-v4-pro", {
+        providerOptions: { reasoning_effort: effort },
+      } as InferenceOptions);
+      expect(body["reasoning_effort"]).toBe(effort);
+    },
+  );
+
+  test.each(["low", "medium", "high"] as const)(
+    "leaves off-ladder %s untouched",
+    (effort) => {
+      const body = bodyForModel("deepseek-v4-pro", {
+        providerOptions: { reasoning_effort: effort },
+      } as InferenceOptions);
+      expect(body["reasoning_effort"]).toBe(effort);
+    },
+  );
+
   describe("v4-effort is no-op for non-V4", () => {
     const models = [
       "gpt-5",
