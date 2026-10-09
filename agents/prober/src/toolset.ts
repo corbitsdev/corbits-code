@@ -1,5 +1,3 @@
-// PROBER_TOOLS literal; drift-guarded against src/agent/directors/tool-sets.ts.
-
 const PROBER_TOOLS = [
   "read_file",
   "grep",
