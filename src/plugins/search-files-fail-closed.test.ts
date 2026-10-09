@@ -173,6 +173,74 @@ describe("CL-9469 search_files fails closed on unbounded root walks", () => {
       }
     });
   });
+
+  test("recursive glob pinned to a literal dir at the root is allowed", async () => {
+    await withFixture(async ({ cwd }) => {
+      for (const spawn of [undefined, rgMissingSpawn()] as const) {
+        const tools = createPosixTools({
+          cwd,
+          plugins: [ripgrepPlugin(cwd, {}, spawn)],
+        });
+        const result = await tools.run(
+          {
+            id: "1",
+            name: "search_files",
+            arguments: { pattern: "sub/**/*.ts" },
+          },
+          new AbortController().signal,
+        );
+        expect(result.isError !== true).toBe(true);
+        expect(String(result.content)).toContain("keep.ts");
+        expect(String(result.content)).toContain("deep.ts");
+      }
+    });
+  });
+
+  test("root dot-relative recursive glob is refused, not walked", async () => {
+    await withFixture(async ({ cwd }) => {
+      const spawnCalls: string[][] = [];
+      const tools = createPosixTools({
+        cwd,
+        plugins: [ripgrepPlugin(cwd, {}, throwingSpawn(spawnCalls))],
+      });
+      const started = Date.now();
+      const result = await tools.run(
+        { id: "1", name: "search_files", arguments: { pattern: "./**/*.ts" } },
+        new AbortController().signal,
+      );
+      expect(Date.now() - started).toBeLessThan(5_000);
+      expect(spawnCalls.length).toBe(0);
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toContain("narrow `path`");
+      expect(String(result.content)).toContain("glob");
+      expect(String(result.content)).not.toContain(TIMEOUT_PREFIX);
+    });
+  });
+
+  test("interior-dotdot collapse to the root is refused, not walked", async () => {
+    await withFixture(async ({ cwd }) => {
+      const spawnCalls: string[][] = [];
+      const tools = createPosixTools({
+        cwd,
+        plugins: [ripgrepPlugin(cwd, {}, throwingSpawn(spawnCalls))],
+      });
+      const started = Date.now();
+      const result = await tools.run(
+        {
+          id: "1",
+          name: "search_files",
+          arguments: { pattern: "a/../**/*.ts" },
+        },
+        new AbortController().signal,
+      );
+      expect(Date.now() - started).toBeLessThan(5_000);
+      expect(spawnCalls.length).toBe(0);
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toContain("narrow `path`");
+      expect(String(result.content)).toContain("glob");
+      expect(String(result.content)).not.toContain(TIMEOUT_PREFIX);
+    });
+  });
 });
 
 describe("CL-9469 unbounded-root predicate", () => {
@@ -208,6 +276,91 @@ describe("CL-9469 unbounded-root predicate", () => {
     expect(isUnboundedRootSearch({ path: undefined, pattern: "*", cwd })).toBe(
       true,
     );
+  });
+  test("recursive glob with a leading literal dir is bounded", () => {
+    for (const pattern of [
+      "src/**/*.ts",
+      "packages/a/src/**/*.ts",
+      "docs/**",
+      "sub/**",
+      "src.v2/**",
+    ]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        false,
+      );
+    }
+  });
+  test("recursive descent with no leading literal dir stays unbounded", () => {
+    for (const pattern of ["**", "**/*.ts", "**/*", "/**/*.ts"]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        true,
+      );
+    }
+  });
+  // A leading `.`/`..` is relative notation, not a literal pin.
+  test("leading dot or dotdot is not a literal pin", () => {
+    for (const pattern of [
+      "./**",
+      "./**/*.ts",
+      "./src/**",
+      "../**",
+      "../src/**",
+    ]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        true,
+      );
+    }
+  });
+  // Interior `..` collapses first, so the pin must survive the fold.
+  test("interior dotdot collapse is normalized, so the pin must survive", () => {
+    for (const pattern of [
+      "a/../**",
+      "src/../../**",
+      "./a/../**",
+      "a/../**/*.ts",
+    ]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        true,
+      );
+    }
+    for (const pattern of [
+      "a/./**",
+      "a//**",
+      "src/../packages/**",
+      "*/src/**",
+    ]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        false,
+      );
+    }
+  });
+  // A `..` after the first `**` is never collapsed: hasLiteralBefore only folds
+  // the prefix *before* the first `**`, so a `..` in unanchored recursive
+  // descent does not pop the pin. And because rg is cwd-anchored, `a/**/../**`
+  // descends from `a` and steps back up a relative level — it cannot escape the
+  // workspace root (there is no `..` above the anchor), so it stays a bounded
+  // subtree walk of `a`.
+  test("interior `..` after the pin is a bounded cwd-anchored descent", () => {
+    for (const pattern of [
+      "a/**/../**",
+      "src/**/../**",
+      "sub/**/../**/*.ts",
+      "docs/**/../**",
+      "a/src/**/../**",
+      "a/**/../src/**",
+    ]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        false,
+      );
+    }
+    // An all-wildcard pin followed by `..` leaves no name to anchor, so it is
+    // still an unbounded root walk; a `../../` that folds the prefix to the
+    // root is refused (already covered as "collapse to the root").
+    for (const pattern of ["*/**/../**", "a/src/../../**"]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        true,
+      );
+    }
   });
   test("refusal message carries scope guidance and never reads as a timeout", () => {
     const message = formatUnboundedSearchMessage("search_files", "**/*.ts");
