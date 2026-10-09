@@ -20,6 +20,5 @@ export function defineAgent(): AgentDefinition {
     tools: [],
     capabilities: [],
     inference: { sources: [] },
-    tags: { fleet: "0.3.36", lane: "dispatch" },
   });
 }
