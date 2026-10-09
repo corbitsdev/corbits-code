@@ -51,6 +51,10 @@ agents/warden/src/index.ts: agent
 agents/warden/src/index.ts: defineAgent
 agents/warden/src/config.ts: satisfies
 agents/warden/src/config.ts: boolean
+agents/designer/src/index.ts: agent
+agents/designer/src/index.ts: defineAgent
+agents/designer/src/config.ts: satisfies
+agents/designer/src/config.ts: boolean
 
 # Versioned prompt-variance package public surface (CL-8269 lane,
 # agent-owned). Family rows data re-exported through the package entry point;
