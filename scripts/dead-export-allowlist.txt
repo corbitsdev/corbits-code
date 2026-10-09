@@ -56,10 +56,6 @@ agents/warden/src/config.ts: satisfies
 agents/warden/src/config.ts: boolean
 agents/designer/src/index.ts: agent
 agents/designer/src/index.ts: defineAgent
-agents/designer/src/index.ts: director
-agents/designer/src/index.ts: tools
-agents/designer/src/index.ts: systemPrompt
-agents/designer/src/index.ts: config
 agents/designer/src/config.ts: satisfies
 agents/designer/src/config.ts: boolean
 agents/reviewer/src/index.ts: agent
