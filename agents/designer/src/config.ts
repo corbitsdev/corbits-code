@@ -1,13 +1,9 @@
-// Designer is a leaf worker: maySpawn false, no allowlist. modelRole is
-// "implement" (matches the in-tree card).
 export const config = {
-  spawn: {
-    maySpawn: false,
-  },
+  spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "implement",
 } as const satisfies {
-  spawn: { maySpawn: boolean; allowlist?: readonly string[] };
+  spawn: { maySpawn: boolean };
   tier: string;
   modelRole: string;
 };

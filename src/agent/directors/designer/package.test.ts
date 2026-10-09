@@ -15,8 +15,6 @@ describe("designerPackage", () => {
     const asDirector: DirectorPackage = director;
     expect(asDirector.id).toBe("designer");
     expect(DIRECTOR_REGISTRY.designer).toBe(director);
-    // In-tree card used BUILD_TOOLS; BUILD_TOOLS === REVIEW_TOOLS content, so
-    // the drift-guard asserts against REVIEW_TOOLS (the brief's surface rule).
     expect([...director.tools.allow]).toEqual([...REVIEW_TOOLS]);
     expect(new Set(director.tools.allow).size).toBe(
       director.tools.allow.length,
@@ -29,7 +27,6 @@ describe("designerPackage", () => {
     expect(director.modelRole).toBe(config.modelRole);
     expect(director.spawn.maySpawn).toBe(false);
     expect(director.tier).toBe("leaf");
-    // modelRole preserved from the in-tree card (implement, not §5 docs).
     expect(director.modelRole).toBe("implement");
   });
 
