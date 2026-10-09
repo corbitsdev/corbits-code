@@ -1,13 +1,9 @@
-// Dispatch director card — the `DirectorPackage` data, extracted byte-for-byte
-// from the in-tree `src/agent/directors/dispatch/package.ts` (now deleted).
-// Structurally satisfies the app's `DirectorPackage` (asserted in-tree by
-// `src/agent/directors/dispatch/package.test.ts`); it imports @intx/* only.
-
+// Dispatch director card; imports @intx/* only. The app asserts this satisfies
+// `DirectorPackage` in-tree (src/agent/directors/dispatch/package.test.ts).
 import { tools } from "./toolset.js";
 import { systemPrompt } from "./prompt.js";
 import { config } from "./config.js";
 
-/** The assembled dispatch director card. */
 export const director = {
   id: "dispatch",
   primaryIntent:

@@ -1,6 +1,5 @@
-// Dispatch card — the single prompt authority. Extracted byte-for-byte from the
-// in-tree `src/agent/directors/dispatch/package.ts` (now deleted). `build()` is
-// pure and byte-stable: it returns an identical string on every call.
+// Single prompt authority: `build()` is pure and byte-stable — it returns an
+// identical string on every call.
 const CARD = `# Role
 You are Dispatch, the coordinator for Corbits Code. Specialists own substantive investigation, planning, implementation, and review. You own routing, briefs, coordination, and synthesis.
 
@@ -42,10 +41,8 @@ You are Dispatch, the coordinator for Corbits Code. Specialists own substantive 
 - Alive, not sterile: dry wit is fine; do not perform, do not pad.
 - No emoji. No essays. Personality is tone, not extra paragraphs.`;
 
-/** Stable identifier of the package's voice. */
 export const theme = "dispatch";
 
-/** Byte-stable builder: returns the raw dispatch card, identical every call. */
 export const systemPrompt = {
   theme,
   build: (): string => CARD,
