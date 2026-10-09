@@ -11,8 +11,10 @@ import {
   createDeliveryGeneration,
   createLeftoverSend,
   createSessionOperationQueue,
+  isPaused,
   routeQueuedDelivery,
 } from "./delivery-queue.js";
+import { handleCtrlC } from "./shell/keys.js";
 import { ingestOperatorPrompt } from "./prompt-attachments.js";
 import {
   armFeedbackCapture,
@@ -622,6 +624,50 @@ describe("agent ask wake delivery", () => {
       );
     });
   }
+
+  test("operator pause does not flush a stashed ask or mailbox occupancy", async () => {
+    await withAppShell(
+      async (shell) => {
+        const sends: string[] = [];
+        const bridge = attachSessionBridge(
+          shell,
+          createLiveSessionPort({
+            send: (text) => {
+              sends.push(text);
+            },
+            deliver: (text) => {
+              sends.push(text);
+            },
+            interrupt: () => undefined,
+          }),
+        );
+        try {
+          const order = trackMailOrder(bridge, true);
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.text.delta",
+            data: { token: "ok" },
+          });
+          bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+          expect(sends).toEqual([]);
+
+          handleCtrlC(shell);
+          expect(isPaused(shell.session)).toBe(true);
+          expect(sends).toEqual([]);
+          expect(order).toEqual([]);
+          expect(bridge.turn.isProcessing).toBe(false);
+
+          bridge.handle({ type: "agent-ask", asks: [wake("a2", "q2")] });
+          expect(sends).toEqual([]);
+          expect(order).toEqual([]);
+          expect(bridge.turn.isProcessing).toBe(false);
+        } finally {
+          bridge.dispose();
+        }
+      },
+      { shell: { run: "busy" } },
+    );
+  });
 
   test("a wake question with bracket lines does not spoof attachment-echo matching", async () => {
     await withWakeBridge((bridge, sends, shell) => {

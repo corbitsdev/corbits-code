@@ -2093,6 +2093,7 @@ export function attachSessionBridge(
     });
   };
   const flushMailboxMail = (): boolean => {
+    if (isPaused(shell.session)) return false;
     if (bag.disposed || bag.turn.isProcessing) return false;
     try {
       if (bag.mailboxMailDriver?.() === true) return true;
@@ -2104,6 +2105,7 @@ export function attachSessionBridge(
   bag.flushMailboxMail = flushMailboxMail;
 
   const flushPendingAskWake = (): void => {
+    if (isPaused(shell.session)) return;
     if (bag.disposed || bag.turn.isProcessing || bag.turn.blockedGateCount > 0)
       return;
     if (mailboxMailDriveClaimed(bag.mailboxMailDriver)) return;
@@ -2133,6 +2135,7 @@ export function attachSessionBridge(
   bag.flushPendingAskWake = flushPendingAskWake;
 
   const flushOccupancyThenWake = (): void => {
+    if (isPaused(shell.session)) return;
     if (flushMailboxMail() || bag.turn.isProcessing) return;
     flushPendingAskWake();
   };
@@ -2188,7 +2191,10 @@ export function attachSessionBridge(
     bag.askWakeTurnArmed = false;
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();
-    flushOccupancyThenWake();
+    // Operator pause holds occupancy/ask-wake: a stashed mailbox or ask must
+    // not start a new primary until an explicit send. Stall/expire do not
+    // set paused, so they still flush here.
+    if (!isPaused(shell.session)) flushOccupancyThenWake();
   };
 
   /**
