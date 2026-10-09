@@ -1188,8 +1188,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         catalog?.find((entry) => entry.name === provider.providerName),
       );
       // DeepSeek V4 pins per-role effort (CL-10294): dispatch/planner/reviewer
-      // max, coder cheapest, other leaves xhigh. The explicit effortPin and the
-      // role default still win over this table when supported.
+      // and coder max, other leaves xhigh. The CL-10294 cheapest-implementer
+      // decision (coder 'low') was reversed by CL-10311. The explicit effortPin
+      // and the role default still win over this table when supported.
       const roleEffortPin =
         resolved.effortPin ??
         (isDeepSeekModel(provider.model) &&
