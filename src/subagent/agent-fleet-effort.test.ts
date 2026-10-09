@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { AgentProfile } from "../agent/profile-types.js";
+import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import { buildSubagentSources } from "../config/inference-sources.js";
 import { clearSourceCredentials } from "../config/source-credentials.js";
@@ -348,5 +349,54 @@ describe("custom worker efforts", () => {
     expect(result.isError).not.toBe(true);
     await callFleetToolRaw(fleetTools(deps).wait, { timeout_ms: 2000 });
     expect(worker?.provider.reasoningEffort).toBe("max");
+  });
+});
+
+describe("deepseek-v4 coder=low bake-in (CL-10242)", () => {
+  const dsv4: ProviderCatalogEntry = {
+    name: "dsv4",
+    baseURL: "https://dsv4.example/v1",
+    keyless: true,
+    models: ["deepseek-v4-flash"],
+  };
+
+  async function captureEffort(agent: string): Promise<ReasoningEffort> {
+    let worker: RunSubAgentParams | undefined;
+    const deps = createFleetDeps(
+      async (params) => {
+        worker = params;
+        return { report: "done" };
+      },
+      { settings: { providers: { dsv4 } }, catalog: [dsv4] },
+    );
+    deps.provider = {
+      providerName: dsv4.name,
+      baseURL: dsv4.baseURL,
+      model: "deepseek-v4-flash",
+    };
+    const spawn = createSpawnAgentTool(deps);
+    const args: Record<string, unknown> = {
+      description: "inspect",
+      prompt: "inspect",
+      agent,
+    };
+    if (agent === "coder" || agent === "reviewer") {
+      args.success_criteria = ["done"];
+    }
+    const result = await callFleetToolRaw(spawn, args);
+    expect(result.isError).not.toBe(true);
+    await callFleetToolRaw(fleetTools(deps).wait, { timeout_ms: 2000 });
+    if (worker === undefined) throw new Error("worker did not start");
+    return worker.provider.reasoningEffort as ReasoningEffort;
+  }
+
+  test("coder pins low on the wire while reviewer/explorer keep their role defaults", async () => {
+    // V4's native ladder is ["none","xhigh","max"] — the requested low coder
+    // pin clamps to its lowest rung (none), while unstubbed reviewer/explorer
+    // leaves resolve their medium role default up to xhigh. The assertion is
+    // that coder is the cheapest spawn; the others are not pinned.
+    expect(await captureEffort("coder")).toBe("none");
+    expect(await captureEffort("reviewer")).toBe("xhigh");
+    expect(await captureEffort("explorer")).toBe("xhigh");
   });
 });

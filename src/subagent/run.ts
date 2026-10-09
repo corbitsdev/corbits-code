@@ -831,6 +831,9 @@ async function runSubAgentInner(
       providerName: params.provider.providerName,
       model: params.provider.model,
       orchestrator: params.orchestrator === true,
+      ...(params.directorId !== undefined
+        ? { directorId: params.directorId }
+        : {}),
     });
     const skillDirs = [...(params.skillDirs ?? [])];
     // CL-9010: reuse the dispatcher's catalog when the lane shares its cwd;
@@ -1193,10 +1196,9 @@ async function runSubAgentInner(
             skillDirs,
           })
         : undefined;
+    const roleBody = modelFamilyPolicy.leafRoleBody ?? params.systemPromptRole;
     const extensions = [
-      ...(params.systemPromptRole !== undefined
-        ? [params.systemPromptRole]
-        : []),
+      ...(roleBody !== undefined ? [roleBody] : []),
       ...(attachedSection !== undefined ? [attachedSection] : []),
     ];
     const toolProfile = toolProfileForModel(params.provider);
