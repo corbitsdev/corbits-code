@@ -744,8 +744,8 @@ press is a pause: it stops the primary, holds the queue, and reports
 Held items stay in the pending column and deliver only on the next explicit
 operator send. Stall and expire aborts do not pause, so they still drain.
 Occupancy and ask-wake do not start a new primary while paused. A compaction
-continuation is dropped on operator pause (`abortCompaction`); it is not held
-and does not auto-resume.
+continuation hop is deferred while paused; it stays consume-once-intact and
+delivers after resume (an explicit operator send), not dropped.
 
 **Fleet agent lanes on redirect.** Soft steer (Enter mid-run) and follow-up
 (queued drain) leave running workers alone — they never call
