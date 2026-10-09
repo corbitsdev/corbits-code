@@ -1,12 +1,14 @@
 /**
  * Key routing: paste guard, kill-ring chords, the onKey dispatcher body, Ctrl+C arming.
  */
+import { getLogger } from "@intx/log";
 import {
   ScrollBoxRenderable,
   type BaseRenderable,
   type KeyEvent,
   type MouseEvent,
 } from "@opentui/core";
+import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 import { badgeCount, pause } from "../delivery-queue.js";
 
 import {
@@ -90,6 +92,14 @@ import {
   stepSentHistoryUp,
 } from "../sent-message-history.js";
 import { EXPAND_KEY } from "../stream.js";
+
+const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
+
+function logStopWorkersFailure(error: unknown): void {
+  tuiLogger.warn("stop workers failed: {error}", {
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
 
 // Human keystrokes land tens of milliseconds apart at the fastest; a paste
 // replayed onto stdin without bracketed-paste framing lands effectively all
@@ -213,7 +223,11 @@ export function handleCtrlC(
             ? { schedule: options.schedule }
             : {}),
         });
-        void onStop();
+        try {
+          void Promise.resolve(onStop()).catch(logStopWorkersFailure);
+        } catch (error: unknown) {
+          logStopWorkersFailure(error);
+        }
         return;
       }
       // Real quit (2nd press with no live workers, or 3rd press after stop).

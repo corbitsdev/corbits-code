@@ -581,6 +581,26 @@ describe("Ctrl+C exit", () => {
       });
     });
 
+    test("rejecting onStopWorkers stays STOPPED without quitting", async () => {
+      await withShell(async ({ shell }) => {
+        count = 1;
+        stops = 0;
+        exits = 0;
+        setShellStopAffordance(shell, {
+          liveWorkerCount: () => count,
+          onStopWorkers: () => Promise.reject(new Error("cancelAll failed")),
+        });
+        setShellExitHandler(shell, () => onExit());
+        handleCtrlC(shell, 0);
+        handleCtrlC(shell, 1);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(exits).toBe(0);
+        handleCtrlC(shell, 2);
+        expect(exits).toBe(1);
+      });
+    });
+
     test("single press pauses only: neither stops nor exits", async () => {
       await withShell(async ({ shell }) => {
         wireWorkers(shell, 2);

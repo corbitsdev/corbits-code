@@ -5,18 +5,24 @@ import {
   type SubAgentSessionStore,
 } from "../../subagent/session-store.js";
 import { isLiveStrip } from "../../subagent/lifecycle.js";
-import { cancelWorkersForStop } from "./wiring.js";
+import { createAppShell } from "../shell/index.js";
+import {
+  setShellExitHandler,
+  setShellStopAffordance,
+} from "../shell/internals.js";
+import { handleCtrlC } from "../shell/keys.js";
+import { withTestRenderer } from "../harness.js";
+import { buildShellStopAffordance, cancelWorkersForStop } from "./wiring.js";
 
 // CL-10149 Phase 3 — idempotent stop-then-quit (three-press Ctrl+C).
 //
-// The 2nd-press stop and the 3rd-press quit both drive `cancelWorkersForStop`
-// (the affordance's onStopWorkers in Phase 4 wires the stop; the quit path
-// runs it again through shutdownRuntime). Because `cancelAll` snapshots live
-// sessions and leaves tombstones, a stop followed by a quit must cancel twice
-// total, with the second call finding nothing live — no double cancel. The
-// single-press pause (the interrupt path) must never call cancelAll at all.
-// These assertions pin that idempotency at the `cancelWorkersForStop` unit
-// boundary, before the affordance is wired into production (Phase 4).
+// The 2nd-press stay-alive stop drives `cancelLiveWorkers`; the 3rd-press
+// quit runs `cancelWorkersForStop` through shutdownRuntime. Both cancel
+// via `cancelAll`, which snapshots live sessions and leaves tombstones, so
+// a stop followed by a quit must cancel twice total, with the second call
+// finding nothing live — no double cancel. The single-press pause (the
+// interrupt path) must never call cancelAll at all. These assertions pin
+// that idempotency at the cancel unit boundary.
 
 interface StopHarness {
   store: SubAgentSessionStore;
@@ -80,13 +86,29 @@ describe("cancelWorkersForStop idempotency (CL-10149 Phase 3)", () => {
   });
 
   test("single-press pause never calls cancelAll", async () => {
-    // The pause press must not drive the stop/quit path, so a worker that is
-    // only paused stays live and cancelAll is never invoked (guards the
-    // interrupt path, R4/R5).
-    const h = harnessWithLiveWorkers(1);
-    expect(liveStripCount(h.store)).toBe(1);
-    expect(h.cancelCalls).toHaveLength(0);
-    expect(liveStripCount(h.store)).toBe(1);
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+        run: "busy",
+      });
+      setShellExitHandler(shell, () => undefined);
+      const harn = harnessWithLiveWorkers(1);
+      setShellStopAffordance(
+        shell,
+        buildShellStopAffordance({
+          subAgentSessions: harn.store,
+          toolset: { fleetRecords: { clear: () => undefined } },
+        }),
+      );
+      try {
+        handleCtrlC(shell, 0);
+        expect(harn.cancelCalls).toHaveLength(0);
+        expect(liveStripCount(harn.store)).toBe(1);
+      } finally {
+        shell.dispose();
+      }
+    });
   });
 
   test("a lone stop on many live workers still cancels exactly once", async () => {
