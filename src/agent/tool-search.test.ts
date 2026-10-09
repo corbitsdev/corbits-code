@@ -2,7 +2,7 @@ import { describe, test, expect, jest } from "bun:test";
 import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { createAdvertisedToolset } from "../session/assemble-runtime.js";
-import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
+import { createDynamicToolRunner } from "./dynamic-tool-runner.js";
 import {
   createToolIndex,
   createToolSearchTool,

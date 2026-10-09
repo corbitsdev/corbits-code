@@ -50,14 +50,14 @@ import { gateAgentTools } from "../plugins/permission-plugin.js";
 import {
   createDynamicToolRunner,
   type DynamicToolRunner,
-} from "../tui/dynamic-tool-runner.js";
+} from "./dynamic-tool-runner.js";
 import type { MCPServerConfig, Settings } from "../config/settings.js";
 import {
   filterMcpServersForConnect,
   mcpServerFingerprint,
   type ProjectTrustStore,
 } from "../trust/project-trust.js";
-import type { ToolWatchdogConfig } from "../tui/tool-execution-watchdog.js";
+import type { ToolWatchdogConfig } from "./tool-execution-watchdog.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 import {

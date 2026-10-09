@@ -98,7 +98,7 @@ import {
   clockLabel,
   fleetProgress,
   type AgentProgressSession,
-} from "./agent-progress.js";
+} from "../subagent/agent-progress.js";
 import {
   pendingAskWakeText,
   type PendingAskWake,

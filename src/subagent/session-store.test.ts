@@ -4,8 +4,7 @@ import { createSubAgentSessionStore } from "./session-store.js";
 import { projectWaitStatus } from "./lifecycle.js";
 import { createAdmissionQueue } from "./admission.js";
 import { forcedStopReport } from "./stop-policy.js";
-import { agentLaneIsLive, fleetProgress } from "../tui/agent-progress.js";
-import { formatAgentsPanel } from "../tui/chrome-state.js";
+import { agentLaneIsLive, fleetProgress } from "./agent-progress.js";
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 
@@ -1043,7 +1042,6 @@ describe("interrupt stamps finishedAt once", () => {
     expect(live[0]?.lifecycleStatus).toBe("running");
     expect(live[0]?.finishedAt).toBeUndefined();
     expect(agentLaneIsLive(defined(live[0]))).toBe(true);
-    expect(formatAgentsPanel(live, undefined, t)?.[0]?.status).toBe("running");
     expect(fleetProgress(live, t).running).toBe(1);
 
     t = 12_000;

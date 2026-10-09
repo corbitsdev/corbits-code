@@ -26,7 +26,7 @@ import { createShellOutputFeedMap } from "../session/shell-output-feed.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
-import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
+import { createDynamicToolRunner } from "../agent/dynamic-tool-runner.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { BlobReader, ToolDefinition } from "@intx/types/runtime";
 

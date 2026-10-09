@@ -19,11 +19,7 @@ import {
 import { createSubAgentSessionStore } from "./session-store.js";
 import { occupancyShouldYieldWait } from "./mailbox-mail-drive.js";
 import { INTENT_DEFAULT_DIRECTOR } from "../agent/directors/registry.js";
-import { agentLaneIsLive, fleetProgress } from "../tui/agent-progress.js";
-import {
-  AGENTS_PANEL_LINGER_MS,
-  formatAgentsPanel,
-} from "../tui/chrome-state.js";
+import { agentLaneIsLive, fleetProgress } from "./agent-progress.js";
 import { forcedStopReport } from "./stop-policy.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 import { INTERVENTION_FILE } from "./intervention-log.js";
@@ -1887,7 +1883,7 @@ describe("list_agents", () => {
     gate.resolve({ report: "ok" });
   });
 
-  test("interrupt_agent leaves the strip after the linger window", async () => {
+  test("interrupt_agent is not a live lane and drops from fleet progress", async () => {
     const gate = deferred<RunSubAgentResult>();
     const deps = gatedRunDeps(gate);
     const spawn = createSpawnAgentTool(deps);
@@ -1904,12 +1900,6 @@ describe("list_agents", () => {
     expect(finishedAt).toBeNumber();
     const inside = finishedAt + 1_000;
     expect(fleetProgress(agents, inside).running).toBe(0);
-    expect(formatAgentsPanel(agents, undefined, inside)?.[0]?.status).toBe(
-      "interrupted",
-    );
-    expect(
-      formatAgentsPanel(agents, undefined, finishedAt + AGENTS_PANEL_LINGER_MS),
-    ).toBeNull();
     gate.resolve({ report: "done", interrupted: true });
   });
 });

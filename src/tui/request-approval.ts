@@ -6,7 +6,7 @@ import type {
   PermissionRequest,
   RequestApproval,
 } from "../permission/types.js";
-import { getToolApprovalBudget } from "./tool-execution-watchdog.js";
+import { getToolApprovalBudget } from "../agent/tool-execution-watchdog.js";
 import {
   APPROVAL_UNAVAILABLE_MESSAGE,
   type PermissionGateEvent,

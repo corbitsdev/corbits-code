@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ToolCall, ToolDefinition } from "@intx/types/runtime";
-import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
+import { createDynamicToolRunner } from "./dynamic-tool-runner.js";
 import { advertisedTools } from "./tool-search.js";
 import { canonicalToolName } from "./canonical-tool-name.js";
 import {

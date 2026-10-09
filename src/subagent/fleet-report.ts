@@ -17,7 +17,7 @@ import {
   agentProgress,
   clockLabel,
   DEFAULT_STALL_MS,
-} from "../tui/agent-progress.js";
+} from "./agent-progress.js";
 import type {
   AgentLifecycleStatus,
   SubAgentSessionStatus,

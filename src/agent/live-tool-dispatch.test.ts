@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
+import { createDynamicToolRunner } from "./dynamic-tool-runner.js";
 import {
   fallbackLiveToolBundle,
   isLiveToolBundle,
