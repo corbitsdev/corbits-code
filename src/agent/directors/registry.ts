@@ -9,7 +9,7 @@ import { coderPackage } from "./coder/package.js";
 import { explorerPackage } from "./explorer/package.js";
 import { plannerPackage } from "./planner/package.js";
 import { qaLeadPackage } from "./qa-lead/package.js";
-import { reviewerPackage } from "./reviewer/package.js";
+import { director as reviewerDirector } from "@corbits/code-agent-reviewer";
 import { formatDirectorSystemPrompt } from "./identity.js";
 import {
   DIRECTOR_IDS,
@@ -41,7 +41,7 @@ export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> =
     explorer: explorerPackage,
     planner: plannerPackage,
     coder: coderPackage,
-    reviewer: reviewerPackage,
+    reviewer: reviewerDirector,
     designer: designerDirector,
     artist: artistDirector,
     warden: wardenDirector,

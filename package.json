@@ -109,7 +109,8 @@
     "@opentui/core": "0.5.12",
     "arktype": "catalog:",
     "isomorphic-git": "catalog:",
-    "@corbits/code-agent-designer": "workspace:*"
+    "@corbits/code-agent-designer": "workspace:*",
+    "@corbits/code-agent-reviewer": "workspace:*"
   },
   "devDependencies": {
     "@intx/inference-testing": "0.3.0",
