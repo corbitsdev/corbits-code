@@ -164,3 +164,76 @@ describe("openai-compatible adapter reasoning_content handling", () => {
     expect(assistant?.["reasoning_content"]).toBe("ponder");
   });
 });
+
+describe("openai-compatible adapter DeepSeek V4 Flash wire params", () => {
+  const V4 = "deepseek-ai/DeepSeek-V4-Flash-0731";
+  const history: ConversationTurn[] = [
+    { role: "user", content: [{ type: "text", text: "hi" }] },
+    {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "ponder" },
+        { type: "text", text: "hello" },
+      ],
+    },
+    { role: "user", content: [{ type: "text", text: "again" }] },
+  ] as unknown as ConversationTurn[];
+
+  function v4Body(
+    providerOptions?: Record<string, unknown>,
+    model = V4,
+  ): Record<string, unknown> {
+    const adapter = createOpenAICompatibleAdapter(source);
+    const built = adapter.buildRequest(history, model, {
+      maxTokens: 100,
+      ...(providerOptions !== undefined ? { providerOptions } : {}),
+    } as InferenceOptions);
+    return JSON.parse(built.body) as Record<string, unknown>;
+  }
+
+  test("turns thinking on and applies agentic sampling at high effort", () => {
+    const body = v4Body({ reasoning_effort: "high" });
+    expect(body["chat_template_kwargs"]).toEqual({ thinking: true });
+    expect(body["reasoning_effort"]).toBe("high");
+    expect(body["temperature"]).toBe(1);
+    expect(body["top_p"]).toBe(0.95);
+    expect(body["stream_options"]).toEqual({ include_usage: true });
+  });
+
+  test("folds Corbits' ladder onto low/high/max", () => {
+    expect(v4Body({ reasoning_effort: "minimal" })["reasoning_effort"]).toBe("low");
+    expect(v4Body({ reasoning_effort: "medium" })["reasoning_effort"]).toBe("high");
+    expect(v4Body({ reasoning_effort: "max" })["reasoning_effort"]).toBe("max");
+  });
+
+  test("effort none sends chat mode explicitly and no effort", () => {
+    const body = v4Body({ reasoning_effort: "none" });
+    expect(body["chat_template_kwargs"]).toEqual({ thinking: false });
+    expect("reasoning_effort" in body).toBe(false);
+    expect("top_p" in body).toBe(false);
+  });
+
+  test("an explicitly configured temperature/top_p wins", () => {
+    const body = v4Body({ reasoning_effort: "high", temperature: 0.6, top_p: 0.9 });
+    expect(body["temperature"]).toBe(0.6);
+    expect(body["top_p"]).toBe(0.9);
+  });
+
+  test("replays reasoning_content on prior assistant turns", () => {
+    const msgs = v4Body({ reasoning_effort: "high" })["messages"] as Record<
+      string,
+      unknown
+    >[];
+    const assistant = msgs.find((m) => m["role"] === "assistant");
+    expect(assistant?.["reasoning_content"]).toBe("ponder");
+  });
+
+  test("other DeepSeek models keep the old strip and get no extra params", () => {
+    const body = v4Body({ reasoning_effort: "high" }, "deepseek-v3.2");
+    expect("chat_template_kwargs" in body).toBe(false);
+    expect("top_p" in body).toBe(false);
+    const msgs = body["messages"] as Record<string, unknown>[];
+    const assistant = msgs.find((m) => m["role"] === "assistant");
+    expect("reasoning_content" in defined(assistant)).toBe(false);
+  });
+});
