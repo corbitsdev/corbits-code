@@ -1,5 +1,5 @@
 // REVIEW_TOOLS literal; drift-guarded against src/agent/directors/tool-sets.ts.
-const REVIEW_TOOLS = [
+export const tools = [
   "read_file",
   "grep",
   "search_files",
@@ -14,5 +14,3 @@ const REVIEW_TOOLS = [
   "edit_file",
   "delete_file",
 ] as const;
-
-export const tools: readonly string[] = [...REVIEW_TOOLS];
