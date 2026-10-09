@@ -1,27 +1,48 @@
 import { describe, expect, test } from "bun:test";
 
-import { shakespearePackage } from "@corbits/code-agent-shakespeare";
+import {
+  director,
+  tools,
+  config,
+  systemPrompt,
+} from "@corbits/code-agent-shakespeare";
 import { DOCS_TOOLS } from "../tool-sets.js";
 import { DIRECTOR_REGISTRY } from "../registry.js";
 import type { DirectorPackage } from "../types.js";
 
 describe("shakespearePackage", () => {
   test("workspace package satisfies the director contract and feeds the registry", () => {
-    const asDirector: DirectorPackage = shakespearePackage;
+    const asDirector: DirectorPackage = director;
     expect(asDirector.id).toBe("shakespeare");
-    expect(DIRECTOR_REGISTRY.shakespeare).toBe(shakespearePackage);
-    expect([...shakespearePackage.tools.allow]).toEqual([...DOCS_TOOLS]);
+    expect(DIRECTOR_REGISTRY.shakespeare).toBe(director);
+    expect([...director.tools.allow]).toEqual([...DOCS_TOOLS]);
+    expect(new Set(director.tools.allow).size).toBe(
+      director.tools.allow.length,
+    );
   });
 
-  test("extracted copy stays docs-scoped and non-spawning", () => {
-    expect(shakespearePackage.tools.allow).toContain("write_file");
-    expect(shakespearePackage.tools.allow).toContain("edit_file");
-    expect(shakespearePackage.tools.allow).toContain("delete_file");
-    expect(shakespearePackage.tools.allow).not.toContain("run_shell");
-    expect(shakespearePackage.tools.allow).not.toContain("spawn_agent");
-    expect(shakespearePackage.tools.allow).not.toContain("ask_operator");
-    expect(shakespearePackage.spawn.maySpawn).toBe(false);
-    expect(shakespearePackage.tier).toBe("leaf");
-    expect(shakespearePackage.modelRole).toBe("docs");
+  test("spawn/tier/modelRole match config", () => {
+    expect(director.spawn).toEqual(config.spawn);
+    expect(director.tier).toBe(config.tier);
+    expect(director.modelRole).toBe(config.modelRole);
+    expect(director.spawn.maySpawn).toBe(false);
+  });
+
+  test("prompt authority is byte-stable", () => {
+    expect(director.systemPrompt).toBe(systemPrompt.build());
+    expect(systemPrompt.build()).toBe(systemPrompt.build());
+  });
+
+  test("docs surface omits run_shell and stays leaf-scoped", () => {
+    expect([...tools]).toEqual([...DOCS_TOOLS]);
+    expect(tools).not.toContain("run_shell");
+    expect(tools).not.toContain("spawn_agent");
+    expect(tools).not.toContain("ask_operator");
+    expect(tools).not.toContain("wait_agents");
+    expect(tools).not.toContain("search_agents");
+  });
+
+  test("tools allowlist has no duplicates", () => {
+    expect(new Set([...tools]).size).toBe(tools.length);
   });
 });
