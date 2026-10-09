@@ -51,3 +51,13 @@ packages/prompt-variance/src/index.ts: FAMILY_IDS
 packages/prompt-variance/src/index.ts: FAMILY_ROWS
 packages/prompt-variance/src/index.ts: PromptVarianceFamily
 packages/prompt-variance/src/index.ts: PromptVarianceRow
+
+# Agent-package public API (CL-9800 extraction wave): each @corbits/code-agent-*
+# workspace package's public surface (agent/defineAgent + the config card) is
+# consumed by the app registry/barrel once the fleet merges; on a per-extract
+# branch they have no in-repo consumer yet. Public API by design — owned by the
+# agent-template lane; remove with the code if the package is deleted.
+agents/artist/src/index.ts: agent
+agents/artist/src/index.ts: defineAgent
+agents/artist/src/config.ts: satisfies
+agents/artist/src/config.ts: boolean
