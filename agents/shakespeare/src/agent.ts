@@ -10,7 +10,7 @@ export function defineAgent(): AgentDefinition {
   return coreDefineAgent({
     id: "shakespeare",
     systemPrompt: systemPrompt.build(),
-    tools: [], // tool mounting is consumer/app-side; surface enforced by drift-guard
+    tools: [],
     capabilities: [],
     inference: {
       sources: [{ provider: "openai", model: "gpt-5" }],

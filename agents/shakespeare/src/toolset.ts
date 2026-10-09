@@ -1,6 +1,3 @@
-// Shakespeare worker: docs maintenance — PRODUCT / ARCHITECTURE /
-// IMPLEMENTATION only. Docs lane uses DOCS_TOOLS: no run_shell.
-
 const SHAKESPEARE_TOOLS = [
   "read_file",
   "grep",
