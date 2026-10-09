@@ -9,6 +9,7 @@ import * as opencodeGo from "./opencode-go-adapter.js";
 import * as codexResponses from "./codex-responses.js";
 import * as grokResponses from "./grok-responses.js";
 import * as bifrostAdapter from "./bifrost-adapter.js";
+import * as deepseekV4 from "./deepseek-v4-adapter.js";
 import * as openaiResponses from "./openai-responses.js";
 import * as anthropicSession from "./anthropic-session-adapter.js";
 import {
@@ -21,6 +22,7 @@ import { withReplaySanitizer } from "./replay-sanitizer.js";
 import { isPollOnlyPendingBatch } from "../subagent/poll-exempt.js";
 import { OPENCODE_GO_PROVIDER_ID } from "../../packages/opencode-go/src/index.js";
 import { BIFROST_PROVIDER } from "./bifrost-adapter.js";
+import { DEEPSEEK_V4_PROVIDER } from "./deepseek-v4-adapter.js";
 import { OPENAI_RESPONSES_PROVIDER } from "./openai-responses.js";
 import {
   OPENCODE_GO_MESSAGES_PROVIDER,
@@ -59,6 +61,11 @@ const manifest: AdapterManifest = [
     export: "createBifrostAdapter",
   },
   {
+    provider: DEEPSEEK_V4_PROVIDER,
+    specifier: "deepseek-v4-adapter",
+    export: "createDeepSeekV4Adapter",
+  },
+  {
     provider: OPENAI_RESPONSES_PROVIDER,
     specifier: "openai-responses",
     export: "createOpenAIResponsesAdapter",
@@ -81,6 +88,7 @@ const localModules: Record<string, unknown> = {
   "codex-responses": codexResponses,
   "grok-responses": grokResponses,
   "bifrost-adapter": bifrostAdapter,
+  "deepseek-v4-adapter": deepseekV4,
   "openai-responses": openaiResponses,
   "anthropic-session-adapter": anthropicSession,
 };

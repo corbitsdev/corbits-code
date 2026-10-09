@@ -794,3 +794,33 @@ describe("session source bundles", () => {
     expect(bundle.defaultSource).toBe("openai");
   });
 });
+
+describe("deepseek-v4 provider stamping (PR A)", () => {
+  function v4SourceFor(model: string) {
+    return buildInferenceSourceForRef(
+      { provider: "ds", model },
+      {
+        sessionId: "s1",
+        catalog: [
+          {
+            name: "ds",
+            baseURL: "https://ds.example/v1",
+            apiKey: "k",
+            models: [model],
+          },
+        ],
+      },
+      undefined,
+    );
+  }
+
+  test("a deepseek-v4-* model stamps provider 'deepseek-v4'", () => {
+    const source = v4SourceFor("deepseek-v4-pro");
+    expect(source?.provider).toBe("deepseek-v4");
+  });
+
+  test("non-V4 custom models stay provider 'openai-compatible'", () => {
+    const source = v4SourceFor("gpt-5");
+    expect(source?.provider).toBe("openai-compatible");
+  });
+});
