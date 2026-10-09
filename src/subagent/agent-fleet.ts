@@ -66,7 +66,10 @@ import {
   validateEffort,
   type ReasoningEffort,
 } from "../provider/reasoning-effort.js";
-import { isDeepSeekV4Model } from "../provider/deepseek-v4-effort.js";
+import {
+  DEEPSEEK_V4_ROLE_EFFORT,
+  isDeepSeekV4Model,
+} from "../provider/deepseek-v4-effort.js";
 import type { AgentProfile, CapabilityFilter } from "../agent/profiles.js";
 import {
   DEFAULT_KNOWN_ENGINES,
@@ -1184,18 +1187,20 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         settings?.providers[provider.providerName],
         catalog?.find((entry) => entry.name === provider.providerName),
       );
-      // DeepSeek V4 pins the coder leaf to low unless the profile explicitly
-      // pins effort (winning config).
-      const coderEffortPin =
+      // DeepSeek V4 pins per-role effort (CL-10294): dispatch/planner/reviewer
+      // max, coder cheapest, other leaves xhigh. The explicit effortPin and the
+      // role default still win over this table when supported.
+      const roleEffortPin =
         resolved.effortPin ??
-        (!orchestrator &&
-        resolved.directorId === "coder" &&
-        isDeepSeekV4Model(provider.model)
-          ? "low"
+        (isDeepSeekV4Model(provider.model) &&
+        resolved.directorId in DEEPSEEK_V4_ROLE_EFFORT
+          ? DEEPSEEK_V4_ROLE_EFFORT[
+              resolved.directorId as keyof typeof DEEPSEEK_V4_ROLE_EFFORT
+            ]
           : undefined);
       const effort = resolveEffortForRole({
         orchestrator,
-        ...(coderEffortPin !== undefined ? { pin: coderEffortPin } : {}),
+        ...(roleEffortPin !== undefined ? { pin: roleEffortPin } : {}),
         ...(resolved.roleDefault !== undefined
           ? { roleDefault: resolved.roleDefault }
           : {}),
