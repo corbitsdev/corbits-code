@@ -1,7 +1,6 @@
 // Dispatch primary: orchestrator surface plus fleet discovery (Tier-1 only).
-// Literal expansion of the `DISPATCH_TOOLS` constant in
-// `src/agent/directors/tool-sets.ts` (the single tool authority). Drift is
-// enforced by the in-tree `src/agent/directors/dispatch/package.test.ts`.
+// Drift against the app's DISPATCH_TOOLS is enforced by the in-tree
+// src/agent/directors/dispatch/package.test.ts.
 const DISPATCH_TOOLS = [
   "read_file",
   "grep",
@@ -26,5 +25,4 @@ const DISPATCH_TOOLS = [
   "search_agents",
 ] as const;
 
-/** The dispatch tool allowlist — literal equal to the in-tree `DISPATCH_TOOLS`. */
 export const tools: readonly string[] = [...DISPATCH_TOOLS];
