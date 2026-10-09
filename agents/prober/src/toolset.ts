@@ -1,4 +1,4 @@
-const PROBER_TOOLS = [
+export const tools: readonly string[] = [
   "read_file",
   "grep",
   "search_files",
@@ -13,5 +13,3 @@ const PROBER_TOOLS = [
   "edit_file",
   "delete_file",
 ] as const;
-
-export const tools: readonly string[] = [...PROBER_TOOLS];
