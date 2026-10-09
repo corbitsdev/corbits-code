@@ -2,7 +2,7 @@ import type { EnvironmentInfo } from "./environment.js";
 import type { SkillSummary } from "../extensions/skills.js";
 import type { SessionMode } from "../config/session-mode.js";
 import type { ToolAvailability } from "./tool-search.js";
-import { createDispatchSystemPrompt } from "@corbits/code-agent-dispatch";
+import { systemPrompt as dispatchSystemPrompt } from "@corbits/code-agent-dispatch";
 import {
   buildWorkerContract,
   buildWorkerToolNames,
@@ -48,7 +48,7 @@ export function buildChatRole(
 ): string {
   // Primary session identity is the closed Dispatch director package.
   // Harness facts / guidelines still append after this role in baseSection.
-  return createDispatchSystemPrompt();
+  return dispatchSystemPrompt.build();
 }
 
 // Facts the model cannot derive from its training: what the permission layer
