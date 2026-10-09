@@ -2,10 +2,6 @@ import { tools } from "./toolset.js";
 import { systemPrompt } from "./prompt.js";
 import { config } from "./config.js";
 
-/**
- * Prober worker director card (CL-7656). Structurally satisfies the app's
- * `DirectorPackage` (app-side drift-guard asserts assignability). App-independent.
- */
 export const director = {
   id: "prober",
   primaryIntent:

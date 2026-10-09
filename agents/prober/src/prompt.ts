@@ -52,10 +52,7 @@ OUT OF LANE: shipping product code, tuning prompts or model-family
 policy (route to follow-up tickets), building a new harness, fleet
 orchestration, architecture essays without measurements.`;
 
-/**
- * Byte-stable system prompt builder. `theme` is the stable voice identifier;
- * `build()` returns the identical raw card on every call (no env/interpolation).
- */
+// Byte-stable (see prompt authority test).
 export const systemPrompt = {
   theme: "prober",
   build: (): string => CARD,
