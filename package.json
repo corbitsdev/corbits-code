@@ -111,7 +111,8 @@
     "isomorphic-git": "catalog:",
     "@corbits/code-agent-designer": "workspace:*",
     "@corbits/code-agent-reviewer": "workspace:*",
-    "@corbits/code-agent-planner": "workspace:*"
+    "@corbits/code-agent-planner": "workspace:*",
+    "@corbits/code-agent-coder": "workspace:*"
   },
   "devDependencies": {
     "@intx/inference-testing": "0.3.0",
