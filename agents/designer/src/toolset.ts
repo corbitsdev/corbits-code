@@ -1,6 +1,6 @@
 // BUILD_TOOLS literal (= REVIEW_TOOLS); drift-guarded against REVIEW_TOOLS
 // by src/agent/directors/designer/package.test.ts.
-const BUILD_TOOLS = [
+export const tools = [
   "read_file",
   "grep",
   "search_files",
@@ -15,5 +15,3 @@ const BUILD_TOOLS = [
   "edit_file",
   "delete_file",
 ] as const;
-
-export const tools: readonly string[] = [...BUILD_TOOLS];

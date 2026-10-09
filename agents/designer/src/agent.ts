@@ -13,6 +13,5 @@ export function defineAgent(): AgentDefinition {
     tools: [], // tool mounting is consumer/app-side; surface enforced by drift-guard
     capabilities: [],
     inference: { sources: [] },
-    tags: { fleet: "0.3.36", lane: "designer" },
   });
 }
