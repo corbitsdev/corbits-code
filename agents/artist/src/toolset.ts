@@ -1,4 +1,4 @@
-const ARTIST_TOOLS = [
+export const tools: readonly string[] = [
   "read_file",
   "grep",
   "search_files",
@@ -13,5 +13,3 @@ const ARTIST_TOOLS = [
   "edit_file",
   "delete_file",
 ] as const;
-
-export const tools: readonly string[] = [...ARTIST_TOOLS];
