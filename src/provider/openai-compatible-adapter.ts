@@ -1,5 +1,7 @@
 import { type BuiltRequest, type ProviderAdapter } from "@intx/inference";
 import { createOpenAIAdapter } from "@intx/inference/providers";
+import type { ReasoningEffort } from "../agent/profile-types.js";
+import { isDeepSeekV4Model, mapV4Effort } from "./deepseek-v4-effort.js";
 import { normalizeNullDeltaFields } from "./null-delta-fields.js";
 
 // The stock OpenAI adapter builds the request body from a fixed set of fields
@@ -45,14 +47,41 @@ export function createOpenAICompatibleAdapter(
     const providerOptions = options.providerOptions;
     const hasProviderOptions =
       providerOptions !== undefined && Object.keys(providerOptions).length > 0;
+    // Normalize the model once so every predicate below reads from the same
+    // lower-cased, trimmed string rather than re-normalizing per call.
+    const m = model.toLowerCase().trim();
     // DeepSeek returns HTTP 400 if `reasoning_content` appears in input messages,
     // whereas the base adapter emits it for any model with thinking enabled.
-    const stripReasoning = model.toLowerCase().includes("deepseek");
+    const stripReasoning = m.includes("deepseek");
     needsDeepSeekPatch = stripReasoning;
+    const isV4 = isDeepSeekV4Model(m);
     if (!hasProviderOptions && !stripReasoning) return ensureAccept(built);
 
     const body = JSON.parse(built.body) as Record<string, unknown>;
     if (hasProviderOptions) Object.assign(body, providerOptions);
+    // V4's ladder (none/xhigh/max) is translated here: `none` drops
+    // reasoning_effort and toggles the encoder's thinking off (it is illegal
+    // on the wire), while `xhigh`/`max` go out raw. Effort absent under V4 is
+    // left absent. Off-ladder efforts (low/medium/high) are left untouched.
+    if (isV4) {
+      if ("reasoning_effort" in body) {
+        const raw = body["reasoning_effort"] as ReasoningEffort;
+        const wireEffort = mapV4Effort(raw);
+        if (wireEffort === null) {
+          delete body["reasoning_effort"];
+          // Merge into any existing kwargs so provider-supplied keys survive.
+          const kwargs =
+            body["chat_template_kwargs"] !== null &&
+            typeof body["chat_template_kwargs"] === "object"
+              ? (body["chat_template_kwargs"] as Record<string, unknown>)
+              : {};
+          kwargs.thinking = false;
+          Object.assign(body, { chat_template_kwargs: kwargs });
+        } else if (wireEffort !== undefined) {
+          body["reasoning_effort"] = wireEffort;
+        }
+      }
+    }
     if (stripReasoning && Array.isArray(body["messages"])) {
       for (const msg of body["messages"]) {
         if (msg !== null && typeof msg === "object")

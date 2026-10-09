@@ -7,6 +7,10 @@
 // profile schema and the runtime cannot drift. Re-exported here for callers
 // that already import from this module.
 import { REASONING_EFFORTS as CANONICAL_EFFORTS } from "../agent/profile-types.js";
+import {
+  DEEPSEEK_V4_EFFORTS,
+  isDeepSeekV4Model,
+} from "./deepseek-v4-effort.js";
 
 export const REASONING_EFFORTS = CANONICAL_EFFORTS;
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
@@ -186,6 +190,9 @@ export function supportedEfforts(
   if (GLM_53_MODELS.includes(model)) {
     return [...GLM_53_EFFORTS];
   }
+  if (isDeepSeekV4Model(model)) {
+    return [...DEEPSEEK_V4_EFFORTS];
+  }
   if (isMuseSparkModel(model)) {
     return [...MUSE_SPARK_EFFORTS];
   }
@@ -287,6 +294,7 @@ export function defaultEffortForModel(
   }
   if (model.startsWith("grok")) return pick("high");
   if (GLM_53_MODELS.includes(model)) return pick("max");
+  if (isDeepSeekV4Model(model)) return pick("max");
   if (isMuseSparkModel(model)) return pick("low");
   if (!isCodex && supported.includes("none")) return "none";
   if (isCodex || isKnownOpenAIReasoningModel(model)) return pick("medium");
