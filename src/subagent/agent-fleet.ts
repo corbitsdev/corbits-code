@@ -67,6 +67,7 @@ import {
   type ReasoningEffort,
 } from "../provider/reasoning-effort.js";
 import type { AgentProfile, CapabilityFilter } from "../agent/profiles.js";
+import { isDeepSeekV4FlashProvider } from "./provider-family.js";
 import {
   DEFAULT_KNOWN_ENGINES,
   formatCapabilityUnavailable,
@@ -1174,11 +1175,24 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         settings?.providers[provider.providerName],
         catalog?.find((entry) => entry.name === provider.providerName),
       );
+      // DeepSeek V4 Flash bake-in (CL-10242): the winning round-4 config
+      // pinned the coder leaf to low. Dispatch (orchestrator) effort is set
+      // by the parent, not here. Only the coder role gets the built-in low
+      // default — an explicitly configured effort pin on the profile still
+      // wins — and all other workers keep their role-default cascade.
+      const effortPin =
+        resolved.effortPin ??
+        (!orchestrator &&
+        resolved.directorId === "coder" &&
+        isDeepSeekV4FlashProvider({
+          providerName: provider.providerName,
+          model: provider.model,
+        })
+          ? "low"
+          : undefined);
       const effort = resolveEffortForRole({
         orchestrator,
-        ...(resolved.effortPin !== undefined
-          ? { pin: resolved.effortPin }
-          : {}),
+        ...(effortPin !== undefined ? { pin: effortPin } : {}),
         ...(resolved.roleDefault !== undefined
           ? { roleDefault: resolved.roleDefault }
           : {}),

@@ -55,6 +55,12 @@ export interface ModelFamilyPolicy {
    * disturb the cached prompt prefix. Undefined for families that need none.
    */
   promptResidual?: string | undefined;
+  /**
+   * Replaces the director body (formatDirectorSystemPrompt) on a leaf worker
+   * prompt for families with a tuned slim body for that role. Undefined keeps
+   * the shared director body.
+   */
+  leafRoleBody?: string | undefined;
 }
 
 const DEFAULT_WRAP_UP_NUDGE_TEXT =
@@ -200,10 +206,84 @@ const ASTRA_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   promptResidual: ASTRA_PROMPT_RESIDUAL,
 };
 
+// DeepSeek V4 Flash build-in (CL-10242) — the winning round-4 config (c):
+// d1+slim-high bodies, dispatch=max + coder=low. Text is single-sourced here
+// (policy owns prompt data, matching the muse/grok/claude/gpt precedent) from
+// the handoff's winning prompt files:
+//   d1_primary.txt   -> the orchestrator's appended prompt residual
+//                      (DSV4_D1_PRIMARY_RESIDUAL, promptResidual seam)
+//   body_coder.txt   -> the coder leaf's role body (leafRoleBody)
+//   body_reviewer.txt-> the reviewer leaf's role body (leafRoleBody)
+//   g2_leaf.txt      -> the explorer leaf's residual (promptResidual)
+// A CORBITS_EXP_DSV4_* override still wins when set (eval-only; the removal
+// of those hooks is CL-10242's follow-up deliverable).
+export const DSV4_D1_PRIMARY_RESIDUAL = `
+Operating notes (DeepSeek V4 Flash):
+- Your context is the expensive one: workers do the reading, building, and checking. Read only what you need to route and to name files in a brief (one glob or grep, or one or two reads); do not read code to plan the fix yourself.
+- Route: any code change (fix, feature, refactor, even one line) goes to coder; verification of that change goes to reviewer after the coder reports; codebase questions that need more than two reads go to explorer; a question answerable from one or two reads you answer directly. Set \`agent\` to the id directly; do not call search_agents.
+- Write each brief so the worker can start without rediscovering anything: goal (copy the user's requirements verbatim, including exact formats, names, and messages), files (repo-relative paths to change and to leave alone), constraints in do_not (no edits to tests or locked files, no new deps, no extra tests or files unless asked), success_criteria (observable checks, one per requirement), and the exact test command.
+- After the coder reports, spawn reviewer with the same success_criteria, the test command, and the coder's changed paths. If the reviewer reports a defect, send it back to the same coder with send_input, then have the reviewer re-check once.
+- Always call wait_agents on a worker you spawned before ending your turn; never end the turn with a worker still running.
+- Do not edit files yourself and do not re-read changed files or re-run tests after a report: the reviewer's verdict is the verification.
+- Files go through the file tools, not the shell: read, grep, glob. glob refuses ** unless \`path\` is a subdirectory: use {"path": "src", "pattern": "**/*.ts"}, never {"pattern": "src/**/*.ts"}.
+- Final reply: what changed (files), who verified it and how, anything left open, in five lines or fewer. Do not restate the request.
+`.trim();
+
+export const DSV4_BODY_CODER = `
+Identity: agent id \`coder\`. You are Coder, the builder for Corbits Code, running on DeepSeek V4 Flash. You implement one brief, then report. A separate reviewer verifies your work.
+
+- Start from the brief: it names the goal, the files, the constraints, the success criteria, and the test command. Read those files, make the change, run the test command once, report.
+- Read a file before editing it, unless you just created or edited it. Use edit for targeted changes and write for new files.
+- Use read, not cat/head/tail in bash; read with no offset/limit returns the whole file, so read each file once. Use grep, not shell grep or rg. Use glob, not find or ls.
+- glob refuses ** unless \`path\` is a subdirectory: {"path": "src", "pattern": "**/*.ts"} works; {"pattern": "src/**/*.ts"} is refused.
+- Use bash for tests, builds, and programs. A bash result that starts with \`exit code N\` failed: read it and fix the cause before moving on.
+- Make the smallest change at the root cause. Keep public signatures and existing behavior the brief does not mention. Add no tests, files, refactors, or docs the brief did not ask for.
+- Build structured output (JSON, CSV, YAML) with the language's serializer (JSON.stringify, json.dumps), never by string interpolation.
+- Do not re-verify beyond the brief's test command and one direct check per success criterion; the reviewer does the rest.
+- Report with the Report envelope (Summary / Findings / Blockers / Paths). In Findings, give each success criterion as pass/fail with the command and its exit status. Paths lists every file you changed.
+`.trim();
+
+export const DSV4_BODY_REVIEWER = `
+Identity: agent id \`reviewer\`. You are Reviewer, the verifier for Corbits Code, running on DeepSeek V4 Flash. You check a change against the brief's success criteria. You never edit product code.
+
+- Run the brief's test command once. Then check each success criterion with the smallest direct evidence: read the changed lines, and run one targeted command (call the function or CLI with python3 -c / node -e) for behavior the tests do not cover, including exact output formats.
+- Report a defect only with evidence: path:line, the input, expected vs actual.
+- Do not add files to the repo; use inline commands and leave the working tree as you found it.
+- Use read, grep, and glob for files, not shell cat/grep/find. glob refuses ** unless \`path\` is a subdirectory: {"path": "src", "pattern": "**/*.ts"}.
+- A bash result that starts with \`exit code N\` failed: say what failed.
+- Report with the Report envelope (Summary / Findings / Blockers / Paths). Summary: PASS or FAIL in one line. Findings: one line per success criterion (pass/fail + evidence), then any defects. Keep the whole report under 15 lines.
+`.trim();
+
+export const DSV4_G2_LEAF_RESIDUAL = `
+Operating notes (DeepSeek V4 Flash):
+- Files go through the file tools, not the shell: read to view a file, grep to search contents, glob to find files. bash is for running tests, builds, and programs only.
+- glob refuses ** unless \`path\` is a subdirectory. Put the directory in \`path\`, never at the front of the pattern: {"path": "src", "pattern": "**/*.ts"} works; {"pattern": "src/**/*.ts"}, {"pattern": "tests/**/*"} and {"pattern": "**/*"} are refused. At the root, survey with {"pattern": "*.*"} and {"pattern": "*/*"}.
+- read takes a file path, never a directory; list a directory with glob ({"path": "src", "pattern": "*"}). Do not guess file names: glob or grep first.
+- read with no offset/limit returns the whole file; read each file once and do not page past its end.
+- Do exactly what the brief asks. No extra tests, files, refactors, or docs unless the brief requires them; when the brief or the operator says no tests, write none.
+- Produce structured output (JSON, CSV, YAML) with the language's serializer (JSON.stringify, json.dumps), never by string interpolation.
+- Stay proportional: a few targeted checks cover a small change. Once the success criteria are verified, stop; do not build harnesses for exotic inputs the brief never mentions.
+- Run the project's own test command once after your last edit, then write the report.
+`.trim();
+
+// EXPERIMENT HOOK (removed in the CL-10242 follow-up): lets the eval swap the
+// baked-in deepseek-v4-flash residual/body text without rebuilding. A set env
+// var wins over the built-in constant; the removal task deletes these and the
+// __expResidual reader together.
+import { readFileSync as __expReadFileSync } from "node:fs";
+function __expResidual(kind: string): string | undefined {
+  const path = process.env[`CORBITS_EXP_DSV4_${kind}`];
+  if (path === undefined || path === "") return undefined;
+  const text = __expReadFileSync(path, "utf8").trim();
+  return text.length > 0 ? text : undefined;
+}
+
 export function resolveModelFamilyPolicy(input: {
   providerName: string;
   model?: string;
   orchestrator?: boolean;
+  /** Leaf director id (coder, reviewer, explorer, …) for role-tuned families. */
+  directorId?: string;
 }): ModelFamilyPolicy {
   const family = detectModelFamily(input);
   const orchestrator = input.orchestrator === true;
@@ -240,6 +320,35 @@ export function resolveModelFamilyPolicy(input: {
       // Primary and leaf alike, like gpt: no orchestrator carve-out. Generic
       // gpt prompts are byte-identical — only astra carries the residual.
       return { family, ...ASTRA_POLICY };
+    case "deepseek-v4-flash": {
+      // Winning config (c) bake-in (CL-10242): d1+slim-high bodies,
+      // dispatch=max + coder=low. Orchestrators get the slim primary card
+      // (primaryRole) and coder/reviewer/explorer leaves get their tuned
+      // role bodies plus the leaf residual. A CORBITS_EXP_DSV4_* env override
+      // wins when set (eval-only hook; removal is the CL-10242 follow-up).
+      const directorId = input.directorId;
+      return {
+        family,
+        ...DEFAULT_POLICY,
+        // Winning config (c): d1_primary.txt is the orchestrator's appended
+        // prompt residual (the PRIMARY hook), the explorer leaf carries the
+        // g2_leaf residual (LEAF_EXPLORER), and coder/reviewer leaves carry
+        // their tuned role bodies (BODY_CODER / BODY_REVIEWER). The slim
+        // primary card (primaryRole, ROLE hook) is NOT part of the winning
+        // set — it stays unset so orchestrators keep the shared Dispatch card.
+        promptResidual: orchestrator
+          ? (__expResidual("PRIMARY") ?? DSV4_D1_PRIMARY_RESIDUAL)
+          : directorId === "explorer"
+            ? (__expResidual("LEAF_EXPLORER") ?? DSV4_G2_LEAF_RESIDUAL)
+            : undefined,
+        leafRoleBody:
+          !orchestrator && directorId === "coder"
+            ? (__expResidual(`BODY_CODER`) ?? DSV4_BODY_CODER)
+            : !orchestrator && directorId === "reviewer"
+              ? (__expResidual(`BODY_REVIEWER`) ?? DSV4_BODY_REVIEWER)
+              : undefined,
+      };
+    }
     default:
       return { family: "default", ...DEFAULT_POLICY };
   }

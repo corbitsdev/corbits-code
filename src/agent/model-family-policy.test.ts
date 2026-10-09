@@ -388,4 +388,55 @@ describe("resolveModelFamilyPolicy", () => {
       }
     }
   });
+
+  describe("deepseek-v4-flash bake-in (CL-10242)", () => {
+    function v4(input: {
+      orchestrator?: boolean;
+      directorId?: string;
+    } = {}) {
+      return resolveModelFamilyPolicy({
+        providerName: "vast",
+        model: "deepseek-ai/DeepSeek-V4-Flash-0731",
+        ...(input.orchestrator !== undefined ? { orchestrator: input.orchestrator } : {}),
+        ...(input.directorId !== undefined ? { directorId: input.directorId } : {}),
+      });
+    }
+
+    test("orchestrators get the d1 primary residual, no primary card or leaf body", () => {
+      const p = v4({ orchestrator: true });
+      expect(p.family).toBe("deepseek-v4-flash");
+      expect(p.promptResidual).toBeDefined();
+      expect(p.promptResidual).toContain("DeepSeek V4 Flash");
+      expect(p.leafRoleBody).toBeUndefined();
+    });
+
+    test("coder leaves get the tuned leaf role body, no residual", () => {
+      const p = v4({ orchestrator: false, directorId: "coder" });
+      expect(p.family).toBe("deepseek-v4-flash");
+      expect(p.leafRoleBody).toBeDefined();
+      expect(p.leafRoleBody).toContain("Coder");
+      expect(p.promptResidual).toBeUndefined();
+    });
+
+    test("reviewer leaves get the tuned reviewer body", () => {
+      const p = v4({ orchestrator: false, directorId: "reviewer" });
+      expect(p.leafRoleBody).toBeDefined();
+      expect(p.leafRoleBody).toContain("Reviewer");
+      expect(p.promptResidual).toBeUndefined();
+    });
+
+    test("explorer leaves get the tuned leaf residual only", () => {
+      const p = v4({ orchestrator: false, directorId: "explorer" });
+      expect(p.promptResidual).toBeDefined();
+      expect(p.promptResidual).toContain("DeepSeek V4 Flash");
+      expect(p.leafRoleBody).toBeUndefined();
+    });
+
+    test("a leaf without a tuned director id gets the default policy, no body/residual", () => {
+      const p = v4({ orchestrator: false });
+      expect(p.family).toBe("deepseek-v4-flash");
+      expect(p.leafRoleBody).toBeUndefined();
+      expect(p.promptResidual).toBeUndefined();
+    });
+  });
 });
