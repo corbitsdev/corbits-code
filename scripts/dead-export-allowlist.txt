@@ -43,12 +43,8 @@ packages/opencode-go/src/models.ts: readonly
 # consumed by the app registry/barrel once the fleet merges; on a per-extract
 # branch they have no in-repo consumer yet. Public API by design — owned by the
 # agent-template lane; remove with the code if the package is deleted.
-agents/dispatch/src/index.ts: agent
-agents/dispatch/src/index.ts: defineAgent
 agents/dispatch/src/config.ts: satisfies
 agents/dispatch/src/config.ts: boolean
-agents/warden/src/index.ts: agent
-agents/warden/src/index.ts: defineAgent
 agents/warden/src/config.ts: satisfies
 agents/warden/src/config.ts: boolean
 agents/designer/src/index.ts: agent
@@ -111,15 +107,9 @@ packages/prompt-variance/src/index.ts: PromptVarianceRow
 # consumed by the app registry/barrel once the fleet merges; on a per-extract
 # branch they have no in-repo consumer yet. Public API by design — owned by the
 # agent-template lane; remove with the code if the package is deleted.
-agents/artist/src/index.ts: agent
-agents/artist/src/index.ts: defineAgent
 agents/artist/src/config.ts: satisfies
 agents/artist/src/config.ts: boolean
-agents/shakespeare/src/index.ts: agent
-agents/shakespeare/src/index.ts: defineAgent
 agents/shakespeare/src/config.ts: satisfies
 agents/shakespeare/src/config.ts: boolean
-agents/prober/src/index.ts: agent
-agents/prober/src/index.ts: defineAgent
 agents/prober/src/config.ts: satisfies
 agents/prober/src/config.ts: boolean
