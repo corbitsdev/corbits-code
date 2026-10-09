@@ -85,6 +85,10 @@ agents/coder/src/config.ts: satisfies
 agents/coder/src/config.ts: boolean
 agents/explorer/src/index.ts: agent
 agents/explorer/src/index.ts: defineAgent
+agents/explorer/src/index.ts: director
+agents/explorer/src/index.ts: tools
+agents/explorer/src/index.ts: systemPrompt
+agents/explorer/src/index.ts: config
 agents/explorer/src/config.ts: satisfies
 agents/explorer/src/config.ts: boolean
 
