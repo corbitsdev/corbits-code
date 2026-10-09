@@ -206,15 +206,8 @@ const ASTRA_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   promptResidual: ASTRA_PROMPT_RESIDUAL,
 };
 
-// DeepSeek V4 Flash build-in (CL-10242) — the winning round-4 config (c):
-// d1+slim-high bodies, dispatch=max + coder=low. Text is single-sourced here
-// (policy owns prompt data, matching the muse/grok/claude/gpt precedent) from
-// the handoff's winning prompt files:
-//   d1_primary.txt   -> the orchestrator's appended prompt residual
-//                      (DSV4_D1_PRIMARY_RESIDUAL, promptResidual seam)
-//   body_coder.txt   -> the coder leaf's role body (leafRoleBody)
-//   body_reviewer.txt-> the reviewer leaf's role body (leafRoleBody)
-//   g2_leaf.txt      -> the explorer leaf's residual (promptResidual)
+// DeepSeek V4 Flash winning config (c), baked in from the handoff prompt
+// files: d1_primary.txt, body_coder.txt, body_reviewer.txt, g2_leaf.txt.
 export const DSV4_D1_PRIMARY_RESIDUAL = `
 Operating notes (DeepSeek V4 Flash):
 - Your context is the expensive one: workers do the reading, building, and checking. Read only what you need to route and to name files in a brief (one glob or grep, or one or two reads); do not read code to plan the fix yourself.
@@ -307,19 +300,12 @@ export function resolveModelFamilyPolicy(input: {
       // gpt prompts are byte-identical — only astra carries the residual.
       return { family, ...ASTRA_POLICY };
     case "deepseek-v4-flash": {
-      // Winning config (c) bake-in (CL-10242): d1+slim-high bodies,
-      // dispatch=max + coder=low. Orchestrators get the slim primary card
-      // (primaryRole) and coder/reviewer/explorer leaves get their tuned
-      // role bodies plus the leaf residual.
+      // Winning config (c): d1 primary residual on orchestrators, tuned role
+      // bodies for coder/reviewer leaves, g2 leaf residual on explorer.
       const directorId = input.directorId;
       return {
         family,
         ...DEFAULT_POLICY,
-        // Winning config (c): d1_primary.txt is the orchestrator's appended
-        // prompt residual, the explorer leaf carries the g2_leaf residual,
-        // and coder/reviewer leaves carry their tuned role bodies. The slim
-        // primary card (primaryRole) is NOT part of the winning set — it
-        // stays unset so orchestrators keep the shared Dispatch card.
         promptResidual: orchestrator
           ? DSV4_D1_PRIMARY_RESIDUAL
           : directorId === "explorer"

@@ -1175,11 +1175,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         settings?.providers[provider.providerName],
         catalog?.find((entry) => entry.name === provider.providerName),
       );
-      // DeepSeek V4 Flash bake-in (CL-10242): the winning round-4 config
-      // pinned the coder leaf to low. Dispatch (orchestrator) effort is set
-      // by the parent, not here. Only the coder role gets the built-in low
-      // default — an explicitly configured effort pin on the profile still
-      // wins — and all other workers keep their role-default cascade.
+      // DeepSeek V4 Flash pins the coder leaf to low unless the profile
+      // explicitly pins effort.
       const effortPin =
         resolved.effortPin ??
         (!orchestrator &&
