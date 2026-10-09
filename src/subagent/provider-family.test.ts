@@ -3,6 +3,7 @@ import {
   detectModelFamily,
   isAstraLeafProvider,
   isClaudeLeafProvider,
+  isDeepSeekV4LeafProvider,
   isGptProvider,
   isKimiLeafProvider,
   isXaiGrokLeafProvider,
@@ -76,9 +77,40 @@ describe("detectModelFamily", () => {
     [{ providerName: "anthropic", model: "claude-sonnet-4" }, "claude"],
     [{ providerName: "openai-compat", model: "claude-opus-4-6" }, "claude"],
     [{ providerName: "openai", model: "gpt-5.6" }, "gpt"],
+    [
+      { providerName: "openai-compat", model: "deepseek-v4-pro" },
+      "deepseek-v4",
+    ],
+    [
+      { providerName: "opencode-go", model: "deepseek-v4-flash" },
+      "deepseek-v4",
+    ],
+    [
+      { providerName: "openai-compat", model: "deepseek-v4-flash-vision-exp" },
+      "deepseek-v4",
+    ],
+    [{ providerName: "openai-compat", model: "deepseek-coder" }, "default"],
     [{ providerName: "unknown-provider", model: "unknown-model" }, "default"],
   ])("resolves %j -> %s", (row, expected) => {
     expect(detectModelFamily(row)).toBe(expected);
+  });
+});
+
+describe("isDeepSeekV4LeafProvider", () => {
+  test.each<[ProviderRow, boolean]>([
+    [{ providerName: "openai-compat", model: "deepseek-v4-pro" }, true],
+    [{ providerName: "openai-compat", model: "deepseek-v4-flash" }, true],
+    [
+      { providerName: "openai-compat", model: "deepseek-v4-flash-vision-exp" },
+      true,
+    ],
+    [{ providerName: "openai-compat", model: "DEEPSEEK-V4-PRO" }, true],
+    [{ providerName: "xai/default", model: "grok-4.6" }, false],
+    [{ providerName: "openai", model: "gpt-5.6" }, false],
+    [{ providerName: "openai-compat", model: "deepseek-v3" }, false],
+    [{ providerName: "openai-compat" }, false],
+  ])("matches %j -> %s", (row, expected) => {
+    expect(isDeepSeekV4LeafProvider(row)).toBe(expected);
   });
 });
 

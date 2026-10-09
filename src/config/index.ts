@@ -59,6 +59,8 @@ import {
   GROK_SESSION_ID_OPTION,
 } from "../provider/grok-responses.js";
 import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
+import { DEEPSEEK_V4_PROVIDER } from "../provider/deepseek-v4-adapter.js";
+import { isDeepSeekV4Model } from "../provider/deepseek-v4-effort.js";
 import { isOllamaProviderId, ollamaOpenAIBaseURL } from "../provider/ollama.js";
 import { selectableGoModelIds } from "../provider/model-catalogs.js";
 import {
@@ -265,8 +267,9 @@ export function resolveMcpServers(
 }
 
 // Build the OpenAI-compatible InferenceSource the runtime consumes. `id` is the
-// user-facing name for this source (e.g. "zen"); `provider` is always
-// "openai-compatible" so the inference registry routes it to the right adapter.
+// user-facing name for this source (e.g. "zen"); `provider` routes to the
+// openai-compatible adapter, or the deepseek-v4 per-family adapter for V4
+// models, so the inference registry picks the right adapter.
 export function buildOpenAISource(fields: {
   id: string;
   baseURL: string;
@@ -287,7 +290,9 @@ export function buildOpenAISource(fields: {
   registerSourceSecret(fields.id, fields.apiKey);
   return {
     id: fields.id,
-    provider: "openai-compatible",
+    provider: isDeepSeekV4Model(fields.model)
+      ? DEEPSEEK_V4_PROVIDER
+      : "openai-compatible",
     baseURL: isOllamaProviderId(fields.id)
       ? ollamaOpenAIBaseURL(fields.baseURL)
       : normalizeOpenAICompatibleBaseURL(fields.baseURL),

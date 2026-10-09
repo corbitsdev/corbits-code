@@ -2,11 +2,13 @@ import type { ReasoningEffort } from "../agent/profile-types.js";
 
 // DeepSeek V4 effort translator shared by the adapter and the effort picker.
 // V4 ships under several ids across two catalogs — deepseek-v4-pro/-flash/
-// -flash-vision-exp — so the family is matched by prefix rather than an exact
-// id list; the `^` anchor keeps hypothetical spaced/pre-V4 ids out. This shape
-// mirrors the grok/kimi/muse-spark prefix predicates elsewhere in the tree.
+// -flash-vision-exp — and under a vendor-qualified host id like
+// deepseek-ai/DeepSeek-V4-Flash-0731. Match the `deepseek-v4` segment at the
+// start or after a `/`, so both bare and qualified ids resolve while pre-V4
+// ids (deepseek-coder, deepseek-chat) do not. This mirrors the grok/kimi/astra
+// leaf predicates, which also accept an org-qualified segment.
 export function isDeepSeekV4Model(model: string): boolean {
-  return /^deepseek-v4/i.test(model.trim());
+  return /(^|\/)deepseek-v4/i.test(model.trim());
 }
 
 // The operator-confirmed native V4 rungs. `none` is a toggle, never a wire

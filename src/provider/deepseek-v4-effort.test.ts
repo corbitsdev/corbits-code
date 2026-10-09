@@ -13,13 +13,18 @@ describe("isDeepSeekV4Model", () => {
     "deepseek-v4",
     "deepseek-v4-pro",
     "deepseek-v4-flash",
+    "deepseek-v4.1-flash",
     "deepseek-v4-flash-vision-exp",
+    "deepseek-ai/DeepSeek-V4-Flash-0731",
+    "deepseek-ai/deepseek-v4-flash",
   ])("true for V4 id %s", (model) => {
     expect(isDeepSeekV4Model(model)).toBe(true);
   });
   test.each([
     "deepseek-v3",
     "deepseek-r1",
+    "deepseek-coder",
+    "deepseek-chat",
     "gpt-5",
     "kimi-k2",
     "claude-sonnet-4.5",
