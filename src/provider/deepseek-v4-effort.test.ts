@@ -1,8 +1,11 @@
 import { describe, test, expect } from "bun:test";
 import {
   DEEPSEEK_V4_EFFORTS,
+  DEEPSEEK_V4_MODEL_CARD,
   isDeepSeekV4Model,
   mapV4Effort,
+  V4_STREAM_OPTIONS,
+  v4Thinking,
 } from "./deepseek-v4-effort.js";
 
 describe("isDeepSeekV4Model", () => {
@@ -44,10 +47,33 @@ describe("mapV4Effort", () => {
   test("maps none to null (drop the wire effort)", () => {
     expect(mapV4Effort("none")).toBeNull();
   });
-  test.each(["low", "medium", "high"] as const)(
-    "maps off-ladder %s to undefined",
+  test.each(["low", "medium", "high", "ultra", "minimal"] as const)(
+    "leaves off-ladder %s untouched (undefined)",
     (effort) => {
       expect(mapV4Effort(effort)).toBeUndefined();
     },
   );
+});
+
+describe("v4Thinking", () => {
+  test("thinking off for none", () => {
+    expect(v4Thinking("none")).toEqual({ thinking: false });
+  });
+  test.each(["xhigh", "max"] as const)("thinking on for %s", (effort) => {
+    expect(v4Thinking(effort)).toEqual({ thinking: true });
+  });
+});
+
+describe("DEEPSEEK_V4_MODEL_CARD", () => {
+  test("defaults both temperature 1.0 and top_p 0.95", () => {
+    expect(DEEPSEEK_V4_MODEL_CARD).toEqual({ temperature: 1.0, topP: 0.95 });
+  });
+});
+
+describe("V4_STREAM_OPTIONS", () => {
+  test("requests include_usage on stream chunks", () => {
+    expect(V4_STREAM_OPTIONS).toEqual({
+      stream_options: { include_usage: true },
+    });
+  });
 });
