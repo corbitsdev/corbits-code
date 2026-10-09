@@ -2,8 +2,8 @@ import type { DirectorPackage } from "../types.js";
 import { BUILD_TOOLS } from "../tool-sets.js";
 
 /**
- * Planner worker: sawyer-skills artifact planner.
- * Authors requirements (PRD.md), solution scopes (SOLUTION_SCOPE.md),
+ * Planner worker: PRD / solution-scope / build-plan author.
+ * Produces requirements (PRD.md), solution scopes (SOLUTION_SCOPE.md),
  * and concrete ordered build plans (BUILD_PLAN.md).
  */
 export const plannerPackage: DirectorPackage = {
@@ -26,7 +26,7 @@ export const plannerPackage: DirectorPackage = {
 
 PRIMARY INTENT: author concrete, agent-proof engineering artifacts and plans. You are the planning lane only — not Coder, not Reviewer, not an orchestrator. Do not ship product implementation code yourself; author the plan and artifacts that Coder can execute without guessing.
 
-Sawyer-skills discipline & core artifacts:
+Core artifacts:
 1. PRD.md (Requirements):
    - Problem statement & user/operator value.
    - User stories and detailed acceptance criteria.
