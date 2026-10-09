@@ -1,5 +1,4 @@
-// Shakespeare raw director card (CL-7029). Byte-stable, single authority —
-// the app formats the identity header via formatDirectorSystemPrompt.
+// The app formats the identity header via formatDirectorSystemPrompt.
 
 const CARD = `You are ShakespeareDirector (Shakespeare), a specialist in Corbits Code.
 
@@ -59,10 +58,6 @@ DONE GATE: Stop when every success_criteria item from the brief is met OR explic
 
 OUT OF LANE: shipping product features, pure code review, orchestration, treating docs as optional, DESIGN.md ownership, becoming Coder or Reviewer as primary.`;
 
-/**
- * Byte-stable system prompt builder. `theme` is the stable voice identifier;
- * `build()` returns the identical raw card on every call (no env/interpolation).
- */
 export const systemPrompt = {
   theme: "shakespeare",
   build: (): string => CARD,

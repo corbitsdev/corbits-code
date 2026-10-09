@@ -1,4 +1,3 @@
-/** Shakespeare worker — docs maintenance (PRODUCT / ARCHITECTURE / IMPLEMENTATION). */
 export const config = {
   spawn: { maySpawn: false },
   tier: "leaf",
