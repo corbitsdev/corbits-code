@@ -86,13 +86,6 @@
     "tar": "^7.5.1"
   },
   "dependencies": {
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-    "@corbits/code-agent-warden": "workspace:*",
->>>>>>> 591094cd (chore(warden): rename package to @corbits/code-agent-warden)
-=======
->>>>>>> 624db538 (feat(agent-warden): adopt uniform reusable agent template shape)
     "@corbits/codex-provider": "0.1.1",
     "@corbits/oauth-core": "0.2.0",
     "@corbits/openai-responses": "0.2.1",
