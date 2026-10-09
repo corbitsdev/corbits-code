@@ -1,7 +1,4 @@
-// Warden trust-review: review surface (read + product writes) — REVIEW_TOOLS.
-// Literal expansion of the `REVIEW_TOOLS` constant in
-// `src/agent/directors/tool-sets.ts` (the single tool authority). Drift is
-// enforced by the in-tree `src/agent/directors/warden/package.test.ts`.
+// REVIEW_TOOLS literal; drift-guarded against src/agent/directors/tool-sets.ts.
 const REVIEW_TOOLS = [
   "read_file",
   "grep",
@@ -18,5 +15,4 @@ const REVIEW_TOOLS = [
   "delete_file",
 ] as const;
 
-/** The warden tool allowlist — literal equal to the in-tree `REVIEW_TOOLS`. */
 export const tools: readonly string[] = [...REVIEW_TOOLS];
