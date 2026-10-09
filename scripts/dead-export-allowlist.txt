@@ -61,3 +61,7 @@ agents/artist/src/index.ts: agent
 agents/artist/src/index.ts: defineAgent
 agents/artist/src/config.ts: satisfies
 agents/artist/src/config.ts: boolean
+agents/shakespeare/src/index.ts: agent
+agents/shakespeare/src/index.ts: defineAgent
+agents/shakespeare/src/config.ts: satisfies
+agents/shakespeare/src/config.ts: boolean
