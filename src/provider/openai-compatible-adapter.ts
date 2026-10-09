@@ -55,23 +55,17 @@ export function createOpenAICompatibleAdapter(
 
     const body = JSON.parse(built.body) as Record<string, unknown>;
     if (hasProviderOptions) Object.assign(body, providerOptions);
-    // V4 drives its own effort ladder (none/xhigh/max) and encodes thinking via
-    // chat_template_kwargs. `none` is a toggle, never a wire effort — drop
-    // reasoning_effort and tell the encoder to skip the reasoning pass; xhigh/
-    // max go out raw (the API docs' low/high/max is gateway normalization, not
-    // what the model/encoder honors). Non-V4 models keep the merged body as-is.
+    // V4's ladder (none/xhigh/max) is translated here: `none` drops
+    // reasoning_effort and toggles the encoder's thinking off (it is illegal
+    // on the wire), while `xhigh`/`max` go out raw. Effort absent under V4 is
+    // left absent.
     if (isDeepSeekV4Model(model)) {
-      // PR3's effort translation only applies when a reasoning_effort is
-      // actually carried (none/xhigh/max) — an absent one stays absent, so an
-      // unset default under the V4 ladder is never invented here.
-      let wire: "xhigh" | "max" | null = null;
       if ("reasoning_effort" in body) {
         const raw = body["reasoning_effort"] as ReasoningEffort;
-        wire = mapV4Effort(raw);
+        const wire = mapV4Effort(raw);
         if (wire === null) {
           delete body["reasoning_effort"];
-          // Merge the thinking-off toggle into any existing kwargs rather than
-          // replacing the object, so provider-supplied keys survive.
+          // Merge into any existing kwargs so provider-supplied keys survive.
           const kwargs =
             body["chat_template_kwargs"] !== null &&
             typeof body["chat_template_kwargs"] === "object"

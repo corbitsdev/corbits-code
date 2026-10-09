@@ -206,9 +206,6 @@ describe("openai-compatible adapter V4 effort wiring", () => {
         const withEffort = bodyForModel(model, {
           providerOptions: { reasoning_effort: "high" },
         } as InferenceOptions);
-        // For a non-V4 model the V4 step must not run: the output body equals
-        // the base body shallow-merged with providerOptions verbatim (no
-        // effort mapping, no chat_template_kwargs injection).
         const expected = {
           ...base,
           ...({ reasoning_effort: "high" } as const),
