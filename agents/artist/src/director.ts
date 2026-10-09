@@ -2,11 +2,6 @@ import { tools } from "./toolset.js";
 import { systemPrompt } from "./prompt.js";
 import { config } from "./config.js";
 
-/**
- * Artist worker director card. Structurally satisfies the app's
- * `DirectorPackage` (app-side drift-guard asserts assignability).
- * App-independent: imports `@intx/*` types only, no Corbits shared package.
- */
 export const director = {
   id: "artist",
   primaryIntent:

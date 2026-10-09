@@ -4,17 +4,13 @@ import {
 } from "@intx/agent";
 import { systemPrompt } from "./prompt.js";
 
-/**
- * Artist ready agent — `agent = defineAgent()` plus the named component parts
- * (director/tools/systemPrompt/config) form the whole package surface.
- */
 export const agent: AgentDefinition = defineAgent();
 
 export function defineAgent(): AgentDefinition {
   return coreDefineAgent({
     id: "artist",
     systemPrompt: systemPrompt.build(),
-    tools: [], // tool mounting is consumer/app-side; surface enforced by drift-guard
+    tools: [],
     capabilities: [],
     inference: {
       sources: [{ provider: "openai", model: "gpt-5" }],

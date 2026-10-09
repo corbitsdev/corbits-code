@@ -1,7 +1,3 @@
-// Artist worker: visual asset specialist.
-// Hand-crafts SVGs, visual diagrams (Mermaid, ASCII art), and structured
-// generative graphic prompts for image generation models.
-
 const ARTIST_TOOLS = [
   "read_file",
   "grep",

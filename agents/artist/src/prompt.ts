@@ -1,5 +1,4 @@
-// Artist raw director card. Byte-stable, single authority — the app formats
-// the identity header via formatDirectorSystemPrompt, never this file.
+// The app formats the identity header via formatDirectorSystemPrompt.
 
 const CARD = `You are ArtistDirector (Artist), a specialist in Corbits Code.
 
@@ -30,10 +29,6 @@ Workflow:
 
 OUT OF LANE: non-visual code implementation, backend logic, code defect review, fleet orchestration.`;
 
-/**
- * Byte-stable system prompt builder. `theme` is the stable voice identifier;
- * `build()` returns the identical raw card on every call (no env/interpolation).
- */
 export const systemPrompt = {
   theme: "artist",
   build: (): string => CARD,
