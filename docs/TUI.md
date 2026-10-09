@@ -693,7 +693,9 @@ nearest the prompt, first selected — stay visible, and a guidance row naming
 its keys (`pending-column.ts`, painted by `syncPendingRows` in `chrome.ts`).
 The transcript only ever sees the item that actually delivers, as an ordinary
 user row — pending/delivery labels (`[will steer next]`, `[steering]`,
-`[following up]`) are gone on purpose.
+`[following up]`) are gone on purpose. After a first Ctrl+C pause the column
+is the durable surface: held items stay pending and deliver only on the next
+explicit operator send.
 
 While the column has items, `↑` at the prompt buffer's top edge selects the
 newest held item and `↑`/`↓` walk the rows; `↓` past the last row hands the
@@ -736,26 +738,26 @@ as id/status/description only. The mail and that fleet-dry continuation
 are runtime-to-agent traffic — the fleet board owns worker status — so
 neither paints a transcript row, and neither rehydrates as one.
 
-Interrupting (Ctrl+C) never discards a queued or steered message. It used to
-— the transcript literally said `interrupt — discarded N pending`, and an
-operator who queued an instruction and then lost patience destroyed the very
-thing they were trying to deliver. It now reports `interrupt — N pending
-kept`: the run stops, the queue survives, and those messages are handed over
-at the interrupt itself (`doInterrupt` drains after `port.interrupt()`), not
-left waiting on an idle event the stop may never produce (`interrupt` in
-`delivery-queue.ts` no longer clears `items`).
+Interrupting (Ctrl+C) never discards a queued or steered message. The first
+press is a pause: it stops the primary, holds the queue, and reports
+`N pending kept` (`interrupt` in `delivery-queue.ts` does not clear `items`).
+Held items stay in the pending column and deliver only on the next explicit
+operator send. Stall and expire aborts do not pause, so they still drain.
+Occupancy and ask-wake do not start a new primary while paused. A compaction
+continuation is dropped on operator pause (`abortCompaction`); it is not held
+and does not auto-resume.
 
 **Fleet agent lanes on redirect.** Soft steer (Enter mid-run) and follow-up
 (queued drain) leave running workers alone — they never call
 `runner.ts`'s `interrupt()`, so the parent's operation signal stays live and
-spawned workers keep running. Ctrl+C is the explicit fleet teardown:
-`doInterrupt` → `port.interrupt()` → `currentAgent.close()` aborts the shared
-operation signal and routes cancellation through the fleet/session-store
-teardown path, so in-flight fleet-agent dispatch reports back as cancelled by
-the operator rather than being left to finish silently detached. `/clear` and
+spawned workers keep running. The first Ctrl+C pauses the parent and does not
+tear down the fleet. A second press while workers are live stops those workers
+(`cancelLiveWorkers`); the app stays up and the held queue is kept. A third
+press quits. With no live workers, the second press still quits. `/clear` and
 session exit still call `subAgentSessions.cancelAll` for an explicit
 session-wide cancel; that path is separate from interrupt and must stay off
-the soft-steer / follow-up gestures.
+the soft-steer / follow-up gestures. Quit still full-teardowns, including
+wiping the delivery queue.
 
 Up/Down are caret motion first inside a multi-line buffer — except while the
 pending column is engaged, when ↑ at the buffer's top edge selects a held item
@@ -813,21 +815,19 @@ The prompt repaints on every keystroke (`onFrame` in `src/tui/shell/index.ts` ca
 not on a debounce) — anything added to the prompt's paint path must stay
 cheap, because it runs at typing speed.
 
-Ctrl+C interrupts a busy run, or clears idle prompt text and pending
+Ctrl+C pauses a busy run (stop the primary, hold the queue, stay idle until
+an explicit operator send), or clears idle prompt text and pending
 attachments. Clearing prompt text arms a 2-second quit window
-(`CTRL_C_EXIT_WINDOW_MS`); clearing attachments alone does not. A second
-Ctrl+C while the window is open quits — this
-replaced an Ink-era yes/no exit-confirm modal with the same intent (an
-explicit second confirmation) without adding a modal (`handleCtrlC`,
-`src/tui/shell/prompt.ts`). See "Soft steer vs. follow-up" above for the two
-mid-run gestures and what interrupting does to fleet-agent lanes. The interrupt
-keeps whatever is sitting in the queue rather than discarding it — the
-operator typed those messages meaning them delivered, not meaning "cancel
-this run and also throw away what I typed"; the transcript row says so
-(`"N pending kept"`). Kept items are handed over at the
-interrupt itself (`doInterrupt` in `runtime-bridge.ts` drains after
-`port.interrupt()`), serialized behind the agent rebuild the stop starts —
-a stop does not reliably produce an idle event to drain against later.
+(`CTRL_C_EXIT_WINDOW_MS`); clearing attachments alone does not. With live
+sub-agents, a second Ctrl+C in the window stops the workers and keeps the
+app up (queue kept); a third quits. With no live workers, the second press
+still quits. The extra press is the confirmation, with no modal
+(`handleCtrlC`, `src/tui/shell/keys.ts`). See "Soft steer vs. follow-up"
+above for the two mid-run gestures and what interrupting does to
+fleet-agent lanes. The pause keeps whatever is sitting in the queue rather
+than discarding it — the transcript row says so (`"N pending kept"`). Held
+items deliver only on the next explicit send; occupancy and ask-wake do
+not start a new primary while paused.
 
 ## Overflows, scrolling, and key macros
 
