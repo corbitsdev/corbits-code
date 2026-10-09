@@ -1,6 +1,5 @@
-// Designer config — uniform `{ spawn, tier, modelRole }` shape (§5).
-// designer is a leaf worker: maySpawn false, no allowlist.
-// modelRole is "implement" (matches the in-tree card).
+// Designer is a leaf worker: maySpawn false, no allowlist. modelRole is
+// "implement" (matches the in-tree card).
 export const config = {
   spawn: {
     maySpawn: false,
