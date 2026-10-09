@@ -47,12 +47,12 @@ describe("deepseek-v4 adapter effort wiring", () => {
     expect("reasoning_effort" in body).toBe(false);
   });
 
-  test("off-ladder effort is left untouched (no high→xhigh coercion)", () => {
-    const body = bodyFor({
-      providerOptions: { reasoning_effort: "high" },
-    } as InferenceOptions);
-    expect(body["reasoning_effort"]).toBe("high");
-    expect("chat_template_kwargs" in body).toBe(false);
+  test("off-ladder effort is rejected (no pass-through to the wire)", () => {
+    expect(() =>
+      bodyFor({
+        providerOptions: { reasoning_effort: "high" },
+      } as InferenceOptions),
+    ).toThrow(/does not support reasoning effort "high"/);
   });
 
   test("unset effort does not inject empty chat_template_kwargs", () => {
@@ -222,5 +222,30 @@ describe("deepseek-v4 adapter byte-identical to base for non-V4", () => {
     const baseBody = JSON.parse(baseBuilt.body) as Record<string, unknown>;
     const body = JSON.parse(built.body) as Record<string, unknown>;
     expect(body).toEqual(baseBody);
+  });
+
+  test("pre-V4 deepseek gets no V4 quirks (family route, V4-variant gate)", () => {
+    const baseAdapter = createOpenAICompatibleAdapter({
+      ...source,
+      model: "deepseek-v3",
+    } as typeof source);
+    const baseBuilt = baseAdapter.buildRequest(messages, "deepseek-v3", {
+      providerOptions: { reasoning_effort: "none" },
+    } as InferenceOptions);
+
+    const adapter = createDeepSeekV4Adapter({
+      ...source,
+      model: "deepseek-v3",
+    } as typeof source);
+    const built = adapter.buildRequest(messages, "deepseek-v3", {
+      providerOptions: { reasoning_effort: "none" },
+    } as InferenceOptions);
+
+    const baseBody = JSON.parse(baseBuilt.body) as Record<string, unknown>;
+    const body = JSON.parse(built.body) as Record<string, unknown>;
+    expect(body).toEqual(baseBody);
+    expect("top_p" in body).toBe(false);
+    expect("temperature" in body).toBe(false);
+    expect("stream_options" in body).toBe(false);
   });
 });

@@ -2,15 +2,15 @@ import type { ReasoningEffort } from "../agent/profile-types.js";
 import type { DirectorId } from "../agent/directors/types.js";
 
 /**
- * Per-role V4 effort defaults. coder is the cheapest spawn: 'low' clamps to
- * the V4 'none' wire rung (thinking off), per the operator's "simplest
- * implementer = none" intent. Every other role takes its rung from the map.
+ * Per-role V4 effort defaults. dispatch/planner/reviewer dispatch and judge —
+ * max. coder defaults to max (operator-confirmed). Every other leaf reasons at
+ * xhigh.
  */
 export const DEEPSEEK_V4_ROLE_EFFORT: Record<DirectorId, ReasoningEffort> = {
   dispatch: "max",
   planner: "max",
   reviewer: "max",
-  coder: "low",
+  coder: "max",
   explorer: "xhigh",
   artist: "xhigh",
   "qa-lead": "xhigh",
@@ -20,13 +20,23 @@ export const DEEPSEEK_V4_ROLE_EFFORT: Record<DirectorId, ReasoningEffort> = {
   warden: "xhigh",
 };
 
-// DeepSeek V4 effort translator shared by the adapter and the effort picker.
-// V4 ships under several ids across two catalogs — deepseek-v4-pro/-flash/
-// -flash-vision-exp — and under a vendor-qualified host id like
-// deepseek-ai/DeepSeek-V4-Flash-0731. Match the `deepseek-v4` segment at the
-// start or after a `/`, so both bare and qualified ids resolve while pre-V4
-// ids (deepseek-coder, deepseek-chat) do not. This mirrors the grok/kimi/astra
-// leaf predicates, which also accept an org-qualified segment.
+// DeepSeek family predicate shared by the adapter router and the family policy.
+// The family ships under several ids across two catalogs — deepseek-v4-pro/
+// -flash/-flash-vision-exp and deepseek-chat/deepseek-coder/deepseek-v3 — and
+// under a vendor-qualified host id like deepseek-ai/DeepSeek-V4-Flash-0731.
+// Match the `deepseek` segment at the start or after a `/`, so both bare and
+// qualified ids resolve across the whole family (including future versions).
+// This mirrors the grok/kimi/astra leaf predicates, which also accept an
+// org-qualified segment.
+export function isDeepSeekModel(model: string): boolean {
+  return /(^|\/)deepseek/i.test(model.trim());
+}
+
+// V4-variant detection: distinguishes the V4 model line from pre-V4 DeepSeek
+// (deepseek-chat, deepseek-coder, deepseek-v3). Only where the wire semantics
+// genuinely differ between V4 and pre-V4 deepseek — the V4 adapter's model-card
+// and effort quirks, the reasoning_content keep-vs-strip behavior, and the
+// none/xhigh/max effort ladder — do callers gate on this variant predicate.
 export function isDeepSeekV4Model(model: string): boolean {
   return /(^|\/)deepseek-v4/i.test(model.trim());
 }
@@ -43,15 +53,17 @@ export const DEEPSEEK_V4_EFFORTS: readonly ReasoningEffort[] = [
 /**
  * Translate a V4 effort to its raw wire value: `xhigh`/`max` pass through
  * verbatim, `none` maps to null (the caller drops `reasoning_effort`, since
- * `reasoning_effort:"none"` is illegal on the wire). Off-ladder values return
- * undefined — the caller leaves `reasoning_effort` untouched rather than
- * coercing it onto a V4 rung.
+ * `reasoning_effort:"none"` is illegal on the wire). The V4 ladder is strictly
+ * none/xhigh/max: any off-ladder effort arriving on a manual/exec/config path
+ * is rejected with a clear error rather than coerced or passed through, so no
+ * off-ladder value can reach the wire for a V4 model.
  */
-export function mapV4Effort(
-  effort: ReasoningEffort,
-): "xhigh" | "max" | null | undefined {
+export function mapV4Effort(effort: ReasoningEffort): "xhigh" | "max" | null {
   if (effort === "none") return null;
-  return effort === "xhigh" || effort === "max" ? effort : undefined;
+  if (effort === "xhigh" || effort === "max") return effort;
+  throw new Error(
+    `DeepSeek V4 does not support reasoning effort "${effort}" (supported: none, xhigh, max).`,
+  );
 }
 
 /**

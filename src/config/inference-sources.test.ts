@@ -814,12 +814,15 @@ describe("deepseek-v4 provider stamping (PR A)", () => {
     );
   }
 
-  test("a deepseek-v4-* model stamps provider 'deepseek-v4'", () => {
+  test("a deepseek-* model stamps provider 'deepseek-v4' (family routing)", () => {
     const source = v4SourceFor("deepseek-v4-pro");
     expect(source?.provider).toBe("deepseek-v4");
+
+    const preV4 = v4SourceFor("deepseek-v3");
+    expect(preV4?.provider).toBe("deepseek-v4");
   });
 
-  test("non-V4 custom models stay provider 'openai-compatible'", () => {
+  test("non-deepseek custom models stay provider 'openai-compatible'", () => {
     const source = v4SourceFor("gpt-5");
     expect(source?.provider).toBe("openai-compatible");
   });
