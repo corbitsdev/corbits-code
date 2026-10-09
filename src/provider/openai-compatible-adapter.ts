@@ -45,17 +45,12 @@ export function createOpenAICompatibleAdapter(
     const providerOptions = options.providerOptions;
     const hasProviderOptions =
       providerOptions !== undefined && Object.keys(providerOptions).length > 0;
-    // DeepSeek's hosted API historically returned HTTP 400 if
-    // `reasoning_content` appeared in input messages, whereas the base adapter
-    // emits it for any model with thinking enabled. DeepSeek V4 Flash is the
-    // exception: its encoder keeps every turn's reasoning when tools are
-    // present, so stripping it renders each prior tool turn as an empty
-    // thinking response and the model copies that and stops thinking.
+    // Earlier DeepSeek models 400 on `reasoning_content` in input messages;
+    // V4 Flash keeps it because its encoder preserves each turn's thinking.
     const v4Flash = isDeepSeekV4Flash(model);
     const stripReasoning = model.toLowerCase().includes("deepseek") && !v4Flash;
     needsDeepSeekPatch = model.toLowerCase().includes("deepseek");
-    const v4FlashParams = v4Flash;
-    if (!hasProviderOptions && !stripReasoning && !v4FlashParams)
+    if (!hasProviderOptions && !stripReasoning && !v4Flash)
       return ensureAccept(built);
 
     const body = JSON.parse(built.body) as Record<string, unknown>;
@@ -66,7 +61,7 @@ export function createOpenAICompatibleAdapter(
           delete (msg as Record<string, unknown>)["reasoning_content"];
       }
     }
-    if (v4FlashParams) applyDeepSeekV4FlashParams(body);
+    if (v4Flash) applyDeepSeekV4FlashParams(body);
     const merged: BuiltRequest = { ...built, body: JSON.stringify(body) };
     return ensureAccept(merged);
   };
@@ -82,7 +77,7 @@ export function createOpenAICompatibleAdapter(
   return { ...base, buildRequest, parseResponse };
 }
 
-/** DeepSeek V4 Flash on any OpenAI-compatible host (SGLang, vLLM, gateway). */
+/** True for DeepSeek V4 Flash on any OpenAI-compatible host. */
 export function isDeepSeekV4Flash(model: string): boolean {
   return /(^|\/)deepseek-v4-flash/i.test(model.trim());
 }
@@ -99,16 +94,7 @@ const DSV4_EFFORT: Record<string, "low" | "high" | "max"> = {
   max: "max",
 };
 
-/**
- * Wire shape the DeepSeek V4 Flash model card asks for, applied to an
- * already-built Chat Completions body:
- * - thinking is driven by `chat_template_kwargs.thinking` (SGLang and vLLM
- *   both read it); `reasoning_effort` "none"/"off" or absent means chat mode.
- * - effort folds onto low/high/max.
- * - thinking mode samples at temperature 1.0 / top_p 0.95 (agentic); an
- *   explicitly configured temperature/top_p still wins.
- * - stream usage is requested so token counts are observable.
- */
+/** Apply the DeepSeek V4 Flash wire shape to an already-built chat body. */
 export function applyDeepSeekV4FlashParams(
   body: Record<string, unknown>,
 ): void {

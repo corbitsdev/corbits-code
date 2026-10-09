@@ -84,10 +84,8 @@ export function isGptProvider(input: {
 }
 
 /**
- * True when the model id is DeepSeek V4 Flash (any provider: self-hosted
- * SGLang/vLLM or a gateway). Scoped to the Flash cell on purpose: the
- * residual it unlocks was tuned against that model only, so other DeepSeek
- * ids keep the default policy.
+ * True when the model id is DeepSeek V4 Flash (any provider). Scoped to the
+ * Flash cell only: the residual it unlocks was tuned against that model.
  */
 export function isDeepSeekV4FlashProvider(input: {
   providerName: string;
