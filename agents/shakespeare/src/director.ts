@@ -2,10 +2,6 @@ import { tools } from "./toolset.js";
 import { systemPrompt } from "./prompt.js";
 import { config } from "./config.js";
 
-/**
- * Shakespeare worker director card (CL-7029). Structurally satisfies the app's
- * `DirectorPackage` (app-side drift-guard asserts assignability). App-independent.
- */
 export const director = {
   id: "shakespeare",
   primaryIntent: "Maintain product, architecture, and implementation docs",
