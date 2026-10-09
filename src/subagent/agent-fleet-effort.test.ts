@@ -352,7 +352,7 @@ describe("custom worker efforts", () => {
   });
 });
 
-describe("deepseek-v4 coder=low bake-in (CL-10242)", () => {
+describe("deepseek-v4 per-role effort policy (CL-10294)", () => {
   const dsv4: ProviderCatalogEntry = {
     name: "dsv4",
     baseURL: "https://dsv4.example/v1",
@@ -390,13 +390,98 @@ describe("deepseek-v4 coder=low bake-in (CL-10242)", () => {
     return worker.provider.reasoningEffort as ReasoningEffort;
   }
 
-  test("coder pins low on the wire while reviewer/explorer keep their role defaults", async () => {
-    // V4's native ladder is ["none","xhigh","max"] — the requested low coder
-    // pin clamps to its lowest rung (none), while unstubbed reviewer/explorer
-    // leaves resolve their medium role default up to xhigh. The assertion is
-    // that coder is the cheapest spawn; the others are not pinned.
+  test("planner/reviewer max, coder cheapest, other leaves xhigh", async () => {
+    // V4's native ladder is ["none","xhigh","max"]. coder's low clamps to the
+    // cheapest wire rung (none, thinking off) per the operator's "simplest
+    // implementer = none" intent; planner/reviewer resolve max. dispatch is the
+    // primary session (not a spawned worker) and already defaults to max for
+    // V4 via defaultEffortForModel.
+    expect(await captureEffort("planner")).toBe("max");
+    expect(await captureEffort("reviewer")).toBe("max");
     expect(await captureEffort("coder")).toBe("none");
-    expect(await captureEffort("reviewer")).toBe("xhigh");
     expect(await captureEffort("explorer")).toBe("xhigh");
+    expect(await captureEffort("artist")).toBe("xhigh");
+    expect(await captureEffort("qa-lead")).toBe("xhigh");
+    expect(await captureEffort("prober")).toBe("xhigh");
+    expect(await captureEffort("designer")).toBe("xhigh");
+    expect(await captureEffort("shakespeare")).toBe("xhigh");
+    expect(await captureEffort("warden")).toBe("xhigh");
+  });
+
+  test("an explicit profile effortPin outranks the V4 role table", async () => {
+    let worker: RunSubAgentParams | undefined;
+    const deps = createFleetDeps(
+      async (params) => {
+        worker = params;
+        return { report: "done" };
+      },
+      {
+        settings: { providers: { dsv4 } },
+        catalog: [dsv4],
+        profiles: [
+          {
+            id: "pinned-coder",
+            inference: {
+              mode: "pin",
+              order: [
+                {
+                  provider: dsv4.name,
+                  model: "deepseek-v4-flash",
+                  reasoningEffort: "max",
+                },
+              ],
+            },
+          },
+        ],
+      },
+    );
+    deps.provider = {
+      providerName: dsv4.name,
+      baseURL: dsv4.baseURL,
+      model: "deepseek-v4-flash",
+    };
+    const result = await callFleetToolRaw(createSpawnAgentTool(deps), {
+      description: "inspect",
+      prompt: "inspect",
+      agent: "pinned-coder",
+    });
+    expect(result.isError).not.toBe(true);
+    await callFleetToolRaw(fleetTools(deps).wait, { timeout_ms: 2000 });
+    if (worker === undefined) throw new Error("worker did not start");
+    expect(worker.provider.reasoningEffort).toBe("max");
+  });
+
+  test("non-V4 roles are untouched by the V4 table", async () => {
+    // A non-V4 model spawns the same director without any V4 role pin — the
+    // leaf role default (medium, here clamped to the custom ladder's low) wins.
+    let worker: RunSubAgentParams | undefined;
+    const nonV4: ProviderCatalogEntry = {
+      name: "plain",
+      baseURL: "https://plain.example/v1",
+      keyless: true,
+      models: ["plain-model"],
+      reasoningEfforts: ["low", "max"],
+    };
+    const deps = createFleetDeps(
+      async (params) => {
+        worker = params;
+        return { report: "done" };
+      },
+      { settings: { providers: { plain: nonV4 } }, catalog: [nonV4] },
+    );
+    deps.provider = {
+      providerName: nonV4.name,
+      baseURL: nonV4.baseURL,
+      model: "plain-model",
+    };
+    const result = await callFleetToolRaw(createSpawnAgentTool(deps), {
+      description: "inspect",
+      prompt: "inspect",
+      intent: "explore",
+    });
+    expect(result.isError).not.toBe(true);
+    await callFleetToolRaw(fleetTools(deps).wait, { timeout_ms: 2000 });
+    if (worker === undefined) throw new Error("worker did not start");
+    expect(worker.provider.reasoningEffort).toBe("low");
   });
 });
