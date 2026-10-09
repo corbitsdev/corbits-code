@@ -334,6 +334,34 @@ describe("CL-9469 unbounded-root predicate", () => {
       );
     }
   });
+  // A `..` after the first `**` is never collapsed: hasLiteralBefore only folds
+  // the prefix *before* the first `**`, so a `..` in unanchored recursive
+  // descent does not pop the pin. And because rg is cwd-anchored, `a/**/../**`
+  // descends from `a` and steps back up a relative level — it cannot escape the
+  // workspace root (there is no `..` above the anchor), so it stays a bounded
+  // subtree walk of `a`.
+  test("interior `..` after the pin is a bounded cwd-anchored descent", () => {
+    for (const pattern of [
+      "a/**/../**",
+      "src/**/../**",
+      "sub/**/../**/*.ts",
+      "docs/**/../**",
+      "a/src/**/../**",
+      "a/**/../src/**",
+    ]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        false,
+      );
+    }
+    // An all-wildcard pin followed by `..` leaves no name to anchor, so it is
+    // still an unbounded root walk; a `../../` that folds the prefix to the
+    // root is refused (already covered as "collapse to the root").
+    for (const pattern of ["*/**/../**", "a/src/../../**"]) {
+      expect(isUnboundedRootSearch({ path: undefined, pattern, cwd })).toBe(
+        true,
+      );
+    }
+  });
   test("refusal message carries scope guidance and never reads as a timeout", () => {
     const message = formatUnboundedSearchMessage("search_files", "**/*.ts");
     expect(message).toContain("narrow `path`");
