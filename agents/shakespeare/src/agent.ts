@@ -4,10 +4,6 @@ import {
 } from "@intx/agent";
 import { systemPrompt } from "./prompt.js";
 
-/**
- * Shakespeare ready agent — `agent = defineAgent()` plus the named component
- * parts (director/tools/systemPrompt/config) form the whole package surface.
- */
 export const agent: AgentDefinition = defineAgent();
 
 export function defineAgent(): AgentDefinition {
