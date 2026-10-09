@@ -1084,6 +1084,37 @@ describe("operator.gate auto-cancel", () => {
   });
 });
 
+describe("permission/operator gate with no timeout waits indefinitely", () => {
+  test("an unanswered permission gate with no timeoutMs never auto-denies", async () => {
+    await withGates(async ({ shell, emitter }) => {
+      const settled = settleCapture();
+      emitPermission(emitter, { resolve: settled.resolve });
+      expect(shell.overlayKind).toBe("permissions");
+
+      // No timeoutMs was provided, so no auto-deny timer may be armed.
+      // After a long wait the gate must still be open and unresolved.
+      await new Promise((r) => setTimeout(r, 50));
+      expect(settled.get()).toBeUndefined();
+      expect(shell.overlayKind).toBe("permissions");
+    });
+  });
+
+  test("an unanswered operator gate with no timeoutMs never auto-cancels", async () => {
+    await withGates(async ({ shell, emitter }) => {
+      const settled = settleCapture();
+      emitOperator(emitter, {
+        options: ["Yes", "No"],
+        resolve: settled.resolve,
+      });
+      expect(shell.overlayKind).toBe("operator");
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(settled.get()).toBeUndefined();
+      expect(shell.overlayKind).toBe("operator");
+    });
+  });
+});
+
 describe("Esc on a gate overlay settles the awaited promise", () => {
   test("permission.gate: Esc denies instead of abandoning the promise", async () => {
     await withGates(async ({ shell, emitter }) => {

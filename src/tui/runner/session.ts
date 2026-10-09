@@ -61,7 +61,9 @@ import type { CompactionArchive } from "../../session/compaction-archive.js";
 import { tryReadPriorHandoffFile } from "../../session/compaction-handoff.js";
 import {
   createApprovalResume,
+  createSuspendedApprovalRecovery,
   resolveParkedCallIdFromStore,
+  type SuspendedApprovalRecovery,
 } from "../../session/approval-resume.js";
 import { createReactorAuthorize } from "../../permission/reactor-authorize.js";
 import {
@@ -70,6 +72,7 @@ import {
   createSessionPruningCompactor,
   loadSessionChatPrompt,
   skillDirsFromEnabledPlugins,
+  type SubAgentSourcesConfig,
 } from "../../session/runtime-assembly.js";
 import {
   createModelSummarizer,
@@ -185,7 +188,9 @@ export async function assembleTUISession(
   const correlationAcceptance = createCorrelationAcceptance();
   const parkedApprovalCancel = { fn: undefined as (() => void) | undefined };
   const parkedOverlay = createParkedOverlayAbortBinding();
+  let suspendedApprovalRecovery: SuspendedApprovalRecovery | undefined;
   const deliveryGeneration = createDeliveryGeneration(() => {
+    suspendedApprovalRecovery?.clear();
     parkedApprovalCancel.fn?.();
     correlationAcceptance.settleAll();
   });
@@ -223,7 +228,12 @@ export async function assembleTUISession(
   // live config binding on every spawn, so every switch path that reassigns
   // config (model picker, /agent, post-connect refresh) is picked up without
   // a separate cache to keep in sync.
-  const liveSubAgent = createLiveSubAgentSources(() => state.config);
+  const liveSubAgent = createLiveSubAgentSources((): SubAgentSourcesConfig => ({
+    ...state.config,
+    ...(state.config.reasoningEffort !== undefined
+      ? { explicitReasoningEffort: true }
+      : {}),
+  }));
 
   // Dedicated child-session records for enter-session inspection. Child events
   // land here only — never in the parent chat transcript.
@@ -550,6 +560,10 @@ export async function assembleTUISession(
     cwd: config.cwd,
     extraDeniedPaths: [config.globalSettingsPath],
   });
+  suspendedApprovalRecovery = createSuspendedApprovalRecovery({
+    storage: () => state.currentStorage ?? undefined,
+    resume: approvalResume,
+  });
   state.enqueueAgentDeliver = (
     deliverToLiveAgent: () => void,
     onSettle?: (result: AgentDeliveryResult) => void,
@@ -788,6 +802,7 @@ export async function assembleTUISession(
     inferenceDeps: start.inferenceDeps,
     permissionGate,
     approvalResume,
+    suspendedApprovalRecovery,
     permissionsAdmin,
     liveSubAgent,
     subAgentSessions,

@@ -714,7 +714,12 @@ export async function runExec(config: Config): Promise<ExecResult> {
     });
 
     const liveSubAgentProvider: { current: SubAgentProvider } = {
-      current: buildSubAgentProvider(config),
+      current: buildSubAgentProvider({
+        ...config,
+        ...(config.reasoningEffort !== undefined
+          ? { explicitReasoningEffort: true }
+          : {}),
+      }),
     };
     const fleetSessions = createSubAgentSessionStore({
       admission: getProcessAdmissionQueue(),

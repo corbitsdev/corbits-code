@@ -17,10 +17,13 @@ import { createExtraDeniedPathMatcher } from "../plugins/secret-guard-plugin.js"
 import {
   APPROVAL_DROPPED_NOTICE,
   createApprovalResume,
+  createSuspendedApprovalRecovery,
   requestFromApprovalSnapshot,
   resolveParkedCallIdFromStore,
+  resolveSuspendedApprovalFromStore,
 } from "./approval-resume.js";
 import { createSessionOperationQueue } from "../tui/delivery-queue.js";
+import { defined } from "../../testkit/defined.js";
 import {
   approvalTimeoutTurn as timeoutTurn,
   assistantToolCallTurn as assistantTurn,
@@ -419,6 +422,12 @@ const operation: PendingOperation = {
     name: "run_shell",
     arguments: { command: "echo same" },
   },
+  approvalSnapshot: {
+    name: "run_shell",
+    description: "run shell",
+    inputSchema: {},
+    arguments: { command: "echo same" },
+  },
 };
 
 describe("persisted approval identity", () => {
@@ -448,6 +457,301 @@ describe("persisted approval identity", () => {
         "corr-A",
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("persisted suspended approval proof", () => {
+  test("requires an exact persisted snapshot and parked call", async () => {
+    const result = suspension("corr-A", "echo same");
+    expect(
+      await resolveSuspendedApprovalFromStore(storeWith([operation]), result),
+    ).toEqual({
+      ok: true,
+      parkedCallId: "call-A",
+    });
+
+    const mismatch: PendingOperation = {
+      ...operation,
+      approvalSnapshot: {
+        name: "run_shell",
+        description: "run shell",
+        inputSchema: {},
+        arguments: { command: "secret" },
+      },
+    };
+    expect(
+      await resolveSuspendedApprovalFromStore(storeWith([mismatch]), result),
+    ).toEqual({ ok: false, code: "snapshot-mismatch" });
+    expect(
+      await resolveSuspendedApprovalFromStore(
+        storeWith([operation, operation]),
+        result,
+      ),
+    ).toEqual({ ok: false, code: "ambiguous-pending" });
+  });
+});
+
+describe("suspended approval recovery", () => {
+  const gateEvent = {
+    reason: "approval",
+    correlationId: "corr-A",
+    approvalSnapshot: shellSnapshot("echo same"),
+  } as const;
+  const parkedTurns = (): ConversationTurn[] => [
+    assistantTurn([{ id: "call-A", name: "run_shell", command: "echo same" }]),
+  ];
+
+  // The real approval handler over a fake agent and a gate the test controls,
+  // so statuses and deliveries come from production code, not mocks.
+  function recovery(
+    args: {
+      turns?: ConversationTurn[];
+      pending?: PendingOperation[];
+      gate?: "deferred" | "allow";
+    } = {},
+  ) {
+    const harness = createApprovalResumeHarness({
+      turns: args.turns ?? parkedTurns(),
+    });
+    let agentLive = true;
+    let gateCalls = 0;
+    let release!: (outcome: { allow: boolean }) => void;
+    const gate = {
+      resolveSuspended: async () => {
+        gateCalls += 1;
+        if (args.gate === "allow") return { allow: true };
+        return await new Promise<{ allow: boolean }>((resolve) => {
+          release = resolve;
+        });
+      },
+    } as unknown as PermissionGate;
+    const resume = createApprovalResume({
+      getAgent: () =>
+        (agentLive ? harness.agent : undefined) as unknown as Agent,
+      gate,
+      resolveParkedCallId: (correlationId) =>
+        correlationId === "corr-A" ? "call-A" : undefined,
+    });
+    const recoveryHandle = createSuspendedApprovalRecovery({
+      storage: () => storeWith(args.pending ?? [operation]),
+      resume,
+    });
+    return {
+      resume,
+      recovery: recoveryHandle,
+      delivered: harness.delivered,
+      gateCalls: () => gateCalls,
+      release: (allow = true) => release({ allow }),
+      setAgentLive: (live: boolean) => {
+        agentLive = live;
+      },
+    };
+  }
+  const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+  const result = suspension("corr-A", "echo same");
+
+  test("a gate parked outside a send reaches the operator and delivers their decision", async () => {
+    const t = recovery();
+    t.recovery.observeParked(gateEvent, () => true);
+    await flush();
+
+    expect(t.gateCalls()).toBe(1);
+    expect(t.resume.status("corr-A")).toBe("in-flight");
+    t.release(true);
+    await flush();
+
+    expect(t.resume.status("corr-A")).toBe("handed-over");
+    expect(t.delivered).toHaveLength(1);
+    const message = defined(t.delivered[0]);
+    expect(deliveredCorrelationId(message)).toBe("corr-A");
+    expect(decisionBody(message).outcome).toBe("approved");
+    // Settled, so nothing is left for the watchdog to re-present.
+    expect((await t.recovery.tryResumeOnce()).code).toBe("no-candidate");
+  });
+
+  test("a declined decision is delivered as declined and never as approved", async () => {
+    const t = recovery();
+    t.recovery.observeParked(gateEvent, () => true);
+    await flush();
+    t.release(false);
+    await flush();
+
+    expect(t.delivered.map((m) => decisionBody(m).outcome)).toEqual([
+      "rejected",
+    ]);
+  });
+
+  test.each([
+    ["a non-approval gate", { ...gateEvent, reason: "input" }],
+    ["a gate with no correlation", { ...gateEvent, correlationId: undefined }],
+    ["a gate with no snapshot", { ...gateEvent, approvalSnapshot: undefined }],
+  ])("ignores %s", async (_name, event) => {
+    const t = recovery({ gate: "allow" });
+    t.recovery.observeParked(event, () => true);
+    await flush();
+
+    expect(t.gateCalls()).toBe(0);
+    expect(t.delivered).toEqual([]);
+  });
+
+  test("shares one presentation with a send that already owns the suspension", async () => {
+    const t = recovery();
+    const fromSend = t.resume.handle(result);
+    await flush();
+    t.recovery.observeParked(gateEvent, () => true);
+    await flush();
+
+    expect(t.gateCalls()).toBe(1);
+    t.release(true);
+    await fromSend;
+    expect(t.delivered).toHaveLength(1);
+  });
+
+  test("re-presents a parked approval whose first presentation failed", async () => {
+    const t = recovery({ gate: "allow" });
+    t.setAgentLive(false);
+    t.recovery.observeParked(gateEvent, () => true);
+    await flush();
+    expect(t.gateCalls()).toBe(0);
+    expect(t.resume.status("corr-A")).toBe("idle");
+
+    t.setAgentLive(true);
+    let presenting = 0;
+    const outcome = await t.recovery.tryResumeOnce(() => {
+      presenting += 1;
+    });
+
+    expect(outcome).toEqual({ handled: true, code: "resumed" });
+    expect(presenting).toBe(1);
+    expect(t.delivered).toHaveLength(1);
+    expect(decisionBody(defined(t.delivered[0])).outcome).toBe("approved");
+    // One attempt per capture, and the resume cleared its candidate.
+    expect((await t.recovery.tryResumeOnce()).handled).toBe(false);
+    expect(t.delivered).toHaveLength(1);
+  });
+
+  test("never re-presents over an in-flight presentation", async () => {
+    const t = recovery();
+    t.recovery.capture(result, () => true);
+    const first = t.resume.handle(result);
+    await flush();
+
+    const outcome = await t.recovery.tryResumeOnce();
+    expect(outcome).toEqual({ handled: false, code: "settlement-in-flight" });
+    expect(t.gateCalls()).toBe(1);
+    t.release(true);
+    await first;
+  });
+
+  test("never re-delivers a decision that was already handed over", async () => {
+    const t = recovery({ gate: "allow" });
+    t.recovery.capture(result, () => true);
+    await t.resume.handle(result);
+    expect(t.delivered).toHaveLength(1);
+
+    const outcome = await t.recovery.tryResumeOnce();
+    expect(outcome).toEqual({ handled: false, code: "settlement-handed-over" });
+    expect(t.delivered).toHaveLength(1);
+  });
+
+  test("a rejected parked call is never re-presented after handedOver", async () => {
+    const t = recovery();
+    t.recovery.capture(result, () => true);
+    const pending = t.resume.handle(result);
+    await flush();
+    expect(t.gateCalls()).toBe(1);
+
+    // The operator declines; the rejected decision is delivered and handed over.
+    t.release(false);
+    await pending;
+    expect(t.resume.status("corr-A")).toBe("handed-over");
+    expect(t.delivered.map((m) => decisionBody(m).outcome)).toEqual([
+      "rejected",
+    ]);
+
+    // A later watchdog attempt refuses rather than re-presenting or re-delivering.
+    const outcome = await t.recovery.tryResumeOnce();
+    expect(outcome).toEqual({ handled: false, code: "settlement-handed-over" });
+    expect(t.gateCalls()).toBe(1);
+    expect(t.delivered).toHaveLength(1);
+
+    // A later observeParked of the same gate is likewise a no-op: the decision
+    // was handed over, so the operator is never asked again.
+    t.recovery.observeParked(gateEvent, () => true);
+    await flush();
+    expect(t.gateCalls()).toBe(1);
+    expect(t.delivered).toHaveLength(1);
+    expect(t.resume.status("corr-A")).toBe("handed-over");
+  });
+
+  test("does not count a dropped decision as resumed", async () => {
+    const t = recovery({
+      gate: "allow",
+      turns: [...parkedTurns(), timeoutTurn("call-A")],
+    });
+    t.recovery.capture(result, () => true);
+
+    const outcome = await t.recovery.tryResumeOnce();
+    expect(outcome).toEqual({ handled: false, code: "not-delivered" });
+    expect(t.delivered).toEqual([]);
+  });
+
+  test("reports why an unproven approval was refused, without payload", async () => {
+    const missing = recovery({ gate: "allow", pending: [] });
+    missing.recovery.capture(result, () => true);
+    expect(await missing.recovery.tryResumeOnce()).toEqual({
+      handled: false,
+      code: "unverified-not-pending",
+    });
+
+    const mismatch = recovery({
+      gate: "allow",
+      pending: [
+        {
+          ...operation,
+          approvalSnapshot: shellSnapshot("secret"),
+        },
+      ],
+    });
+    mismatch.recovery.capture(result, () => true);
+    const outcome = await mismatch.recovery.tryResumeOnce();
+    expect(outcome.code).toBe("unverified-snapshot-mismatch");
+    expect(JSON.stringify(outcome)).not.toContain("secret");
+    expect(mismatch.delivered).toEqual([]);
+  });
+
+  test("a stale generation or a cleared capture never presents", async () => {
+    const stale = recovery({ gate: "allow" });
+    stale.recovery.capture(result, () => false);
+    expect((await stale.recovery.tryResumeOnce()).code).toBe("stale");
+
+    const cleared = recovery({ gate: "allow" });
+    cleared.recovery.capture(result, () => true);
+    cleared.recovery.clear();
+    expect((await cleared.recovery.tryResumeOnce()).code).toBe("no-candidate");
+
+    for (const t of [stale, cleared]) {
+      expect(t.gateCalls()).toBe(0);
+      expect(t.delivered).toEqual([]);
+    }
+  });
+
+  test("a generation that changes during verification drops the attempt", async () => {
+    let current = true;
+    const t = recovery({ gate: "allow" });
+    const resume = createSuspendedApprovalRecovery({
+      storage: () => ({
+        load: async () => {
+          current = false;
+          return await storeWith([operation]).load();
+        },
+      }),
+      resume: t.resume,
+    });
+    resume.capture(result, () => current);
+
+    expect((await resume.tryResumeOnce()).code).toBe("stale");
+    expect(t.gateCalls()).toBe(0);
   });
 });
 

@@ -355,6 +355,80 @@ function hangCodexRefresh(): {
   };
 }
 
+describe("stream sink routes parked approvals", () => {
+  type GateBlocked = {
+    type: "reactor.gate.blocked";
+    seq: number;
+    data: unknown;
+  };
+
+  function agentStreaming(events: readonly unknown[]): Agent {
+    return {
+      ...recordingAgent([]),
+      stream: async function* stream() {
+        yield* events as never[];
+      },
+    };
+  }
+
+  const gateBlocked = (data: unknown): GateBlocked => ({
+    type: "reactor.gate.blocked",
+    seq: 1,
+    data,
+  });
+
+  async function runWith(events: readonly unknown[]) {
+    const { state, services } = stubSendLifecycle(agentStreaming(events));
+    const observed: { gate: unknown; stillCurrent: () => boolean }[] = [];
+    Object.assign(services, {
+      providerFailureAttempts: {
+        current: () => undefined,
+        advanceToNextMessage: () => undefined,
+        reset: () => undefined,
+      },
+      suspendedApprovalRecovery: {
+        observeParked: (gate: unknown, stillCurrent: () => boolean) => {
+          observed.push({ gate, stillCurrent });
+        },
+      },
+    });
+    await createRunLifecycle(state, services);
+    await state.streamPromise;
+    return { observed, services };
+  }
+
+  test("hands a gate-blocked event to the approval recovery with the current generation", async () => {
+    const data = {
+      reason: "approval",
+      gateId: "gate-1",
+      correlationId: "corr-A",
+      approvalSnapshot: {
+        name: "run_shell",
+        description: "run a shell command",
+        inputSchema: {},
+        arguments: { command: "echo hi" },
+      },
+    };
+    const { observed, services } = await runWith([gateBlocked(data)]);
+
+    expect(observed).toHaveLength(1);
+    expect(observed[0]?.gate).toEqual(data);
+    expect(observed[0]?.stillCurrent()).toBe(true);
+    // A session rotation after the park drops it as stale.
+    services.deliveryGeneration.bump();
+    expect(observed[0]?.stillCurrent()).toBe(false);
+  });
+
+  test("ignores events that are not a parked gate", async () => {
+    const { observed } = await runWith([
+      { type: "reactor.start", seq: 1, data: {} },
+      { type: "message.received", seq: 2, data: {} },
+    ]);
+
+    expect(observed).toEqual([]);
+  });
+});
+
 describe("agentProxy.send vs /clear", () => {
   test("a /clear during hung OAuth after awaitTail does not send into the rebuilt agent", async () => {
     const oldSends: string[] = [];

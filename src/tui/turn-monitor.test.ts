@@ -12,6 +12,7 @@ import { withTestRenderer } from "./harness.js";
 import { RUNTIME_FLASH_MS } from "./runtime-notices.js";
 import { LIVE_WORD_MS } from "./chrome-state.js";
 import {
+  STALL_APPROVAL_RESUME_MESSAGE,
   STALL_NOTICE_MESSAGE,
   STALL_RECOVERY_MESSAGE,
 } from "./stall-watchdog.js";
@@ -549,6 +550,250 @@ describe("stall watchdog", () => {
       t.advance(20 * 60_000);
       t.tick();
       expect(t.port.calls).toEqual([]);
+    });
+  });
+});
+
+describe("stall recovery of a suspended approval", () => {
+  const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+  // A mid-stream hang past the stall budget: the one shape auto-abort acts on.
+  function reachStallBudget(t: Harness) {
+    t.bridge.submit("build it", "immediate");
+    t.bridge.handle({ type: "inference.text.delta", data: { token: "ok" } });
+    t.port.clear();
+    t.advance(1_500);
+  }
+
+  function deferredRecovery(opts: { presents?: boolean } = {}) {
+    const presents = opts.presents ?? true;
+    let calls = 0;
+    let settle!: (result: { handled: boolean; code: string }) => void;
+    let fail!: (error: Error) => void;
+    const recovery = (onPresenting: () => void) => {
+      calls += 1;
+      if (presents) onPresenting();
+      return new Promise<{ handled: boolean; code: string }>(
+        (resolve, reject) => {
+          settle = resolve;
+          fail = reject;
+        },
+      );
+    };
+    return {
+      recovery,
+      calls: () => calls,
+      resolve: (handled: boolean, code = handled ? "resumed" : "refused") =>
+        settle({ handled, code }),
+      reject: (error: Error) => fail(error),
+    };
+  }
+
+  test("a handled resume suppresses the interrupt and says what it is doing", async () => {
+    await withHarness(async (t) => {
+      const d = deferredRecovery();
+      t.bridge.setSuspendedApprovalRecovery(d.recovery);
+      reachStallBudget(t);
+
+      t.tick();
+      expect(d.calls()).toBe(1);
+      expect(t.shell.statusFlash).toBe(STALL_APPROVAL_RESUME_MESSAGE);
+
+      d.resolve(true);
+      await flush();
+      expect(t.port.calls).toEqual([]);
+    });
+  });
+
+  test("a resume that cannot proceed falls back to the one interrupt", async () => {
+    await withHarness(async (t) => {
+      const d = deferredRecovery();
+      t.bridge.setSuspendedApprovalRecovery(d.recovery);
+      reachStallBudget(t);
+
+      t.tick();
+      d.resolve(false);
+      await flush();
+      expect(t.port.calls).toEqual([{ op: "interrupt" }]);
+      expect(t.shell.statusFlash).toBe(STALL_RECOVERY_MESSAGE);
+    });
+  });
+
+  test("a resume that throws falls back to the interrupt", async () => {
+    await withHarness(async (t) => {
+      const d = deferredRecovery();
+      t.bridge.setSuspendedApprovalRecovery(d.recovery);
+      reachStallBudget(t);
+
+      t.tick();
+      d.reject(new Error("boom"));
+      await flush();
+      expect(t.port.calls).toEqual([{ op: "interrupt" }]);
+    });
+  });
+
+  test("duplicate ticks while a resume is out neither re-enter nor interrupt", async () => {
+    await withHarness(async (t) => {
+      const d = deferredRecovery();
+      t.bridge.setSuspendedApprovalRecovery(d.recovery);
+      reachStallBudget(t);
+
+      t.tick();
+      t.advance(250);
+      t.tick();
+      t.advance(250);
+      t.tick();
+      expect(d.calls()).toBe(1);
+      expect(t.port.calls).toEqual([]);
+
+      d.resolve(false);
+      await flush();
+      expect(t.port.calls).toEqual([{ op: "interrupt" }]);
+    });
+  });
+
+  test("a wedged resume is bounded by one more stall budget", async () => {
+    await withHarness(async (t) => {
+      const d = deferredRecovery();
+      t.bridge.setSuspendedApprovalRecovery(d.recovery);
+      reachStallBudget(t);
+
+      t.tick();
+      t.advance(1_000);
+      t.tick();
+      expect(t.port.calls).toEqual([{ op: "interrupt" }]);
+
+      // The late settle must not interrupt a second time.
+      d.resolve(false);
+      await flush();
+      expect(t.port.calls).toHaveLength(1);
+    });
+  });
+
+  test("an approval gate open past the resume budget is never aborted", async () => {
+    await withHarness(async (t) => {
+      const d = deferredRecovery();
+      t.bridge.setSuspendedApprovalRecovery(d.recovery);
+      reachStallBudget(t);
+      t.tick();
+      expect(d.calls()).toBe(1);
+
+      // The re-presented approval is on screen and the operator takes their
+      // time, well past the one-budget bound on an unanswered attempt.
+      t.bridge.gateOpened();
+      for (let i = 0; i < 5; i++) {
+        t.advance(1_000);
+        t.tick();
+      }
+      expect(t.port.calls).toEqual([]);
+      expect(d.calls()).toBe(1);
+
+      // They answer: the gate closes and the decision lands.
+      t.bridge.gateClosed();
+      d.resolve(true);
+      await flush();
+      t.tick();
+      expect(t.port.calls).toEqual([]);
+    });
+  });
+
+  // Warden regression: a gateOpened that flips the turn to "blocked" while the
+  // watchdog's resume is still in-flight must make the stall-resume:timeout
+  // firm abort unreachable. The resume is still out, so advancing past an
+  // additional stall budget must neither record a stall-resume:timeout marker
+  // nor interrupt the shown gate; the operator's late answer alone settles it.
+  test("a gateOpened during a parked resume never falls through to the stall-resume:timeout firm abort", async () => {
+    await withHarness(async (t) => {
+      const d = deferredRecovery();
+      t.bridge.setSuspendedApprovalRecovery(d.recovery);
+      reachStallBudget(t);
+      t.tick();
+      expect(d.calls()).toBe(1);
+
+      // The resumed approval is captured but not yet settled: the watchdog
+      // attempt is in-flight when the gate is raised. gateOpened flips the
+      // turn to "blocked" (turnStateGateOpened) so the stall clock stops.
+      t.bridge.gateOpened();
+      expect(t.bridge.turn.status).toBe("blocked");
+
+      // A full additional stall budget passes while the operator reads the
+      // still-shown gate. The in-flight resume must not hit the wedged-resume
+      // firm abort: no stall-resume:timeout marker, and no interrupt.
+      t.advance(1_500);
+      t.tick();
+      const paths = t.bridge.turnMarkers().map((marker) => marker.path);
+      expect(paths).not.toContain("stall-resume:timeout");
+      expect(t.port.calls).toEqual([]);
+      expect(d.calls()).toBe(1);
+
+      // The operator answers; the approval settles handled and the turn is
+      // never interrupted.
+      t.bridge.gateClosed();
+      d.resolve(true);
+      await flush();
+      t.tick();
+      expect(t.port.calls).toEqual([]);
+    });
+  });
+
+  test("a late refusal after the operator answered does not interrupt", async () => {
+    await withHarness(async (t) => {
+      const d = deferredRecovery();
+      t.bridge.setSuspendedApprovalRecovery(d.recovery);
+      reachStallBudget(t);
+      t.tick();
+
+      t.bridge.gateOpened();
+      t.advance(2_000);
+      t.tick();
+      t.bridge.gateClosed();
+      // The answer restarted the stall clock, so the turn is live again.
+      d.resolve(false);
+      await flush();
+      t.tick();
+      expect(t.port.calls).toEqual([]);
+    });
+  });
+
+  test("a refusal before presenting never flashes the resume status", async () => {
+    await withHarness(async (t) => {
+      const d = deferredRecovery({ presents: false });
+      t.bridge.setSuspendedApprovalRecovery(d.recovery);
+      reachStallBudget(t);
+
+      t.tick();
+      expect(t.shell.statusFlash).not.toBe(STALL_APPROVAL_RESUME_MESSAGE);
+      d.resolve(false, "settlement-in-flight");
+      await flush();
+      expect(t.port.calls).toEqual([{ op: "interrupt" }]);
+      expect(t.shell.statusFlash).toBe(STALL_RECOVERY_MESSAGE);
+    });
+  });
+
+  test("a stall that ended does not make the next stall wait out a budget", async () => {
+    await withHarness(async (t) => {
+      const d = deferredRecovery();
+      t.bridge.setSuspendedApprovalRecovery(d.recovery);
+      reachStallBudget(t);
+      t.tick();
+      expect(d.calls()).toBe(1);
+
+      // The turn makes progress, so the first stall is over.
+      t.bridge.handle({ type: "inference.text.delta", data: { token: "go" } });
+      t.tick();
+
+      // The model falls silent again: this is a new stall with its own attempt.
+      t.advance(1_500);
+      t.tick();
+      expect(d.calls()).toBe(2);
+    });
+  });
+
+  test("no registered recovery keeps the plain abort", async () => {
+    await withHarness(async (t) => {
+      reachStallBudget(t);
+      t.tick();
+      expect(t.port.calls).toEqual([{ op: "interrupt" }]);
     });
   });
 });

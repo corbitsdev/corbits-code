@@ -116,6 +116,17 @@ describe("supportedEfforts", () => {
     expect(supportedEfforts("glm-5.3")).toEqual(["low", "high", "max"]);
   });
 
+  test("V4 model gets the native none/xhigh/max ladder", () => {
+    expect(supportedEfforts("deepseek-v4-pro")).toEqual([
+      "none",
+      "xhigh",
+      "max",
+    ]);
+  });
+  test("pre-V4 deepseek-v3 stays on the unknown-model subset", () => {
+    expect(supportedEfforts("deepseek-v3")).toEqual(["low", "medium", "high"]);
+  });
+
   // Every catalog Muse Spark id reaches supportedEfforts unnormalized, so
   // they must all land on the same ladder — two ids pin the family rule.
   test.each(["muse-spark-1.3-contributor", "muse-spark-1.3-contributor-free"])(
@@ -174,6 +185,15 @@ describe("validateEffort", () => {
   test("rejects medium on glm-5.3 family", () => {
     expect(validateEffort("glm-5.3", "medium").ok).toBe(false);
     expect(validateEffort("glm-5.3", "max")).toEqual({ ok: true });
+  });
+
+  test("V4 accepts none/xhigh/max and rejects medium (and low/high)", () => {
+    for (const effort of ["none", "xhigh", "max"] as const) {
+      expect(validateEffort("deepseek-v4-pro", effort)).toEqual({ ok: true });
+    }
+    for (const effort of ["medium", "low", "high"] as const) {
+      expect(validateEffort("deepseek-v4-pro", effort).ok).toBe(false);
+    }
   });
 });
 
@@ -359,6 +379,61 @@ describe("pickEffortFromCascade (precedence table)", () => {
       }),
     ).toBeUndefined();
   });
+
+  test("6. explicit parent outranks role default (CL-10227)", () => {
+    expect(
+      pickEffortFromCascade({
+        roleDefault: "medium",
+        parentEffort: "none",
+        explicitParentEffort: true,
+        supported: ["none", "low", "medium", "high"],
+      }),
+    ).toBe("none");
+  });
+
+  test("6b. explicit parent wins even when role default is supported", () => {
+    expect(
+      pickEffortFromCascade({
+        roleDefault: "medium",
+        parentEffort: "high",
+        explicitParentEffort: true,
+        supported: ["low", "medium", "high"],
+      }),
+    ).toBe("high");
+  });
+
+  test("6c. unsupported explicit parent is clamped onto supported", () => {
+    expect(
+      pickEffortFromCascade({
+        roleDefault: "medium",
+        parentEffort: "xhigh",
+        explicitParentEffort: true,
+        supported: ["low", "medium", "high"],
+      }),
+    ).toBe("high");
+  });
+
+  test("7. explicit pin still wins over explicit parent", () => {
+    expect(
+      pickEffortFromCascade({
+        pin: "low",
+        roleDefault: "medium",
+        parentEffort: "xhigh",
+        explicitParentEffort: true,
+        supported: ["low", "medium", "high"],
+      }),
+    ).toBe("low");
+  });
+
+  test("8. unset explicitParentEffort keeps role default above parent (CL-5162)", () => {
+    expect(
+      pickEffortFromCascade({
+        roleDefault: "medium",
+        parentEffort: "high",
+        supported: ["low", "medium", "high"],
+      }),
+    ).toBe("medium");
+  });
 });
 
 describe("resolveEffortForRole", () => {
@@ -435,6 +510,50 @@ describe("resolveEffortForRole", () => {
       }),
     ).toBe("high");
   });
+
+  test("explicit parent none wins over leaf role default (CL-10227)", () => {
+    expect(
+      resolveEffortForRole({
+        orchestrator: false,
+        parentEffort: "none",
+        explicitParentEffort: true,
+        model: "gpt-5.1",
+      }),
+    ).toBe("none");
+  });
+
+  test("explicit parent overrides orchestrator high default", () => {
+    expect(
+      resolveEffortForRole({
+        orchestrator: true,
+        parentEffort: "low",
+        explicitParentEffort: true,
+        model: "gpt-5",
+      }),
+    ).toBe("low");
+  });
+
+  test("unset parent keeps leaf role default (CL-5162)", () => {
+    expect(
+      resolveEffortForRole({
+        orchestrator: false,
+        parentEffort: "high",
+        model: "gpt-5",
+      }),
+    ).toBe("medium");
+  });
+
+  test("explicit pin wins over explicit parent", () => {
+    expect(
+      resolveEffortForRole({
+        orchestrator: false,
+        pin: "low",
+        parentEffort: "high",
+        explicitParentEffort: true,
+        model: "gpt-5",
+      }),
+    ).toBe("low");
+  });
 });
 
 describe("defaultEffortForModel", () => {
@@ -446,6 +565,10 @@ describe("defaultEffortForModel", () => {
 
   test("glm-5.3 family defaults to max", () => {
     expect(defaultEffortForModel("glm-5.3")).toBe("max");
+  });
+
+  test("V4 model defaults to max", () => {
+    expect(defaultEffortForModel("deepseek-v4-pro")).toBe("max");
   });
 
   test("gpt-5 and o-series default to medium", () => {

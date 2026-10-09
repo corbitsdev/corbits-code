@@ -118,6 +118,9 @@ export interface RunnerServices {
   approvalResume: ReturnType<
     typeof import("../../session/approval-resume.js").createApprovalResume
   >;
+  suspendedApprovalRecovery: ReturnType<
+    typeof import("../../session/approval-resume.js").createSuspendedApprovalRecovery
+  >;
   permissionsAdmin: ReturnType<
     typeof import("../../permission/admin.js").createPermissionsAdmin
   >;

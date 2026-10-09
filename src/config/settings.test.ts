@@ -13,6 +13,7 @@ import { loadConfig } from "./index.js";
 import { resetPricingMetadataRefreshForTests } from "../cost/pricing-metadata.js";
 import { setProviderContextWindowOverrides } from "../provider/context-window.js";
 import { withMockedHomedir } from "../../testkit/mock-module.js";
+import { captureStderr } from "../../testkit/capture-stderr.js";
 import { isSettings, loadSettings, saveGlobalSettings } from "./settings.js";
 
 test.each([
@@ -677,6 +678,113 @@ test("--config composes with OAuth profile auth instead of suppressing it", asyn
     });
   } finally {
     await rm(fakeHome, { recursive: true, force: true });
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+// CL-10226 (Part 1): some external tools' provider blocks carry fields Corbits
+// does not honor. They pass ProviderSettingsSchema (which stays fail-open on
+// unknown keys) and are silently dropped. The settings load path must warn on
+// stderr while still loading successfully.
+test("settings load warns and still loads when a provider carries ignored fields", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-ignored-fields-"));
+  const path = join(cwd, "settings.json");
+  const stderr = captureStderr();
+  try {
+    await writeFile(
+      path,
+      JSON.stringify({
+        providers: {
+          external: {
+            baseURL: "https://external.example/v1",
+            keyless: true,
+            models: ["test-model"],
+            supportsThinkingTokenBudget: true,
+            thinkingLevelMap: { low: 1 },
+            samplingParams: { temperature: 0.5 },
+            compat: { supportsReasoningEffort: true },
+          },
+        },
+      }),
+    );
+    const loaded = await loadSettings(path);
+    expect(loaded).not.toBeNull();
+    expect(loaded?.providers.external).toBeDefined();
+    expect(stderr.output()).toContain(
+      '"external" sets fields that are not honored by Corbits and will be ignored',
+    );
+    expect(stderr.output()).toContain("supportsThinkingTokenBudget");
+    expect(stderr.output()).toContain("thinkingLevelMap");
+    expect(stderr.output()).toContain("samplingParams");
+    expect(stderr.output()).toContain("compat → supportsReasoningEffort");
+    expect(stderr.output()).toContain(
+      "These fields are not yet supported; configure effort/thinking via provider/model-level settings.",
+    );
+  } finally {
+    stderr.restore();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("settings load does not warn for a normal provider block", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-no-ignored-"));
+  const path = join(cwd, "settings.json");
+  const stderr = captureStderr();
+  try {
+    await writeFile(
+      path,
+      JSON.stringify({
+        providers: {
+          external: {
+            baseURL: "https://external.example/v1",
+            keyless: true,
+            models: ["test-model"],
+          },
+        },
+      }),
+    );
+    const loaded = await loadSettings(path);
+    expect(loaded).not.toBeNull();
+    expect(stderr.output()).not.toContain("not honored by Corbits");
+    expect(stderr.output()).not.toContain("supportsThinkingTokenBudget");
+  } finally {
+    stderr.restore();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+// The same warn must surface on the config path (--config / global settings),
+// which routes through loadSettings... → normalizeParsedSettings.
+test("loadConfig warns and still loads when a provider carries ignored fields", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-ignored-config-"));
+  const globalSettingsPath = join(cwd, "global.json");
+  const stderr = captureStderr();
+  try {
+    await writeFile(
+      globalSettingsPath,
+      JSON.stringify({
+        defaultProvider: "external",
+        providers: {
+          external: {
+            baseURL: "https://external.example/v1",
+            apiKey: "test-key",
+            models: ["test-model"],
+            samplingParams: { temperature: 0.5 },
+          },
+        },
+      }),
+    );
+    const { impl } = offlineFetch();
+    const config = await loadConfig(["--cwd", cwd, "do something"], {
+      globalSettingsPath,
+      pricing: { fetchImpl: impl },
+    });
+    expect(config.configured).toBe(true);
+    if (config.configured) expect(config.providerName).toBe("external");
+    expect(stderr.output()).toContain("not honored by Corbits");
+    expect(stderr.output()).toContain("samplingParams");
+  } finally {
+    stderr.restore();
     await rm(cwd, { recursive: true, force: true });
   }
 });
