@@ -1036,11 +1036,61 @@ function settingsSchemaError(path: string): Error {
   );
 }
 
+// Provider blocks from some external tools carry fields Corbits does not
+// honor: compat.supportsReasoningEffort, supportsThinkingTokenBudget,
+// thinkingLevelMap, samplingParams. ProviderSettingsSchema does not reject
+// unknown keys, so they pass validation and are silently dropped. Warn when
+// any are present so the ignore is never silent.
+const IGNORED_PROVIDER_FIELDS: {
+  display: string;
+  path: (p: Record<string, unknown>) => unknown;
+}[] = [
+  {
+    display: "supportsThinkingTokenBudget",
+    path: (p) => p.supportsThinkingTokenBudget,
+  },
+  {
+    display: "thinkingLevelMap",
+    path: (p) => p.thinkingLevelMap,
+  },
+  {
+    display: "samplingParams",
+    path: (p) => p.samplingParams,
+  },
+  {
+    // Rendered as the nested arrow form so it is not mistaken for a bare
+    // provider-level key (the JSON nests it under the provider's "compat").
+    display: "compat → supportsReasoningEffort",
+    path: (p) => {
+      const compat = p.compat as Record<string, unknown> | undefined;
+      return compat?.supportsReasoningEffort;
+    },
+  },
+];
+
+function warnOnIgnoredProviderFields(
+  path: string,
+  providers: Record<string, ProviderSettings>,
+): void {
+  for (const [name, provider] of Object.entries(providers)) {
+    const p = provider as unknown as Record<string, unknown>;
+    const present = IGNORED_PROVIDER_FIELDS.filter(
+      (field) => field.path(p) !== undefined,
+    ).map((field) => field.display);
+    if (present.length > 0) {
+      process.stderr.write(
+        `settings: ${path}: provider "${name}" sets fields that are not honored by Corbits and will be ignored: ${present.join(", ")}. These fields are not yet supported; configure effort/thinking via provider/model-level settings.\n`,
+      );
+    }
+  }
+}
+
 function normalizeParsedSettings(path: string, parsed: unknown): Settings {
   if (!isSettings(parsed)) {
     throw settingsSchemaError(path);
   }
   const s = parsed as unknown as Record<string, unknown>;
+  warnOnIgnoredProviderFields(path, parsed.providers);
   // These keys were removed when plugins moved to discovery; they are now
   // silently dropped on the next save. Warn so a user who relied on them knows
   // to re-enable the equivalent plugins in /plugins instead of losing the
