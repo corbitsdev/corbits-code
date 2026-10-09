@@ -6,7 +6,7 @@ import { director as designerDirector } from "@corbits/code-agent-designer";
 import type { AgentProfile, CapabilityFilter } from "../profile-types.js";
 import { director as artistDirector } from "@corbits/code-agent-artist";
 import { director as coderDirector } from "@corbits/code-agent-coder";
-import { explorerPackage } from "./explorer/package.js";
+import { director as explorerDirector } from "@corbits/code-agent-explorer";
 import { director as plannerDirector } from "@corbits/code-agent-planner";
 import { qaLeadPackage } from "./qa-lead/package.js";
 import { director as reviewerDirector } from "@corbits/code-agent-reviewer";
@@ -38,7 +38,7 @@ export const INTENT_DEFAULT_DIRECTOR: Readonly<
 export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> =
   {
     dispatch: dispatchDirector,
-    explorer: explorerPackage,
+    explorer: explorerDirector,
     planner: plannerDirector,
     coder: coderDirector,
     reviewer: reviewerDirector,
