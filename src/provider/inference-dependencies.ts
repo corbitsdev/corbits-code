@@ -19,6 +19,7 @@ import { GROK_RESPONSES_PROVIDER } from "./grok-responses.js";
 import { withAnthropicCacheBreakpoint } from "./anthropic-cache-breakpoint.js";
 import { withReplaySanitizer } from "./replay-sanitizer.js";
 import { isPollOnlyPendingBatch } from "../subagent/poll-exempt.js";
+import { isIdempotentTaskBatch } from "../subagent/idempotent-task-exempt.js";
 import { OPENCODE_GO_PROVIDER_ID } from "../../packages/opencode-go/src/index.js";
 import { BIFROST_PROVIDER } from "./bifrost-adapter.js";
 import { OPENAI_RESPONSES_PROVIDER } from "./openai-responses.js";
@@ -101,7 +102,13 @@ export function createInferenceDependencies(): Promise<Dependencies> {
       .then((deps) => ({
         ...deps,
         fetch: withCodexContentTypeRepair(deps.fetch),
-        isPollOnlyPendingBatch,
+        // Compose the first-party doom-loop exemptions into the single liveness
+        // hook the vendored reactor already consumes: still-pending polls and
+        // idempotent task bookkeeping both reset the repeat streak instead of
+        // counting toward the fail-run threshold.
+        isPollOnlyPendingBatch: (calls, results) =>
+          isPollOnlyPendingBatch(calls, results) ||
+          isIdempotentTaskBatch(calls, results),
       }));
   }
   return cached;
