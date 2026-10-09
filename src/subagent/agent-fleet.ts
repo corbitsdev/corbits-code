@@ -68,7 +68,7 @@ import {
 } from "../provider/reasoning-effort.js";
 import {
   DEEPSEEK_V4_ROLE_EFFORT,
-  isDeepSeekV4Model,
+  isDeepSeekModel,
 } from "../provider/deepseek-v4-effort.js";
 import type { AgentProfile, CapabilityFilter } from "../agent/profiles.js";
 import {
@@ -1187,12 +1187,12 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         settings?.providers[provider.providerName],
         catalog?.find((entry) => entry.name === provider.providerName),
       );
-      // DeepSeek V4 pins per-role effort (CL-10294): dispatch/planner/reviewer
-      // max, coder cheapest, other leaves xhigh. The explicit effortPin and the
-      // role default still win over this table when supported.
+      // DeepSeek V4 pins per-role effort: dispatch/planner/reviewer and coder
+      // max, other leaves xhigh. The explicit effortPin and the role default
+      // still win over this table when supported.
       const roleEffortPin =
         resolved.effortPin ??
-        (isDeepSeekV4Model(provider.model) &&
+        (isDeepSeekModel(provider.model) &&
         resolved.directorId in DEEPSEEK_V4_ROLE_EFFORT
           ? DEEPSEEK_V4_ROLE_EFFORT[
               resolved.directorId as keyof typeof DEEPSEEK_V4_ROLE_EFFORT

@@ -2,11 +2,42 @@ import { describe, test, expect } from "bun:test";
 import {
   DEEPSEEK_V4_EFFORTS,
   DEEPSEEK_V4_MODEL_CARD,
+  DEEPSEEK_V4_ROLE_EFFORT,
+  isDeepSeekModel,
   isDeepSeekV4Model,
   mapV4Effort,
   V4_STREAM_OPTIONS,
   v4Thinking,
 } from "./deepseek-v4-effort.js";
+
+describe("isDeepSeekModel", () => {
+  test.each([
+    "deepseek-v4",
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "deepseek-v4.1-flash",
+    "deepseek-v4-flash-vision-exp",
+    "deepseek-ai/DeepSeek-V4-Flash-0731",
+    "deepseek-ai/deepseek-v4-flash",
+    "deepseek-v3",
+    "deepseek-r1",
+    "deepseek-coder",
+    "deepseek-chat",
+    "deepseek-ai/DeepSeek-Chat",
+  ])("true for deepseek family id %s", (model) => {
+    expect(isDeepSeekModel(model)).toBe(true);
+  });
+  test.each([
+    "gpt-5",
+    "kimi-k2",
+    "claude-sonnet-4.5",
+    "glm-5.3",
+    "grok-4.6",
+    "some-proxy-deepseek-pro",
+  ])("false for non-deepseek id %s", (model) => {
+    expect(isDeepSeekModel(model)).toBe(false);
+  });
+});
 
 describe("isDeepSeekV4Model", () => {
   test.each([
@@ -25,6 +56,7 @@ describe("isDeepSeekV4Model", () => {
     "deepseek-r1",
     "deepseek-coder",
     "deepseek-chat",
+    "deepseek-ai/DeepSeek-Chat",
     "gpt-5",
     "kimi-k2",
     "claude-sonnet-4.5",
@@ -42,6 +74,28 @@ describe("DEEPSEEK_V4_EFFORTS", () => {
   });
 });
 
+describe("DEEPSEEK_V4_ROLE_EFFORT", () => {
+  test("coder defaults to max", () => {
+    expect(DEEPSEEK_V4_ROLE_EFFORT.coder).toBe("max");
+  });
+  test("dispatch/planner/reviewer are max and other leaves xhigh", () => {
+    expect(DEEPSEEK_V4_ROLE_EFFORT.dispatch).toBe("max");
+    expect(DEEPSEEK_V4_ROLE_EFFORT.planner).toBe("max");
+    expect(DEEPSEEK_V4_ROLE_EFFORT.reviewer).toBe("max");
+    for (const role of [
+      "explorer",
+      "artist",
+      "qa-lead",
+      "prober",
+      "designer",
+      "shakespeare",
+      "warden",
+    ] as const) {
+      expect(DEEPSEEK_V4_ROLE_EFFORT[role]).toBe("xhigh");
+    }
+  });
+});
+
 describe("mapV4Effort", () => {
   test.each([
     ["xhigh", "xhigh"],
@@ -53,9 +107,11 @@ describe("mapV4Effort", () => {
     expect(mapV4Effort("none")).toBeNull();
   });
   test.each(["low", "medium", "high", "ultra", "minimal"] as const)(
-    "leaves off-ladder %s untouched (undefined)",
+    "rejects off-ladder %s with a clear error (no pass-through)",
     (effort) => {
-      expect(mapV4Effort(effort)).toBeUndefined();
+      expect(() => mapV4Effort(effort)).toThrow(
+        `DeepSeek V4 does not support reasoning effort "${effort}"`,
+      );
     },
   );
 });

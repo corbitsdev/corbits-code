@@ -299,7 +299,7 @@ export function resolveModelFamilyPolicy(input: {
       // Generic gpt prompts are byte-identical — only astra carries the
       // residual.
       return { family, ...ASTRA_POLICY };
-    case "deepseek-v4": {
+    case "deepseek": {
       // Winning d1+slim config: d1 primary residual on orchestrators, g2 leaf
       // residual on explorer leaves, tuned slim coder/reviewer bodies.
       const directorId = input.directorId;

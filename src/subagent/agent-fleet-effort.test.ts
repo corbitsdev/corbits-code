@@ -390,15 +390,14 @@ describe("deepseek-v4 per-role effort policy (CL-10294)", () => {
     return worker.provider.reasoningEffort as ReasoningEffort;
   }
 
-  test("planner/reviewer max, coder cheapest, other leaves xhigh", async () => {
-    // V4's native ladder is ["none","xhigh","max"]. coder's low clamps to the
-    // cheapest wire rung (none, thinking off) per the operator's "simplest
-    // implementer = none" intent; planner/reviewer resolve max. dispatch is the
-    // primary session (not a spawned worker) and already defaults to max for
+  test("planner/reviewer/coder max, other leaves xhigh", async () => {
+    // V4's native ladder is ["none","xhigh","max"]. coder defaults to max
+    // (operator-confirmed, PR #1377); planner/reviewer resolve max. dispatch is
+    // the primary session (not a spawned worker) and already defaults to max for
     // V4 via defaultEffortForModel.
     expect(await captureEffort("planner")).toBe("max");
     expect(await captureEffort("reviewer")).toBe("max");
-    expect(await captureEffort("coder")).toBe("none");
+    expect(await captureEffort("coder")).toBe("max");
     expect(await captureEffort("explorer")).toBe("xhigh");
     expect(await captureEffort("artist")).toBe("xhigh");
     expect(await captureEffort("qa-lead")).toBe("xhigh");

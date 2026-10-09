@@ -60,7 +60,7 @@ import {
 } from "../provider/grok-responses.js";
 import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
 import { DEEPSEEK_V4_PROVIDER } from "../provider/deepseek-v4-adapter.js";
-import { isDeepSeekV4Model } from "../provider/deepseek-v4-effort.js";
+import { isDeepSeekModel } from "../provider/deepseek-v4-effort.js";
 import { isOllamaProviderId, ollamaOpenAIBaseURL } from "../provider/ollama.js";
 import { selectableGoModelIds } from "../provider/model-catalogs.js";
 import {
@@ -290,7 +290,7 @@ export function buildOpenAISource(fields: {
   registerSourceSecret(fields.id, fields.apiKey);
   return {
     id: fields.id,
-    provider: isDeepSeekV4Model(fields.model)
+    provider: isDeepSeekModel(fields.model)
       ? DEEPSEEK_V4_PROVIDER
       : "openai-compatible",
     baseURL: isOllamaProviderId(fields.id)
