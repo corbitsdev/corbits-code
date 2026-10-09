@@ -1,6 +1,6 @@
 import { director as shakespeareDirector } from "@corbits/code-agent-shakespeare";
 import { director as proberDirector } from "@corbits/code-agent-prober";
-import { dispatchPackage } from "@corbits/code-agent-dispatch";
+import { director as dispatchDirector } from "@corbits/code-agent-dispatch";
 import type { AgentProfile, CapabilityFilter } from "../profile-types.js";
 import { director as artistDirector } from "@corbits/code-agent-artist";
 import { coderPackage } from "./coder/package.js";
@@ -37,7 +37,7 @@ export const INTENT_DEFAULT_DIRECTOR: Readonly<
  */
 export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> =
   {
-    dispatch: dispatchPackage,
+    dispatch: dispatchDirector,
     explorer: explorerPackage,
     planner: plannerPackage,
     coder: coderPackage,
