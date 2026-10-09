@@ -83,8 +83,25 @@ export function isGptProvider(input: {
   return false;
 }
 
+/**
+ * True when the model id is DeepSeek V4 Flash (any provider: self-hosted
+ * SGLang/vLLM or a gateway). Scoped to the Flash cell on purpose: the
+ * residual it unlocks was tuned against that model only, so other DeepSeek
+ * ids keep the default policy.
+ */
+export function isDeepSeekV4FlashProvider(input: {
+  providerName: string;
+  model?: string;
+}): boolean {
+  return (
+    input.model !== undefined &&
+    /(^|\/)deepseek-v4-flash/i.test(input.model.trim())
+  );
+}
+
 /** Model families the shared directors branch on via ModelFamilyPolicy. */
 export type ModelFamily =
+  | "deepseek-v4-flash"
   | "grok"
   | "kimi"
   | "muse"
@@ -103,6 +120,7 @@ export function detectModelFamily(input: {
   providerName: string;
   model?: string;
 }): ModelFamily {
+  if (isDeepSeekV4FlashProvider(input)) return "deepseek-v4-flash";
   if (isXaiGrokLeafProvider(input)) return "grok";
   if (isKimiLeafProvider(input)) return "kimi";
   if (isMuseSparkLeafProvider(input)) return "muse";
