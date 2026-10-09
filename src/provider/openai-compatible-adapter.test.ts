@@ -164,3 +164,67 @@ describe("openai-compatible adapter reasoning_content handling", () => {
     expect(assistant?.["reasoning_content"]).toBe("ponder");
   });
 });
+
+describe("openai-compatible adapter V4 effort wiring", () => {
+  function bodyForModel(
+    model: string,
+    options: InferenceOptions,
+  ): Record<string, unknown> {
+    const adapter = createOpenAICompatibleAdapter({
+      ...source,
+      model,
+    } as typeof source);
+    const built = adapter.buildRequest(messages, model, options);
+    return JSON.parse(built.body) as Record<string, unknown>;
+  }
+
+  test("none drops reasoning_effort and sets thinking off", () => {
+    const body = bodyForModel("deepseek-v4-pro", {
+      providerOptions: { reasoning_effort: "none" },
+    } as InferenceOptions);
+    expect("reasoning_effort" in body).toBe(false);
+    expect(body["chat_template_kwargs"]).toEqual({ thinking: false });
+  });
+
+  describe("v4-effort is no-op for non-V4", () => {
+    const models = [
+      "gpt-5",
+      "gpt-5.1",
+      "kimi-k2",
+      "grok-4.6",
+      "claude-sonnet-4.5",
+      "glm-5.3",
+      "some-openai-compatible-model",
+      "deepseek-r1",
+      "deepseek-v3",
+    ];
+
+    test.each(models)(
+      "merged body for %s is byte-identical to a manual base+merge (V4 step no-op)",
+      (model) => {
+        const base = bodyForModel(model, {} as InferenceOptions);
+        const withEffort = bodyForModel(model, {
+          providerOptions: { reasoning_effort: "high" },
+        } as InferenceOptions);
+        // For a non-V4 model the V4 step must not run: the output body equals
+        // the base body shallow-merged with providerOptions verbatim (no
+        // effort mapping, no chat_template_kwargs injection).
+        const expected = {
+          ...base,
+          ...({ reasoning_effort: "high" } as const),
+        };
+        expect(withEffort).toEqual(expected);
+      },
+    );
+
+    test.each(models)(
+      "merged body for %s carries reasoning_effort verbatim",
+      (model) => {
+        const body = bodyForModel(model, {
+          providerOptions: { reasoning_effort: "high" },
+        } as InferenceOptions);
+        expect(body["reasoning_effort"]).toBe("high");
+      },
+    );
+  });
+});

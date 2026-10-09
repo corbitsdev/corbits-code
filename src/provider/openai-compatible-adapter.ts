@@ -1,5 +1,7 @@
 import { type BuiltRequest, type ProviderAdapter } from "@intx/inference";
 import { createOpenAIAdapter } from "@intx/inference/providers";
+import type { ReasoningEffort } from "../agent/profile-types.js";
+import { isDeepSeekV4Model, mapV4Effort } from "./deepseek-v4-effort.js";
 import { normalizeNullDeltaFields } from "./null-delta-fields.js";
 
 // The stock OpenAI adapter builds the request body from a fixed set of fields
@@ -53,6 +55,35 @@ export function createOpenAICompatibleAdapter(
 
     const body = JSON.parse(built.body) as Record<string, unknown>;
     if (hasProviderOptions) Object.assign(body, providerOptions);
+    // V4 drives its own effort ladder (none/xhigh/max) and encodes thinking via
+    // chat_template_kwargs. `none` is a toggle, never a wire effort — drop
+    // reasoning_effort and tell the encoder to skip the reasoning pass; xhigh/
+    // max go out raw (the API docs' low/high/max is gateway normalization, not
+    // what the model/encoder honors). Non-V4 models keep the merged body as-is.
+    if (isDeepSeekV4Model(model)) {
+      // PR3's effort translation only applies when a reasoning_effort is
+      // actually carried (none/xhigh/max) — an absent one stays absent, so an
+      // unset default under the V4 ladder is never invented here.
+      let wire: "xhigh" | "max" | null = null;
+      if ("reasoning_effort" in body) {
+        const raw = body["reasoning_effort"] as ReasoningEffort;
+        wire = mapV4Effort(raw);
+        if (wire === null) {
+          delete body["reasoning_effort"];
+          // Merge the thinking-off toggle into any existing kwargs rather than
+          // replacing the object, so provider-supplied keys survive.
+          const kwargs =
+            body["chat_template_kwargs"] !== null &&
+            typeof body["chat_template_kwargs"] === "object"
+              ? (body["chat_template_kwargs"] as Record<string, unknown>)
+              : {};
+          kwargs.thinking = false;
+          Object.assign(body, { chat_template_kwargs: kwargs });
+        } else {
+          body["reasoning_effort"] = wire;
+        }
+      }
+    }
     if (stripReasoning && Array.isArray(body["messages"])) {
       for (const msg of body["messages"]) {
         if (msg !== null && typeof msg === "object")
