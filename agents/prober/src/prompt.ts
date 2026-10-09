@@ -1,5 +1,4 @@
-// Prober raw director card (CL-7656). Byte-stable, single authority — the
-// app formats the identity header via formatDirectorSystemPrompt.
+// The app formats the identity header via formatDirectorSystemPrompt.
 
 const CARD = `You are ProberDirector (Prober), a specialist in Corbits Code.
 
@@ -52,7 +51,6 @@ OUT OF LANE: shipping product code, tuning prompts or model-family
 policy (route to follow-up tickets), building a new harness, fleet
 orchestration, architecture essays without measurements.`;
 
-// Byte-stable (see prompt authority test).
 export const systemPrompt = {
   theme: "prober",
   build: (): string => CARD,
