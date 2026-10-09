@@ -28,6 +28,33 @@ Touch only code directly related to the task. No drive-by renames, reformatting,
 
 When refactoring replaces an old path, delete the old one. No back-compat shims, re-exports, or `_unused` renames for callers you own.
 
+## Director extract review bar
+
+A new or changed `@corbits/code-agent-*` workspace package (`agents/<id>/`) must
+survive review against three hard failures, regardless of how the app consumes it:
+
+1. **No dead re-exports.** `agents/<id>/src/index.ts` may only re-export names
+   that have a production importer. Do not add a barrel or test-only consumer to
+   launder a dead name past the dead-export guard. The app's single closed fan-in
+   is `DIRECTOR_REGISTRY` (`src/agent/directors/registry.ts`); there is no second
+   fleet barrel, and an extract branch has no other in-repo consumer to justify a
+   name.
+2. **No "what this file is" narration.** Do not paste file-summary or
+   ticket-restating JSDoc into the package. Comment _why_, never _what_
+   (Conventions above); a module that restates its own exports in prose is noise,
+   not documentation.
+3. **No whole-surface allowlisting without naming the API.** Every export left on
+   `scripts/dead-export-allowlist.txt` (the `agents/<id>/src/index.ts` six-name
+   surface) must say which names are the public API and why. A blanket entry that
+   lists the whole surface without per-name reasons fails review; remove each
+   entry with the export it covers as the closed fan-in (`DIRECTOR_REGISTRY`)
+   consumes it.
+
+An extract lands only when the names it keeps are real public API backed by a
+production importer, the code reads why-not-what, and the allowlist entry names
+the API surface. Failing any of these means reworking the extract, not a new
+barrel or an allowlist band-aid.
+
 ## Tests
 
 - Add or update tests with every behavior change.
