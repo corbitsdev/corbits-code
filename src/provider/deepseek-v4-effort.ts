@@ -2,10 +2,9 @@ import type { ReasoningEffort } from "../agent/profile-types.js";
 import type { DirectorId } from "../agent/directors/types.js";
 
 /**
- * Per-role V4 effort defaults (CL-10294). dispatch/planner/reviewer dispatch
- * and judge — max. coder is the cheapest spawn: 'low' clamps to the V4 'none'
- * wire rung (thinking off), per the operator's "simplest implementer = none"
- * intent. Every other leaf reasons at xhigh.
+ * Per-role V4 effort defaults. coder is the cheapest spawn: 'low' clamps to
+ * the V4 'none' wire rung (thinking off), per the operator's "simplest
+ * implementer = none" intent. Every other role takes its rung from the map.
  */
 export const DEEPSEEK_V4_ROLE_EFFORT: Record<DirectorId, ReasoningEffort> = {
   dispatch: "max",

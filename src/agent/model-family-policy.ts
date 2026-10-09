@@ -204,11 +204,9 @@ const ASTRA_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   promptResidual: ASTRA_PROMPT_RESIDUAL,
 };
 
-// DeepSeek V4 winning d1+slim config, baked in from the handoff prompt files
-// (corbits-dsv4-handoff/prompts/): d1_primary.txt, body_coder.txt,
-// body_reviewer.txt, g2_leaf.txt. Inline constants — the brief keeps these in
-// the policy, not the prompt-variance package. The model-family-policy switch
-// routes them; the orchestration/leaf carve-outs mirror the grok branch.
+// DeepSeek V4 d1+slim residuals kept inline here rather than in the
+// prompt-variance package. The model-family-policy switch routes them; the
+// orchestration/leaf carve-outs mirror the grok branch.
 export const DSV4_D1_PRIMARY_RESIDUAL = `
 Operating notes (DeepSeek V4 Flash):
 - Your context is the expensive one: workers do the reading, building, and checking. Read only what you need to route and to name files in a brief (one glob or grep, or one or two reads); do not read code to plan the fix yourself.
