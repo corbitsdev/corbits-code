@@ -110,10 +110,6 @@ export function createInferenceDependencies(): Promise<Dependencies> {
       .then((deps) => ({
         ...deps,
         fetch: withCodexContentTypeRepair(deps.fetch),
-        // Compose the first-party doom-loop exemptions into the single liveness
-        // hook the vendored reactor already consumes: still-pending polls and
-        // idempotent task bookkeeping both reset the repeat streak instead of
-        // counting toward the fail-run threshold.
         isPollOnlyPendingBatch: (calls, results) =>
           isPollOnlyPendingBatch(calls, results) ||
           isIdempotentTaskBatch(calls, results),
