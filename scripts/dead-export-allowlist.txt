@@ -65,3 +65,7 @@ agents/shakespeare/src/index.ts: agent
 agents/shakespeare/src/index.ts: defineAgent
 agents/shakespeare/src/config.ts: satisfies
 agents/shakespeare/src/config.ts: boolean
+agents/prober/src/index.ts: agent
+agents/prober/src/index.ts: defineAgent
+agents/prober/src/config.ts: satisfies
+agents/prober/src/config.ts: boolean
