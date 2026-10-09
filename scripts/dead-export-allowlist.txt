@@ -38,6 +38,16 @@ src/agent/directors/identity.ts: Record
 packages/opencode-go/src/models.ts: satisfies
 packages/opencode-go/src/models.ts: readonly
 
+# Agent-package public API (CL-9800 extraction wave): each @corbits/code-agent-*
+# workspace package's public surface (agent/defineAgent + the config card) is
+# consumed by the app registry/barrel once the fleet merges; on a per-extract
+# branch they have no in-repo consumer yet. Public API by design — owned by the
+# agent-template lane; remove with the code if the package is deleted.
+agents/dispatch/src/index.ts: agent
+agents/dispatch/src/index.ts: defineAgent
+agents/dispatch/src/config.ts: satisfies
+agents/dispatch/src/config.ts: boolean
+
 # Versioned prompt-variance package public surface (CL-8269 lane,
 # agent-owned). Family rows data re-exported through the package entry point;
 # no in-repo barrel consumer exists yet for the entries below (src/ consumes
