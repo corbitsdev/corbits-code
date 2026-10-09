@@ -215,8 +215,6 @@ const ASTRA_POLICY: Omit<ModelFamilyPolicy, "family"> = {
 //   body_coder.txt   -> the coder leaf's role body (leafRoleBody)
 //   body_reviewer.txt-> the reviewer leaf's role body (leafRoleBody)
 //   g2_leaf.txt      -> the explorer leaf's residual (promptResidual)
-// A CORBITS_EXP_DSV4_* override still wins when set (eval-only; the removal
-// of those hooks is CL-10242's follow-up deliverable).
 export const DSV4_D1_PRIMARY_RESIDUAL = `
 Operating notes (DeepSeek V4 Flash):
 - Your context is the expensive one: workers do the reading, building, and checking. Read only what you need to route and to name files in a brief (one glob or grep, or one or two reads); do not read code to plan the fix yourself.
@@ -266,18 +264,6 @@ Operating notes (DeepSeek V4 Flash):
 - Run the project's own test command once after your last edit, then write the report.
 `.trim();
 
-// EXPERIMENT HOOK (removed in the CL-10242 follow-up): lets the eval swap the
-// baked-in deepseek-v4-flash residual/body text without rebuilding. A set env
-// var wins over the built-in constant; the removal task deletes these and the
-// __expResidual reader together.
-import { readFileSync as __expReadFileSync } from "node:fs";
-function __expResidual(kind: string): string | undefined {
-  const path = process.env[`CORBITS_EXP_DSV4_${kind}`];
-  if (path === undefined || path === "") return undefined;
-  const text = __expReadFileSync(path, "utf8").trim();
-  return text.length > 0 ? text : undefined;
-}
-
 export function resolveModelFamilyPolicy(input: {
   providerName: string;
   model?: string;
@@ -324,28 +310,26 @@ export function resolveModelFamilyPolicy(input: {
       // Winning config (c) bake-in (CL-10242): d1+slim-high bodies,
       // dispatch=max + coder=low. Orchestrators get the slim primary card
       // (primaryRole) and coder/reviewer/explorer leaves get their tuned
-      // role bodies plus the leaf residual. A CORBITS_EXP_DSV4_* env override
-      // wins when set (eval-only hook; removal is the CL-10242 follow-up).
+      // role bodies plus the leaf residual.
       const directorId = input.directorId;
       return {
         family,
         ...DEFAULT_POLICY,
         // Winning config (c): d1_primary.txt is the orchestrator's appended
-        // prompt residual (the PRIMARY hook), the explorer leaf carries the
-        // g2_leaf residual (LEAF_EXPLORER), and coder/reviewer leaves carry
-        // their tuned role bodies (BODY_CODER / BODY_REVIEWER). The slim
-        // primary card (primaryRole, ROLE hook) is NOT part of the winning
-        // set — it stays unset so orchestrators keep the shared Dispatch card.
+        // prompt residual, the explorer leaf carries the g2_leaf residual,
+        // and coder/reviewer leaves carry their tuned role bodies. The slim
+        // primary card (primaryRole) is NOT part of the winning set — it
+        // stays unset so orchestrators keep the shared Dispatch card.
         promptResidual: orchestrator
-          ? (__expResidual("PRIMARY") ?? DSV4_D1_PRIMARY_RESIDUAL)
+          ? DSV4_D1_PRIMARY_RESIDUAL
           : directorId === "explorer"
-            ? (__expResidual("LEAF_EXPLORER") ?? DSV4_G2_LEAF_RESIDUAL)
+            ? DSV4_G2_LEAF_RESIDUAL
             : undefined,
         leafRoleBody:
           !orchestrator && directorId === "coder"
-            ? (__expResidual(`BODY_CODER`) ?? DSV4_BODY_CODER)
+            ? DSV4_BODY_CODER
             : !orchestrator && directorId === "reviewer"
-              ? (__expResidual(`BODY_REVIEWER`) ?? DSV4_BODY_REVIEWER)
+              ? DSV4_BODY_REVIEWER
               : undefined,
       };
     }
