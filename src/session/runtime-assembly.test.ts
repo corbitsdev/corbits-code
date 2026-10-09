@@ -79,6 +79,42 @@ describe("buildSubAgentProvider", () => {
       bifrostVirtualKey: true,
     });
   });
+
+  test("omits explicitReasoningEffort when not operator-chosen", () => {
+    expect(
+      buildSubAgentProvider({
+        providerName: "openai",
+        baseURL: "https://api.openai.com/v1",
+        model: "gpt-5",
+        reasoningEffort: "medium",
+        providers: [{ name: "openai" }],
+      }),
+    ).toEqual({
+      providerName: "openai",
+      baseURL: "https://api.openai.com/v1",
+      model: "gpt-5",
+      reasoningEffort: "medium",
+    });
+  });
+
+  test("threads explicitReasoningEffort when operator-chosen", () => {
+    expect(
+      buildSubAgentProvider({
+        providerName: "openai",
+        baseURL: "https://api.openai.com/v1",
+        model: "gpt-5",
+        reasoningEffort: "none",
+        explicitReasoningEffort: true,
+        providers: [{ name: "openai" }],
+      }),
+    ).toEqual({
+      providerName: "openai",
+      baseURL: "https://api.openai.com/v1",
+      model: "gpt-5",
+      reasoningEffort: "none",
+      explicitReasoningEffort: true,
+    });
+  });
 });
 
 describe("createLiveSubAgentSources", () => {

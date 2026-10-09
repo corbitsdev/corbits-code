@@ -76,6 +76,8 @@ export interface SubAgentProviderConfig {
   apiKey?: string;
   model: string;
   reasoningEffort?: ReasoningEffort;
+  /** Present when operator-chosen — see SubAgentProvider.explicitReasoningEffort. */
+  explicitReasoningEffort?: true;
   providers: readonly Pick<
     ProviderCatalogEntry,
     "name" | "bifrostVirtualKey"
@@ -93,6 +95,9 @@ export function buildSubAgentProvider(
     ...(config.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
     ...(config.reasoningEffort !== undefined
       ? { reasoningEffort: config.reasoningEffort }
+      : {}),
+    ...(config.explicitReasoningEffort === true
+      ? { explicitReasoningEffort: true }
       : {}),
     ...(config.providers.find((p) => p.name === config.providerName)
       ?.bifrostVirtualKey === true

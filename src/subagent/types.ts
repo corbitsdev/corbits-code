@@ -28,10 +28,18 @@ export interface SubAgentProvider {
   apiKey?: string;
   keyless?: boolean;
   model: string;
-  // Resolved effort for this spawn (pin > role default > parent). See
-  // resolveEffortForRole — leaves default to medium, orchestrators to high,
-  // so a primary /agent high selection does not force every leaf onto high.
+  // Resolved effort for this spawn (pin > explicit parent > role default >
+  // derived parent). See resolveEffortForRole — leaves default to medium,
+  // orchestrators to high; an operator-chosen (explicit) primary effort is a
+  // fleet-wide pin and beats the role default.
   reasoningEffort?: ReasoningEffort;
+  /**
+   * Present (true) when `reasoningEffort` was operator-chosen (Config sent an
+   * explicit reasoningEffort) rather than derived. A present marker is a
+   * fleet-wide pin that outranks the role default; absent = role defaults
+   * apply (CL-5162).
+   */
+  explicitReasoningEffort?: true;
   // Mirrors ProviderCatalogEntry.bifrostVirtualKey. Without it the dispatch
   // path builds a plain openai-compatible source and the gateway never
   // receives the x-bf-vk header.

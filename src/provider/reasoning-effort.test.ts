@@ -379,6 +379,61 @@ describe("pickEffortFromCascade (precedence table)", () => {
       }),
     ).toBeUndefined();
   });
+
+  test("6. explicit parent outranks role default (CL-10227)", () => {
+    expect(
+      pickEffortFromCascade({
+        roleDefault: "medium",
+        parentEffort: "none",
+        explicitParentEffort: true,
+        supported: ["none", "low", "medium", "high"],
+      }),
+    ).toBe("none");
+  });
+
+  test("6b. explicit parent wins even when role default is supported", () => {
+    expect(
+      pickEffortFromCascade({
+        roleDefault: "medium",
+        parentEffort: "high",
+        explicitParentEffort: true,
+        supported: ["low", "medium", "high"],
+      }),
+    ).toBe("high");
+  });
+
+  test("6c. unsupported explicit parent is clamped onto supported", () => {
+    expect(
+      pickEffortFromCascade({
+        roleDefault: "medium",
+        parentEffort: "xhigh",
+        explicitParentEffort: true,
+        supported: ["low", "medium", "high"],
+      }),
+    ).toBe("high");
+  });
+
+  test("7. explicit pin still wins over explicit parent", () => {
+    expect(
+      pickEffortFromCascade({
+        pin: "low",
+        roleDefault: "medium",
+        parentEffort: "xhigh",
+        explicitParentEffort: true,
+        supported: ["low", "medium", "high"],
+      }),
+    ).toBe("low");
+  });
+
+  test("8. unset explicitParentEffort keeps role default above parent (CL-5162)", () => {
+    expect(
+      pickEffortFromCascade({
+        roleDefault: "medium",
+        parentEffort: "high",
+        supported: ["low", "medium", "high"],
+      }),
+    ).toBe("medium");
+  });
 });
 
 describe("resolveEffortForRole", () => {
@@ -454,6 +509,50 @@ describe("resolveEffortForRole", () => {
         isCodex: true,
       }),
     ).toBe("high");
+  });
+
+  test("explicit parent none wins over leaf role default (CL-10227)", () => {
+    expect(
+      resolveEffortForRole({
+        orchestrator: false,
+        parentEffort: "none",
+        explicitParentEffort: true,
+        model: "gpt-5.1",
+      }),
+    ).toBe("none");
+  });
+
+  test("explicit parent overrides orchestrator high default", () => {
+    expect(
+      resolveEffortForRole({
+        orchestrator: true,
+        parentEffort: "low",
+        explicitParentEffort: true,
+        model: "gpt-5",
+      }),
+    ).toBe("low");
+  });
+
+  test("unset parent keeps leaf role default (CL-5162)", () => {
+    expect(
+      resolveEffortForRole({
+        orchestrator: false,
+        parentEffort: "high",
+        model: "gpt-5",
+      }),
+    ).toBe("medium");
+  });
+
+  test("explicit pin wins over explicit parent", () => {
+    expect(
+      resolveEffortForRole({
+        orchestrator: false,
+        pin: "low",
+        parentEffort: "high",
+        explicitParentEffort: true,
+        model: "gpt-5",
+      }),
+    ).toBe("low");
   });
 });
 

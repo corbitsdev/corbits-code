@@ -382,6 +382,8 @@ export interface ResolveEffortForRoleOpts {
   roleDefault?: ReasoningEffort;
   /** Parent session effort — used only when the role default is not supported. */
   parentEffort?: ReasoningEffort;
+  /** Marker when the parent effort was operator-chosen (see SubAgentProvider). */
+  explicitParentEffort?: true;
   model: string;
   isCodex?: boolean;
   providerEfforts?: readonly ReasoningEffort[];
@@ -393,10 +395,12 @@ export interface ResolveEffortForRoleOpts {
  *
  * Precedence (first match wins):
  * 1. Explicit pin (clamped onto supported when the pin is not in the set)
- * 2. Role default when present in `supported`
- * 3. Parent effort when present in `supported`
- * 4. Clamp of role default onto `supported`
- * 5. undefined when `supported` is empty
+ * 2. Explicit parent effort (operator-chosen fleet pin) when present in
+ *    `supported` — clamped onto the set when not (CL-10227)
+ * 3. Role default when present in `supported`
+ * 4. Parent effort when present in `supported`
+ * 5. Clamp of role default onto `supported`
+ * 6. undefined when `supported` is empty
  *
  * Pins are still highest precedence, but an unsupported pin is clamped so the
  * pure API owns the "never emit an unsupported effort" invariant (callers that
@@ -406,6 +410,7 @@ export function pickEffortFromCascade(opts: {
   pin?: ReasoningEffort;
   roleDefault: ReasoningEffort;
   parentEffort?: ReasoningEffort;
+  explicitParentEffort?: true;
   supported: readonly ReasoningEffort[];
 }): ReasoningEffort | undefined {
   if (opts.supported.length === 0) return undefined;
@@ -413,6 +418,13 @@ export function pickEffortFromCascade(opts: {
     return opts.supported.includes(opts.pin)
       ? opts.pin
       : clampEffort(opts.pin, opts.supported);
+  }
+  // An explicit (operator-chosen) parent effort is a fleet-wide pin: it beats
+  // the role default so a primary cycled to none really gives none workers.
+  if (opts.explicitParentEffort === true && opts.parentEffort !== undefined) {
+    return opts.supported.includes(opts.parentEffort)
+      ? opts.parentEffort
+      : clampEffort(opts.parentEffort, opts.supported);
   }
   if (opts.supported.includes(opts.roleDefault)) return opts.roleDefault;
   if (
@@ -427,10 +439,13 @@ export function pickEffortFromCascade(opts: {
 /**
  * Resolve reasoning effort for a sub-agent spawn.
  *
- * Why parent is below role default: a /agent high selection on the primary must
- * not force every leaf onto high — that multiplies the sol+high latency cliff
- * across the fleet. Parent still fills gaps when the role default is not in the
- * model's supported set but the parent effort is.
+ * Precedence: explicit pin > explicit parent (operator-chosen fleet pin) > role
+ * default > derived parent > clamp. An explicit primary effort — including
+ * `none`/off — is fleet-wide, so it beats both the leaf (medium) and the
+ * orchestrator (high) role default. The unset parent case keeps CL-5162: the
+ * role default outranks a derived parent so a /agent high selection on the
+ * primary does not force every leaf onto high (which would multiply the
+ * sol+high latency cliff across the fleet).
  */
 export function resolveEffortForRole(
   opts: ResolveEffortForRoleOpts,
@@ -451,6 +466,9 @@ export function resolveEffortForRole(
     roleDefault,
     ...(opts.parentEffort !== undefined
       ? { parentEffort: opts.parentEffort }
+      : {}),
+    ...(opts.explicitParentEffort === true
+      ? { explicitParentEffort: true }
       : {}),
     supported,
   });
