@@ -138,7 +138,11 @@ host_label() {
 # Do NOT --external react-devtools-core: standalone binaries have no
 # node_modules; leaving it external makes first TUI load fail with
 # "Cannot find package 'react-devtools-core'".
-# Keep this block in sync with package.json "build:bin" when those flags change.
+# Keep this block in sync with package.json "build:bin" when those flags change,
+# with one deliberate exception: release builds omit build:bin's
+# `--define "$(bun scripts/build-info.ts)"`. They compile before the release
+# tag exists, so the stamp would read as an off-tag dev build; without it the
+# binary shows the plain package version.
 #
 # macOS targets are ad-hoc re-signed after compile. `bun build --compile`
 # appends the JS payload to Bun's linker-signed executable without re-signing
