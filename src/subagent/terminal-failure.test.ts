@@ -6,6 +6,7 @@ import {
   createSubAgentLoopGuardError,
   failureClassForStopReason,
   isProviderFailureClass,
+  isReplaySafeToolName,
   isSubAgentLoopGuardError,
   recoveryFor,
 } from "./terminal-failure.js";
@@ -108,6 +109,7 @@ describe("recoveryFor", () => {
         failureClass: "provider_retryable",
         attempt: 1,
         followupTurn: false,
+        replaySafe: true,
       }),
     ).toEqual({ available: true, reason: "eligible" });
   });
@@ -120,7 +122,12 @@ describe("recoveryFor", () => {
     "error",
   ] as const)("%s is not_retryable", (failureClass) => {
     expect(
-      recoveryFor({ failureClass, attempt: 1, followupTurn: false }),
+      recoveryFor({
+        failureClass,
+        attempt: 1,
+        followupTurn: false,
+        replaySafe: true,
+      }),
     ).toEqual({ available: false, reason: "not_retryable" });
   });
 
@@ -131,6 +138,7 @@ describe("recoveryFor", () => {
         attempt: 1,
         followupTurn: false,
         cause: providerError("retryable"),
+        replaySafe: true,
       }),
     ).toEqual({ available: true, reason: "eligible" });
     expect(
@@ -139,6 +147,7 @@ describe("recoveryFor", () => {
         attempt: 1,
         followupTurn: false,
         cause: createSubAgentLoopGuardError(providerError("timeout")),
+        replaySafe: true,
       }),
     ).toEqual({ available: true, reason: "eligible" });
   });
@@ -150,6 +159,7 @@ describe("recoveryFor", () => {
         attempt: 1,
         followupTurn: false,
         cause: providerError("credential_failure"),
+        replaySafe: true,
       }),
     ).toEqual({ available: false, reason: "not_retryable" });
     expect(
@@ -158,6 +168,7 @@ describe("recoveryFor", () => {
         attempt: 1,
         followupTurn: false,
         cause: new Error("doom"),
+        replaySafe: true,
       }),
     ).toEqual({ available: false, reason: "not_retryable" });
     expect(
@@ -166,6 +177,7 @@ describe("recoveryFor", () => {
         attempt: 1,
         followupTurn: true,
         cause: providerError("retryable"),
+        replaySafe: true,
       }),
     ).toEqual({ available: false, reason: "not_retryable" });
     expect(
@@ -174,6 +186,7 @@ describe("recoveryFor", () => {
         attempt: 2,
         followupTurn: false,
         cause: providerError("retryable"),
+        replaySafe: true,
       }),
     ).toEqual({ available: false, reason: "recovery_exhausted" });
   });
@@ -184,14 +197,50 @@ describe("recoveryFor", () => {
         failureClass: "provider_retryable",
         attempt: 1,
         followupTurn: true,
+        replaySafe: true,
       }),
     ).toEqual({ available: false, reason: "not_retryable" });
+  });
+
+  test("a retryable failure after a non-replay-safe call has side effects", () => {
+    expect(
+      recoveryFor({
+        failureClass: "provider_retryable",
+        attempt: 1,
+        followupTurn: false,
+        replaySafe: false,
+      }),
+    ).toEqual({ available: false, reason: "side_effects_completed" });
+  });
+
+  test("only read, search, and web read tools are replay-safe", () => {
+    for (const name of ["read_file", "read", "grep", "search_files"]) {
+      expect(isReplaySafeToolName(name)).toBe(true);
+    }
+    for (const name of ["web_fetch", "web_search"]) {
+      expect(isReplaySafeToolName(name)).toBe(true);
+    }
+    for (const name of [
+      "write_file",
+      "edit_file",
+      "run_shell",
+      "bash",
+      "mcp__server__tool",
+      "some_unknown_tool",
+    ]) {
+      expect(isReplaySafeToolName(name)).toBe(false);
+    }
   });
 
   test("a failed recovery attempt is exhausted whatever its class", () => {
     for (const failureClass of ["provider_retryable", "error"] as const) {
       expect(
-        recoveryFor({ failureClass, attempt: 2, followupTurn: false }),
+        recoveryFor({
+          failureClass,
+          attempt: 2,
+          followupTurn: false,
+          replaySafe: true,
+        }),
       ).toEqual({ available: false, reason: "recovery_exhausted" });
     }
   });

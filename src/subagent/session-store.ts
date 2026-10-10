@@ -33,6 +33,7 @@ import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import {
   classifySubAgentFailure,
   failureClassForStopReason,
+  isReplaySafeToolName,
   isSubAgentLoopGuardError,
   recoveryFor,
   type SubAgentFailureClass,
@@ -843,6 +844,10 @@ export function createSubAgentSessionStore(
             attempt,
             followupTurn: followupTurns.has(id),
             cause: pendingFailures.get(id)?.cause,
+            // Every tool the run requested, started, or finished: a call
+            // that started may have landed its side effect before the run
+            // died, so this is a superset of completed calls.
+            replaySafe: session.toolNames.every(isReplaySafeToolName),
           }),
         ),
         attempt,
