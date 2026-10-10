@@ -47,6 +47,8 @@ export interface ZoneVisibility {
   readonly pending?: boolean | number;
   /** WORKER WAITING strip on (default off). */
   readonly workerWait?: boolean;
+  /** INPUT REQUIRED strip for marked primary ask_operator gates (default off). */
+  readonly inputRequired?: boolean;
   /** Progress: false/omit = 0; true = 2; or explicit 1|2. */
   readonly progress?: boolean | 1 | 2;
   /** Progress divider (0–1). Default on when progress is shown. */
@@ -160,6 +162,7 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
     notice: vis.notice === true ? 1 : ZONE_REGISTRY.notice.idleDefault,
     pending: clamp(boolOrRows(vis.pending, 1), 0, ZONE_REGISTRY.pending.max),
     worker_wait: vis.workerWait === true ? 1 : 0,
+    input_required: vis.inputRequired === true ? 1 : 0,
     prompt: promptRows,
     task: clamp(boolOrRows(vis.task, 1), 0, ZONE_REGISTRY.task.max),
     // The board asks for exactly the rows it will paint; the fraction is what

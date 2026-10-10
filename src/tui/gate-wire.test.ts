@@ -23,6 +23,7 @@ import {
 import { streamRowGutter } from "./stream.js";
 import {
   APPROVAL_UNAVAILABLE_MESSAGE,
+  PRIMARY_ASK_OPERATOR_SOURCE,
   type OperatorGateEvent,
   type PermissionGateEvent,
 } from "./gate-events.js";
@@ -37,6 +38,7 @@ import {
   PERMISSION_ONCE_ID,
   permissionBodyFromRequest,
   permissionChoicesFromRequest,
+  type GateLifecycleHooks,
   wireGates,
 } from "./gate-wire.js";
 
@@ -61,6 +63,7 @@ type GateCtx = {
 
 type GateOpts = {
   readonly terminal?: { readonly columns: number; readonly rows: number };
+  readonly hooks?: Partial<GateLifecycleHooks>;
 };
 
 async function withGates(
@@ -71,7 +74,11 @@ async function withGates(
   await withAppShell(
     async (shell, h) => {
       const emitter = new EventEmitter();
-      const disposeGates = wireGates(emitter, shell);
+      const disposeGates = wireGates(emitter, shell, {
+        onGateOpened: () => undefined,
+        onGateClosed: () => undefined,
+        ...opts.hooks,
+      });
       try {
         await fn({ h, shell, emitter, disposeGates });
       } finally {
@@ -482,6 +489,107 @@ describe("wireGates", () => {
       acceptOverlaySelection(shell);
       expect(settled.get()).toEqual({ kind: "option", index: 0 });
     });
+  });
+
+  test("marked primary asks notify admission and settlement exactly once", async () => {
+    const admitted: string[] = [];
+    const settled: string[] = [];
+    await withGates(
+      async ({ shell, emitter }) => {
+        emitOperator(emitter, { source: PRIMARY_ASK_OPERATOR_SOURCE });
+        expect(admitted).toEqual(["ask-1"]);
+        acceptOverlaySelection(shell);
+        expect(settled).toEqual(["ask-1"]);
+        closeInsetOverlay(shell);
+        expect(settled).toEqual(["ask-1"]);
+      },
+      {
+        hooks: {
+          onPrimaryOperatorAdmitted: (event) => admitted.push(event.id),
+          onPrimaryOperatorSettled: (event) => settled.push(event.id),
+        },
+      },
+    );
+  });
+
+  test("re-emitted marked primary ask keeps one live gate and resolves once", async () => {
+    const admitted: string[] = [];
+    const settled: string[] = [];
+    const resolved: unknown[] = [];
+    await withGates(
+      async ({ shell, emitter }) => {
+        const event = {
+          id: "same-ask",
+          source: PRIMARY_ASK_OPERATOR_SOURCE,
+          resolve: (result: unknown) => resolved.push(result),
+        };
+        emitOperator(emitter, event);
+        emitOperator(emitter, event);
+
+        expect(admitted).toEqual(["same-ask"]);
+        expect(shell.overlayKind).toBe("operator");
+
+        acceptOverlaySelection(shell);
+
+        expect(settled).toEqual(["same-ask"]);
+        expect(resolved).toEqual([{ kind: "option", index: 0 }]);
+        expect(shell.overlayList).toBeNull();
+      },
+      {
+        hooks: {
+          onPrimaryOperatorAdmitted: (event) => admitted.push(event.id),
+          onPrimaryOperatorSettled: (event) => settled.push(event.id),
+        },
+      },
+    );
+  });
+
+  test("unmarked operator gates retain modal behavior without input-required hooks", async () => {
+    let admitted = 0;
+    let settled = 0;
+    await withGates(
+      async ({ shell, emitter }) => {
+        emitOperator(emitter);
+        expect(shell.overlayKind).toBe("operator");
+        acceptOverlaySelection(shell);
+        expect(admitted).toBe(0);
+        expect(settled).toBe(0);
+      },
+      {
+        hooks: {
+          onPrimaryOperatorAdmitted: () => admitted++,
+          onPrimaryOperatorSettled: () => settled++,
+        },
+      },
+    );
+  });
+
+  test("a marked queued ask settles its own indicator on abort and disposal", async () => {
+    const settled: string[] = [];
+    await withGates(
+      async ({ emitter, disposeGates }) => {
+        emitOperator(emitter, {
+          id: "open",
+          source: PRIMARY_ASK_OPERATOR_SOURCE,
+        });
+        const controller = new AbortController();
+        emitOperator(emitter, {
+          id: "queued",
+          source: PRIMARY_ASK_OPERATOR_SOURCE,
+          signal: controller.signal,
+        });
+        controller.abort();
+        expect(settled).toEqual(["queued"]);
+        disposeGates();
+        expect(settled).toEqual(["queued", "open"]);
+      },
+      {
+        hooks: {
+          onPrimaryOperatorAdmitted: () => undefined,
+          onPrimaryOperatorSettled: (event) => settled.push(event.id),
+        },
+      },
+    );
   });
 
   test("sequential operator asks paint B's labels and id-scoped values, not A's", async () => {

@@ -115,7 +115,10 @@ import {
 import { attachApprovalBudget } from "../request-approval.js";
 import { createGateRequestApproval } from "../request-approval.js";
 import { getActivePricingCache } from "../../cost/cost-visibility.js";
-import type { OperatorGateEvent } from "../gate-events.js";
+import {
+  PRIMARY_ASK_OPERATOR_SOURCE,
+  type OperatorGateEvent,
+} from "../gate-events.js";
 import { sessionDir } from "../../session/index.js";
 import { ID_PREFIX } from "../../branding.js";
 import {
@@ -394,6 +397,7 @@ export async function assembleTUISession(
         const timeout = approvalTimeout();
         const event: OperatorGateEvent = {
           id: randomUUID(),
+          source: PRIMARY_ASK_OPERATOR_SOURCE,
           question,
           options,
           resolve: finish,

@@ -27,6 +27,7 @@ import {
 import { EXPAND_KEY } from "./stream.js";
 import {
   APPROVAL_UNAVAILABLE_MESSAGE,
+  isPrimaryAskOperatorEvent,
   type OperatorGateEvent,
   type PermissionGateEvent,
 } from "./gate-events.js";
@@ -227,6 +228,10 @@ export interface GateLifecycleHooks {
   readonly onGateOpened: () => void;
   /** A previously raised gate resolved. */
   readonly onGateClosed: () => void;
+  /** A marked primary ask_operator gate became outstanding. */
+  readonly onPrimaryOperatorAdmitted?: (event: OperatorGateEvent) => void;
+  /** A marked primary ask_operator gate settled. */
+  readonly onPrimaryOperatorSettled?: (event: OperatorGateEvent) => void;
 }
 
 const NOOP_GATE_HOOKS: GateLifecycleHooks = {
@@ -286,6 +291,10 @@ export function wireGates(
   // gate into dispose's teardown sweep after it has already resolved
   // (harmless, since `settled` guards the double-resolve, but wasted work).
   const operatorTeardowns = new Set<() => void>();
+  // A live ask_operator gate can be re-emitted while its original event is
+  // still awaiting an answer. Its id owns the single overlay and resolver
+  // until that gate settles.
+  const liveOperatorGateIds = new Set<string>();
   // Bumped every time any gate (permission or operator) opens on the shared
   // host. A settle path that only knows "my overlay was opened" cannot tell
   // whether the host has since moved on to a newer one — the shell closes an
@@ -507,12 +516,18 @@ export function wireGates(
   }
 
   function onOperator(ev: OperatorGateEvent): void {
-    hooks.onGateOpened();
-    const resolve = onceClosed(hooks.onGateClosed, ev.resolve);
     if (typeof ev.id !== "string" || ev.id.length === 0) {
+      hooks.onGateOpened();
+      const resolve = onceClosed(hooks.onGateClosed, ev.resolve);
       resolve(operatorCancelResult());
       return;
     }
+    if (liveOperatorGateIds.has(ev.id)) return;
+    liveOperatorGateIds.add(ev.id);
+    hooks.onGateOpened();
+    const resolve = onceClosed(hooks.onGateClosed, ev.resolve);
+    const primaryOperator = isPrimaryAskOperatorEvent(ev);
+    if (primaryOperator) hooks.onPrimaryOperatorAdmitted?.(ev);
     const choices = operatorChoicesFromOptions(ev.options, ev.id);
     // Guarded the same way as the permission gate: correctness must not rest
     // on callers of closeInsetOverlay remembering to null the cancel hook
@@ -582,6 +597,8 @@ export function wireGates(
       settled = true;
       clearTimers();
       operatorTeardowns.delete(teardown);
+      liveOperatorGateIds.delete(ev.id);
+      if (primaryOperator) hooks.onPrimaryOperatorSettled?.(ev);
       if (openedGeneration === undefined) {
         unqueue(open);
       } else if (openedGeneration === overlayGeneration) {

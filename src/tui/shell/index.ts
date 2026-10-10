@@ -74,6 +74,7 @@ import {
 } from "./prompt.js";
 import { armMarkdownLinks } from "../url-links.js";
 import { NO_WORKER_WAIT } from "../worker-wait.js";
+import { NO_OPERATOR_INPUT_REQUIRED } from "../operator-input-required.js";
 import {
   createShellKeyHandlers,
   routePromptWheelToTranscript,
@@ -274,6 +275,14 @@ export function createAppShell(
     visible: layout.heights.worker_wait > 0,
   });
 
+  const inputRequiredRow = new TextRenderable(ctx, {
+    id: "shell-input-required",
+    height: Math.max(1, layout.heights.input_required),
+    content: "",
+    fg: UI.textDim,
+    visible: layout.heights.input_required > 0,
+  });
+
   const promptBox = new BoxRenderable(ctx, {
     id: "shell-prompt-region",
     width: "100%",
@@ -336,6 +345,7 @@ export function createAppShell(
   root.add(notice);
   root.add(pendingBox);
   root.add(workerWaitRow);
+  root.add(inputRequiredRow);
   root.add(promptBox);
   root.add(landingBelow);
   root.add(bottomPad);
@@ -443,6 +453,7 @@ export function createAppShell(
     notice,
     pendingBox,
     workerWaitRow,
+    inputRequiredRow,
     layout,
     focus: createFocusState(),
     session,
@@ -468,6 +479,7 @@ export function createAppShell(
     mcpNeedsAuth: [],
     pluginNeedsAttention: false,
     workerWait: NO_WORKER_WAIT,
+    operatorInputRequired: NO_OPERATOR_INPUT_REQUIRED,
     lockupNowMs: 0,
     inFlightTool: null,
     lockupAnimating: false,

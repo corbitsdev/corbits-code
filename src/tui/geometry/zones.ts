@@ -9,6 +9,7 @@ const ZONE_IDS = [
   "notice",
   "pending",
   "worker_wait",
+  "input_required",
   "prompt",
   "task",
   "agents",
@@ -109,6 +110,13 @@ export const ZONE_REGISTRY: Readonly<Record<ZoneId, ZoneDeclaration>> = {
   // parked on ask_director. Off whenever nothing is waiting.
   worker_wait: {
     id: "worker_wait",
+    min: 0,
+    max: 1,
+    idleDefault: 0,
+    alwaysOn: false,
+  },
+  input_required: {
+    id: "input_required",
     min: 0,
     max: 1,
     idleDefault: 0,
@@ -237,6 +245,7 @@ export const COLLAPSE_ORDER = [
   // once the wake turn scrolls away, so its single row is the last optional
   // cut, just ahead of prompt growth reclaim.
   "worker_wait",
+  "input_required",
   // prompt growth reclaimed next (handled specially; never below PROMPT_BASE_ROWS)
   "prompt",
 ] as const satisfies readonly ZoneId[];
@@ -259,6 +268,7 @@ export const PAINT_ORDER = [
   "notice",
   "pending",
   "worker_wait",
+  "input_required",
   "prompt",
 ] as const satisfies readonly ZoneId[];
 

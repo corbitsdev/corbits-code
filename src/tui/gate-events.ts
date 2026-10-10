@@ -4,6 +4,11 @@ import type {
 } from "../permission/types.js";
 import type { OperatorResult } from "../agent/tools.js";
 
+/** Provenance minted only by the primary session's ask_operator callback. */
+export const PRIMARY_ASK_OPERATOR_SOURCE = "primary-ask-operator" as const;
+
+export type OperatorGateSource = typeof PRIMARY_ASK_OPERATOR_SOURCE;
+
 /** Fail-closed settle when no approval UI can bind the operator's accept. */
 export const APPROVAL_UNAVAILABLE_MESSAGE =
   "no approval UI available; request denied" as const;
@@ -27,6 +32,18 @@ export interface OperatorGateEvent {
    * of the queue — so the modal cannot outlive a tool that already finished.
    */
   signal?: AbortSignal;
+  /**
+   * Optional display provenance minted by the session emitter, never inferred
+   * from an operator question by the TUI.
+   */
+  source?: OperatorGateSource;
+}
+
+/** Only an explicitly marked primary ask may enter input-required chrome. */
+export function isPrimaryAskOperatorEvent(
+  event: OperatorGateEvent,
+): event is OperatorGateEvent & { readonly source: OperatorGateSource } {
+  return event.source === PRIMARY_ASK_OPERATOR_SOURCE;
 }
 
 export interface PermissionGateEvent {

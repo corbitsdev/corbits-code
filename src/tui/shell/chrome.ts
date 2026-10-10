@@ -96,6 +96,15 @@ import {
   type WorkerWaitPart,
   type WorkerWaitRole,
 } from "../worker-wait.js";
+import {
+  addOperatorInputRequired,
+  composeOperatorInputRequiredLine,
+  NO_OPERATOR_INPUT_REQUIRED,
+  removeOperatorInputRequired,
+  type OperatorInputRequiredPart,
+  type OperatorInputRequiredRole,
+} from "../operator-input-required.js";
+import type { OperatorGateEvent } from "../gate-events.js";
 
 import {
   type AppShell,
@@ -197,6 +206,32 @@ export function clearWorkerWait(shell: AppShell): void {
   paintChrome(shell);
 }
 
+/** Add one marked primary ask to the display-only input-required chrome. */
+export function setOperatorInputRequiredGate(
+  shell: AppShell,
+  event: OperatorGateEvent,
+): void {
+  const next = addOperatorInputRequired(shell.operatorInputRequired, event);
+  if (next === shell.operatorInputRequired) return;
+  shell.operatorInputRequired = next;
+  paintChrome(shell);
+}
+
+/** Remove exactly one settled primary ask from the input-required chrome. */
+export function clearOperatorInputRequired(shell: AppShell, id: string): void {
+  const next = removeOperatorInputRequired(shell.operatorInputRequired, id);
+  if (next === shell.operatorInputRequired) return;
+  shell.operatorInputRequired = next;
+  paintChrome(shell);
+}
+
+/** Teardown helper for hosts that need to discard every outstanding indicator. */
+export function clearAllOperatorInputRequired(shell: AppShell): void {
+  if (shell.operatorInputRequired === NO_OPERATOR_INPUT_REQUIRED) return;
+  shell.operatorInputRequired = NO_OPERATOR_INPUT_REQUIRED;
+  paintChrome(shell);
+}
+
 /**
  * Wording carries the state (mark, label, routing copy); colour only lifts
  * the label to the action emphasis the shell already uses for "act here".
@@ -219,6 +254,29 @@ function workerWaitFg(role: WorkerWaitRole): string {
 
 function workerWaitChunks(parts: readonly WorkerWaitPart[]): TextChunk[] {
   return parts.map((part) => fgChunk(workerWaitFg(part.role))(part.text));
+}
+
+function operatorInputRequiredFg(role: OperatorInputRequiredRole): string {
+  switch (role) {
+    case "mark":
+    case "label":
+      return UI.action;
+    case "routing":
+    case "question":
+      return UI.text;
+    case "more":
+      return UI.textDim;
+    case "separator":
+      return UI.textFaint;
+  }
+}
+
+function operatorInputRequiredChunks(
+  parts: readonly OperatorInputRequiredPart[],
+): TextChunk[] {
+  return parts.map((part) =>
+    fgChunk(operatorInputRequiredFg(part.role))(part.text),
+  );
 }
 
 /**
@@ -247,11 +305,13 @@ function chromeComposeKey(
   shell: AppShell,
   notice: string,
   workerWait: string,
+  inputRequired: string,
 ): string {
   const meter = shell.costContext;
   return [
     notice,
     workerWait,
+    inputRequired,
     pendingColumnRows(shell.session.items)
       .map((row) => `${row.tag ?? ""}:${row.text}`)
       .join("\u0001"),
@@ -307,10 +367,15 @@ export function paintChrome(
     shell.workerWait,
     shell.layout.contentWidth,
   );
+  const inputRequired = composeOperatorInputRequiredLine(
+    shell.operatorInputRequired,
+    shell.layout.contentWidth,
+  );
   const key = chromeComposeKey(
     shell,
     notice,
     workerWait.map((part) => part.text).join(""),
+    inputRequired.map((part) => part.text).join(""),
   );
   if (!opts?.force && paintedChromeKey.get(shell) === key) return;
   paintedChromeKey.set(shell, key);
@@ -325,6 +390,10 @@ export function paintChrome(
   syncPendingColumn(shell);
   shell.workerWaitRow.content = new StyledText(workerWaitChunks(workerWait));
   syncWorkerWaitRow(shell, workerWait.length > 0);
+  shell.inputRequiredRow.content = new StyledText(
+    operatorInputRequiredChunks(inputRequired),
+  );
+  syncOperatorInputRequiredRow(shell, inputRequired.length > 0);
 }
 
 /**
@@ -337,6 +406,13 @@ function syncWorkerWaitRow(shell: AppShell, wanted: boolean): void {
   if (bag === undefined) return;
   if ((bag.visibility.workerWait ?? false) === wanted) return;
   relayout(shell, { visibility: { ...bag.visibility, workerWait: wanted } });
+}
+
+function syncOperatorInputRequiredRow(shell: AppShell, wanted: boolean): void {
+  const bag = shellInternals(shell);
+  if (bag === undefined) return;
+  if ((bag.visibility.inputRequired ?? false) === wanted) return;
+  relayout(shell, { visibility: { ...bag.visibility, inputRequired: wanted } });
 }
 
 /**
@@ -967,6 +1043,10 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   const workerWaitH = Math.max(0, h.worker_wait);
   shell.workerWaitRow.height = workerWaitH > 0 ? workerWaitH : 1;
   shell.workerWaitRow.visible = workerWaitH > 0;
+
+  const inputRequiredH = Math.max(0, h.input_required);
+  shell.inputRequiredRow.height = inputRequiredH > 0 ? inputRequiredH : 1;
+  shell.inputRequiredRow.visible = inputRequiredH > 0;
 
   const promptH = Math.max(0, h.prompt);
   shell.promptBox.height = promptH > 0 ? promptH : 1;
