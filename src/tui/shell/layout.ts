@@ -57,6 +57,7 @@ export function defaultVisibility(visibility?: ZoneVisibility): ZoneVisibility {
     notice: false,
     progress: false,
     progressDivider: false,
+    queuedInput: false,
     // Explicit 0 rather than undefined: task and agents are row counts, and
     // setChromeZones compares by ===, so undefined forces one needless
     // relayout the first time either is compared.

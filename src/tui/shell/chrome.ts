@@ -106,6 +106,10 @@ import {
   type OperatorInputRequiredRole,
 } from "../operator-input-required.js";
 import type { OperatorGateEvent } from "../gate-events.js";
+import {
+  composeQueuedInputLine,
+  type QueuedInputPart,
+} from "../queued-input.js";
 
 import {
   type AppShell,
@@ -279,6 +283,14 @@ function operatorInputRequiredChunks(
   );
 }
 
+function queuedInputChunks(parts: readonly QueuedInputPart[]): TextChunk[] {
+  return parts.map((part) =>
+    fgChunk(
+      part.role === "label" || part.role === "mark" ? UI.action : UI.textDim,
+    )(part.text),
+  );
+}
+
 /**
  * Key over every input a chrome paint reads; a miss leaves stale chrome.
  */
@@ -287,12 +299,14 @@ function chromeComposeKey(
   notice: string,
   workerWait: string,
   inputRequired: string,
+  queuedInput: string,
 ): string {
   const meter = shell.costContext;
   return [
     notice,
     workerWait,
     inputRequired,
+    queuedInput,
     pendingColumnRows(shell.session.items)
       .map((row) => `${row.tag ?? ""}:${row.text}`)
       .join("\u0001"),
@@ -345,11 +359,16 @@ export function paintChrome(
     shell.operatorInputRequired,
     shell.layout.contentWidth,
   );
+  const queuedInput = composeQueuedInputLine(
+    shell.queuedInput,
+    shell.layout.contentWidth,
+  );
   const key = chromeComposeKey(
     shell,
     notice,
     workerWait.map((part) => part.text).join(""),
     inputRequired.map((part) => part.text).join(""),
+    queuedInput.map((part) => part.text).join(""),
   );
   if (!opts?.force && paintedChromeKey.get(shell) === key) return;
   paintedChromeKey.set(shell, key);
@@ -368,6 +387,8 @@ export function paintChrome(
     operatorInputRequiredChunks(inputRequired),
   );
   syncOperatorInputRequiredRow(shell, inputRequired.length > 0);
+  shell.queuedInputRow.content = new StyledText(queuedInputChunks(queuedInput));
+  syncQueuedInputRow(shell, queuedInput.length > 0);
 }
 
 /**
@@ -387,6 +408,13 @@ function syncOperatorInputRequiredRow(shell: AppShell, wanted: boolean): void {
   if (bag === undefined) return;
   if ((bag.visibility.inputRequired ?? false) === wanted) return;
   relayout(shell, { visibility: { ...bag.visibility, inputRequired: wanted } });
+}
+
+function syncQueuedInputRow(shell: AppShell, wanted: boolean): void {
+  const bag = shellInternals(shell);
+  if (bag === undefined) return;
+  if ((bag.visibility.queuedInput ?? false) === wanted) return;
+  relayout(shell, { visibility: { ...bag.visibility, queuedInput: wanted } });
 }
 
 /** Rebuild pendingBox rows only when the painted content moved; unchanged
@@ -943,6 +971,9 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   const inputRequiredH = Math.max(0, h.input_required);
   shell.inputRequiredRow.height = inputRequiredH > 0 ? inputRequiredH : 1;
   shell.inputRequiredRow.visible = inputRequiredH > 0;
+  const queuedInputH = Math.max(0, h.queued_input);
+  shell.queuedInputRow.height = queuedInputH > 0 ? queuedInputH : 1;
+  shell.queuedInputRow.visible = queuedInputH > 0;
 
   const promptH = Math.max(0, h.prompt);
   shell.promptBox.height = promptH > 0 ? promptH : 1;

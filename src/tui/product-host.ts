@@ -138,6 +138,12 @@ export type ProductHostDeliver = (
   kind: QueueKind,
   attachments?: readonly PendingImageAttachment[],
   settle?: DeliverySettle,
+  /**
+   * False marks harness-originated text (ask wakes, mailbox mail) so the
+   * operator flag is never stamped and the queued-input ledger never records
+   * it; absent means composer input.
+   */
+  operatorOriginated?: boolean,
 ) => void;
 
 /**

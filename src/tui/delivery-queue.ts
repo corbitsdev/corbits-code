@@ -192,6 +192,12 @@ export interface QueueItem {
   readonly enqueuedAt: number;
   /** Images attached to this message, delivered with it at the boundary. */
   readonly attachments?: readonly PendingImageAttachment[];
+  /**
+   * False marks harness-originated text (ask wakes, mailbox mail) so it never
+   * enters the queued-input ledger as operator input; absent means composer
+   * input.
+   */
+  readonly operatorOriginated?: boolean;
 }
 
 export type RunState = "idle" | "busy";
@@ -457,11 +463,13 @@ export interface RouteQueuedDeliveryArgs {
     text: string,
     attachments?: readonly PendingImageAttachment[],
     settle?: DeliverySettle,
+    operatorOriginated?: boolean,
   ) => void;
   deliverSteer: (
     text: string,
     attachments?: readonly PendingImageAttachment[],
     settle?: DeliverySettle,
+    operatorOriginated?: boolean,
   ) => void;
   /**
    * True only while the bridge is draining steers at a live parent
@@ -474,12 +482,12 @@ export interface RouteQueuedDeliveryArgs {
 export function routeQueuedDelivery(
   args: RouteQueuedDeliveryArgs,
 ): ProductHostDeliver {
-  return (text, kind, attachments, settle) => {
+  return (text, kind, attachments, settle, operatorOriginated) => {
     if (kind === "steer" && args.parentCycleLive()) {
-      args.deliverSteer(text, attachments, settle);
+      args.deliverSteer(text, attachments, settle, operatorOriginated);
       return;
     }
-    args.send(text, attachments, settle);
+    args.send(text, attachments, settle, operatorOriginated);
   };
 }
 
@@ -531,6 +539,7 @@ export interface CreateLiveSteerDeliverArgs {
     text: string,
     attachments: readonly PendingImageAttachment[],
     settle?: DeliverySettle,
+    operatorOriginated?: boolean,
   ) => void;
   captureGeneration: () => () => boolean;
   onFailure: (err: unknown) => void;
@@ -549,6 +558,8 @@ export interface CreateLeftoverSendArgs {
   send: (
     text: string,
     attachments: readonly PendingImageAttachment[],
+    settle?: DeliverySettle,
+    operatorOriginated?: boolean,
   ) => MaybeAsyncDeliveryResult;
   /**
    * Up/Down recall. Called with the original text only when the hop is
@@ -569,6 +580,7 @@ interface GenerationGatedHopArgs {
     text: string,
     attachments: readonly PendingImageAttachment[],
     settle?: DeliverySettle,
+    operatorOriginated?: boolean,
   ) => MaybeAsyncDeliveryResult;
   /**
    * Leftover/send settles from the send promise; live steer uses the
@@ -593,8 +605,9 @@ function createGenerationGatedHop(
   text: string,
   attachments?: readonly PendingImageAttachment[],
   settle?: DeliverySettle,
+  operatorOriginated?: boolean,
 ) => void {
-  return (text, attachments, settle) => {
+  return (text, attachments, settle, operatorOriginated) => {
     const stillCurrent = args.captureGeneration();
     const pending = attachments ?? [];
     let settled = false;
@@ -635,14 +648,24 @@ function createGenerationGatedHop(
         }
         args.recordSent?.(text);
         if (args.settleFromHopResult === true) {
-          const result = await args.hop(ingested.text, ingested.attachments);
+          const result = await args.hop(
+            ingested.text,
+            ingested.attachments,
+            undefined,
+            operatorOriginated,
+          );
           finish(result ?? { status: "accepted" });
           return;
         }
         // Live steer: hop receives settle and reports the eventual result.
-        args.hop(ingested.text, ingested.attachments, (result) => {
-          finish(result);
-        });
+        args.hop(
+          ingested.text,
+          ingested.attachments,
+          (result) => {
+            finish(result);
+          },
+          operatorOriginated,
+        );
       })
       .catch((err: unknown) => {
         finish({

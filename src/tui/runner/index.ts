@@ -105,6 +105,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const computeAddProviderChoices = () =>
       addProviderSelectorChoices(providerChoices(), state.config.providers);
 
+    state.acceptedInputObserver = (messageId) => {
+      state.host?.bridge.recordAcceptedInput(messageId);
+    };
+    state.beginAcceptedInputObserver = (messageId) => {
+      state.host?.bridge.beginQueuedInputDelivery(messageId);
+    };
+    state.discardAcceptedInputObserver = (messageId) => {
+      state.host?.bridge.discardQueuedInputDelivery(messageId);
+    };
     const host = await mountRunnerHost({
       // An unnamed session shows nothing rather than a placeholder.
       title: state.runTaskTitle,

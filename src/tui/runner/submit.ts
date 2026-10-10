@@ -6,7 +6,10 @@
 
 import { getLogger } from "@intx/log";
 import type { InboundMessage } from "@intx/types/runtime";
-import { OPERATOR_ORIGINATED_FLAG } from "../../agent/message-provenance.js";
+import {
+  isOperatorOriginated,
+  OPERATOR_ORIGINATED_FLAG,
+} from "../../agent/message-provenance.js";
 import { appendSentMessage } from "../../session/sent-messages.js";
 import { getTelemetry } from "../../telemetry/singleton.js";
 import {
@@ -235,10 +238,14 @@ export const IMAGE_ONLY_PROMPT = "Please inspect the attached image.";
  * OPERATOR_ORIGINATED_FLAG so director.ts's loop-protection backstop can
  * tell it from system-originated sends (compaction continuations,
  * retries, nudges).
+ * `operatorOriginated` is false for harness-originated text (ask wakes,
+ * mailbox mail) delivered through the same port: those messages must never
+ * read as operator input and never enter the queued-input ledger.
  */
 export function userInboundMessage(
   text: string,
   attachments: readonly PendingImageAttachment[],
+  operatorOriginated = true,
 ): InboundMessage {
   return {
     ref: { uid: 1, mailbox: "INBOX" },
@@ -249,7 +256,7 @@ export function userInboundMessage(
       messageId: `<${crypto.randomUUID()}@local>`,
       interchangeType: "conversation.message",
     },
-    flags: [OPERATOR_ORIGINATED_FLAG],
+    flags: operatorOriginated === true ? [OPERATOR_ORIGINATED_FLAG] : [],
     signatureStatus: "missing",
     content: text.length > 0 ? text : IMAGE_ONLY_PROMPT,
     attachments: attachments.map((a) => ({
@@ -370,6 +377,10 @@ export function createSubmitPath(
       attempt.providerId,
     );
     state.reconnectRecoveryAttempts.set(providerFailure, reconnectAttempt);
+    const messageId = message.headers.messageId;
+    const isOperatorMessage =
+      typeof messageId === "string" && isOperatorOriginated(message.flags);
+    if (isOperatorMessage) state.beginAcceptedInputObserver?.(messageId);
     try {
       await runWhileAgentBusy(state, async () => {
         const result = await send(message);
@@ -386,8 +397,12 @@ export function createSubmitPath(
         // Settled: nothing is left for the stall watchdog to re-present.
         services.suspendedApprovalRecovery.clear();
       });
+      if (isOperatorMessage) {
+        state.acceptedInputObserver?.(messageId);
+      }
       return { status: "accepted" };
     } catch (error) {
+      if (isOperatorMessage) state.discardAcceptedInputObserver?.(messageId);
       handleSendFailure(error, attempt, providerFailure, presentFailureNotice);
       if (error instanceof AgentClosedError) {
         return {
@@ -510,7 +525,7 @@ export function createDeliverRouting(
           imageAttachmentFromPath,
           pending,
         ),
-      send: async (text, pending) => {
+      send: async (text, pending, _settle, operatorOriginated) => {
         state.sendAborted = false;
         const send = state.sendWithAttemptIdentity;
         if (send === undefined) {
@@ -522,7 +537,7 @@ export function createDeliverRouting(
         }
         const targetAgent = liveAgent(state);
         return send(
-          userInboundMessage(text, pending),
+          userInboundMessage(text, pending, operatorOriginated),
           (message) => targetAgent.send(message),
           false,
         );
@@ -553,11 +568,25 @@ export function createDeliverRouting(
           imageAttachmentFromPath,
           pending,
         ),
-      deliver: (text, pending, settle) => {
+      deliver: (text, pending, settle, operatorOriginated) => {
         const targetAgent = liveAgent(state);
-        state.enqueueAgentDeliver?.(
-          () => targetAgent.deliver(userInboundMessage(text, pending)),
-          settle,
+        const enqueueAgentDeliver = state.enqueueAgentDeliver;
+        if (enqueueAgentDeliver === undefined) return;
+        const message = userInboundMessage(text, pending, operatorOriginated);
+        const messageId = message.headers.messageId;
+        const isOperatorMessage =
+          typeof messageId === "string" && isOperatorOriginated(message.flags);
+        if (isOperatorMessage) state.beginAcceptedInputObserver?.(messageId);
+        enqueueAgentDeliver(
+          () => targetAgent.deliver(message),
+          (result) => {
+            if (result.status === "accepted" && isOperatorMessage) {
+              state.acceptedInputObserver?.(message.headers.messageId);
+            } else if (isOperatorMessage) {
+              state.discardAcceptedInputObserver?.(messageId);
+            }
+            settle?.(result);
+          },
         );
       },
       captureGeneration: services.deliveryGeneration.capture,
