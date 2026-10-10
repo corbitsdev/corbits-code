@@ -49,10 +49,13 @@ function silentPastThreshold(
   // sub-agent's tool call finishes, even while siblings are still running.
   // Outstanding calls mean the run is not silent, regardless of that flag.
   if (args.awaitingResponse && args.activeToolCalls.length === 0) return true;
-  // Execution-watchdog-exempt polls (collect, wait_agents, ask_director) emit
-  // no parent stream events. That must not pin the stall clock forever: they
-  // have no other wall-clock bound, so the stall budget is the backstop.
-  // TUI primary does not mount wait_agents; the name is kept so a stray mount cannot pin the clock.
+  // Policy: an in-flight wait_agents or ask_director is stall-bounded, never
+  // exempt. The TUI primary mounts neither (wait_agents is mount-gated off and
+  // ask_director exists only in worker loops), so both names are defensive
+  // guards that keep a stray mount from pinning the clock. A worker's parked
+  // ask is bounded elsewhere: an unanswered ask expires after ASK_DEADLINE_MS
+  // via expireStaleAsks, and the director's silent ask-wake turn is aborted by
+  // this watchdog via abortStalledWakeTurn, which re-surfaces the question.
   if (isStallBoundedInFlightTool(args) && args.isProcessing) return true;
   // Mid-stream hang: model stream stalled after first token. Ordinary in-flight
   // tool runs still do not emit parent stream events; leave those to the
@@ -79,6 +82,7 @@ function isStallBoundedToolName(name: string | null | undefined): boolean {
   return isSameTool(name, "wait_agents") || isSameTool(name, "ask_director");
 }
 
+/** Why these names are bounded guards, not exemptions: see `silentPastThreshold`. */
 function isStallBoundedInFlightTool(args: ShouldAbortForStallArgs): boolean {
   if (isStallBoundedToolName(args.currentToolName)) return true;
   for (const [name, id] of Object.entries(args.callIdByName)) {
