@@ -554,3 +554,38 @@ describe("backstop close honesty", () => {
     expect(sessions.get(id)?.failure?.cleanup).toBe("partial");
   });
 });
+
+describe("recovery replacement link", () => {
+  function failedWorker() {
+    const { sessions } = store();
+    const id = startRunning(sessions);
+    sessions.fail(id, "upstream overloaded", {
+      failure_class: "provider_retryable",
+    });
+    return { sessions, id };
+  }
+
+  test("the first link wins and a second claim cannot overwrite it", () => {
+    const { sessions, id } = failedWorker();
+    sessions.linkRecoveryReplacement(id, "r1");
+    sessions.linkRecoveryReplacement(id, "r2");
+    expect(sessions.get(id)?.failure?.recovery).toEqual({
+      available: false,
+      reason: "already_recovered",
+      replacement_id: "r1",
+    });
+  });
+
+  test("unlinking restores availability only for the linked replacement", () => {
+    const { sessions, id } = failedWorker();
+    sessions.linkRecoveryReplacement(id, "r1");
+    sessions.unlinkRecoveryReplacement(id, "other");
+    expect(sessions.get(id)?.failure?.recovery.replacement_id).toBe("r1");
+
+    sessions.unlinkRecoveryReplacement(id, "r1");
+    expect(sessions.get(id)?.failure?.recovery).toEqual({
+      available: true,
+      reason: "eligible",
+    });
+  });
+});

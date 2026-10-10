@@ -171,3 +171,35 @@ function isRetryableFailure(input: {
     isRecoverableProviderFailureCategory(cause.category)
   );
 }
+
+/**
+ * The record as written, for a claim whose replacement never launched. A
+ * record is only claimable while recovery is available, so that is the state
+ * a refund restores.
+ */
+export function withoutRecoveryReplacement(
+  record: SubAgentFailureRecord,
+): SubAgentFailureRecord {
+  return Object.freeze({
+    ...record,
+    recovery: Object.freeze({
+      available: true,
+      reason: "eligible" as const,
+    }),
+  });
+}
+
+/** The same record, claimed by a replacement. Nothing else changes. */
+export function withRecoveryReplacement(
+  record: SubAgentFailureRecord,
+  replacementId: string,
+): SubAgentFailureRecord {
+  return Object.freeze({
+    ...record,
+    recovery: Object.freeze({
+      available: false,
+      reason: "already_recovered" as const,
+      replacement_id: replacementId,
+    }),
+  });
+}

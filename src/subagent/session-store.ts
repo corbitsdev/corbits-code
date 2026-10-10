@@ -36,6 +36,8 @@ import {
   isReplaySafeToolName,
   isSubAgentLoopGuardError,
   recoveryFor,
+  withoutRecoveryReplacement,
+  withRecoveryReplacement,
   type SubAgentFailureClass,
   type SubAgentFailureInput,
   type SubAgentFailureRecord,
@@ -160,6 +162,8 @@ export interface SubAgentSession {
    * mutation that makes the outcome observable; absent while the lane is live.
    */
   failure?: SubAgentFailureRecord;
+  /** Set on a recovery replacement: the failed agent id it recovers. */
+  recovers?: string;
 }
 
 export interface StartSessionInput {
@@ -177,6 +181,8 @@ export interface StartSessionInput {
   provider?: string;
   /** Canonical tool names this worker hard-required at dispatch. */
   requiresTools?: readonly string[];
+  /** The failed agent id this session was spawned to recover. */
+  recovers?: string;
 }
 
 export interface SubAgentSessionStoreOptions {
@@ -221,6 +227,17 @@ export interface SubAgentSessionStore {
     error: string,
     failure?: SubAgentFailureInput,
   ): Promise<void>;
+  /**
+   * Claim a failure record for its replacement. The record otherwise stays
+   * as written: the failed lane never returns to running or success.
+   */
+  linkRecoveryReplacement(id: string, replacementId: string): void;
+  /**
+   * Undo a claim whose replacement never launched. No-op unless
+   * `replacementId` is the one currently linked, so a stale refund cannot
+   * reopen a lane another replacement has since claimed.
+   */
+  unlinkRecoveryReplacement(id: string, replacementId: string): void;
   // Register the live abort handle so cancel() stops the child reactor
   // (agent.close), not just flips status.
   registerCancel(id: string, abort: () => void): void;
@@ -832,7 +849,7 @@ export function createSubAgentSessionStore(
     const id = session.id;
     const failureClass = terminalFailureClass(session);
     if (failureClass !== undefined) {
-      const attempt = 1;
+      const attempt = session.recovers !== undefined ? 2 : 1;
       const teardownFailed = pendingFailures.get(id)?.teardownFailed === true;
       session.failure = Object.freeze({
         agent_id: id,
@@ -851,6 +868,9 @@ export function createSubAgentSessionStore(
           }),
         ),
         attempt,
+        ...(session.recovers !== undefined
+          ? { recovers: session.recovers }
+          : {}),
         handoff: terminalHandoffs.get(id) ?? currentHandoff(id),
         cleanup:
           teardownFailed || releaseFaults.has(id) ? "partial" : "released",
@@ -1449,6 +1469,7 @@ export function createSubAgentSessionStore(
         ...(input.requiresTools !== undefined
           ? { requiresTools: [...input.requiresTools] }
           : {}),
+        ...(input.recovers !== undefined ? { recovers: input.recovers } : {}),
       };
       sessions.set(id, session);
       bumpRevision(id);
@@ -1768,6 +1789,26 @@ export function createSubAgentSessionStore(
       });
       pendingFailures.delete(id);
       return Promise.resolve();
+    },
+
+    linkRecoveryReplacement(id: string, replacementId: string): void {
+      mutate(id, (session) => {
+        if (session.failure === undefined) return;
+        // First claim wins: a second link would orphan the replacement the
+        // first caller was already handed.
+        if (session.failure.recovery.replacement_id !== undefined) return;
+        session.failure = withRecoveryReplacement(
+          session.failure,
+          replacementId,
+        );
+      });
+    },
+
+    unlinkRecoveryReplacement(id: string, replacementId: string): void {
+      mutate(id, (session) => {
+        if (session.failure?.recovery.replacement_id !== replacementId) return;
+        session.failure = withoutRecoveryReplacement(session.failure);
+      });
     },
 
     registerCancel(id: string, abort: () => void): void {
@@ -2594,6 +2635,7 @@ function cloneSession(
       ? { requiresTools: [...session.requiresTools] }
       : {}),
     ...(session.failure !== undefined ? { failure: session.failure } : {}),
+    ...(session.recovers !== undefined ? { recovers: session.recovers } : {}),
   };
 }
 
