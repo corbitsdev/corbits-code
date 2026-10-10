@@ -29,7 +29,8 @@ terminal with nothing optional showing, the transcript floor is 12 rows
 (`IDLE_TRANSCRIPT_FLOOR`); with an inset overlay open the floor drops to 8 rows (`OVERLAY_TRANSCRIPT_FLOOR`) so the log stays glanceable
 underneath a permission prompt. When space is scarce, collapse follows a
 fixed order — transient banners first, then settings/plugin notices, then
-task/agents strips, then progress, then the prompt itself shrinks one
+task/agents strips, then progress, then the INPUT REQUIRED strip (the last
+optional row), then the prompt itself shrinks one
 row at a time down to its 3-row base — never the transcript
 (`COLLAPSE_ORDER` in `zones.ts`).
 
@@ -330,6 +331,31 @@ and otherwise the first snapshot entry shows. At narrow widths the question
 truncates first, then requester metadata and routing copy shorten, while the
 waiting label and the count stay. Primary-session `ask_operator` prompts keep
 their own overlay and never use this strip.
+
+### INPUT REQUIRED strip
+
+While a primary-session `ask_operator` question is unanswered, a one-row
+**INPUT REQUIRED** strip sits on the prompt box (zone `input_required`):
+
+```
+◆ INPUT REQUIRED · operator answer needed · Which environment should I deploy to? (+1 more)
+```
+
+It keeps the owed answer in view while the operator scrolls, types, or has
+the operator modal open. It is display only: the modal stays the one place
+to answer, and the strip never changes focus, key routing, overlay order,
+timeouts, or cancellation. Only gates the primary session's `ask_operator`
+callback marks with `source: "primary-ask-operator"` raise it; permission
+gates, MCP-trust gates, and worker `ask_director` questions never do. An
+item's identity is its gate id, and it leaves when that gate settles
+(answered, cancelled with Esc, timed out, aborted, or torn down); host
+dispose clears every item (`src/tui/operator-input-required.ts`, fed from
+`gate-wire.ts` and painted by `paintChrome` in `shell/chrome.ts`). One
+question shows at a time, with `(+N more)` for the rest. At narrow widths the
+question truncates and then drops first, then the routing copy. Below 26
+cells the `(+N more)` count is sliced away (cut at 25, gone at 16), leaving
+only the label. When WORKER WAITING is also showing, it sits directly above
+this strip.
 
 ### Transcript spawn_agent rows (history anchors)
 

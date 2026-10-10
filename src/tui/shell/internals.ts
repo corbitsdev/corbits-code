@@ -35,6 +35,7 @@ import { type StreamRow } from "../stream.js";
 import { createOverlayView } from "../overlay-view.js";
 import { type KillRing } from "../prompt-kill-ring.js";
 import { type WorkerWaitState } from "../worker-wait.js";
+import { type OperatorInputRequiredState } from "../operator-input-required.js";
 
 export const shellExitHandlers = new WeakMap<AppShell, () => void>();
 
@@ -370,6 +371,8 @@ export interface AppShell {
    * parked on ask_director; geometry owns its row (zone `worker_wait`).
    */
   readonly workerWaitRow: TextRenderable;
+  /** INPUT REQUIRED strip for live marked primary ask_operator gates. */
+  readonly inputRequiredRow: TextRenderable;
   /** Latest geometry resolution (updated on resize / relayout). */
   layout: GeometryLayout;
   /** Focus tree + scroll lease (updated by shell helpers). */
@@ -426,6 +429,8 @@ export interface AppShell {
    * Display state: nothing reads it to route input or settle an ask.
    */
   workerWait: WorkerWaitState;
+  /** Display-only state for outstanding primary ask_operator gate ids. */
+  operatorInputRequired: OperatorInputRequiredState;
   /** Clock and motion state for the bottom-left status slot; the bridge pushes
    * it off its monitor tick. */
   lockupNowMs: number;

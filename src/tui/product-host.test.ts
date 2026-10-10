@@ -14,6 +14,8 @@ import {
   runOverlayAction,
 } from "./shell/overlay-list.js";
 import { handleListFilterKey } from "./shell/palette.js";
+import { PRIMARY_ASK_OPERATOR_SOURCE } from "./gate-events.js";
+import { NO_OPERATOR_INPUT_REQUIRED } from "./operator-input-required.js";
 import {
   decideRemoveKey,
   mountProductHost,
@@ -531,6 +533,28 @@ describe("mountProductHost", () => {
     }
   });
 
+  test("session.clear removes the INPUT REQUIRED strip for an outstanding gate", async () => {
+    const { host, emitter } = await mountHeadless();
+    try {
+      // No abort signal, as on the real ask path, so nothing else can clear it.
+      emitter.emit("operator.gate", {
+        id: "ask-rotated",
+        source: PRIMARY_ASK_OPERATOR_SOURCE,
+        question: "Continue?",
+        options: ["Yes", "No"],
+        resolve: () => undefined,
+      });
+      expect(host.shell.layout.heights.input_required).toBe(1);
+
+      emitter.emit("session.clear");
+
+      expect(host.shell.operatorInputRequired).toBe(NO_OPERATOR_INPUT_REQUIRED);
+      expect(host.shell.layout.heights.input_required).toBe(0);
+    } finally {
+      host.dispose();
+    }
+  });
+
   test("dispose() detaches emitter listeners and resolves waitUntilExit", async () => {
     const { host, emitter } = await mountHeadless();
 
@@ -604,6 +628,39 @@ describe("mountProductHost", () => {
       expect(captureCharFrame()).not.toContain("map callers");
     } finally {
       host.dispose();
+      destroyHarness();
+    }
+  });
+
+  test("host teardown drains a marked outstanding operator gate and clears its strip", async () => {
+    const { host, emitter, destroyHarness } = await mountHeadless();
+    try {
+      let resolved: unknown = "unset";
+      emitter.emit("operator.gate", {
+        id: "ask-teardown",
+        source: PRIMARY_ASK_OPERATOR_SOURCE,
+        question: "Continue?",
+        options: ["Yes", "No"],
+        resolve: (result: unknown) => {
+          resolved = result;
+        },
+      });
+      expect(
+        host.shell.operatorInputRequired.items.map((item) => item.id),
+      ).toEqual(["ask-teardown"]);
+      expect(host.shell.layout.heights.input_required).toBe(1);
+      expect(emitter.listenerCount("operator.gate")).toBe(1);
+      expect(emitter.listenerCount("permission.gate")).toBe(1);
+
+      host.dispose();
+
+      // The gate is drained by the teardown sweep, never left hanging.
+      expect(resolved).toEqual({ kind: "cancel" });
+      expect(host.shell.operatorInputRequired).toBe(NO_OPERATOR_INPUT_REQUIRED);
+      expect(host.shell.layout.heights.input_required).toBe(0);
+      expect(emitter.listenerCount("operator.gate")).toBe(0);
+      expect(emitter.listenerCount("permission.gate")).toBe(0);
+    } finally {
       destroyHarness();
     }
   });
