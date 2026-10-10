@@ -143,6 +143,32 @@ describe("terminal failure record", () => {
     expect(after?.error).toBe("first");
   });
 
+  test("a retryable failure after a write or shell call is not replay-safe", () => {
+    for (const tool of ["write_file", "run_shell", "mcp__x__y"]) {
+      const { sessions } = store();
+      const id = startRunning(sessions);
+      sessions.appendEvent(id, toolStart("read_file", "c1"));
+      sessions.appendEvent(id, toolStart(tool, "c2"));
+      sessions.fail(id, "timeout", { failure_class: "provider_retryable" });
+      expect(sessions.get(id)?.failure?.recovery).toEqual({
+        available: false,
+        reason: "side_effects_completed",
+      });
+    }
+  });
+
+  test("a retryable failure after only read calls stays eligible", () => {
+    const { sessions } = store();
+    const id = startRunning(sessions);
+    sessions.appendEvent(id, toolStart("read_file", "c1"));
+    sessions.appendEvent(id, toolStart("grep", "c2"));
+    sessions.fail(id, "timeout", { failure_class: "provider_retryable" });
+    expect(sessions.get(id)?.failure?.recovery).toEqual({
+      available: true,
+      reason: "eligible",
+    });
+  });
+
   test("a teardown failure reports partial cleanup", () => {
     const { sessions } = store();
     const id = startRunning(sessions);

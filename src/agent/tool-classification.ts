@@ -45,6 +45,19 @@ export const SEARCH_QUERY_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Tools whose call a recovery may replay without repeating a side effect:
+ * path-keyed reads, search queries, and web reads. Deliberately narrow and
+ * closed: run_shell, writes, MCP, and any tool not named here make a failed
+ * run ineligible for enforced recovery.
+ */
+export const REPLAY_SAFE_TOOLS: ReadonlySet<string> = new Set([
+  ...PATH_KEYED_READ_TOOLS,
+  ...SEARCH_QUERY_TOOLS,
+  "web_fetch",
+  "web_search",
+]);
+
+/**
  * Tools that never need an approval prompt because they cannot change the
  * workspace: the director's read surface minus run_shell/web_fetch/web_search
  * (which get their own, narrower auto-allow rules — see

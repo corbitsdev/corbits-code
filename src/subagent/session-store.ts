@@ -28,6 +28,7 @@ import type { AdmissionQueue, AdmissionStatus } from "./admission.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import {
   failureClassForStopReason,
+  isReplaySafeToolName,
   recoveryFor,
   type SubAgentFailureClass,
   type SubAgentFailureInput,
@@ -872,6 +873,10 @@ export function createSubAgentSessionStore(
             failureClass,
             attempt,
             followupTurn: followupTurns.has(id),
+            // Every tool the run requested, started, or finished: a call
+            // that started may have landed its side effect before the run
+            // died, so this is a superset of completed calls.
+            replaySafe: session.toolNames.every(isReplaySafeToolName),
           }),
         ),
         attempt,

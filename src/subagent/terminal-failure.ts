@@ -3,6 +3,8 @@ import {
   isResolvedProviderFailureError,
 } from "../inference-error-message.js";
 import { errorMessage } from "../agent/error-message.js";
+import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import { REPLAY_SAFE_TOOLS } from "../agent/tool-classification.js";
 import type { ForcedStopReason } from "./stop-policy.js";
 
 /**
@@ -123,20 +125,31 @@ export function classifySubAgentFailure(
   return "error";
 }
 
+/** Whether a call to `name` can be replayed by a recovery attempt. */
+export function isReplaySafeToolName(name: string): boolean {
+  return REPLAY_SAFE_TOOLS.has(canonicalToolName(name));
+}
+
 /**
  * Recovery availability for a freshly written record. The chain cap wins
  * over class: a recovery attempt that fails is exhausted whatever its cause.
+ * Replay safety fails closed: any tool outside the read-only allowlist means
+ * a replacement could repeat a side effect.
  */
 export function recoveryFor(input: {
   failureClass: SubAgentFailureClass;
   attempt: number;
   followupTurn: boolean;
+  replaySafe: boolean;
 }): SubAgentRecovery {
   if (input.attempt > 1) {
     return { available: false, reason: "recovery_exhausted" };
   }
   if (input.followupTurn || input.failureClass !== "provider_retryable") {
     return { available: false, reason: "not_retryable" };
+  }
+  if (!input.replaySafe) {
+    return { available: false, reason: "side_effects_completed" };
   }
   return { available: true, reason: "eligible" };
 }
