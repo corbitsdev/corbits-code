@@ -122,9 +122,10 @@ import {
 
 import { formatSubAgentSpawnAuthFailureMessage } from "./inference-auth-failure.js";
 import {
-  isRecoverableProviderFailureCategory,
-  isResolvedProviderFailureError,
-} from "../inference-error-message.js";
+  classifySubAgentFailure,
+  isProviderFailureClass,
+  type SubAgentFailureRecord,
+} from "./terminal-failure.js";
 import { errorMessage } from "../agent/error-message.js";
 import { isSubAgentCancelError } from "./dispose.js";
 import {
@@ -143,9 +144,11 @@ interface FleetRecord {
   report?: string;
   error?: string;
   stopReason?: string;
+  /** Derived from `failure.failure_class`. */
   providerFailure?: true;
-  /** CL-8978: transient provider failure — the parent may spawn one successor. */
+  /** CL-8978: derived from `failure.recovery.available`. */
   recoverableFailure?: true;
+  failure?: SubAgentFailureRecord;
   /** Set once a wait_agents caller has been handed this result. */
   collected?: boolean;
   /** Set once a waiter or occupancy take handed report/error. */
@@ -178,9 +181,8 @@ interface FleetOverlay {
   bodyHanded?: boolean;
   tombstoned?: boolean;
   hint?: string;
-  providerFailure?: true;
-  /** CL-8978: transient provider failure — the parent may spawn one successor. */
-  recoverableFailure?: true;
+  /** Mirror of the session's failure record so it survives eviction. */
+  failure?: SubAgentFailureRecord;
 }
 
 const RECOVERY_HINT =
@@ -280,23 +282,6 @@ class FleetMailbox {
     this.records.clear();
     this.lastSurfacedParkedAsks = undefined;
     this.sessions.wake();
-  }
-
-  markProviderFailure(id: string): void {
-    const existing = this.records.get(id);
-    if (existing === undefined) return;
-    existing.providerFailure = true;
-  }
-
-  /**
-   * CL-8978: stamp a transient (retryable/timeout/overload) provider failure
-   * alongside sessions.fail. Survives session eviction like providerFailure —
-   * snapshot projects it even once the payload is tombstoned.
-   */
-  markRecoverable(id: string): void {
-    const existing = this.records.get(id);
-    if (existing === undefined) return;
-    existing.recoverableFailure = true;
   }
 
   markQueued(id: string): void {
@@ -408,6 +393,7 @@ class FleetMailbox {
 
   private rememberLiveWaitStatuses(): void {
     for (const [id, overlay] of this.records) {
+      this.mirrorFailure(id, overlay);
       const wait = this.sessionWaitStatus(id);
       if (wait === undefined) continue;
       // Do not overwrite lastWait with the session's pending_init/running
@@ -415,6 +401,13 @@ class FleetMailbox {
       if (overlay.forceQueued === true && isLiveWaitStatus(wait)) continue;
       overlay.lastWaitStatus = wait;
     }
+  }
+
+  private mirrorFailure(id: string, overlay: FleetOverlay): void {
+    const session = this.sessions.get(id);
+    if (session === undefined) return;
+    if (session.failure !== undefined) overlay.failure = session.failure;
+    else delete overlay.failure;
   }
 
   private waitStatusFromEvicted(id: string): WaitJSONStatus | undefined {
@@ -457,6 +450,7 @@ class FleetMailbox {
       return { status: "running" };
     }
     const session = this.sessions.get(id);
+    this.mirrorFailure(id, overlay);
     if (
       session === undefined &&
       overlay.tombstoned !== true &&
@@ -484,6 +478,7 @@ class FleetMailbox {
         : payload?.stopReason;
     const ask =
       status === "awaiting_director" ? this.sessions.peekAsk(id) : undefined;
+    const failure = isLiveWaitStatus(status) ? undefined : overlay.failure;
     return {
       status,
       ...(overlay.collected === true ? { collected: true } : {}),
@@ -495,10 +490,13 @@ class FleetMailbox {
         ? { error: payload.error }
         : {}),
       ...(stopReason !== undefined ? { stopReason } : {}),
-      ...(overlay.providerFailure === true ? { providerFailure: true } : {}),
-      ...(overlay.recoverableFailure === true
+      ...(failure !== undefined && isProviderFailureClass(failure.failure_class)
+        ? { providerFailure: true }
+        : {}),
+      ...(failure?.recovery.available === true
         ? { recoverableFailure: true }
         : {}),
+      ...(failure !== undefined ? { failure } : {}),
       ...(ask !== undefined
         ? { question: ask.question, questionId: ask.questionId }
         : {}),
@@ -1727,28 +1725,23 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                 deps.sessions.settleRun(session.id);
                 return;
               }
-              const isProviderFailure = isResolvedProviderFailureError(err);
               const diagnosticMessage = errorMessage(err);
               const authMessage = formatSubAgentSpawnAuthFailureMessage(
                 description,
                 err,
               );
               const failReason = authMessage ?? diagnosticMessage;
-              if (isProviderFailure || providerFailureObserved) {
-                deps.fleetRecords.markProviderFailure(session.id);
-              }
-              // CL-8978: a classified transient failure stays wait-terminal
-              // failed, but carries a continuable marker so the parent can
-              // spawn one successor instead of stalling on the failure.
-              // Fatal categories (credential/quota/context-overflow) and
-              // unclassified throws never mark — no auto-retry is added here.
-              if (
-                isResolvedProviderFailureError(err) &&
-                isRecoverableProviderFailureCategory(err.category)
-              ) {
-                deps.fleetRecords.markRecoverable(session.id);
-              }
-              deps.sessions.fail(session.id, failReason);
+              // CL-10202: the typed class is the single source for the
+              // provider_failure and continuable projections. A transient
+              // failure stays wait-terminal failed; nothing here retries.
+              deps.sessions.fail(session.id, failReason, {
+                failure_class: classifySubAgentFailure(err, {
+                  providerFailureObserved,
+                }),
+                ...(settlement?.teardown_failed === true
+                  ? { teardownFailed: true }
+                  : {}),
+              });
             })
             .finally(() => {
               activeLanes.delete(call.id);
@@ -2091,6 +2084,7 @@ export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
               }
             : {}),
           ...(stopReason !== undefined ? { stop_reason: stopReason } : {}),
+          ...(record?.failure !== undefined ? { failure: record.failure } : {}),
           ...(record?.status === "awaiting_director" &&
           record.question !== undefined
             ? { question: record.question }

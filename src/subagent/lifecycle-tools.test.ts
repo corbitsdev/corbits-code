@@ -515,11 +515,16 @@ describe("resume_agent", () => {
       agent_id: string;
       status: string;
       error?: string;
+      failure?: unknown;
     }[];
     expect(results[0]).toEqual({
       agent_id: worker.id,
       status: "failed",
       error: "resumed turn failed",
+      failure: expect.objectContaining({
+        failure_class: "error",
+        recovery: { available: false, reason: "not_retryable" },
+      }),
     });
   });
 

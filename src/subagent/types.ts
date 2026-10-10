@@ -312,6 +312,8 @@ export interface SubAgentRunSettlement extends SubAgentTelemetryRollup {
   duration_ms: number;
   model: string;
   terminal_reason: SubAgentTerminalReason;
+  /** The worker's own session teardown threw or exceeded its deadline. */
+  teardown_failed?: true;
 }
 
 export interface RunSubAgentResult {

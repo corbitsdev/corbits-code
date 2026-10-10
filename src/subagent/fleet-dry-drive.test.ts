@@ -248,6 +248,7 @@ describe("collectUncollectedTerminals", () => {
       status: "failed",
       description: "failed lane",
       error: "boom",
+      failure: expect.objectContaining({ failure_class: "error" }),
     });
     expect(mailbox.peek("done")?.collected).toBe(true);
     expect(mailbox.peek("fail")?.collected).toBe(true);

@@ -11,6 +11,7 @@ import {
 } from "../plugins/result-truncation-plugin.js";
 import { isLiveWaitStatus, type WaitJSONStatus } from "./lifecycle.js";
 import { parseSubAgentReport } from "./report.js";
+import type { SubAgentFailureRecord } from "./terminal-failure.js";
 
 /** Enough of a lane report for a parent continuation; traces stay on disk. */
 export const FLEET_DRY_REPORT_CHARS = 8_192;
@@ -44,6 +45,7 @@ export interface FleetDryMailboxRecord {
   /** CL-8978: transient provider failure — the parent may spawn one successor. */
   readonly recoverableFailure?: true;
   readonly stopReason?: string;
+  readonly failure?: SubAgentFailureRecord;
 }
 
 export interface FleetDryMailbox {
@@ -118,6 +120,7 @@ export interface CollectedWorkerReport {
   continuable?: true;
   continue_with?: string;
   stop_reason?: string;
+  failure?: SubAgentFailureRecord;
 }
 
 /** Mailbox parent payload: envelope digest plus a blob pointer, not the full report. */
@@ -137,6 +140,7 @@ export interface MailboxWorkerDigest {
   continuable?: true;
   continue_with?: string;
   stop_reason?: string;
+  failure?: SubAgentFailureRecord;
 }
 
 /**
@@ -344,6 +348,7 @@ export async function digestCollectedReport(
     ...(report.stop_reason !== undefined
       ? { stop_reason: report.stop_reason }
       : {}),
+    ...(report.failure !== undefined ? { failure: report.failure } : {}),
   };
 }
 
@@ -442,6 +447,7 @@ export function projectMailboxRecord(
     ...(taken.stopReason !== undefined
       ? { stop_reason: taken.stopReason }
       : {}),
+    ...(taken.failure !== undefined ? { failure: taken.failure } : {}),
   };
 }
 

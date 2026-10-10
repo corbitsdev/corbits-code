@@ -207,6 +207,7 @@ import type {
 
 import type { TaskIntent } from "./report.js";
 import { runWithSubAgentIdentity } from "./identity-context.js";
+import { createSubAgentLoopGuardError } from "./terminal-failure.js";
 
 /**
  * Worker authorization denies unresolved approvals without suspending, so the
@@ -634,7 +635,9 @@ export async function runSubAgent(
   };
   let terminalReason: SubAgentTerminalReason = "error";
   let errorCount = 0;
-  const settlementState = { latestModel: params.provider.model };
+  const settlementState: RunSettlementState = {
+    latestModel: params.provider.model,
+  };
 
   try {
     const result = await runSubAgentInner(
@@ -646,8 +649,16 @@ export async function runSubAgent(
     return result;
   } catch (error) {
     errorCount = 1;
-    if (isSubAgentCancelError(error, params.signal))
+    if (isSubAgentCancelError(error, params.signal)) {
       terminalReason = "cancelled";
+      throw error;
+    }
+    // CL-10202: the inner finally has drained the stream by now, so a
+    // doom_loop run end the reactor emitted after rejecting the send has
+    // been seen. Telemetry keeps terminal_reason "error".
+    if (settlementState.loopGuardTripped === true) {
+      throw createSubAgentLoopGuardError(error);
+    }
     throw error;
   } finally {
     try {
@@ -658,6 +669,9 @@ export async function runSubAgent(
           duration_ms: Date.now() - startedAt,
           model: settlementState.latestModel,
           terminal_reason: terminalReason,
+          ...(settlementState.teardownFailed === true
+            ? { teardown_failed: true as const }
+            : {}),
         }),
       );
     } catch {
@@ -666,10 +680,17 @@ export async function runSubAgent(
   }
 }
 
+interface RunSettlementState {
+  latestModel: string;
+  /** The reactor ended a message run with `error.kind: "doom_loop"`. */
+  loopGuardTripped?: boolean;
+  teardownFailed?: boolean;
+}
+
 async function runSubAgentInner(
   params: RunSubAgentParams,
   telemetryRollup: SubAgentTelemetryRollup,
-  settlementState: { latestModel: string },
+  settlementState: RunSettlementState,
 ): Promise<RunSubAgentResult> {
   // CL-9010: fleet-spawned workers skip the pricing-cache seed re-read —
   // the parent runtime already applied the process seed at boot.
@@ -1491,6 +1512,13 @@ async function runSubAgentInner(
     const runSettlement = createRunEventSettlement();
     const streamSink = (rawEvent: ReactorEmittedEvent): void => {
       runSettlement.handleEvent(rawEvent);
+      if (
+        rawEvent.type === "message.run.ended" &&
+        rawEvent.data.status === "failed" &&
+        rawEvent.data.error?.kind === "doom_loop"
+      ) {
+        settlementState.loopGuardTripped = true;
+      }
       const event = sanitizeDiagnosticValue(rawEvent, [
         readSourceCredentialMaterial(workerSource.credentialId).secret,
       ]) as ReactorEmittedEvent;
@@ -2000,7 +2028,10 @@ async function runSubAgentInner(
           posixTools,
         }),
         params.teardownDeadlineMs ?? DEFAULT_CLOSE_DEADLINE_MS,
-      );
+      ).catch((teardownError: unknown) => {
+        settlementState.teardownFailed = true;
+        throw teardownError;
+      });
     }
   }
 }
