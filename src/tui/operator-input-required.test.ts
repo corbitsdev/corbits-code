@@ -69,6 +69,25 @@ describe("operator input required view model", () => {
     ).toBe(NO_OPERATOR_INPUT_REQUIRED);
   });
 
+  test("fails closed for an unrecognized marker string and an MCP-trust-shaped event", () => {
+    const wrongMarker = {
+      ...gate("one"),
+      source: "mcp-trust",
+    } as unknown as OperatorGateEvent;
+    expect(
+      addOperatorInputRequired(NO_OPERATOR_INPUT_REQUIRED, wrongMarker),
+    ).toBe(NO_OPERATOR_INPUT_REQUIRED);
+    const mcpTrust = {
+      id: "mcp-trust",
+      question: "Trust this local MCP server?",
+      options: ["Trust and connect", "Cancel"],
+      resolve: () => undefined,
+    } as unknown as OperatorGateEvent;
+    expect(addOperatorInputRequired(NO_OPERATOR_INPUT_REQUIRED, mcpTrust)).toBe(
+      NO_OPERATOR_INPUT_REQUIRED,
+    );
+  });
+
   test("keeps insertion selection and removes exactly the settled id", () => {
     const first = addOperatorInputRequired(
       NO_OPERATOR_INPUT_REQUIRED,
