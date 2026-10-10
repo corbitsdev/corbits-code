@@ -110,6 +110,7 @@ describe("decision choice rendering", () => {
         // Choices are bare action names.
         expect(shell.overlayItems).toEqual([
           "Reject",
+          "Reject and stop",
           "Accept once",
           "Allow always",
         ]);

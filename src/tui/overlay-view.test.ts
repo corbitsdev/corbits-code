@@ -238,6 +238,53 @@ describe("overlay view", () => {
     });
   });
 
+  test("permission title hints keep Ctrl+C stop down to contentWidth 28", async () => {
+    await withTestRenderer(async (h) => {
+      const view = createOverlayView(h.renderer);
+      h.renderer.root.add(view.host);
+      const title: OverlayTitlePresentation = {
+        title: "Permissions",
+        kind: "permissions",
+        hasChoices: true,
+        answer: null,
+        mcpManageHint: false,
+        mcpAddHint: false,
+      };
+      const titleText = () =>
+        view.title.content.chunks.map((chunk) => chunk.text).join("");
+
+      // Interior is contentWidth - 2, so each tier's narrowest width is its
+      // line length + 2. Both sides of every transition are pinned, plus the
+      // width where "Ctrl+C stop" drops and the title falls back to its name.
+      const tier1 =
+        " Permissions · Esc cancel · Enter choose · Ctrl+C stop · /yolo skip prompts";
+      const tier2 = " Permissions · Esc · Enter · Ctrl+C stop · /yolo";
+      const tier3 = " Permissions · Esc · Enter · Ctrl+C stop";
+      const tier4 = " Permissions · Ctrl+C stop";
+      const bare = " Permissions";
+      const expected: readonly [number, string][] = [
+        [120, tier1],
+        [78, tier1],
+        [77, tier1],
+        [76, tier2],
+        [51, tier2],
+        [50, tier2],
+        [49, tier3],
+        [43, tier3],
+        [42, tier3],
+        [41, tier4],
+        [29, tier4],
+        [28, tier4],
+        [27, bare],
+        [20, bare],
+      ];
+      for (const [width, line] of expected) {
+        view.paintTitle(title, width);
+        expect(titleText()).toBe(line);
+      }
+    });
+  });
+
   test("intrinsic chrome charges answer and description once and palette omits title", () => {
     const full = overlayChromeRows("model_picker", 2, true, true);
     const bare = overlayChromeRows("model_picker", 2, false, false);
