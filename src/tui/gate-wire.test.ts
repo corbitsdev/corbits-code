@@ -512,7 +512,7 @@ describe("wireGates", () => {
     );
   });
 
-  test("re-emitted marked primary ask keeps one live gate and resolves once", async () => {
+  test("re-emitting a marked primary ask queues a second gate; both resolvers settle", async () => {
     const admitted: string[] = [];
     const settled: string[] = [];
     const resolved: unknown[] = [];
@@ -521,23 +521,157 @@ describe("wireGates", () => {
         const event = {
           id: "same-ask",
           source: PRIMARY_ASK_OPERATOR_SOURCE,
+          question: "Proceed?",
+          options: ["Cancel", "Continue"],
           resolve: (result: unknown) => resolved.push(result),
         };
         emitOperator(emitter, event);
         emitOperator(emitter, event);
 
-        expect(admitted).toEqual(["same-ask"]);
+        // The gate-wire layer no longer drops same-id events: dedup lives in
+        // the input-required reducer (operator-input-required.ts), which keeps
+        // the display single while gate-wire preserves HEAD's queue behavior.
+        expect(admitted).toEqual(["same-ask", "same-ask"]);
         expect(shell.overlayKind).toBe("operator");
 
         acceptOverlaySelection(shell);
-
-        expect(settled).toEqual(["same-ask"]);
         expect(resolved).toEqual([{ kind: "option", index: 0 }]);
+        // The re-emitted gate was queued, not dropped: it takes the host next.
+        expect(shell.overlayKind).toBe("operator");
+        acceptOverlaySelection(shell);
+        expect(resolved).toEqual([
+          { kind: "option", index: 0 },
+          { kind: "option", index: 0 },
+        ]);
+        expect(settled).toEqual(["same-ask", "same-ask"]);
         expect(shell.overlayList).toBeNull();
       },
       {
         hooks: {
           onPrimaryOperatorAdmitted: (event) => admitted.push(event.id),
+          onPrimaryOperatorSettled: (event) => settled.push(event.id),
+        },
+      },
+    );
+  });
+
+  test("two distinct events sharing an id both resolve on accept", async () => {
+    const admitted: string[] = [];
+    const settled: string[] = [];
+    const resolved: unknown[] = [];
+    await withGates(
+      async ({ shell, emitter }) => {
+        emitOperator(emitter, {
+          id: "dup",
+          source: PRIMARY_ASK_OPERATOR_SOURCE,
+          options: ["Cancel", "Continue"],
+          resolve: (result: unknown) => resolved.push(result),
+        });
+        emitOperator(emitter, {
+          id: "dup",
+          source: PRIMARY_ASK_OPERATOR_SOURCE,
+          options: ["Cancel", "Continue"],
+          resolve: (result: unknown) => resolved.push(result),
+        });
+
+        expect(admitted).toEqual(["dup", "dup"]);
+        expect(shell.overlayKind).toBe("operator");
+
+        acceptOverlaySelection(shell);
+        expect(resolved).toEqual([{ kind: "option", index: 0 }]);
+        expect(shell.overlayKind).toBe("operator");
+        acceptOverlaySelection(shell);
+        expect(resolved).toEqual([
+          { kind: "option", index: 0 },
+          { kind: "option", index: 0 },
+        ]);
+        expect(settled).toEqual(["dup", "dup"]);
+        expect(shell.overlayList).toBeNull();
+      },
+      {
+        hooks: {
+          onPrimaryOperatorAdmitted: (event) => admitted.push(event.id),
+          onPrimaryOperatorSettled: (event) => settled.push(event.id),
+        },
+      },
+    );
+  });
+
+  test("two distinct events sharing an id both settle on timeout", async () => {
+    const settled: string[] = [];
+    const resolved: unknown[] = [];
+    await withGates(
+      async ({ shell, emitter }) => {
+        emitOperator(emitter, {
+          id: "dup",
+          source: PRIMARY_ASK_OPERATOR_SOURCE,
+          options: ["Yes", "No"],
+          timeoutMs: 5,
+          resolve: (result: unknown) => resolved.push(result),
+        });
+        emitOperator(emitter, {
+          id: "dup",
+          source: PRIMARY_ASK_OPERATOR_SOURCE,
+          options: ["Yes", "No"],
+          // Arms only once the queued duplicate opens, so the two settles are
+          // observable separately.
+          timeoutMs: 80,
+          resolve: (result: unknown) => resolved.push(result),
+        });
+        expect(shell.overlayKind).toBe("operator");
+
+        await new Promise((r) => setTimeout(r, 20));
+        expect(resolved).toEqual([operatorCancelResult()]);
+        // The queued duplicate opened once the first timed out.
+        expect(shell.overlayKind).toBe("operator");
+        await new Promise((r) => setTimeout(r, 120));
+        expect(resolved).toEqual([
+          operatorCancelResult(),
+          operatorCancelResult(),
+        ]);
+        expect(settled).toEqual(["dup", "dup"]);
+        expect(shell.overlayList).toBeNull();
+      },
+      {
+        hooks: {
+          onPrimaryOperatorSettled: (event) => settled.push(event.id),
+        },
+      },
+    );
+  });
+
+  test("a duplicate id still queued at dispose settles via the teardown sweep", async () => {
+    const settled: string[] = [];
+    const resolved: unknown[] = [];
+    await withGates(
+      async ({ shell, emitter, disposeGates }) => {
+        emitOperator(emitter, {
+          id: "dup",
+          source: PRIMARY_ASK_OPERATOR_SOURCE,
+          options: ["Yes", "No"],
+          resolve: (result: unknown) => resolved.push(result),
+        });
+        emitOperator(emitter, {
+          id: "dup",
+          source: PRIMARY_ASK_OPERATOR_SOURCE,
+          options: ["Yes", "No"],
+          resolve: (result: unknown) => resolved.push(result),
+        });
+        expect(shell.overlayKind).toBe("operator");
+
+        acceptOverlaySelection(shell);
+        expect(resolved).toHaveLength(1);
+        expect(shell.overlayKind).toBe("operator");
+
+        disposeGates();
+        expect(resolved).toEqual([
+          { kind: "option", index: 0 },
+          operatorCancelResult(),
+        ]);
+        expect(settled).toEqual(["dup", "dup"]);
+      },
+      {
+        hooks: {
           onPrimaryOperatorSettled: (event) => settled.push(event.id),
         },
       },
@@ -559,6 +693,123 @@ describe("wireGates", () => {
         hooks: {
           onPrimaryOperatorAdmitted: () => admitted++,
           onPrimaryOperatorSettled: () => settled++,
+        },
+      },
+    );
+  });
+
+  test("an MCP-trust-shaped operator gate opens the modal but never fires input-required hooks", async () => {
+    let admitted = 0;
+    let settled = 0;
+    await withGates(
+      async ({ shell, emitter }) => {
+        emitOperator(emitter, {
+          question: "Trust this local MCP server?",
+          options: ["Trust and connect", "Cancel"],
+        });
+        expect(shell.overlayKind).toBe("operator");
+        expect(admitted).toBe(0);
+        acceptOverlaySelection(shell);
+        expect(settled).toBe(0);
+      },
+      {
+        hooks: {
+          onPrimaryOperatorAdmitted: () => admitted++,
+          onPrimaryOperatorSettled: () => settled++,
+        },
+      },
+    );
+  });
+
+  test("free-text answer settles a marked ask with one admission and one settlement", async () => {
+    const admitted: string[] = [];
+    const settled: string[] = [];
+    const resolved: unknown[] = [];
+    await withGates(
+      async ({ shell, emitter }) => {
+        emitOperator(emitter, {
+          source: PRIMARY_ASK_OPERATOR_SOURCE,
+          options: ["Continue"],
+          resolve: (result: unknown) => resolved.push(result),
+        });
+        expect(admitted).toEqual(["ask-1"]);
+        setOverlayAnswerActive(shell, true);
+        for (const ch of "yes") {
+          handleOverlayAnswerKey(shell, {
+            name: ch,
+            sequence: ch,
+            ctrl: false,
+            meta: false,
+            option: false,
+          } as unknown as KeyEvent);
+        }
+        handleOverlayAnswerKey(shell, {
+          name: "return",
+          sequence: "",
+          ctrl: false,
+          meta: false,
+          option: false,
+        } as unknown as KeyEvent);
+        expect(resolved).toEqual([{ kind: "custom", text: "yes" }]);
+        expect(settled).toEqual(["ask-1"]);
+        expect(shell.overlayList).toBeNull();
+      },
+      {
+        hooks: {
+          onPrimaryOperatorAdmitted: (event) => admitted.push(event.id),
+          onPrimaryOperatorSettled: (event) => settled.push(event.id),
+        },
+      },
+    );
+  });
+
+  test("Esc settles a marked ask with one admission and one settlement", async () => {
+    const admitted: string[] = [];
+    const settled: string[] = [];
+    const resolved: unknown[] = [];
+    await withGates(
+      async ({ shell, emitter }) => {
+        emitOperator(emitter, {
+          source: PRIMARY_ASK_OPERATOR_SOURCE,
+          resolve: (result: unknown) => resolved.push(result),
+        });
+        expect(admitted).toEqual(["ask-1"]);
+        closeInsetOverlay(shell);
+        expect(resolved).toEqual([{ kind: "cancel" }]);
+        expect(settled).toEqual(["ask-1"]);
+        expect(shell.overlayList).toBeNull();
+      },
+      {
+        hooks: {
+          onPrimaryOperatorAdmitted: (event) => admitted.push(event.id),
+          onPrimaryOperatorSettled: (event) => settled.push(event.id),
+        },
+      },
+    );
+  });
+
+  test("timeout settles a marked ask with one admission and one settlement", async () => {
+    const admitted: string[] = [];
+    const settled: string[] = [];
+    const resolved: unknown[] = [];
+    await withGates(
+      async ({ shell, emitter }) => {
+        emitOperator(emitter, {
+          source: PRIMARY_ASK_OPERATOR_SOURCE,
+          timeoutMs: 5,
+          resolve: (result: unknown) => resolved.push(result),
+        });
+        expect(admitted).toEqual(["ask-1"]);
+        expect(shell.overlayKind).toBe("operator");
+        await new Promise((r) => setTimeout(r, 20));
+        expect(resolved).toEqual([operatorCancelResult()]);
+        expect(settled).toEqual(["ask-1"]);
+        expect(shell.overlayList).toBeNull();
+      },
+      {
+        hooks: {
+          onPrimaryOperatorAdmitted: (event) => admitted.push(event.id),
+          onPrimaryOperatorSettled: (event) => settled.push(event.id),
         },
       },
     );
