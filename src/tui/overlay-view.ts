@@ -207,11 +207,16 @@ const MODEL_PICKER_HINTS_REMOVE_ONLY = [
   "Esc · Enter",
 ] as const;
 
-/** Permissions only: name `/yolo` so skip-prompts is discoverable at the ask. */
+/**
+ * Permissions only: name `/yolo` so skip-prompts is discoverable at the ask.
+ * Every tier keeps "Ctrl+C stop" (reject and stop the turn), so the stop key
+ * stays discoverable however narrow the terminal gets.
+ */
 const PERMISSIONS_HINTS = [
-  "Esc cancel · Enter choose · /yolo skip prompts",
-  "Esc · Enter · /yolo",
-  "Esc · Enter",
+  "Esc cancel · Enter choose · Ctrl+C stop · /yolo skip prompts",
+  "Esc · Enter · Ctrl+C stop · /yolo",
+  "Esc · Enter · Ctrl+C stop",
+  "Ctrl+C stop",
 ] as const;
 
 /** /plugins: longest-first how-to, same fallback shape as the model picker. */

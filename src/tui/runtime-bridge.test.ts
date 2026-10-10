@@ -24,7 +24,12 @@ import { streamRowCount } from "./shell/transcript";
 import { STEER_WAIT_NOTICE_MS } from "./notice-line";
 import type { Harness } from "./harness";
 import { withAppShell } from "./test-helpers";
-import { operatorCancelResult, wireGates } from "./gate-wire.js";
+import {
+  operatorCancelResult,
+  PERMISSION_DENY_ID,
+  PERMISSION_STOP_ID,
+  wireGates,
+} from "./gate-wire.js";
 import { acceptOverlaySelection } from "./shell/overlay-host.js";
 import { moveOverlaySelection } from "./shell/overlay-list.js";
 import { badgeCount, SESSION_IDENTITY_ABORT_REASON } from "./delivery-queue";
@@ -1134,6 +1139,55 @@ describe("Ctrl+C on a decision gate", () => {
     );
   });
 
+  test("Reject and stop declines the open gate and drops queued gates", async () => {
+    await withBridge(
+      { run: "busy", wireKeys: true, gates: true },
+      async ({ h, shell, port, emitter }) => {
+        const identity = new AbortController();
+        const first = emitPermissionGate(emitter, "req-1", identity.signal);
+        const queued = emitPermissionGate(emitter, "req-2", identity.signal);
+        port.clear();
+
+        moveOverlaySelection(shell, 1);
+        expect(shell.overlayList?.select.getSelectedOption()?.value).toBe(
+          `req-1:${PERMISSION_STOP_ID}`,
+        );
+        acceptOverlaySelection(shell);
+        await h.renderOnce();
+
+        expect(first()).toStrictEqual({ allow: false });
+        expect(port.calls.some((c) => c.op === "interrupt")).toBe(true);
+
+        await h.renderOnce();
+        expect(queued()).toStrictEqual({ allow: false });
+        expect(shell.overlayList).toBeNull();
+      },
+    );
+  });
+
+  test("plain Reject declines only the open gate and the turn continues", async () => {
+    await withBridge(
+      { run: "busy", wireKeys: true, gates: true },
+      async ({ h, shell, port, emitter }) => {
+        const identity = new AbortController();
+        const first = emitPermissionGate(emitter, "req-1", identity.signal);
+        const queued = emitPermissionGate(emitter, "req-2", identity.signal);
+        port.clear();
+
+        acceptOverlaySelection(shell);
+        await h.renderOnce();
+
+        expect(first()).toEqual({ allow: false });
+        expect(port.calls.some((c) => c.op === "interrupt")).toBe(false);
+        expect(queued()).toBeUndefined();
+        expect(shell.overlayKind).toBe("permissions");
+        expect(
+          shell.overlayList?.select.options.map((option) => option.value),
+        ).toContain(`req-2:${PERMISSION_DENY_ID}`);
+      },
+    );
+  });
+
   test("declines an open operator question and interrupts the turn", async () => {
     await withBridge(
       { run: "busy", wireKeys: true, gates: true },
@@ -2062,7 +2116,7 @@ describe("in-flight tool row elapsed time", () => {
 
 describe("CL-7802 gated tool elapsed starts at grant", () => {
   function acceptOnce(shell: AppShell): void {
-    moveOverlaySelection(shell, 1);
+    moveOverlaySelection(shell, 2);
     acceptOverlaySelection(shell);
   }
 
