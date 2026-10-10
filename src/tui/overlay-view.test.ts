@@ -238,6 +238,45 @@ describe("overlay view", () => {
     });
   });
 
+  test("permission title hints keep Ctrl+C stop in every width fallback", async () => {
+    await withTestRenderer(async (h) => {
+      const view = createOverlayView(h.renderer);
+      h.renderer.root.add(view.host);
+      const title: OverlayTitlePresentation = {
+        title: "Permissions",
+        kind: "permissions",
+        hasChoices: true,
+        answer: null,
+        mcpManageHint: false,
+        mcpAddHint: false,
+      };
+      const titleText = () =>
+        view.title.content.chunks.map((chunk) => chunk.text).join("");
+
+      // Each width is the narrowest that still selects its tier; one column
+      // less falls through to the next tier.
+      const tiers: readonly [number, string][] = [
+        [
+          78,
+          " Permissions · Esc cancel · Enter choose · Ctrl+C stop · /yolo skip prompts",
+        ],
+        [50, " Permissions · Esc · Enter · Ctrl+C stop · /yolo"],
+        [42, " Permissions · Esc · Enter · Ctrl+C stop"],
+        [28, " Permissions · Ctrl+C stop"],
+      ];
+      for (const [width, line] of tiers) {
+        view.paintTitle(title, width);
+        expect(titleText()).toBe(line);
+        view.paintTitle(title, width + 1);
+        expect(titleText()).toContain("Ctrl+C stop");
+      }
+      for (const [width] of tiers.slice(0, -1)) {
+        view.paintTitle(title, width - 1);
+        expect(titleText()).toContain("Ctrl+C stop");
+      }
+    });
+  });
+
   test("intrinsic chrome charges answer and description once and palette omits title", () => {
     const full = overlayChromeRows("model_picker", 2, true, true);
     const bare = overlayChromeRows("model_picker", 2, false, false);

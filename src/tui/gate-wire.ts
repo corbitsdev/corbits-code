@@ -21,6 +21,7 @@ import {
   onOverlayClosed,
   resumeSuspendedCommandSurface,
   setOverlayBody,
+  stopDecisionGate,
   suspendReplaceableOverlay,
 } from "./shell/overlay-host.js";
 import { EXPAND_KEY } from "./stream.js";
@@ -36,6 +37,7 @@ import {
 
 /** Stable sentinel ids for the always-present deny / once rows. */
 export const PERMISSION_DENY_ID = "__deny__" as const;
+export const PERMISSION_STOP_ID = "__stop__" as const;
 export const PERMISSION_ONCE_ID = "__once__" as const;
 
 /**
@@ -62,10 +64,10 @@ export interface GateSelection {
 
 /**
  * Build permission overlay rows from a live PermissionRequest.
- * Order: Reject → Accept once → request.scopes. Labels are bare so the choice
- * list stays short action names; each scope's hint paints in the body above
- * the list (see permissionBodyFromRequest) instead of being truncated inside
- * a choice row.
+ * Order: Reject → Reject and stop → Accept once → request.scopes. Labels are
+ * bare so the choice list stays short action names; each scope's hint paints
+ * in the body above the list (see permissionBodyFromRequest) instead of being
+ * truncated inside a choice row.
  */
 export function permissionChoicesFromRequest(
   request: PermissionRequest,
@@ -78,6 +80,10 @@ export function permissionChoicesFromRequest(
 
   items.push("Reject");
   itemIds.push(rowId(PERMISSION_DENY_ID));
+  outcomes.push({ allow: false });
+
+  items.push("Reject and stop");
+  itemIds.push(rowId(PERMISSION_STOP_ID));
   outcomes.push({ allow: false });
 
   items.push("Accept once");
@@ -431,6 +437,16 @@ export function wireGates(
         echoChoice: false,
         ...(collapsedAnything ? { onToggleExpand } : {}),
         onAccept: (sel: OverlaySelection) => {
+          if (sel.id === `${ev.id}:${PERMISSION_STOP_ID}`) {
+            settle(
+              approvalOutcomeFromSelection(choices, {
+                index: sel.index,
+                id: sel.id,
+              }),
+            );
+            stopDecisionGate(shell);
+            return;
+          }
           const gateSelection = {
             index: sel.index,
             ...(sel.id !== undefined ? { id: sel.id } : {}),
