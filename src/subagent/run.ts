@@ -594,7 +594,8 @@ const askDirectorDefinition: ToolDefinition = {
     `${ASK_DIRECTOR_MAX_BYTES} byte cap. The director answers with send_input (soft). ` +
     "For a denied tool call, reference only the grant requestId from the deny " +
     "message — the harness-owned envelope carries the exact call, so repeating " +
-    "tool arguments here grants nothing.",
+    "tool arguments here grants nothing. Include the typed escalation assessment; " +
+    "an answer or wake never grants authority or retries a tool automatically.",
   inputSchema: {
     type: "object",
     properties: {
@@ -607,8 +608,14 @@ const askDirectorDefinition: ToolDefinition = {
         description:
           "Grant request id quoted from the deny reason; binds this ask to its own denial.",
       },
+      escalation: {
+        type: "object",
+        description:
+          "Outcome-aware policy assessment: policyVersion, classification, six facts, alternatives, and optional verification detail.",
+        additionalProperties: true,
+      },
     },
-    required: ["question"],
+    required: ["question", "escalation"],
   },
 };
 
@@ -956,6 +963,7 @@ async function runSubAgentInner(
             try {
               return await handleAskDirector({
                 question: rawArgs.question,
+                escalation: rawArgs.escalation,
                 grantRequestId: rawArgs.grant_request_id,
                 state: askDirectorState,
                 port,

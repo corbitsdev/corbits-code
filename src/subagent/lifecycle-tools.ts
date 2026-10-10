@@ -27,6 +27,7 @@ import {
   type AgentLifecycleStatus,
   type SubAgentSessionStore,
 } from "./session-store.js";
+import { parseEscalationResolution } from "./escalation-policy.js";
 import {
   assertCanTargetAgent,
   FleetAuthorityError,
@@ -434,6 +435,7 @@ const SendInputArgs = type({
   target: "string",
   message: "string",
   "interrupt?": "boolean",
+  "resolution?": "unknown",
 });
 
 export const sendInputToolDefinition: ToolDefinition = {
@@ -454,6 +456,11 @@ export const sendInputToolDefinition: ToolDefinition = {
       interrupt: {
         type: "boolean",
         description: "Interrupt first.",
+      },
+      resolution: {
+        type: "object",
+        description:
+          "Optional explicit pending-escalation resolution (kind and answer). It never grants or retries a tool.",
       },
     },
     required: ["target", "message"],
@@ -486,6 +493,35 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
           call.id,
           `Error: send_input message exceeds ${DEFAULT_MAX_ENTRY_CHARS} characters ` +
             `(got ${message.length}).`,
+        );
+      }
+      if (parsed.resolution !== undefined) {
+        if (parsed.interrupt === true) {
+          return lifecycleResult(
+            call.id,
+            "Error: structured escalation resolution cannot interrupt a worker.",
+          );
+        }
+        const resolution = parseEscalationResolution(parsed.resolution);
+        if (resolution instanceof Error) {
+          return lifecycleResult(
+            call.id,
+            `Error: send_input resolution invalid: ${resolution.message}`,
+          );
+        }
+        if (!deps.sessions.resolveEscalationAsk(target, resolution)) {
+          return lifecycleResult(
+            call.id,
+            `Error: no pending escalation for "${target}".`,
+          );
+        }
+        return lifecycleResult(
+          call.id,
+          fleetJson({
+            agent_id: target,
+            status: "running",
+            resolution: resolution.kind,
+          }),
         );
       }
       const interrupt = parsed.interrupt === true;

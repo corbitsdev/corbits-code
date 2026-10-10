@@ -3,6 +3,12 @@
  * run.ts wires this into the leaf tool handler and owns per-turn AskDirectorState.
  */
 
+import {
+  decideEscalation,
+  parseEscalationAssessment,
+  type EscalationAssessment,
+} from "./escalation-policy.js";
+
 export const ASK_DIRECTOR_MAX_BYTES = 4096;
 export const ASK_DIRECTOR_MAX_QUESTIONS = 3;
 
@@ -17,6 +23,7 @@ export function createAskDirectorState(): AskDirectorState {
 
 export interface AskDirectorInput {
   question: unknown;
+  escalation?: unknown;
   state: AskDirectorState;
 }
 
@@ -24,6 +31,7 @@ export interface AskDirectorPort {
   register: (input: {
     question: string;
     questionId: string;
+    assessment?: EscalationAssessment;
     grantRequestId?: string;
   }) => Promise<string>;
   cancel: (reason: string) => void;
@@ -34,6 +42,8 @@ export function evaluateAskDirector(input: AskDirectorInput): {
   ok: boolean;
   message: string;
   question?: string;
+  assessment?: EscalationAssessment;
+  continueInternal?: true;
 } {
   if (typeof input.question !== "string") {
     return {
@@ -68,10 +78,29 @@ export function evaluateAskDirector(input: AskDirectorInput): {
       message: `Error: ask_director question cap (${ASK_DIRECTOR_MAX_QUESTIONS}) reached for this turn. No further questions accepted — finish with the markdown report envelope instead.`,
     };
   }
+  // Direct callers predate the tool schema. The wire schema in run.ts still
+  // requires escalation; this preserves the legacy unit/integration port API.
+  if (input.escalation === undefined) {
+    input.state.pending = true;
+    return { ok: true, message: "ok", question };
+  }
+  const assessment = parseEscalationAssessment(input.escalation);
+  if (assessment instanceof Error) {
+    return { ok: false, message: `Error: ${assessment.message}` };
+  }
+  if (decideEscalation(assessment).kind === "continue_internal") {
+    return {
+      ok: true,
+      message:
+        "Continue with the recorded permitted alternative; do not park or escalate. Report its result in the final outcome.",
+      assessment,
+      continueInternal: true,
+    };
+  }
   // Reserve the one-at-a-time lock so a parallel ask errors, but do not
   // consume a cap slot until commitAskDirector (register reached the director).
   input.state.pending = true;
-  return { ok: true, message: "ok", question };
+  return { ok: true, message: "ok", question, assessment };
 }
 
 /** Count this question against the per-turn cap once abort is ruled out and register will run. */
@@ -118,6 +147,7 @@ export function createDeferredContinuation(): {
 
 export async function handleAskDirector(args: {
   question: unknown;
+  escalation?: unknown;
   grantRequestId?: unknown;
   state: AskDirectorState;
   port: AskDirectorPort;
@@ -125,9 +155,12 @@ export async function handleAskDirector(args: {
 }): Promise<string> {
   const outcome = evaluateAskDirector({
     question: args.question,
+    escalation: args.escalation,
     state: args.state,
   });
-  if (!outcome.ok || outcome.question === undefined) return outcome.message;
+  if (!outcome.ok) return outcome.message;
+  if (outcome.continueInternal === true) return outcome.message;
+  if (outcome.question === undefined) return outcome.message;
   try {
     const onAbort = (): void => {
       args.port.cancel("ask_director aborted");
@@ -146,6 +179,9 @@ export async function handleAskDirector(args: {
       const answerP = args.port.register({
         question: outcome.question,
         questionId,
+        ...(outcome.assessment !== undefined
+          ? { assessment: outcome.assessment }
+          : {}),
         ...(grantRequestId !== undefined ? { grantRequestId } : {}),
       });
       if (args.signal.aborted) {

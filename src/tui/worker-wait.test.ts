@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { PendingAskWake } from "../subagent/fleet-report.js";
+import { ESCALATION_POLICY_VERSION } from "../subagent/escalation-policy.js";
 import { stringWidth } from "./view/height.js";
 import {
   composeWorkerWaitLine,
@@ -8,6 +9,7 @@ import {
   reduceWorkerWait,
   selectedWorkerWait,
   workerWaitMoreCount,
+  workerWaitDecisionSummary,
   type WorkerWaitPart,
   type WorkerWaitState,
 } from "./worker-wait.js";
@@ -171,6 +173,47 @@ describe("worker wait strip copy", () => {
     const roles = new Map(parts.map((part) => [part.role, part.text]));
     expect(roles.get("label")).toBe("WORKER WAITING");
     expect(roles.get("routing")).toContain("director");
+  });
+
+  test("an assessed decision shows actionable policy detail without changing its identity", () => {
+    const assessed: PendingAskWake = {
+      ...ask("sess-assessed", "q1", "Should not be the panel summary"),
+      assessment: {
+        policyVersion: ESCALATION_POLICY_VERSION,
+        classification: "operator_decision_required",
+        blockedOutcome: "cannot verify authenticated release status",
+        unavailableDirectorPath: "director lacks authenticated read access",
+        permittedAlternatives: [
+          {
+            attempted: "checked cached status",
+            result: "snapshot is stale",
+            comparableConfidence: false,
+          },
+        ],
+        minimumAddition: "authenticated read access",
+        requestedMechanism: "broad web access",
+        minimumAuthority: "authenticated release-status read",
+        declineConsequence: "release verification remains blocked",
+        recommendation: "grant the narrow read",
+        safeDefault: "do not publish",
+      },
+    };
+    const state = fold([assessed]);
+    const item = selectedWorkerWait(state);
+    expect(item).not.toBeNull();
+    if (item === null) throw new Error("expected assessed worker wait item");
+    expect(workerWaitDecisionSummary(item)).toContain(
+      "classification: operator_decision_required",
+    );
+    const line = text(composeWorkerWaitLine(state, 1_000));
+    expect(line).toContain(
+      "outcome: cannot verify authenticated release status",
+    );
+    expect(line).toContain("minimum: authenticated release-status read");
+    expect(line).toContain("consequence: release verification remains blocked");
+    expect(line).toContain("recommendation: grant the narrow read");
+    expect(line).toContain("target: sess-assessed");
+    expect(reduceWorkerWait(state, [assessed])).toBe(state);
   });
 
   test("every width fits the strip inside its row", () => {

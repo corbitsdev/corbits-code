@@ -20,6 +20,7 @@ import type { TaskIntent } from "./report.js";
 import type { SubagentTier } from "../agent/directors/types.js";
 import type { ForcedStopReason } from "./stop-policy.js";
 import type { AdmissionQueue } from "./admission.js";
+import type { EscalationAssessment } from "./escalation-policy.js";
 import type { SkillSummary } from "../extensions/skills.js";
 
 export interface SubAgentProvider {
@@ -258,6 +259,7 @@ export type RunSubAgentParams = {
     register: (input: {
       question: string;
       questionId: string;
+      assessment?: EscalationAssessment;
       grantRequestId?: string;
     }) => Promise<string>;
     cancel: (reason: string) => void;

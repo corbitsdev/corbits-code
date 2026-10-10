@@ -25,6 +25,12 @@ import {
   type WorkerDeniedCallEnvelope,
 } from "../permission/worker-grant.js";
 import type { AdmissionQueue, AdmissionStatus } from "./admission.js";
+import type {
+  EscalationAssessment,
+  EscalationResolution,
+  VerificationBlockedOutcome,
+} from "./escalation-policy.js";
+import { deriveVerificationBlockedOutcome } from "./escalation-policy.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "session-store"]);
 
@@ -99,6 +105,8 @@ export interface SubAgentSession {
   /** Stored source of truth. Snapshot copies it; do not mutate independently. */
   lifecycle: WorkerLifecycle;
   toolNames: string[];
+  /** Durable policy outcome; never inferred from report Markdown. */
+  terminalOutcome?: VerificationBlockedOutcome;
   // Name, preview, and start clock of the OLDEST outstanding call — the one
   // that explains the longest silence. All three are derived from
   // `outstandingTools`; never assign them directly. Null when nothing is in
@@ -313,6 +321,7 @@ export interface SubAgentSessionStore {
     ask: {
       question: string;
       questionId: string;
+      assessment?: EscalationAssessment;
       /** Grant requestId quoted from the deny reason: binds this ask to
        * its own denial instead of the session's first pending envelope. */
       grantRequestId?: string;
@@ -321,12 +330,14 @@ export interface SubAgentSessionStore {
     },
   ): boolean;
   resolveAsk(id: string, answer: string): boolean;
+  resolveEscalationAsk(id: string, resolution: EscalationResolution): boolean;
   cancelAsk(id: string, reason?: string): boolean;
   hasPendingAsk(id: string): boolean;
   peekAsk(id: string):
     | {
         question: string;
         questionId: string;
+        assessment?: EscalationAssessment;
         deniedCall?: WorkerDeniedCallEnvelope;
       }
     | undefined;
@@ -628,6 +639,7 @@ export function createSubAgentSessionStore(
     {
       question: string;
       questionId: string;
+      assessment?: EscalationAssessment;
       resolve: (answer: string) => void;
       reject: (reason: unknown) => void;
       // Registration clock for the ask deadline (CL-8016): an ask parked
@@ -1942,6 +1954,7 @@ export function createSubAgentSessionStore(
       ask: {
         question: string;
         questionId: string;
+        assessment: EscalationAssessment;
         /** Grant requestId quoted from the deny reason: binds this ask to
          * its own denial instead of the session's first pending envelope. */
         grantRequestId?: string;
@@ -1970,12 +1983,13 @@ export function createSubAgentSessionStore(
       } catch {
         // Envelope attach must not fail ask registration.
       }
-      pendingAsks.set(
-        id,
-        deniedCall !== undefined
-          ? { ...ask, askedAt: now(), deniedCall }
-          : { ...ask, askedAt: now() },
-      );
+      // Direct store callers predate the policy boundary. Keep their public
+      // peek shape intact; only assessed tool-boundary asks surface policy facts.
+      pendingAsks.set(id, {
+        ...ask,
+        askedAt: now(),
+        ...(deniedCall !== undefined ? { deniedCall } : {}),
+      });
       mutate(id, () => undefined);
       return true;
     },
@@ -1985,6 +1999,36 @@ export function createSubAgentSessionStore(
       if (pending === undefined) return false;
       pendingAsks.delete(id);
       pending.resolve(answer);
+      notify();
+      return true;
+    },
+
+    resolveEscalationAsk(
+      id: string,
+      resolution: EscalationResolution,
+    ): boolean {
+      const pending = pendingAsks.get(id);
+      if (pending === undefined) return false;
+      pendingAsks.delete(id);
+      const terminalOutcome = deriveVerificationBlockedOutcome(
+        pending.assessment ?? {
+          policyVersion: "1",
+          classification: "director_resolvable",
+          blockedOutcome: pending.question,
+          unavailableDirectorPath:
+            "Legacy direct registration did not provide an assessment.",
+          permittedAlternatives: [],
+          minimumAddition: "A director answer.",
+          declineConsequence: "The worker remains blocked.",
+        },
+        resolution,
+      );
+      if (terminalOutcome !== undefined) {
+        mutate(id, (session) => {
+          session.terminalOutcome = terminalOutcome;
+        });
+      }
+      pending.resolve(resolution.answer);
       notify();
       return true;
     },
@@ -2001,6 +2045,7 @@ export function createSubAgentSessionStore(
       | {
           question: string;
           questionId: string;
+          assessment?: EscalationAssessment;
           deniedCall?: WorkerDeniedCallEnvelope;
         }
       | undefined {
@@ -2009,6 +2054,9 @@ export function createSubAgentSessionStore(
       return {
         question: pending.question,
         questionId: pending.questionId,
+        ...(pending.assessment !== undefined
+          ? { assessment: pending.assessment }
+          : {}),
         ...(pending.deniedCall !== undefined
           ? { deniedCall: pending.deniedCall }
           : {}),
