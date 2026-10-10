@@ -323,6 +323,7 @@ describe("resolved sub-agent provider failures", () => {
           status?: string;
           error?: string;
           provider_failure?: boolean;
+          failure?: unknown;
         }[];
       };
 
@@ -331,6 +332,7 @@ describe("resolved sub-agent provider failures", () => {
         status: "failed",
         error: SAFE_MESSAGE,
         provider_failure: true,
+        failure: expect.objectContaining({ failure_class: "provider_fatal" }),
       });
       const serialized = JSON.stringify(waitResult);
       expect(serialized).not.toContain(RAW_DIAGNOSTIC);

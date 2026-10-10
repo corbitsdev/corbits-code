@@ -1227,9 +1227,15 @@ describe("interrupt_agent unblocks wait_agents", () => {
       agent_id: string;
       status: string;
       stop_reason?: string;
+      failure?: unknown;
     }[];
     expect(results).toEqual([
-      { agent_id: id, status: "interrupted", stop_reason: "interrupted" },
+      {
+        agent_id: id,
+        status: "interrupted",
+        stop_reason: "interrupted",
+        failure: expect.objectContaining({ failure_class: "interrupted" }),
+      },
     ]);
     expect(deps.sessions.get(id)?.lifecycleStatus).toBe("interrupted");
     expect(deps.sessions.get(id)?.status).toBe("running");
@@ -1589,9 +1595,15 @@ describe("interrupt_agent unblocks wait_agents", () => {
       agent_id: string;
       status: string;
       stop_reason?: string;
+      failure?: unknown;
     }[];
     expect(results).toEqual([
-      { agent_id: id, status: "interrupted", stop_reason: "interrupted" },
+      {
+        agent_id: id,
+        status: "interrupted",
+        stop_reason: "interrupted",
+        failure: expect.objectContaining({ failure_class: "interrupted" }),
+      },
     ]);
     expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
     expect(deps.fleetRecords.peek(id)?.collected).toBe(true);
@@ -2520,9 +2532,15 @@ describe("admission queue", () => {
       agent_id: string;
       status: string;
       stop_reason?: string;
+      failure?: unknown;
     }[];
     expect(results).toEqual([
-      { agent_id: queuedId, status: "interrupted", stop_reason: "cancelled" },
+      {
+        agent_id: queuedId,
+        status: "interrupted",
+        stop_reason: "cancelled",
+        failure: expect.objectContaining({ failure_class: "cancelled" }),
+      },
     ]);
     expect(started()).toBe(1);
 

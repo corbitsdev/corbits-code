@@ -21,6 +21,7 @@ import {
   UNSTRUCTURED_DIGEST_CHARS,
 } from "./fleet-dry-drive.js";
 import { parseSubAgentReport } from "./report.js";
+import { classifySubAgentFailure } from "./terminal-failure.js";
 import {
   DEFAULT_MAX_ENTRY_CHARS,
   type AgentLifecycleStatus,
@@ -349,9 +350,10 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
         onReply: (reply) => {
           deps.sessions.complete(target, reply);
         },
-        onFail: (err) => {
-          deps.sessions.fail(target, errorMessage(err));
-        },
+        onFail: (err) =>
+          deps.sessions.fail(target, errorMessage(err), {
+            failure_class: classifySubAgentFailure(err),
+          }),
       });
       if (!outcome.ok) {
         const hint = outcome.hint !== undefined ? ` ${outcome.hint}` : "";
