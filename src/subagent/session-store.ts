@@ -30,6 +30,7 @@ import {
   failureClassForStopReason,
   isReplaySafeToolName,
   recoveryFor,
+  withRecoveryReplacement,
   type SubAgentFailureClass,
   type SubAgentFailureInput,
   type SubAgentFailureRecord,
@@ -175,6 +176,8 @@ export interface SubAgentSession {
    * mutation that makes the outcome observable; absent while the lane is live.
    */
   failure?: SubAgentFailureRecord;
+  /** Set on a recovery replacement: the failed agent id it recovers. */
+  recovers?: string;
 }
 
 export interface StartSessionInput {
@@ -193,6 +196,8 @@ export interface StartSessionInput {
   provider?: string;
   /** Canonical tool names this worker hard-required at dispatch (CL-9476). */
   requiresTools?: readonly string[];
+  /** The failed agent id this session was spawned to recover. */
+  recovers?: string;
 }
 
 export interface SubAgentSessionStoreOptions {
@@ -242,6 +247,11 @@ export interface SubAgentSessionStore {
     opts?: { agentRetained?: boolean; stopReason?: ForcedStopReason },
   ): void;
   fail(id: string, error: string, failure?: SubAgentFailureInput): void;
+  /**
+   * Claim a failure record for its replacement. The record otherwise stays
+   * as written: the failed lane never returns to running or success.
+   */
+  linkRecoveryReplacement(id: string, replacementId: string): void;
   // Register the live abort handle for a running session so cancel() can stop
   // the child reactor (agent.close), not only flip status.
   registerCancel(id: string, abort: () => void): void;
@@ -862,7 +872,7 @@ export function createSubAgentSessionStore(
     const id = session.id;
     const failureClass = terminalFailureClass(session);
     if (failureClass !== undefined) {
-      const attempt = 1;
+      const attempt = session.recovers !== undefined ? 2 : 1;
       const teardownFailed = pendingFailures.get(id)?.teardownFailed === true;
       session.failure = Object.freeze({
         agent_id: id,
@@ -880,6 +890,9 @@ export function createSubAgentSessionStore(
           }),
         ),
         attempt,
+        ...(session.recovers !== undefined
+          ? { recovers: session.recovers }
+          : {}),
         handoff: terminalHandoffs.get(id) ?? currentHandoff(id),
         cleanup:
           teardownFailed || releaseFaults.has(id) ? "partial" : "released",
@@ -1484,6 +1497,7 @@ export function createSubAgentSessionStore(
         ...(input.requiresTools !== undefined
           ? { requiresTools: [...input.requiresTools] }
           : {}),
+        ...(input.recovers !== undefined ? { recovers: input.recovers } : {}),
       };
       sessions.set(id, session);
       bumpRevision(id);
@@ -1810,6 +1824,16 @@ export function createSubAgentSessionStore(
         pruneCompleted();
       });
       pendingFailures.delete(id);
+    },
+
+    linkRecoveryReplacement(id: string, replacementId: string): void {
+      mutate(id, (session) => {
+        if (session.failure === undefined) return;
+        session.failure = withRecoveryReplacement(
+          session.failure,
+          replacementId,
+        );
+      });
     },
 
     registerCancel(id: string, abort: () => void): void {
@@ -2586,6 +2610,7 @@ function cloneSession(
       ? { requiresTools: [...session.requiresTools] }
       : {}),
     ...(session.failure !== undefined ? { failure: session.failure } : {}),
+    ...(session.recovers !== undefined ? { recovers: session.recovers } : {}),
   };
 }
 

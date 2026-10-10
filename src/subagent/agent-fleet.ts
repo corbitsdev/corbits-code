@@ -124,7 +124,9 @@ import { formatSubAgentSpawnAuthFailureMessage } from "./inference-auth-failure.
 import {
   classifySubAgentFailure,
   isProviderFailureClass,
+  withRecoveryReplacement,
   type SubAgentFailureRecord,
+  type SubAgentRecoveryReason,
 } from "./terminal-failure.js";
 import { errorMessage } from "../agent/error-message.js";
 import { isSubAgentCancelError } from "./dispose.js";
@@ -282,6 +284,25 @@ class FleetMailbox {
     this.records.clear();
     this.lastSurfacedParkedAsks = undefined;
     this.sessions.wake();
+  }
+
+  /**
+   * Record that `replacementId` recovers `failedId`. Runs synchronously in
+   * the spawn handler before anything awaits, so a second claim in the same
+   * tick already sees the replacement. An evicted session's record lives
+   * only on the overlay, so it is linked there.
+   */
+  claimRecovery(failedId: string, replacementId: string): void {
+    const overlay = this.records.get(failedId);
+    if (overlay === undefined) return;
+    if (this.sessions.get(failedId) !== undefined) {
+      this.sessions.linkRecoveryReplacement(failedId, replacementId);
+      this.mirrorFailure(failedId, overlay);
+      return;
+    }
+    if (overlay.failure !== undefined) {
+      overlay.failure = withRecoveryReplacement(overlay.failure, replacementId);
+    }
   }
 
   markQueued(id: string): void {
@@ -558,6 +579,7 @@ const SpawnAgentArgs = type({
   "do_not?": "string[]",
   "report_focus?": "string",
   "requires_tools?": "string[]",
+  "recovers?": "string",
 });
 
 export const spawnAgentToolDefinition: ToolDefinition = {
@@ -610,6 +632,11 @@ export const spawnAgentToolDefinition: ToolDefinition = {
         description:
           "Hard tool requirements (canonical names). Preflight fails closed when missing.",
       },
+      recovers: {
+        type: "string",
+        description:
+          "agent_id of a failed+continuable worker this spawn replaces. Once per failure; refused with a reason otherwise.",
+      },
     },
     required: ["description", "prompt"],
   },
@@ -627,7 +654,7 @@ export const MAX_WAIT_TIMEOUT_MS = 300_000;
 export const waitAgentsToolDefinition: ToolDefinition = {
   name: "wait_agents",
   description:
-    "Block until targets finish, fail, or ask (awaiting_director), or timeout_ms. mode any (default) or all. Timeout is not an error; workers keep running. Answer awaiting_director with send_input. failed+continuable:true may be respawned once.",
+    "Block until targets finish, fail, or ask (awaiting_director), or timeout_ms. mode any (default) or all. Timeout is not an error; workers keep running. Answer awaiting_director with send_input. failed+continuable:true: recover once via spawn_agent recovers=agent_id.",
   inputSchema: {
     type: "object",
     properties: {
@@ -915,6 +942,49 @@ function handoffRequiresSuccessCriteria(
   );
 }
 
+/**
+ * Why a `recovers` request spawns nothing, or undefined when it may proceed.
+ * A duplicate is not an error: it hands back the replacement already
+ * started so every caller converges on one agent_id.
+ */
+function recoveryRefusal(
+  callId: string,
+  fleetRecords: FleetMailboxHandle,
+  failedId: string,
+): ToolResult | undefined {
+  const record = fleetRecords.peek(failedId);
+  if (record === undefined) {
+    return fleetResult(
+      callId,
+      `Error: spawn_agent recovers="${failedId}" is not one of your workers; nothing was spawned.`,
+    );
+  }
+  const replacementId = record.failure?.recovery.replacement_id;
+  if (replacementId !== undefined) {
+    return fleetResult(
+      callId,
+      fleetJson({
+        agent_id: replacementId,
+        recovers: failedId,
+        status: "recovery_already_started",
+        reason: "already_recovered" satisfies SubAgentRecoveryReason,
+      }),
+    );
+  }
+  if (
+    record.status === "failed" &&
+    record.failure?.recovery.available === true
+  ) {
+    return undefined;
+  }
+  const reason: SubAgentRecoveryReason =
+    record.failure?.recovery.reason ?? "not_retryable";
+  return fleetResult(
+    callId,
+    `Error: recovery_unavailable reason=${reason}: spawn_agent recovers="${failedId}" spawned nothing. Diagnose from the failure and continue with a changed brief, or wait for the operator.`,
+  );
+}
+
 export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   const telemetry = deps.telemetry ?? NOOP_TELEMETRY;
   // Concurrent-lane overlap detection, replacing the static per-package
@@ -995,6 +1065,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         do_not: rawDoNot,
         report_focus: rawReportFocus,
         requires_tools: rawRequiresTools,
+        recovers: rawRecovers,
       } = parsed;
       const description = rawDesc.trim();
       const prompt = rawPrompt.trim();
@@ -1003,6 +1074,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           call.id,
           "Error: spawn_agent requires a non-empty description and prompt.",
         );
+      }
+      const recovers = rawRecovers?.trim();
+      if (recovers !== undefined) {
+        const refusal = recoveryRefusal(call.id, deps.fleetRecords, recovers);
+        if (refusal !== undefined) return refusal;
       }
       const context = rawCtx?.trim();
       const goals =
@@ -1254,6 +1330,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           : {}),
       });
 
+      // CL-10202: the claim lands before this handler's first await (and
+      // before the session exists), so a concurrent duplicate sees it.
+      if (recovers !== undefined) {
+        deps.fleetRecords.claimRecovery(recovers, call.id);
+      }
       const session = deps.sessions.start({
         id: call.id,
         description,
@@ -1268,6 +1349,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         ...(deps.parentSessionId !== undefined
           ? { parentSessionId: deps.parentSessionId }
           : {}),
+        ...(recovers !== undefined ? { recovers } : {}),
       });
       deps.fleetRecords.register(session.id);
       const agentName = classifyAgentName(resolved.directorId);
@@ -1760,7 +1842,14 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         start,
       });
       if (status === "queued") deps.fleetRecords.markQueued(session.id);
-      return fleetResult(call.id, fleetJson({ agent_id: session.id, status }));
+      return fleetResult(
+        call.id,
+        fleetJson({
+          agent_id: session.id,
+          status,
+          ...(recovers !== undefined ? { recovers, attempt: 2 } : {}),
+        }),
+      );
     },
   });
 }

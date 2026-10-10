@@ -153,3 +153,18 @@ export function recoveryFor(input: {
   }
   return { available: true, reason: "eligible" };
 }
+
+/** The same record, claimed by a replacement. Nothing else changes. */
+export function withRecoveryReplacement(
+  record: SubAgentFailureRecord,
+  replacementId: string,
+): SubAgentFailureRecord {
+  return Object.freeze({
+    ...record,
+    recovery: Object.freeze({
+      available: false,
+      reason: "already_recovered" as const,
+      replacement_id: replacementId,
+    }),
+  });
+}
