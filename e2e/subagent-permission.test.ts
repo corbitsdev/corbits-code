@@ -23,6 +23,7 @@ import { createSubAgentSessionStore } from "../src/subagent/session-store.js";
 import { workerPermissionGate } from "../src/permission/reactor-authorize.js";
 import { getProcessWorkerGrantStore } from "../src/permission/worker-grant.js";
 import { gateAgentTools } from "../src/plugins/permission-plugin.js";
+import { DIRECTOR_RESOLVABLE_ESCALATION } from "../testkit/escalation.js";
 
 const report =
   "## Summary\nFinished.\n## Findings\nAttempted write.\n## Blockers\nNone.\n## Paths\nprobe.txt";
@@ -928,7 +929,13 @@ test.serial(
         };
         harness.scenario.replyOnce("openai", {
           toolCalls: [
-            { name: "ask_director", args: { question: "which file?" } },
+            {
+              name: "ask_director",
+              args: {
+                question: "which file?",
+                escalation: DIRECTOR_RESOLVABLE_ESCALATION,
+              },
+            },
           ],
         });
         harness.scenario.replyOnce("openai", { text: report });

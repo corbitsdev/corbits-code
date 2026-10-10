@@ -25,6 +25,31 @@ const callTool = callFleetTool;
 
 type SessionStore = ReturnType<typeof createSubAgentSessionStore>;
 
+/** Valid assessed ask payload for the structured-resolution tests. */
+const assessedAsk = {
+  policyVersion: "1",
+  classification: "operator_decision_required",
+  blockedOutcome: "cannot produce the authenticated verification result",
+  unavailableDirectorPath: "the director has no credential authority",
+  permittedAlternatives: [
+    {
+      attempted: "focused local test",
+      result: "requires the missing credential",
+      comparableConfidence: false,
+    },
+  ],
+  minimumAddition: "allow an authenticated read-only snapshot",
+  declineConsequence: "implementation is complete but verification is blocked",
+  requestedMechanism: "broad web access",
+  minimumAuthority: "authenticated read-only snapshot",
+  verification: {
+    verificationOutcome: "integration verification",
+    rootCause: "missing test credential",
+    attemptedNarrowChecks: ["focused local test"],
+    reducedConfidence: "integration behavior remains unverified",
+  },
+} as const;
+
 // Every session in this suite uses the same agentId/brief scaffold; callers
 // pass only the fields that actually vary for the behavior under test.
 function startSession(
@@ -339,6 +364,7 @@ describe("resume_agent", () => {
       sessions.registerAsk(worker.id, {
         question: "which file?",
         questionId: "ask-1",
+        assessment: assessedAsk,
         resolve: () => undefined,
         reject: () => undefined,
       }),
@@ -1110,6 +1136,79 @@ describe("send_input", () => {
     });
     expect(denied.isError).toBe(true);
     expect(String(denied.content)).toContain("no resolvable session");
+  });
+
+  test("structured escalation resolution requires the pending questionId and rejects a stale one (SF2)", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+    const worker = startSession(sessions, { description: "worker" });
+    sessions.markRunning(worker.id);
+    sessions.registerAsk(worker.id, {
+      question: "which file?",
+      questionId: "ask-1",
+      assessment: assessedAsk,
+      resolve: () => undefined,
+      reject: () => undefined,
+    });
+
+    const noQuestion = await callFleetToolRaw(sendInput, {
+      target: worker.id,
+      message: "No.",
+      resolution: { kind: "declined", answer: "No." },
+    });
+    expect(noQuestion.isError).toBe(true);
+    expect(String(noQuestion.content)).toContain("questionId");
+
+    const mismatch = await callFleetToolRaw(sendInput, {
+      target: worker.id,
+      message: "No.",
+      resolution: {
+        kind: "declined",
+        answer: "No.",
+        questionId: "ask-0",
+      },
+    });
+    expect(mismatch.isError).toBe(true);
+    expect(String(mismatch.content)).toContain("questionId mismatch");
+    expect(String(mismatch.content)).toContain('"ask-1"');
+    expect(sessions.hasPendingAsk(worker.id)).toBe(true);
+  });
+
+  test("structured resolution delivers the message together with the answer (SF6)", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+    const worker = startSession(sessions, { description: "worker" });
+    sessions.markRunning(worker.id);
+    let resolved: string | undefined;
+    sessions.registerAsk(worker.id, {
+      question: "which file?",
+      questionId: "ask-1",
+      assessment: assessedAsk,
+      resolve: (answer) => {
+        resolved = answer;
+      },
+      reject: () => {
+        throw new Error("should not reject");
+      },
+    });
+
+    const both = await callFleetToolRaw(sendInput, {
+      target: worker.id,
+      message: "use branch X",
+      resolution: {
+        kind: "declined",
+        answer: "No credential grant.",
+        questionId: "ask-1",
+      },
+    });
+    expect(both.isError).not.toBe(true);
+    expect(resolved).toBe("use branch X\nNo credential grant.");
+    expect(sessions.get(worker.id)?.terminalOutcome).toMatchObject({
+      kind: "verification_blocked",
+      resolution: "declined",
+    });
   });
 });
 

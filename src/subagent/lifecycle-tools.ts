@@ -26,6 +26,7 @@ import {
   type AgentLifecycleStatus,
   type SubAgentSessionStore,
 } from "./session-store.js";
+import { parseEscalationResolution } from "./escalation-policy.js";
 import {
   assertCanTargetAgent,
   FleetAuthorityError,
@@ -434,6 +435,7 @@ const SendInputArgs = type({
   target: "string",
   message: "string",
   "interrupt?": "boolean",
+  "resolution?": "unknown",
 });
 
 export const sendInputToolDefinition: ToolDefinition = {
@@ -454,6 +456,33 @@ export const sendInputToolDefinition: ToolDefinition = {
       interrupt: {
         type: "boolean",
         description: "Interrupt first.",
+      },
+      resolution: {
+        type: "object",
+        description:
+          "Optional explicit pending-escalation resolution (questionId, kind, answer). It never grants or retries a tool. The message is delivered together with the structured answer.",
+        properties: {
+          questionId: {
+            type: "string",
+            description: "The pending question id this resolution answers.",
+          },
+          kind: {
+            type: "string",
+            enum: [
+              "director_answer",
+              "declined",
+              "unavailable",
+              "minimum_grant_available",
+            ],
+            description:
+              "director_answer (normal answer), declined, unavailable, or minimum_grant_available.",
+          },
+          answer: {
+            type: "string",
+            description: "Text the worker receives.",
+          },
+        },
+        required: ["questionId", "kind", "answer"],
       },
     },
     required: ["target", "message"],
@@ -486,6 +515,50 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
           call.id,
           `Error: send_input message exceeds ${DEFAULT_MAX_ENTRY_CHARS} characters ` +
             `(got ${message.length}).`,
+        );
+      }
+      if (parsed.resolution !== undefined) {
+        if (parsed.interrupt === true) {
+          return lifecycleResult(
+            call.id,
+            "Error: structured escalation resolution cannot interrupt a worker.",
+          );
+        }
+        const resolution = parseEscalationResolution(parsed.resolution);
+        if (resolution instanceof Error) {
+          return lifecycleResult(
+            call.id,
+            `Error: send_input resolution invalid: ${resolution.message}`,
+          );
+        }
+        const pending = deps.sessions.peekAsk(target);
+        if (pending === undefined) {
+          return lifecycleResult(
+            call.id,
+            `Error: no pending escalation for "${target}".`,
+          );
+        }
+        if (pending.questionId !== resolution.questionId) {
+          return lifecycleResult(
+            call.id,
+            `Error: send_input resolution questionId mismatch: pending ask is "${pending.questionId}", resolution names "${resolution.questionId}".`,
+          );
+        }
+        // SF6: deliver the parent's message together with the structured
+        // answer so a resolution can never silently drop the message.
+        if (!deps.sessions.resolveEscalationAsk(target, resolution, message)) {
+          return lifecycleResult(
+            call.id,
+            `Error: no pending escalation for "${target}".`,
+          );
+        }
+        return lifecycleResult(
+          call.id,
+          fleetJson({
+            agent_id: target,
+            status: "running",
+            resolution: resolution.kind,
+          }),
         );
       }
       const interrupt = parsed.interrupt === true;

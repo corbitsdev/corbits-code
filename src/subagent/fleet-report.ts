@@ -18,6 +18,10 @@ import type {
   AgentLifecycleStatus,
   SubAgentSessionStatus,
 } from "./session-store.js";
+import {
+  renderEscalationDecision,
+  type EscalationAssessment,
+} from "./escalation-policy.js";
 
 /** The lane fields a report is written from. `SubAgentSession` satisfies it. */
 export interface FleetLane {
@@ -120,14 +124,19 @@ export interface PendingAskWake {
   readonly description: string;
   readonly question: string;
   readonly questionId: string;
+  readonly assessment?: EscalationAssessment;
 }
 
 /** Nested orchestrators own their children's questions; only root workers wake the TUI. */
 export function pendingAskSnapshot(
   lanes: readonly FleetLane[],
-  peekAsk: (
-    sessionId: string,
-  ) => { question: string; questionId: string } | undefined,
+  peekAsk: (sessionId: string) =>
+    | {
+        question: string;
+        questionId: string;
+        assessment?: EscalationAssessment;
+      }
+    | undefined,
 ): readonly PendingAskWake[] {
   const asks: PendingAskWake[] = [];
   for (const lane of lanes) {
@@ -141,6 +150,7 @@ export function pendingAskSnapshot(
       description: lane.description,
       question: ask.question,
       questionId: ask.questionId,
+      ...(ask.assessment !== undefined ? { assessment: ask.assessment } : {}),
     });
   }
   return asks;
@@ -159,7 +169,17 @@ export function pendingAskWakeText(
   const lines = [
     `${ASK_DIRECTOR_WAKE_PREFIX} — worker ${wake.agentId} (${wake.description}) parked question ${wake.questionId} while this session was not collecting:`,
     "",
-    wake.question,
+    wake.assessment === undefined
+      ? wake.question
+      : [
+          `Question: ${wake.question}`,
+          "",
+          renderEscalationDecision({
+            sessionId: wake.sessionId,
+            questionId: wake.questionId,
+            assessment: wake.assessment,
+          }),
+        ].join("\n"),
     "",
   ];
   // A re-surfaced question: the earlier wake was aborted without an answer.

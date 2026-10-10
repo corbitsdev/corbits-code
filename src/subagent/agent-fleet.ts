@@ -77,6 +77,10 @@ import {
   projectWaitStatus,
   type WaitJSONStatus,
 } from "./lifecycle.js";
+import type {
+  EscalationAssessment,
+  TerminalOutcome,
+} from "./escalation-policy.js";
 import { getProcessAdmissionQueue, type AdmissionQueue } from "./admission.js";
 import type {
   NestedDispatchDeps,
@@ -141,6 +145,8 @@ interface FleetRecord {
   hint?: string;
   question?: string;
   questionId?: string;
+  assessment?: EscalationAssessment;
+  terminalOutcome?: TerminalOutcome;
   description?: string;
 }
 
@@ -467,7 +473,16 @@ class FleetMailbox {
         ? { recoverableFailure: true }
         : {}),
       ...(ask !== undefined
-        ? { question: ask.question, questionId: ask.questionId }
+        ? {
+            question: ask.question,
+            questionId: ask.questionId,
+            ...(ask.assessment !== undefined
+              ? { assessment: ask.assessment }
+              : {}),
+          }
+        : {}),
+      ...(session?.terminalOutcome !== undefined
+        ? { terminalOutcome: session.terminalOutcome }
         : {}),
       ...(status === "awaiting_director" && session !== undefined
         ? { description: session.description }
@@ -1548,7 +1563,12 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               : {}),
             persist: deps.persist !== false,
             askDirectorPort: {
-              register: ({ question, questionId, grantRequestId }) => {
+              register: ({
+                question,
+                questionId,
+                assessment,
+                grantRequestId,
+              }) => {
                 const hold: {
                   resolve?: (answer: string) => void;
                   reject?: (reason: unknown) => void;
@@ -1568,6 +1588,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                 const ok = deps.sessions.registerAsk(session.id, {
                   question,
                   questionId,
+                  assessment,
                   ...(grantRequestId !== undefined ? { grantRequestId } : {}),
                   resolve: hold.resolve,
                   reject: hold.reject,
@@ -1584,6 +1605,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               },
               cancel: (reason) => {
                 deps.sessions.cancelAsk(session.id, reason);
+              },
+              recordRoutineEvaluation: (assessment) => {
+                deps.sessions.recordRoutineEvaluation(session.id, assessment);
               },
             },
             onAgentReady: ({ close, interrupt, followup, deliver }) => {
@@ -1862,6 +1886,12 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
             ...(record.questionId !== undefined
               ? { question_id: record.questionId }
               : {}),
+            ...(record.assessment !== undefined
+              ? { assessment: record.assessment }
+              : {}),
+            ...(record.terminalOutcome !== undefined
+              ? { terminal_outcome: record.terminalOutcome }
+              : {}),
             ...(record.description !== undefined
               ? { description: record.description }
               : {}),
@@ -1893,6 +1923,12 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
             : {}),
           ...(record.questionId !== undefined
             ? { question_id: record.questionId }
+            : {}),
+          ...(record.assessment !== undefined
+            ? { assessment: record.assessment }
+            : {}),
+          ...(record.terminalOutcome !== undefined
+            ? { terminal_outcome: record.terminalOutcome }
             : {}),
         };
       });
@@ -2002,6 +2038,12 @@ export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
           ...(record?.status === "awaiting_director" &&
           record.questionId !== undefined
             ? { question_id: record.questionId }
+            : {}),
+          ...(record?.assessment !== undefined
+            ? { assessment: record.assessment }
+            : {}),
+          ...(record?.terminalOutcome !== undefined
+            ? { terminal_outcome: record.terminalOutcome }
             : {}),
         };
       });

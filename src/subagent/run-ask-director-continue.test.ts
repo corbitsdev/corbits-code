@@ -18,6 +18,7 @@ import type { RunSubAgentParams } from "./types.js";
 import type { AskDirectorState } from "./ask-director.js";
 import { SubAgentDirector } from "./nudge-director.js";
 import { createTestCapabilities } from "./director-test-harness.js";
+import { DIRECTOR_RESOLVABLE_ESCALATION } from "../../testkit/escalation.js";
 
 const testPermissionGate = createPermissionGate({
   approvals: [],
@@ -217,7 +218,10 @@ describe("runSubAgent ask_director compact-continue wiring", () => {
                     }
 
                     const askPromise = capturedAskHandler(
-                      { question: "which file?" },
+                      {
+                        question: "which file?",
+                        escalation: DIRECTOR_RESOLVABLE_ESCALATION,
+                      },
                       new AbortController().signal,
                     );
                     for (let i = 0; i < 500 && resolveAsk === undefined; i++) {

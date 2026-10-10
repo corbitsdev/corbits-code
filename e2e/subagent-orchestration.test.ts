@@ -15,6 +15,7 @@ import {
   openE2ESession,
   runUntilDone,
 } from "./harness.js";
+import { DIRECTOR_RESOLVABLE_ESCALATION } from "../testkit/escalation.js";
 
 const RequestURL = type({ url: "string" });
 
@@ -69,7 +70,10 @@ describe("e2e — fleet orchestration", () => {
           toolCalls: [
             {
               name: "ask_director",
-              args: { question: "which file should I edit?" },
+              args: {
+                question: "which file should I edit?",
+                escalation: DIRECTOR_RESOLVABLE_ESCALATION,
+              },
             },
           ],
         });

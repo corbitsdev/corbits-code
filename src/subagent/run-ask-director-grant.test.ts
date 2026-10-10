@@ -10,6 +10,7 @@ import type { DirectorFactory } from "@intx/agent";
 import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams } from "./types.js";
+import { DIRECTOR_RESOLVABLE_ESCALATION } from "../../testkit/escalation.js";
 
 const testPermissionGate = createPermissionGate({
   approvals: [],
@@ -56,12 +57,13 @@ function createHangingStubAgent() {
 }
 
 describe("runSubAgent ask_director grant_request_id threading", () => {
-  test("leaf forwards grant_request_id to the port; absent stays legacy", async () => {
+  test("leaf forwards grant_request_id to the port; an assessed ask without one stays unnamed", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cl9475-ask-grant-"));
     const registered: {
       question: string;
       questionId: string;
       grantRequestId?: string;
+      assessment?: unknown;
     }[] = [];
     let capturedAskHandler:
       | ((
@@ -145,16 +147,23 @@ describe("runSubAgent ask_director grant_request_id threading", () => {
             });
 
             const named = await capturedAskHandler(
-              { question: "may I retry?", grant_request_id: "grant-123" },
+              {
+                question: "may I retry?",
+                grant_request_id: "grant-123",
+                escalation: DIRECTOR_RESOLVABLE_ESCALATION,
+              },
               new AbortController().signal,
             );
             expect(named).toBe("answer:1");
 
-            const legacy = await capturedAskHandler(
-              { question: "plain question" },
+            const unnamed = await capturedAskHandler(
+              {
+                question: "plain question",
+                escalation: DIRECTOR_RESOLVABLE_ESCALATION,
+              },
               new AbortController().signal,
             );
-            expect(legacy).toBe("answer:2");
+            expect(unnamed).toBe("answer:2");
 
             await handles.close().catch(() => undefined);
             await runPromise.catch(() => undefined);
@@ -166,7 +175,15 @@ describe("runSubAgent ask_director grant_request_id threading", () => {
     expect(outcome.registered.length).toBe(2);
     expect(outcome.registered[0]?.question).toBe("may I retry?");
     expect(outcome.registered[0]?.grantRequestId).toBe("grant-123");
+    expect(outcome.registered[0]?.assessment).toMatchObject({
+      policyVersion: "1",
+      classification: "director_resolvable",
+    });
     expect(outcome.registered[1]?.question).toBe("plain question");
     expect(outcome.registered[1]?.grantRequestId).toBeUndefined();
+    expect(outcome.registered[1]?.assessment).toMatchObject({
+      policyVersion: "1",
+      classification: "director_resolvable",
+    });
   });
 });
