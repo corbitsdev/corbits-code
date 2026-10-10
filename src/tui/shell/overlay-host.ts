@@ -51,6 +51,7 @@ import {
   relayout,
   setStatusFlash,
 } from "./chrome.js";
+import { interruptShell } from "./prompt.js";
 
 function refreshOverlayTitle(shell: AppShell): void {
   const bag = shellInternals(shell);
@@ -680,6 +681,13 @@ export function abortOverlayHostReservations(shell: AppShell): void {
   bag.overlayHostReservations = 0;
   bag.overlayGeneration += 1;
   scheduleDeferredCommandFlush(shell);
+}
+
+/** Reject a decision gate and stop the turn, matching its Ctrl+C behavior. */
+export function stopDecisionGate(shell: AppShell): void {
+  abortOverlayHostReservations(shell);
+  closeInsetOverlay(shell);
+  interruptShell(shell);
 }
 
 /** One deferred command-surface slot while the host is busy. */
