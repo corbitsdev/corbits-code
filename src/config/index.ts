@@ -9,7 +9,7 @@ import {
 } from "../session/index.js";
 import { loadState } from "../session/state.js";
 import { COMMAND_NAME } from "../branding.js";
-import pkg from "../../package.json" with { type: "json" };
+import { DISPLAY_VERSION } from "../version.js";
 
 import { isDirectorId } from "../agent/directors/registry.js";
 import { DIRECTOR_IDS, type DirectorId } from "../agent/directors/types.js";
@@ -769,10 +769,8 @@ export class CliHelpError extends Error {
   }
 }
 
-/** Printed for `corbits --version` / `-V`. Matches `package.json` version. */
-export const CLI_VERSION_TEXT = `${COMMAND_NAME} v${
-  typeof pkg.version === "string" ? pkg.version : "0.0.0"
-}`;
+/** Printed for `corbits --version` / `-V`. Matches the display version (`src/version.ts`). */
+export const CLI_VERSION_TEXT = `${COMMAND_NAME} ${DISPLAY_VERSION}`;
 
 /**
  * Thrown when the operator asked for the CLI version. Entry points must print
