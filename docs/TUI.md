@@ -307,6 +307,30 @@ poll uses
 needed it **does not** call `bridge.syncAgentProgress` — chrome owns the live
 clocks.
 
+### WORKER WAITING strip
+
+While any root worker is parked on `ask_director`, a one-row **WORKER
+WAITING** strip sits directly on the prompt box (zone `worker_wait`):
+
+```
+◆ WORKER WAITING · director reply needed · builder (copy assets): Which destination path should I use? (+1 more)
+```
+
+It names the worker, previews its question, and says the director owns the
+reply. It is display only: composer text still goes to the primary director,
+and only the director's `send_input` to the worker's session answers the
+worker. The strip reads the `agent-ask` pending snapshot and nothing else
+(`src/tui/worker-wait.ts`, painted by `paintChrome` in `shell/chrome.ts`). An
+item's identity is `sessionId + questionId`, and it leaves only when a later
+snapshot omits that identity. Delivering the wake, director inference,
+typing, submitting, scrolling, and redraws do not clear it. Session rotation,
+stop teardown, and bridge dispose clear it. One question shows at a time,
+with `(+N more)` for the rest; the displayed identity stays while it is live,
+and otherwise the first snapshot entry shows. At narrow widths the question
+truncates first, then requester metadata and routing copy shorten, while the
+waiting label and the count stay. Primary-session `ask_operator` prompts keep
+their own overlay and never use this strip.
+
 ### Transcript spawn_agent rows (history anchors)
 
 `runtime-bridge` paints each `spawn_agent` call as a transcript stream row for
