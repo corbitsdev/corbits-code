@@ -8,6 +8,7 @@ const ZONE_IDS = [
   "progress_divider",
   "notice",
   "pending",
+  "worker_wait",
   "prompt",
   "task",
   "agents",
@@ -101,6 +102,15 @@ export const ZONE_REGISTRY: Readonly<Record<ZoneId, ZoneDeclaration>> = {
     id: "pending",
     min: 0,
     max: PENDING_MAX_VISIBLE + 2,
+    idleDefault: 0,
+    alwaysOn: false,
+  },
+  // WORKER WAITING strip: one row on the prompt box while a root worker is
+  // parked on ask_director. Off whenever nothing is waiting.
+  worker_wait: {
+    id: "worker_wait",
+    min: 0,
+    max: 1,
     idleDefault: 0,
     alwaysOn: false,
   },
@@ -220,9 +230,13 @@ export const COLLAPSE_ORDER = [
   "progress",
   "progress_divider",
   "notice",
-  // Pending items are the operator's own queued words: cut last of the
-  // optionals, just ahead of prompt growth reclaim.
+  // Pending items are the operator's own queued words: cut late, after every
+  // banner and strip.
   "pending",
+  // A parked worker is standing state the operator cannot see anywhere else
+  // once the wake turn scrolls away, so its single row is the last optional
+  // cut, just ahead of prompt growth reclaim.
+  "worker_wait",
   // prompt growth reclaimed next (handled specially; never below PROMPT_BASE_ROWS)
   "prompt",
 ] as const satisfies readonly ZoneId[];
@@ -244,6 +258,7 @@ export const PAINT_ORDER = [
   "progress_divider",
   "notice",
   "pending",
+  "worker_wait",
   "prompt",
 ] as const satisfies readonly ZoneId[];
 

@@ -73,6 +73,7 @@ import {
   syncPromptHighlights,
 } from "./prompt.js";
 import { armMarkdownLinks } from "../url-links.js";
+import { NO_WORKER_WAIT } from "../worker-wait.js";
 import {
   createShellKeyHandlers,
   routePromptWheelToTranscript,
@@ -264,6 +265,15 @@ export function createAppShell(
     visible: layout.heights.pending > 0,
   });
 
+  // Off until a pending-ask snapshot names a parked root worker.
+  const workerWaitRow = new TextRenderable(ctx, {
+    id: "shell-worker-wait",
+    height: Math.max(1, layout.heights.worker_wait),
+    content: "",
+    fg: UI.textDim,
+    visible: layout.heights.worker_wait > 0,
+  });
+
   const promptBox = new BoxRenderable(ctx, {
     id: "shell-prompt-region",
     width: "100%",
@@ -325,6 +335,7 @@ export function createAppShell(
   root.add(taskBox);
   root.add(notice);
   root.add(pendingBox);
+  root.add(workerWaitRow);
   root.add(promptBox);
   root.add(landingBelow);
   root.add(bottomPad);
@@ -431,6 +442,7 @@ export function createAppShell(
     promptBottomRule,
     notice,
     pendingBox,
+    workerWaitRow,
     layout,
     focus: createFocusState(),
     session,
@@ -455,6 +467,7 @@ export function createAppShell(
     statusFlash: null,
     mcpNeedsAuth: [],
     pluginNeedsAttention: false,
+    workerWait: NO_WORKER_WAIT,
     lockupNowMs: 0,
     inFlightTool: null,
     lockupAnimating: false,

@@ -21,11 +21,13 @@ import {
 } from "./delivery-queue.js";
 import {
   appendStreamRow,
+  clearWorkerWait,
   paintChrome,
   paintLanding,
   replaceStreamRowAt,
   setLockupFrame,
   setStatusFlash,
+  setWorkerWaitAsks,
   truncateStreamRows,
 } from "./shell/chrome.js";
 import {
@@ -1534,6 +1536,9 @@ function applyInbound(
         bag.askWakeResurface.delete(sessionId);
       }
     }
+    // The strip reads the same reconciled snapshot the wake path does, never
+    // `deliveredAskWake`: delivery to the director is not resolution.
+    setWorkerWaitAsks(shell, [...bag.pendingAskWake.values()]);
     // Occupancy first on the idle-parent subscribe path. An open gate defers
     // both flushes to gateClosed so a wake cannot send before mail.
     // A fresh snapshot with nothing pending means no wake is owed, but a
@@ -2218,6 +2223,9 @@ export function attachSessionBridge(
     bag.pendingPromptRecoveries.length = 0;
     bag.liveFleet = 0;
     bag.pendingAskWake.clear();
+    // Session rotation and stop teardown: the waits belonged to workers that
+    // session owned, so the strip goes with them.
+    clearWorkerWait(shell);
     bag.deliveredAskWake.clear();
     // Stop teardown (CL-8016): with the queue gone no wake turn is owed, so
     // disarm the bound and drop the escalation counts — a later session
@@ -2503,6 +2511,7 @@ export function attachSessionBridge(
       bag.pendingDeliveries.clear();
       bag.pendingPromptRecoveries.length = 0;
       bag.pendingAskWake.clear();
+      clearWorkerWait(shell);
       bag.deliveredAskWake.clear();
       bag.askWakeTurnArmed = false;
       bag.askWakeResurface.clear();

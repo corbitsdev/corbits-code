@@ -34,6 +34,32 @@ describe("zone registry", () => {
   });
 });
 
+describe("worker wait zone", () => {
+  test("seats one row directly on the prompt box without shrinking it", () => {
+    const idle = idle80x24();
+    const layout = idle80x24({ visibility: { workerWait: true } });
+    const strip = defined(layout.regions.worker_wait, "worker_wait");
+    const prompt = defined(layout.regions.prompt, "prompt");
+    expect(strip.height).toBe(1);
+    expect(strip.y + strip.height).toBe(prompt.y);
+    expect(layout.heights.prompt).toBe(idle.heights.prompt);
+    expect(layout.transcriptHeight).toBe(idle.transcriptHeight - 1);
+  });
+
+  test("is the last optional row cut before prompt growth is reclaimed", () => {
+    expect(COLLAPSE_ORDER.indexOf("worker_wait")).toBe(
+      COLLAPSE_ORDER.indexOf("prompt") - 1,
+    );
+    const layout = resolveGeometry({
+      terminal: { columns: 80, rows: 18 },
+      visibility: { workerWait: true, notice: true, pending: 2 },
+    });
+    expect(layout.heights.notice).toBe(0);
+    expect(layout.heights.pending).toBe(0);
+    expect(layout.heights.worker_wait).toBe(1);
+  });
+});
+
 describe("resolveGeometry — 80×24 idle floor", () => {
   test("idle default chrome yields transcript ≥ 12", () => {
     const layout = idle80x24();

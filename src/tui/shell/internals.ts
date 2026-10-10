@@ -35,6 +35,7 @@ import { type RunState, type SessionQueueState } from "../delivery-queue.js";
 import { type StreamRow } from "../stream.js";
 import { createOverlayView } from "../overlay-view.js";
 import { type KillRing } from "../prompt-kill-ring.js";
+import { type WorkerWaitState } from "../worker-wait.js";
 
 export const shellExitHandlers = new WeakMap<AppShell, () => void>();
 
@@ -399,6 +400,11 @@ export interface AppShell {
    * row budget (zone `pending`).
    */
   readonly pendingBox: BoxRenderable;
+  /**
+   * WORKER WAITING strip on the prompt box. Hidden while no root worker is
+   * parked on ask_director; geometry owns its row (zone `worker_wait`).
+   */
+  readonly workerWaitRow: TextRenderable;
   /** Latest geometry resolution (updated on resize / relayout). */
   layout: GeometryLayout;
   /** Focus tree + scroll lease (updated by shell helpers). */
@@ -476,6 +482,11 @@ export interface AppShell {
    * only when the warning set is empty — not merely dismissed.
    */
   pluginNeedsAttention: boolean;
+  /**
+   * Live parked worker questions, from the latest pending-ask snapshot only.
+   * Display state: nothing reads it to route input or settle an ask.
+   */
+  workerWait: WorkerWaitState;
   /**
    * Clock, motion and content state for the bottom-left status slot. The bridge
    * pushes all of it off its existing monitor tick (`setLockupFrame`); the
