@@ -242,8 +242,9 @@ export const COLLAPSE_ORDER = [
   // banner and strip.
   "pending",
   // A parked worker is standing state the operator cannot see anywhere else
-  // once the wake turn scrolls away, so its single row is the last optional
-  // cut, just ahead of prompt growth reclaim.
+  // once the wake turn scrolls away, so its single row is one of the last
+  // optional cuts, just ahead of prompt growth reclaim. The input-required
+  // strip below it is newer chrome, so it is the very last optional cut.
   "worker_wait",
   "input_required",
   // prompt growth reclaimed next (handled specially; never below PROMPT_BASE_ROWS)

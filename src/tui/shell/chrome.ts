@@ -298,6 +298,8 @@ function operatorInputRequiredChunks(
  * - landing suggestions: whether the prompt has text
  * - WORKER WAITING strip: its composed text at the current width (folds in
  *   the selected identity, its preview, and the additional count)
+ * - INPUT REQUIRED strip: its composed text at the current width (folds in
+ *   the selected question preview and the additional count)
  *
  * Landing and zone paints read their own state and do not pass through here.
  */
