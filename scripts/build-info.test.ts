@@ -76,7 +76,9 @@ describe("composeDisplayVersion", () => {
       hash: "9af7e1e",
       dirty: true,
     };
-    expect(composeDisplayVersion("0.3.36", info)).toBe("v0.3.36+g9af7e1e-dirty");
+    expect(composeDisplayVersion("0.3.36", info)).toBe(
+      "v0.3.36+g9af7e1e-dirty",
+    );
   });
 
   test("not a git repo / metadata unavailable -> plain version", () => {
