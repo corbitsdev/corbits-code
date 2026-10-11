@@ -460,7 +460,29 @@ export const sendInputToolDefinition: ToolDefinition = {
       resolution: {
         type: "object",
         description:
-          "Optional explicit pending-escalation resolution (kind and answer). It never grants or retries a tool.",
+          "Optional explicit pending-escalation resolution (questionId, kind, answer). It never grants or retries a tool. The message is delivered together with the structured answer.",
+        properties: {
+          questionId: {
+            type: "string",
+            description: "The pending question id this resolution answers.",
+          },
+          kind: {
+            type: "string",
+            enum: [
+              "director_answer",
+              "declined",
+              "unavailable",
+              "minimum_grant_available",
+            ],
+            description:
+              "director_answer (normal answer), declined, unavailable, or minimum_grant_available.",
+          },
+          answer: {
+            type: "string",
+            description: "Text the worker receives.",
+          },
+        },
+        required: ["questionId", "kind", "answer"],
       },
     },
     required: ["target", "message"],
@@ -509,7 +531,22 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
             `Error: send_input resolution invalid: ${resolution.message}`,
           );
         }
-        if (!deps.sessions.resolveEscalationAsk(target, resolution)) {
+        const pending = deps.sessions.peekAsk(target);
+        if (pending === undefined) {
+          return lifecycleResult(
+            call.id,
+            `Error: no pending escalation for "${target}".`,
+          );
+        }
+        if (pending.questionId !== resolution.questionId) {
+          return lifecycleResult(
+            call.id,
+            `Error: send_input resolution questionId mismatch: pending ask is "${pending.questionId}", resolution names "${resolution.questionId}".`,
+          );
+        }
+        // SF6: deliver the parent's message together with the structured
+        // answer so a resolution can never silently drop the message.
+        if (!deps.sessions.resolveEscalationAsk(target, resolution, message)) {
           return lifecycleResult(
             call.id,
             `Error: no pending escalation for "${target}".`,

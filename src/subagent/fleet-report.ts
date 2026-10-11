@@ -193,11 +193,15 @@ export function pendingAskWakeText(
     "",
     wake.assessment === undefined
       ? wake.question
-      : renderEscalationDecision({
-          sessionId: wake.sessionId,
-          questionId: wake.questionId,
-          assessment: wake.assessment,
-        }),
+      : [
+          `Question: ${wake.question}`,
+          "",
+          renderEscalationDecision({
+            sessionId: wake.sessionId,
+            questionId: wake.questionId,
+            assessment: wake.assessment,
+          }),
+        ].join("\n"),
     "",
   ];
   // Escalation for a re-surfaced question (CL-8016): the earlier wake turn

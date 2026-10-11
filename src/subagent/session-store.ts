@@ -28,9 +28,10 @@ import type { AdmissionQueue, AdmissionStatus } from "./admission.js";
 import type {
   EscalationAssessment,
   EscalationResolution,
-  VerificationBlockedOutcome,
+  TerminalOutcome,
+  VerifiedOutcome,
 } from "./escalation-policy.js";
-import { deriveVerificationBlockedOutcome } from "./escalation-policy.js";
+import { deriveTerminalOutcome } from "./escalation-policy.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "session-store"]);
 
@@ -106,7 +107,9 @@ export interface SubAgentSession {
   lifecycle: WorkerLifecycle;
   toolNames: string[];
   /** Durable policy outcome; never inferred from report Markdown. */
-  terminalOutcome?: VerificationBlockedOutcome;
+  terminalOutcome?: TerminalOutcome;
+  /** Append-only routine escalation evaluations recorded for audit. */
+  routineEvaluations?: readonly EscalationAssessment[];
   // Name, preview, and start clock of the OLDEST outstanding call — the one
   // that explains the longest silence. All three are derived from
   // `outstandingTools`; never assign them directly. Null when nothing is in
@@ -321,7 +324,7 @@ export interface SubAgentSessionStore {
     ask: {
       question: string;
       questionId: string;
-      assessment?: EscalationAssessment;
+      assessment: EscalationAssessment;
       /** Grant requestId quoted from the deny reason: binds this ask to
        * its own denial instead of the session's first pending envelope. */
       grantRequestId?: string;
@@ -330,7 +333,23 @@ export interface SubAgentSessionStore {
     },
   ): boolean;
   resolveAsk(id: string, answer: string): boolean;
-  resolveEscalationAsk(id: string, resolution: EscalationResolution): boolean;
+  resolveEscalationAsk(
+    id: string,
+    resolution: EscalationResolution,
+    note?: string,
+  ): boolean;
+  /** Records a routine evaluation for audit without registering or waking. */
+  recordRoutineEvaluation(
+    id: string,
+    assessment: EscalationAssessment,
+  ): boolean;
+  /**
+   * Replaces a `verification_blocked` terminal outcome only after the worker
+   * explicitly reports a successful verification through the typed contract.
+   * Refuses when no blocked outcome exists, so a decision grant can never
+   * silently clear a blocker.
+   */
+  reportVerifiedOutcome(id: string, outcome: VerifiedOutcome): boolean;
   cancelAsk(id: string, reason?: string): boolean;
   hasPendingAsk(id: string): boolean;
   peekAsk(id: string):
@@ -639,7 +658,7 @@ export function createSubAgentSessionStore(
     {
       question: string;
       questionId: string;
-      assessment?: EscalationAssessment;
+      assessment: EscalationAssessment;
       resolve: (answer: string) => void;
       reject: (reason: unknown) => void;
       // Registration clock for the ask deadline (CL-8016): an ask parked
@@ -2006,30 +2025,58 @@ export function createSubAgentSessionStore(
     resolveEscalationAsk(
       id: string,
       resolution: EscalationResolution,
+      note?: string,
     ): boolean {
       const pending = pendingAsks.get(id);
       if (pending === undefined) return false;
+      // CL-8016: asks expire on a deadline, so a late answer meant for an
+      // earlier question must never settle a newer one.
+      if (pending.questionId !== resolution.questionId) return false;
       pendingAsks.delete(id);
-      const terminalOutcome = deriveVerificationBlockedOutcome(
-        pending.assessment ?? {
-          policyVersion: "1",
-          classification: "director_resolvable",
-          blockedOutcome: pending.question,
-          unavailableDirectorPath:
-            "Legacy direct registration did not provide an assessment.",
-          permittedAlternatives: [],
-          minimumAddition: "A director answer.",
-          declineConsequence: "The worker remains blocked.",
-        },
+      const terminalOutcome = deriveTerminalOutcome(
+        pending.assessment,
         resolution,
       );
+      let notified = false;
       if (terminalOutcome !== undefined) {
+        // mutate() notifies; keep the settlement to exactly one subscriber wake.
         mutate(id, (session) => {
           session.terminalOutcome = terminalOutcome;
         });
+        notified = true;
       }
-      pending.resolve(resolution.answer);
-      notify();
+      pending.resolve(
+        note === undefined
+          ? resolution.answer
+          : `${note}\n${resolution.answer}`,
+      );
+      if (!notified) notify();
+      return true;
+    },
+
+    recordRoutineEvaluation(
+      id: string,
+      assessment: EscalationAssessment,
+    ): boolean {
+      const session = sessions.get(id);
+      if (session === undefined) return false;
+      mutate(id, (target) => {
+        target.routineEvaluations = [
+          ...(target.routineEvaluations ?? []),
+          assessment,
+        ];
+      });
+      return true;
+    },
+
+    reportVerifiedOutcome(id: string, outcome: VerifiedOutcome): boolean {
+      const session = sessions.get(id);
+      if (session === undefined) return false;
+      if (session.terminalOutcome?.kind !== "verification_blocked")
+        return false;
+      mutate(id, (target) => {
+        target.terminalOutcome = outcome;
+      });
       return true;
     },
 
@@ -2054,9 +2101,7 @@ export function createSubAgentSessionStore(
       return {
         question: pending.question,
         questionId: pending.questionId,
-        ...(pending.assessment !== undefined
-          ? { assessment: pending.assessment }
-          : {}),
+        assessment: pending.assessment,
         ...(pending.deniedCall !== undefined
           ? { deniedCall: pending.deniedCall }
           : {}),
@@ -2471,6 +2516,12 @@ function cloneSession(
     ...(session.error !== undefined ? { error: session.error } : {}),
     ...(session.stopReason !== undefined
       ? { stopReason: session.stopReason }
+      : {}),
+    ...(session.terminalOutcome !== undefined
+      ? { terminalOutcome: session.terminalOutcome }
+      : {}),
+    ...(session.routineEvaluations !== undefined
+      ? { routineEvaluations: [...session.routineEvaluations] }
       : {}),
     ...(session.parentSessionId !== undefined
       ? { parentSessionId: session.parentSessionId }

@@ -23,7 +23,7 @@ export function createAskDirectorState(): AskDirectorState {
 
 export interface AskDirectorInput {
   question: unknown;
-  escalation?: unknown;
+  escalation: unknown;
   state: AskDirectorState;
 }
 
@@ -31,20 +31,24 @@ export interface AskDirectorPort {
   register: (input: {
     question: string;
     questionId: string;
-    assessment?: EscalationAssessment;
+    assessment: EscalationAssessment;
     grantRequestId?: string;
   }) => Promise<string>;
   cancel: (reason: string) => void;
+  /** Routine evaluations are recorded for audit; they never register or wake. */
+  recordRoutineEvaluation?: (assessment: EscalationAssessment) => void;
 }
 
 /** Non-terminal by design: over-cap / second-ask returns `ok: false` so the worker does not suspend. */
-export function evaluateAskDirector(input: AskDirectorInput): {
-  ok: boolean;
-  message: string;
-  question?: string;
-  assessment?: EscalationAssessment;
-  continueInternal?: true;
-} {
+export function evaluateAskDirector(input: AskDirectorInput):
+  | { ok: false; message: string }
+  | {
+      ok: true;
+      message: string;
+      question: string;
+      assessment: EscalationAssessment;
+      continueInternal?: true;
+    } {
   if (typeof input.question !== "string") {
     return {
       ok: false,
@@ -78,11 +82,16 @@ export function evaluateAskDirector(input: AskDirectorInput): {
       message: `Error: ask_director question cap (${ASK_DIRECTOR_MAX_QUESTIONS}) reached for this turn. No further questions accepted — finish with the markdown report envelope instead.`,
     };
   }
-  // Direct callers predate the tool schema. The wire schema in run.ts still
-  // requires escalation; this preserves the legacy unit/integration port API.
+  // The policy contract is mandatory at the tool boundary: a worker that
+  // omits `escalation` is rejected and must never park a prompt-prose-only
+  // question. The wire schema also lists these fields, but the local tool
+  // wrapper does no schema validation, so the runtime check is the gate.
   if (input.escalation === undefined) {
-    input.state.pending = true;
-    return { ok: true, message: "ok", question };
+    return {
+      ok: false,
+      message:
+        "Error: ask_director requires escalation (object) with policyVersion, classification, blockedOutcome, unavailableDirectorPath, permittedAlternatives, minimumAddition, and declineConsequence.",
+    };
   }
   const assessment = parseEscalationAssessment(input.escalation);
   if (assessment instanceof Error) {
@@ -93,6 +102,7 @@ export function evaluateAskDirector(input: AskDirectorInput): {
       ok: true,
       message:
         "Continue with the recorded permitted alternative; do not park or escalate. Report its result in the final outcome.",
+      question,
       assessment,
       continueInternal: true,
     };
@@ -159,8 +169,10 @@ export async function handleAskDirector(args: {
     state: args.state,
   });
   if (!outcome.ok) return outcome.message;
-  if (outcome.continueInternal === true) return outcome.message;
-  if (outcome.question === undefined) return outcome.message;
+  if (outcome.continueInternal === true) {
+    args.port.recordRoutineEvaluation?.(outcome.assessment);
+    return outcome.message;
+  }
   try {
     const onAbort = (): void => {
       args.port.cancel("ask_director aborted");
@@ -179,9 +191,7 @@ export async function handleAskDirector(args: {
       const answerP = args.port.register({
         question: outcome.question,
         questionId,
-        ...(outcome.assessment !== undefined
-          ? { assessment: outcome.assessment }
-          : {}),
+        assessment: outcome.assessment,
         ...(grantRequestId !== undefined ? { grantRequestId } : {}),
       });
       if (args.signal.aborted) {

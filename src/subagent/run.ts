@@ -611,8 +611,68 @@ const askDirectorDefinition: ToolDefinition = {
       escalation: {
         type: "object",
         description:
-          "Outcome-aware policy assessment: policyVersion, classification, six facts, alternatives, and optional verification detail.",
-        additionalProperties: true,
+          "Outcome-aware policy assessment: policyVersion, classification, the six facts, alternatives, requested mechanism vs minimum authority, and optional verification detail. An answer or wake never grants authority or retries a tool.",
+        properties: {
+          policyVersion: { type: "string", const: "1" },
+          classification: {
+            type: "string",
+            enum: [
+              "routine",
+              "director_resolvable",
+              "operator_decision_required",
+              "outcome_blocked",
+              "irreversible_or_sensitive",
+            ],
+          },
+          blockedOutcome: { type: "string" },
+          unavailableDirectorPath: { type: "string" },
+          permittedAlternatives: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                attempted: { type: "string" },
+                result: { type: "string" },
+                comparableConfidence: { type: "boolean" },
+              },
+              required: ["attempted", "result", "comparableConfidence"],
+            },
+          },
+          minimumAddition: { type: "string" },
+          declineConsequence: { type: "string" },
+          recommendation: { type: "string" },
+          safeDefault: { type: "string" },
+          requestedMechanism: { type: "string" },
+          minimumAuthority: { type: "string" },
+          verification: {
+            type: "object",
+            properties: {
+              verificationOutcome: { type: "string" },
+              rootCause: { type: "string" },
+              attemptedNarrowChecks: {
+                type: "array",
+                items: { type: "string" },
+              },
+              reducedConfidence: { type: "string" },
+            },
+            required: [
+              "verificationOutcome",
+              "rootCause",
+              "attemptedNarrowChecks",
+              "reducedConfidence",
+            ],
+          },
+        },
+        required: [
+          "policyVersion",
+          "classification",
+          "blockedOutcome",
+          "unavailableDirectorPath",
+          "permittedAlternatives",
+          "minimumAddition",
+          "declineConsequence",
+        ],
+        additionalProperties: false,
       },
     },
     required: ["question", "escalation"],

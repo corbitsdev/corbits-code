@@ -259,10 +259,12 @@ export type RunSubAgentParams = {
     register: (input: {
       question: string;
       questionId: string;
-      assessment?: EscalationAssessment;
+      assessment: EscalationAssessment;
       grantRequestId?: string;
     }) => Promise<string>;
     cancel: (reason: string) => void;
+    /** Routine evaluations are recorded for audit; they never register or wake. */
+    recordRoutineEvaluation?: (assessment: EscalationAssessment) => void;
   };
   /**
    * Fired once the underlying agent object exists (before the prompt is

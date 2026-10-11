@@ -94,7 +94,7 @@ import {
 } from "./lifecycle.js";
 import type {
   EscalationAssessment,
-  VerificationBlockedOutcome,
+  TerminalOutcome,
 } from "./escalation-policy.js";
 import { getProcessAdmissionQueue, type AdmissionQueue } from "./admission.js";
 import type {
@@ -161,7 +161,7 @@ interface FleetRecord {
   question?: string;
   questionId?: string;
   assessment?: EscalationAssessment;
-  terminalOutcome?: VerificationBlockedOutcome;
+  terminalOutcome?: TerminalOutcome;
   description?: string;
 }
 
@@ -1661,7 +1661,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                 const ok = deps.sessions.registerAsk(session.id, {
                   question,
                   questionId,
-                  ...(assessment !== undefined ? { assessment } : {}),
+                  assessment,
                   ...(grantRequestId !== undefined ? { grantRequestId } : {}),
                   resolve: hold.resolve,
                   reject: hold.reject,
@@ -1678,6 +1678,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               },
               cancel: (reason) => {
                 deps.sessions.cancelAsk(session.id, reason);
+              },
+              recordRoutineEvaluation: (assessment) => {
+                deps.sessions.recordRoutineEvaluation(session.id, assessment);
               },
             },
             onAgentReady: ({ close, interrupt, followup, deliver }) => {
@@ -1977,6 +1980,12 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
             ...(record.questionId !== undefined
               ? { question_id: record.questionId }
               : {}),
+            ...(record.assessment !== undefined
+              ? { assessment: record.assessment }
+              : {}),
+            ...(record.terminalOutcome !== undefined
+              ? { terminal_outcome: record.terminalOutcome }
+              : {}),
             ...(record.description !== undefined
               ? { description: record.description }
               : {}),
@@ -2010,6 +2019,12 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
             : {}),
           ...(record.questionId !== undefined
             ? { question_id: record.questionId }
+            : {}),
+          ...(record.assessment !== undefined
+            ? { assessment: record.assessment }
+            : {}),
+          ...(record.terminalOutcome !== undefined
+            ? { terminal_outcome: record.terminalOutcome }
             : {}),
         };
       });
@@ -2119,6 +2134,12 @@ export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
           ...(record?.status === "awaiting_director" &&
           record.questionId !== undefined
             ? { question_id: record.questionId }
+            : {}),
+          ...(record?.assessment !== undefined
+            ? { assessment: record.assessment }
+            : {}),
+          ...(record?.terminalOutcome !== undefined
+            ? { terminal_outcome: record.terminalOutcome }
             : {}),
         };
       });

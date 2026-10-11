@@ -45,6 +45,10 @@ function identityKey(sessionId: string, questionId: string): string {
 }
 
 function sameItem(a: WorkerWaitItem, b: WorkerWaitItem): boolean {
+  // The assessment is compared by reference: peekAsk hands back the stored
+  // object and pendingAskSnapshot passes it through unchanged, so identical
+  // snapshots share the same immutable reference. A value-based deep compare
+  // would cost a walk of the whole assessment on every report.
   return (
     a.key === b.key &&
     a.agentId === b.agentId &&
@@ -139,6 +143,7 @@ export function workerWaitDecisionSummary(item: WorkerWaitItem): string {
   if (assessment === undefined) return item.question;
   const recommendation = assessment.recommendation ?? assessment.safeDefault;
   return [
+    item.question,
     `classification: ${assessment.classification}`,
     `outcome: ${assessment.blockedOutcome}`,
     `minimum: ${assessment.minimumAuthority ?? assessment.minimumAddition}`,
