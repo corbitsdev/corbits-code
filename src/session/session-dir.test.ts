@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdir, readFile, readdir, readlink, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -84,7 +91,9 @@ test("listSessions finds legacy sessions and migrates them", async () => {
 
 test("concurrent initSessionDir does not throw on latest symlink race", async () => {
   const ids = Array.from({ length: 16 }, () => generateSessionId());
-  const dirs = await Promise.all(ids.map((id) => initSessionDir(cwd, id, home)));
+  const dirs = await Promise.all(
+    ids.map((id) => initSessionDir(cwd, id, home)),
+  );
   for (const [i, dir] of dirs.entries()) {
     expect(dir).toBe(sessionDir(cwd, ids[i] as string, home));
     expect(existsSync(join(dir, "context"))).toBe(true);

@@ -181,7 +181,7 @@ export async function initSessionDir(
       await symlink(sessionId, tmpPath);
       await rename(tmpPath, linkPath);
     } catch (err: unknown) {
-      await unlink(tmpPath).catch(() => {});
+      await unlink(tmpPath).catch(() => undefined);
       throw err;
     }
   } catch (err: unknown) {
