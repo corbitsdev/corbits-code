@@ -182,6 +182,53 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
     ).toBe(true);
   });
 
+  // ask_director is bounded, not exempt (CL-10206): the primary never mounts
+  // it, so the name is a guard, and a stray mount must notice, then abort,
+  // like wait_agents. Both shapes the turn state can hold are pinned: the
+  // announced call, and a leftover tracked only per-id after a sibling
+  // cleared currentToolName and the shared callIdByName slot.
+  test.each([
+    {
+      representation: "direct",
+      currentToolName: "ask_director",
+      activeToolCalls: ["ask-1"],
+      callIdByName: { ask_director: "ask-1" },
+      callNameById: { "ask-1": "ask_director" },
+    },
+    {
+      representation: "mapping-only",
+      currentToolName: null,
+      activeToolCalls: ["ask-1"],
+      callIdByName: {},
+      callNameById: { "ask-1": "ask_director" },
+    },
+  ])(
+    "in-flight ask_director ($representation) is quiet, then notices, then aborts, and every surface agrees",
+    (ask) => {
+      const inFlightAsk = {
+        ...collect,
+        ...ask,
+        streamingType: "tool" as const,
+        stallNoticeMs: STALL_NOTICE_MS,
+        repeating: false,
+      };
+      const points = [
+        { nowMs: STALL_NOTICE_MS - 1, level: "quiet" },
+        { nowMs: STALL_NOTICE_MS, level: "notice" },
+        { nowMs: STALL_TIMEOUT_MS - 1, level: "notice" },
+        { nowMs: STALL_TIMEOUT_MS, level: "abort" },
+      ] as const;
+
+      for (const { nowMs, level } of points) {
+        const args = { ...inFlightAsk, nowMs };
+        expect(stallLevel(args)).toBe(level);
+        expect(shouldAbortForStall(args)).toBe(level === "abort");
+        expect(shouldNoticeStall(args)).toBe(level === "notice");
+        expect(isStalledForDisplay(args)).toBe(level !== "quiet");
+      }
+    },
+  );
+
   // tool.done of a sibling bash clears currentToolName and streamingType
   // while wait_agents is still in activeToolCalls. Keying only the last
   // name would leave that poll unbounded forever.
