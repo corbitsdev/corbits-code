@@ -30,6 +30,23 @@ const testPermissionGate = createPermissionGate({
   reactorGated: false,
 });
 
+/** Valid policy payload for the continue-wiring fixture (Blocker 1). */
+const assessed = {
+  policyVersion: "1",
+  classification: "director_resolvable",
+  blockedOutcome: "cannot choose a target branch",
+  unavailableDirectorPath: "the director has no branch map",
+  permittedAlternatives: [
+    {
+      attempted: "check the branch list",
+      result: "ambiguous",
+      comparableConfidence: false,
+    },
+  ],
+  minimumAddition: "a branch decision",
+  declineConsequence: "implementation stays on the current branch",
+} as const;
+
 function createHangingStubAgent(deliverLog: unknown[]) {
   return {
     async send(_content: string, optsSend?: { signal?: AbortSignal }) {
@@ -221,7 +238,7 @@ describe("runSubAgent ask_director compact-continue wiring", () => {
                     }
 
                     const askPromise = capturedAskHandler(
-                      { question: "which file?" },
+                      { question: "which file?", escalation: assessed },
                       new AbortController().signal,
                     );
                     for (let i = 0; i < 500 && resolveAsk === undefined; i++) {

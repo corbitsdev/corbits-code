@@ -19,6 +19,23 @@ import {
 } from "../../subagent/session-store.js";
 import { cancelWorkersForStop, createFleetStallPollTick } from "./wiring.js";
 
+/** Valid assessed ask payload for the stall-bound fixture (Blocker 1). */
+const assessedAsk = {
+  policyVersion: "1",
+  classification: "director_resolvable",
+  blockedOutcome: "cannot choose a target branch",
+  unavailableDirectorPath: "the director has no branch map",
+  permittedAlternatives: [
+    {
+      attempted: "check the branch list",
+      result: "ambiguous",
+      comparableConfidence: false,
+    },
+  ],
+  minimumAddition: "a branch decision",
+  declineConsequence: "implementation stays on the current branch",
+} as const;
+
 // CL-8016: a silent primary turn (wake text sent, inference never starts)
 // must not freeze the message queue and parked worker questions forever.
 // The stall poll tick bounds that turn via shouldAbortForStall (including
@@ -60,6 +77,7 @@ function parkWorker(store: SubAgentSessionStore, tag: string): ParkedWorker {
   const registered = store.registerAsk(session.id, {
     question: worker.wake.question,
     questionId: worker.wake.questionId,
+    assessment: assessedAsk,
     resolve: (answer: string) => {
       worker.resolved.push(answer);
     },

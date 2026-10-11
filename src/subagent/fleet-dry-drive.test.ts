@@ -226,6 +226,21 @@ describe("collectUncollectedTerminals", () => {
       sessions.registerAsk("ask", {
         question: "which path?",
         questionId: "q1",
+        assessment: {
+          policyVersion: "1",
+          classification: "director_resolvable",
+          blockedOutcome: "cannot choose a path",
+          unavailableDirectorPath: "the director has no map",
+          permittedAlternatives: [
+            {
+              attempted: "checked cached paths",
+              result: "ambiguous",
+              comparableConfidence: false,
+            },
+          ],
+          minimumAddition: "a path decision",
+          declineConsequence: "the worker remains blocked",
+        },
         resolve: () => undefined,
         reject: () => undefined,
       }),

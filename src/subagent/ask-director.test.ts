@@ -12,6 +12,36 @@ import {
   resetAskDirectorTurn,
 } from "./ask-director.js";
 
+/** Valid policy payload for a parked (director_resolvable) ask. */
+const assessed = {
+  policyVersion: "1",
+  classification: "director_resolvable",
+  blockedOutcome: "cannot choose a target branch",
+  unavailableDirectorPath: "the director has no branch map",
+  permittedAlternatives: [
+    {
+      attempted: "check the branch list",
+      result: "ambiguous",
+      comparableConfidence: false,
+    },
+  ],
+  minimumAddition: "a branch decision",
+  declineConsequence: "implementation stays on the current branch",
+} as const;
+
+/** Valid policy payload that resolves to continue_internal (routine). */
+const routine = {
+  ...assessed,
+  classification: "routine",
+  permittedAlternatives: [
+    {
+      attempted: "focused local test",
+      result: "passed",
+      comparableConfidence: true,
+    },
+  ],
+} as const;
+
 async function expectCancelledAsk(
   state: ReturnType<typeof createAskDirectorState>,
   port: {
@@ -22,6 +52,7 @@ async function expectCancelledAsk(
 ): Promise<string> {
   const message = await handleAskDirector({
     question: "which file?",
+    escalation: assessed,
     state,
     port,
     signal: controller.signal,
@@ -35,8 +66,13 @@ async function expectCancelledAsk(
 describe("evaluateAskDirector", () => {
   test("rejects a missing or empty question without suspending", () => {
     const state = createAskDirectorState();
-    expect(evaluateAskDirector({ question: undefined, state }).ok).toBe(false);
-    expect(evaluateAskDirector({ question: "   ", state }).ok).toBe(false);
+    expect(
+      evaluateAskDirector({ question: undefined, escalation: undefined, state })
+        .ok,
+    ).toBe(false);
+    expect(
+      evaluateAskDirector({ question: "   ", escalation: undefined, state }).ok,
+    ).toBe(false);
     expect(state.questions).toBe(0);
     expect(state.pending).toBe(false);
   });
@@ -44,7 +80,11 @@ describe("evaluateAskDirector", () => {
   test("rejects an oversized question without suspending", () => {
     const state = createAskDirectorState();
     const oversized = "a".repeat(ASK_DIRECTOR_MAX_BYTES + 1);
-    const outcome = evaluateAskDirector({ question: oversized, state });
+    const outcome = evaluateAskDirector({
+      question: oversized,
+      escalation: undefined,
+      state,
+    });
     expect(outcome.ok).toBe(false);
     expect(outcome.message).toContain("exceeds");
     expect(state.questions).toBe(0);
@@ -55,6 +95,7 @@ describe("evaluateAskDirector", () => {
     const state = createAskDirectorState();
     const outcome = evaluateAskDirector({
       question: "a".repeat(ASK_DIRECTOR_MAX_BYTES),
+      escalation: assessed,
       state,
     });
     expect(outcome.ok).toBe(true);
@@ -66,12 +107,17 @@ describe("evaluateAskDirector", () => {
 
   test("a second parallel ask errors without incrementing or suspending", () => {
     const state = createAskDirectorState();
-    expect(evaluateAskDirector({ question: "which file?", state }).ok).toBe(
-      true,
-    );
+    expect(
+      evaluateAskDirector({
+        question: "which file?",
+        escalation: assessed,
+        state,
+      }).ok,
+    ).toBe(true);
     commitAskDirector(state);
     const second = evaluateAskDirector({
       question: "and which function?",
+      escalation: assessed,
       state,
     });
     expect(second.ok).toBe(false);
@@ -83,11 +129,21 @@ describe("evaluateAskDirector", () => {
   test("question cap refuses a 4th ask after prior asks are released", () => {
     const state = createAskDirectorState();
     for (let i = 0; i < ASK_DIRECTOR_MAX_QUESTIONS; i++) {
-      expect(evaluateAskDirector({ question: `q${i}`, state }).ok).toBe(true);
+      expect(
+        evaluateAskDirector({
+          question: `q${i}`,
+          escalation: assessed,
+          state,
+        }).ok,
+      ).toBe(true);
       commitAskDirector(state);
       releaseAskDirector(state);
     }
-    const capped = evaluateAskDirector({ question: "one more", state });
+    const capped = evaluateAskDirector({
+      question: "one more",
+      escalation: assessed,
+      state,
+    });
     expect(capped.ok).toBe(false);
     expect(capped.message).toContain("question cap");
     expect(capped.message).toContain("this turn");
@@ -98,11 +154,19 @@ describe("evaluateAskDirector", () => {
 
   test("releaseAskDirector allows a later sequential ask under the cap", () => {
     const state = createAskDirectorState();
-    expect(evaluateAskDirector({ question: "first", state }).ok).toBe(true);
+    expect(
+      evaluateAskDirector({ question: "first", escalation: assessed, state })
+        .ok,
+    ).toBe(true);
     commitAskDirector(state);
     releaseAskDirector(state);
-    const second = evaluateAskDirector({ question: "second", state });
+    const second = evaluateAskDirector({
+      question: "second",
+      escalation: assessed,
+      state,
+    });
     expect(second.ok).toBe(true);
+    if (!second.ok) return;
     expect(second.question).toBe("second");
     commitAskDirector(state);
     expect(state.questions).toBe(2);
@@ -127,6 +191,7 @@ describe("evaluateAskDirector", () => {
     controller.abort();
     const message = await handleAskDirector({
       question: "which file?",
+      escalation: assessed,
       state,
       port,
       signal: controller.signal,
@@ -198,6 +263,7 @@ describe("evaluateAskDirector", () => {
     };
     const message = await handleAskDirector({
       question: "which file?",
+      escalation: assessed,
       state,
       port,
       signal: new AbortController().signal,
@@ -219,9 +285,13 @@ describe("requestContinuation stall skip", () => {
     latch.request(state, deliver);
     expect(delivered).toBe(1);
 
-    expect(evaluateAskDirector({ question: "which file?", state }).ok).toBe(
-      true,
-    );
+    expect(
+      evaluateAskDirector({
+        question: "which file?",
+        escalation: assessed,
+        state,
+      }).ok,
+    ).toBe(true);
     latch.request(state, deliver);
     expect(delivered).toBe(1);
   });
@@ -234,9 +304,13 @@ describe("requestContinuation stall skip", () => {
       delivered += 1;
     };
 
-    expect(evaluateAskDirector({ question: "which file?", state }).ok).toBe(
-      true,
-    );
+    expect(
+      evaluateAskDirector({
+        question: "which file?",
+        escalation: assessed,
+        state,
+      }).ok,
+    ).toBe(true);
     latch.request(state, deliver);
     expect(delivered).toBe(0);
 
@@ -256,31 +330,104 @@ describe("resetAskDirectorTurn", () => {
   test("zeros questions and pending so a new turn gets a fresh cap", () => {
     const state = createAskDirectorState();
     for (let i = 0; i < ASK_DIRECTOR_MAX_QUESTIONS; i++) {
-      expect(evaluateAskDirector({ question: `q${i}`, state }).ok).toBe(true);
+      expect(
+        evaluateAskDirector({
+          question: `q${i}`,
+          escalation: assessed,
+          state,
+        }).ok,
+      ).toBe(true);
       commitAskDirector(state);
       releaseAskDirector(state);
     }
-    expect(evaluateAskDirector({ question: "one more", state }).ok).toBe(false);
+    expect(
+      evaluateAskDirector({
+        question: "one more",
+        escalation: assessed,
+        state,
+      }).ok,
+    ).toBe(false);
 
     resetAskDirectorTurn(state);
     expect(state.questions).toBe(0);
     expect(state.pending).toBe(false);
 
-    const next = evaluateAskDirector({ question: "fresh turn", state });
+    const next = evaluateAskDirector({
+      question: "fresh turn",
+      escalation: assessed,
+      state,
+    });
     expect(next.ok).toBe(true);
+    if (!next.ok) return;
     expect(next.question).toBe("fresh turn");
   });
 
   test("clears a leftover pending lock without waiting for release", () => {
     const state = createAskDirectorState();
-    expect(evaluateAskDirector({ question: "which file?", state }).ok).toBe(
-      true,
-    );
+    expect(
+      evaluateAskDirector({
+        question: "which file?",
+        escalation: assessed,
+        state,
+      }).ok,
+    ).toBe(true);
     expect(state.pending).toBe(true);
 
     resetAskDirectorTurn(state);
     expect(state.questions).toBe(0);
     expect(state.pending).toBe(false);
-    expect(evaluateAskDirector({ question: "next turn", state }).ok).toBe(true);
+    expect(
+      evaluateAskDirector({
+        question: "next turn",
+        escalation: assessed,
+        state,
+      }).ok,
+    ).toBe(true);
+  });
+});
+
+describe("ask_director policy boundary", () => {
+  test("a missing escalation is rejected and never parks (Blocker 1)", () => {
+    const state = createAskDirectorState();
+    const outcome = evaluateAskDirector({
+      question: "which file?",
+      escalation: undefined,
+      state,
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain("escalation");
+    expect(state.questions).toBe(0);
+    expect(state.pending).toBe(false);
+  });
+
+  test("a routine assessment is recorded for audit and never registers or wakes (SF7/SF8)", async () => {
+    const state = createAskDirectorState();
+    const recorded: unknown[] = [];
+    let registered = 0;
+    const port = {
+      register: (): Promise<string> => {
+        registered += 1;
+        return Promise.resolve("answer");
+      },
+      cancel: () => undefined,
+      recordRoutineEvaluation: (assessment: unknown) => {
+        recorded.push(assessment);
+      },
+    };
+    const message = await handleAskDirector({
+      question: "which file?",
+      escalation: routine,
+      state,
+      port,
+      signal: new AbortController().signal,
+    });
+    expect(message).toContain(
+      "Continue with the recorded permitted alternative",
+    );
+    expect(registered).toBe(0);
+    expect(state.pending).toBe(false);
+    expect(state.questions).toBe(0);
+    expect(recorded).toHaveLength(1);
   });
 });

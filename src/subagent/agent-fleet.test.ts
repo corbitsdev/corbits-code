@@ -154,6 +154,7 @@ async function spawnParkedAsk(
     askReply = params.askDirectorPort?.register({
       question: "which file should I edit?",
       questionId: "ask-1",
+      assessment: assessedAsk,
     });
     void askReply?.catch(() => undefined);
     return gate.promise;
@@ -259,6 +260,31 @@ async function expectListShows(
   expect(defined(parsed.agents[0]).status).not.toBe("awaiting_director");
 }
 
+/** Valid assessed ask payload for the escalation projection tests. */
+const assessedAsk = {
+  policyVersion: "1",
+  classification: "operator_decision_required",
+  blockedOutcome: "cannot produce the authenticated verification result",
+  unavailableDirectorPath: "the director has no credential authority",
+  permittedAlternatives: [
+    {
+      attempted: "focused local test",
+      result: "requires the missing credential",
+      comparableConfidence: false,
+    },
+  ],
+  minimumAddition: "allow an authenticated read-only snapshot",
+  declineConsequence: "implementation is complete but verification is blocked",
+  requestedMechanism: "broad web access",
+  minimumAuthority: "authenticated read-only snapshot",
+  verification: {
+    verificationOutcome: "integration verification",
+    rootCause: "missing test credential",
+    attemptedNarrowChecks: ["focused local test"],
+    reducedConfidence: "integration behavior remains unverified",
+  },
+} as const;
+
 function parkAsk(
   sessions: ReturnType<typeof createSubAgentSessionStore>,
   mailbox: ReturnType<typeof createFleetMailbox>,
@@ -271,6 +297,7 @@ function parkAsk(
     sessions.registerAsk(id, {
       question: "which file?",
       questionId: "ask-1",
+      assessment: assessedAsk,
       resolve: () => undefined,
       reject: () => undefined,
     }),
@@ -1769,6 +1796,62 @@ describe("list_agents", () => {
     gate.resolve({ report: "done" });
   });
 
+  test("wait and list JSON emit assessment and terminal_outcome with stable field names (SF1)", async () => {
+    const { gate, deps, list, id } = await spawnParkedAsk();
+    // list first: surfacing via wait would refuse a duplicate list (anti-poll).
+    const listed = await callFleetToolRaw(list, {});
+    expect(listed.isError).not.toBe(true);
+    const parsed = parseFleetJson(listed.content) as {
+      agents: {
+        agent_id: string;
+        status: string;
+        assessment?: Record<string, unknown>;
+        terminal_outcome?: Record<string, unknown>;
+      }[];
+    };
+    expect(defined(parsed.agents[0]).assessment).toMatchObject({
+      policyVersion: "1",
+      classification: "operator_decision_required",
+      minimumAuthority: "authenticated read-only snapshot",
+    });
+    const wait = waitTool(deps);
+    const waited = await callFleetTool(wait, {
+      targets: [id],
+      timeout_ms: 2000,
+    });
+    expect(waited.timed_out).toBe(false);
+    const waitRow = defined((waited.results as Record<string, unknown>[])[0]);
+    expect(waitRow.assessment).toMatchObject({
+      policyVersion: "1",
+      classification: "operator_decision_required",
+      minimumAuthority: "authenticated read-only snapshot",
+    });
+    // Resolve through the public store API; the terminal outcome must then
+    // surface in list JSON (Blocker 2 visibility).
+    expect(
+      deps.sessions.resolveEscalationAsk(id, {
+        kind: "declined",
+        answer: "No credential grant.",
+        questionId: "ask-1",
+      }),
+    ).toBe(true);
+    const after = await callFleetToolRaw(list, {});
+    expect(after.isError).not.toBe(true);
+    const parsedAfter = parseFleetJson(after.content) as {
+      agents: {
+        agent_id: string;
+        status: string;
+        assessment?: Record<string, unknown>;
+        terminal_outcome?: Record<string, unknown>;
+      }[];
+    };
+    expect(defined(parsedAfter.agents[0]).terminal_outcome).toMatchObject({
+      kind: "verification_blocked",
+      resolution: "declined",
+    });
+    gate.resolve({ report: "done" });
+  });
+
   test("errors after wait_agents surfaces awaiting_director with a question", async () => {
     const { gate, deps, list, id } = await spawnParkedAsk();
     const wait = waitTool(deps);
@@ -1856,6 +1939,7 @@ describe("list_agents", () => {
       .register({
         question: "which test should I add?",
         questionId: "ask-2",
+        assessment: assessedAsk,
       })
       .catch(() => undefined);
     await waitUntilAwaitingDirector(deps.fleetRecords, deps.sessions, id);
@@ -2185,6 +2269,7 @@ describe("ask_director wait handshake", () => {
           ?.register({
             question: "which file?",
             questionId: "ask-1",
+            assessment: assessedAsk,
           })
           .catch(() => {
             // Session settlement rejects an unanswered ask; this test does not await it.
@@ -2264,7 +2349,11 @@ describe("ask_director wait handshake", () => {
     process.on("unhandledRejection", onUnhandled);
     try {
       expect(() =>
-        defined(port).register({ question: "late?", questionId: "ask-1" }),
+        defined(port).register({
+          question: "late?",
+          questionId: "ask-1",
+          assessment: assessedAsk,
+        }),
       ).toThrow("could not register");
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(unhandled).toEqual([]);

@@ -175,9 +175,9 @@ describe("worker wait strip copy", () => {
     expect(roles.get("routing")).toContain("director");
   });
 
-  test("an assessed decision shows actionable policy detail without changing its identity", () => {
+  test("an assessed decision shows the question plus actionable policy detail without changing its identity", () => {
     const assessed: PendingAskWake = {
-      ...ask("sess-assessed", "q1", "Should not be the panel summary"),
+      ...ask("sess-assessed", "q1", "Which branch should I target?"),
       assessment: {
         policyVersion: ESCALATION_POLICY_VERSION,
         classification: "operator_decision_required",
@@ -203,9 +203,13 @@ describe("worker wait strip copy", () => {
     expect(item).not.toBeNull();
     if (item === null) throw new Error("expected assessed worker wait item");
     expect(workerWaitDecisionSummary(item)).toContain(
+      "Which branch should I target?",
+    );
+    expect(workerWaitDecisionSummary(item)).toContain(
       "classification: operator_decision_required",
     );
     const line = text(composeWorkerWaitLine(state, 1_000));
+    expect(line).toContain("Which branch should I target?");
     expect(line).toContain(
       "outcome: cannot verify authenticated release status",
     );

@@ -79,6 +79,35 @@ function completedRetained(store: SessionStore, opts: RetainedOpts = {}) {
   });
 }
 
+/** Valid assessed ask payload for the policy-boundary tests. */
+const assessedAsk = {
+  policyVersion: "1",
+  classification: "operator_decision_required",
+  blockedOutcome: "cannot produce the authenticated verification result",
+  unavailableDirectorPath: "the director has no credential authority",
+  permittedAlternatives: [
+    {
+      attempted: "focused local test",
+      result: "requires the missing credential",
+      comparableConfidence: false,
+    },
+  ],
+  minimumAddition: "allow an authenticated read-only snapshot",
+  declineConsequence: "implementation is complete but verification is blocked",
+  requestedMechanism: "broad web access",
+  minimumAuthority: "authenticated read-only snapshot",
+} as const;
+
+const assessedVerificationAsk = {
+  ...assessedAsk,
+  verification: {
+    verificationOutcome: "integration verification",
+    rootCause: "missing test credential",
+    attemptedNarrowChecks: ["focused local test"],
+    reducedConfidence: "integration behavior remains unverified",
+  },
+} as const;
+
 function fillRetained(store: SessionStore, n: number, prefix = "fill"): void {
   for (let i = 0; i < n; i++) {
     const s = store.start({
@@ -1309,6 +1338,7 @@ describe("pending ask_director", () => {
       store.registerAsk(session.id, {
         question: "which file?",
         questionId: "ask-1",
+        assessment: assessedAsk,
         resolve: (answer) => {
           resolved = answer;
         },
@@ -1321,6 +1351,7 @@ describe("pending ask_director", () => {
     expect(store.peekAsk(session.id)).toEqual({
       question: "which file?",
       questionId: "ask-1",
+      assessment: assessedAsk,
     });
 
     expect(store.sendInputOne(session.id, "src/foo.ts")).toEqual({
@@ -1342,6 +1373,7 @@ describe("pending ask_director", () => {
     store.registerAsk(session.id, {
       question: "which file?",
       questionId: "ask-1",
+      assessment: assessedAsk,
       resolve: () => {
         throw new Error("should not resolve");
       },
@@ -1374,6 +1406,7 @@ describe("pending ask_director", () => {
     store.registerAsk(session.id, {
       question: "which file?",
       questionId: "ask-1",
+      assessment: assessedAsk,
       resolve: () => {
         throw new Error("should not resolve");
       },
@@ -1419,6 +1452,7 @@ describe("pending ask_director", () => {
     store.registerAsk(child.id, {
       question: "q",
       questionId: "ask-1",
+      assessment: assessedAsk,
       resolve: () => {
         throw new Error("should not resolve");
       },
@@ -1461,6 +1495,7 @@ describe("pending ask_director", () => {
     store.registerAsk(session.id, {
       question: "which file?",
       questionId: "ask-1",
+      assessment: assessedAsk,
       resolve: (answer) => {
         resolved = answer;
       },
@@ -1489,6 +1524,7 @@ describe("pending ask_director", () => {
       store.registerAsk(session.id, {
         question: "late?",
         questionId: "ask-1",
+        assessment: assessedAsk,
         resolve: () => {
           throw new Error("should not resolve");
         },
@@ -1505,6 +1541,7 @@ describe("pending ask_director", () => {
     const ask = {
       question: "late?",
       questionId: "ask-1",
+      assessment: assessedAsk,
       resolve: () => {
         throw new Error("should not resolve");
       },
@@ -1553,6 +1590,7 @@ describe("pending ask_director", () => {
       store.registerAsk(session.id, {
         question: "which file?",
         questionId: "ask-1",
+        assessment: assessedAsk,
         resolve: () => {
           throw new Error("should not resolve");
         },
@@ -1586,6 +1624,7 @@ describe("pending ask_director", () => {
     store.registerAsk(completed.id, {
       question: "q",
       questionId: "ask-1",
+      assessment: assessedAsk,
       resolve: () => {
         throw new Error("should not resolve");
       },
@@ -1605,6 +1644,7 @@ describe("pending ask_director", () => {
     store.registerAsk(closed.id, {
       question: "q",
       questionId: "ask-1",
+      assessment: assessedAsk,
       resolve: () => {
         throw new Error("should not resolve");
       },
@@ -1636,6 +1676,7 @@ describe("pending ask_director", () => {
     store.registerAsk(child.id, {
       question: "q",
       questionId: "ask-1",
+      assessment: assessedAsk,
       resolve: () => {
         throw new Error("should not resolve");
       },
@@ -1648,6 +1689,273 @@ describe("pending ask_director", () => {
     expect(String(rejected)).toContain("session completed");
   });
 });
+
+describe("outcome-aware escalation policy", () => {
+  function assessedStore() {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.markRunning(session.id);
+    return { store, session };
+  }
+
+  function registerAssessed(
+    store: SessionStore,
+    id: string,
+    assessment: typeof assessedAsk,
+  ) {
+    let resolved: string | undefined;
+    expect(
+      store.registerAsk(id, {
+        question: "which file?",
+        questionId: "ask-1",
+        assessment,
+        resolve: (answer) => {
+          resolved = answer;
+        },
+        reject: () => {
+          throw new Error("should not reject");
+        },
+      }),
+    ).toBe(true);
+    return { resolved: () => resolved };
+  }
+
+  test("declined and unavailable verification asks surface verification_blocked through get() and listForStrip() (Blocker 2)", () => {
+    for (const kind of ["declined", "unavailable"] as const) {
+      const { store, session } = assessedStore();
+      registerAssessed(store, session.id, assessedVerificationAsk);
+      expect(
+        store.resolveEscalationAsk(session.id, {
+          kind,
+          answer:
+            kind === "declined"
+              ? "No credential grant."
+              : "Credential unavailable.",
+          questionId: "ask-1",
+        }),
+      ).toBe(true);
+      const viaGet = store.get(session.id);
+      expect(viaGet?.terminalOutcome).toMatchObject({
+        kind: "verification_blocked",
+        implementationReviewComplete: true,
+        resolution: kind,
+        rootCause: "missing test credential",
+      });
+      const viaStrip = store.listForStrip();
+      expect(viaStrip[0]?.terminalOutcome).toMatchObject({
+        kind: "verification_blocked",
+        resolution: kind,
+      });
+    }
+  });
+
+  test("a structured decline on a non-verification ask records a consistent outcome (SF3)", () => {
+    const { store, session } = assessedStore();
+    registerAssessed(store, session.id, assessedAsk);
+    expect(
+      store.resolveEscalationAsk(session.id, {
+        kind: "declined",
+        answer: "No.",
+        questionId: "ask-1",
+      }),
+    ).toBe(true);
+    expect(store.get(session.id)?.terminalOutcome).toMatchObject({
+      kind: "declined",
+      resolution: "declined",
+      declineConsequence: assessedAsk.declineConsequence,
+    });
+  });
+
+  test("a resolution for a stale question id is rejected and cannot settle the ask (SF2)", () => {
+    const { store, session } = assessedStore();
+    registerAssessed(store, session.id, assessedAsk);
+    expect(
+      store.resolveEscalationAsk(session.id, {
+        kind: "declined",
+        answer: "No.",
+        questionId: "ask-0",
+      }),
+    ).toBe(false);
+    expect(store.hasPendingAsk(session.id)).toBe(true);
+  });
+
+  test("minimum_grant_available resumes by text only and records no terminal outcome (SF8)", () => {
+    const { store, session } = assessedStore();
+    const registered = registerAssessed(
+      store,
+      session.id,
+      assessedVerificationAsk,
+    );
+    expect(
+      store.resolveEscalationAsk(session.id, {
+        kind: "minimum_grant_available",
+        answer: "The minimum decision is available; continue your next turn.",
+        questionId: "ask-1",
+      }),
+    ).toBe(true);
+    expect(registered.resolved()).toBe(
+      "The minimum decision is available; continue your next turn.",
+    );
+    expect(store.get(session.id)?.terminalOutcome).toBeUndefined();
+  });
+
+  test("verification_blocked is retained across complete and a resumed follow-up turn (SF8)", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({
+      description: "d",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(session.id);
+    registerAssessed(store, session.id, assessedVerificationAsk);
+    store.registerDeliver(session.id, () => undefined);
+    store.registerInterrupt(session.id, () => undefined);
+    store.registerFollowup(session.id, async () => "followup reply");
+    expect(
+      store.resolveEscalationAsk(session.id, {
+        kind: "declined",
+        answer: "No credential grant.",
+        questionId: "ask-1",
+      }),
+    ).toBe(true);
+    store.complete(session.id, "## Summary\nDone.", { agentRetained: true });
+    expect(store.get(session.id)?.terminalOutcome).toMatchObject({
+      kind: "verification_blocked",
+    });
+    store.sendInputOne(session.id, "resume", { interrupt: true });
+    expect(store.get(session.id)?.terminalOutcome).toMatchObject({
+      kind: "verification_blocked",
+    });
+  });
+
+  test("only an explicit worker report replaces verification_blocked (Blocker 2)", () => {
+    const { store, session } = assessedStore();
+    registerAssessed(store, session.id, assessedVerificationAsk);
+    store.resolveEscalationAsk(session.id, {
+      kind: "unavailable",
+      answer: "No.",
+      questionId: "ask-1",
+    });
+    expect(
+      store.reportVerifiedOutcome(session.id, {
+        kind: "verified",
+        verificationOutcome: "focused integration verification passed",
+      }),
+    ).toBe(true);
+    expect(store.get(session.id)?.terminalOutcome).toEqual({
+      kind: "verified",
+      verificationOutcome: "focused integration verification passed",
+    });
+    // A later decision grant on the same session must not silently clear the
+    // blocked outcome: it stays verification_blocked until the worker
+    // explicitly reports a successful verification.
+    const second = assessedStore();
+    registerAssessed(second.store, second.session.id, assessedVerificationAsk);
+    second.store.resolveEscalationAsk(second.session.id, {
+      kind: "unavailable",
+      answer: "No.",
+      questionId: "ask-1",
+    });
+    second.store.registerAsk(second.session.id, {
+      question: "which file?",
+      questionId: "ask-2",
+      assessment: assessedVerificationAsk,
+      resolve: () => undefined,
+      reject: () => undefined,
+    });
+    second.store.resolveEscalationAsk(second.session.id, {
+      kind: "minimum_grant_available",
+      answer: "continue",
+      questionId: "ask-2",
+    });
+    expect(second.store.get(second.session.id)?.terminalOutcome?.kind).toBe(
+      "verification_blocked",
+    );
+    // Refuses when no blocked outcome exists.
+    const fresh = assessedStore();
+    expect(
+      fresh.store.reportVerifiedOutcome(fresh.session.id, {
+        kind: "verified",
+        verificationOutcome: "n/a",
+      }),
+    ).toBe(false);
+  });
+
+  test("subscribers are notified exactly once per escalation resolution (Nit 3)", () => {
+    const { store, session } = assessedStore();
+    registerAssessed(store, session.id, assessedVerificationAsk);
+    let notifications = 0;
+    const unsubscribe = store.subscribe(() => {
+      notifications += 1;
+    });
+    try {
+      store.resolveEscalationAsk(session.id, {
+        kind: "declined",
+        answer: "No credential grant.",
+        questionId: "ask-1",
+      });
+      expect(notifications).toBe(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("routine evaluations are recorded for audit and visible through get() and listForStrip() (SF7)", () => {
+    const { store, session } = assessedStore();
+    expect(store.recordRoutineEvaluation(session.id, assessedAsk)).toBe(true);
+    expect(store.recordRoutineEvaluation(session.id, assessedAsk)).toBe(true);
+    expect(store.get(session.id)?.routineEvaluations).toHaveLength(2);
+    expect(store.listForStrip()[0]?.routineEvaluations).toHaveLength(2);
+  });
+
+  test("a minimum_grant_available resolution leaves the denied-call envelope unconsumed (SF8)", async () => {
+    const { createDeniedCallEnvelope, getProcessWorkerGrantStore } =
+      await requireGrantStore();
+    getProcessWorkerGrantStore().clear();
+    const { store, session } = assessedStore();
+    const envelope = getProcessWorkerGrantStore().register(
+      createDeniedCallEnvelope({
+        callId: "c1",
+        tool: "run_shell",
+        subject: "npm test",
+        args: { command: "npm test" },
+        cwd: process.cwd(),
+        workerSessionId: session.id,
+      }),
+    );
+    store.registerAsk(session.id, {
+      question: "blocked",
+      questionId: "ask-1",
+      assessment: assessedAsk,
+      grantRequestId: envelope.requestId,
+      resolve: () => undefined,
+      reject: () => undefined,
+    });
+    expect(store.peekAsk(session.id)?.deniedCall?.requestId).toBe(
+      envelope.requestId,
+    );
+    expect(
+      store.resolveEscalationAsk(session.id, {
+        kind: "minimum_grant_available",
+        answer: "continue",
+        questionId: "ask-1",
+      }),
+    ).toBe(true);
+    // The envelope is still pending: the decision delivered text only and
+    // neither widened the grant nor retried the denied call.
+    expect(getProcessWorkerGrantStore().peek(envelope.requestId)?.status).toBe(
+      "pending",
+    );
+    expect(
+      getProcessWorkerGrantStore().peek(envelope.requestId)?.questionId,
+    ).toBe("ask-1");
+  });
+});
+
+async function requireGrantStore() {
+  return await import("../permission/worker-grant.js");
+}
 
 describe("CL-7344 follow-up stash", () => {
   test("CL-7989 run-completion wins with queued steers: all deliver in order and the original report survives", async () => {

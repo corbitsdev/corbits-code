@@ -20,6 +20,23 @@ const shellCall = (id: string, command: string): ToolCall => ({
   arguments: { command },
 });
 
+/** Valid assessed ask payload for the grant-flow fixture (Blocker 1). */
+const assessedAsk = {
+  policyVersion: "1",
+  classification: "operator_decision_required",
+  blockedOutcome: "cannot produce the authenticated verification result",
+  unavailableDirectorPath: "the director has no credential authority",
+  permittedAlternatives: [
+    {
+      attempted: "focused local test",
+      result: "requires the missing credential",
+      comparableConfidence: false,
+    },
+  ],
+  minimumAddition: "allow an authenticated read-only snapshot",
+  declineConsequence: "implementation is complete but verification is blocked",
+} as const;
+
 function makeParentGate(cwd: string, approve: boolean) {
   return createPermissionGate({
     approvals: [],
@@ -199,6 +216,7 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
       sessions.registerAsk(session.id, {
         question: `blocked; quote request ${envelope.requestId}`,
         questionId: "ask-1",
+        assessment: assessedAsk,
         resolve: (answer) => {
           resolved = answer;
         },
