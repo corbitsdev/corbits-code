@@ -89,6 +89,14 @@ import {
   overlayChromeRows,
 } from "../overlay-view.js";
 import { DECISION_CHOICE_ROWS } from "../overlay-body.js";
+import type { PendingAskWake } from "../../subagent/fleet-report.js";
+import {
+  composeWorkerWaitLine,
+  NO_WORKER_WAIT,
+  reduceWorkerWait,
+  type WorkerWaitPart,
+  type WorkerWaitRole,
+} from "../worker-wait.js";
 
 import {
   type AppShell,
@@ -167,12 +175,65 @@ export function setPluginNeedsAttention(shell: AppShell, needs: boolean): void {
 }
 
 /**
+ * Fold the latest pending-ask snapshot into the WORKER WAITING strip.
+ *
+ * The snapshot is authoritative: an identity leaves only when a later
+ * snapshot omits it, never because its wake reached the director, a turn
+ * settled, or the operator typed. Repaints only when the view model moved.
+ */
+export function setWorkerWaitAsks(
+  shell: AppShell,
+  asks: readonly PendingAskWake[],
+): void {
+  const next = reduceWorkerWait(shell.workerWait, asks);
+  if (next === shell.workerWait) return;
+  shell.workerWait = next;
+  paintChrome(shell);
+}
+
+/** Teardown: drop every wait so the prompt box returns to normal chrome. */
+export function clearWorkerWait(shell: AppShell): void {
+  if (shell.workerWait === NO_WORKER_WAIT) return;
+  shell.workerWait = NO_WORKER_WAIT;
+  paintChrome(shell);
+}
+
+/**
+ * Wording carries the state (mark, label, routing copy); colour only lifts
+ * the label to the action emphasis the shell already uses for "act here".
+ */
+function workerWaitFg(role: WorkerWaitRole): string {
+  switch (role) {
+    case "mark":
+    case "label":
+      return UI.action;
+    case "routing":
+    case "question":
+      return UI.text;
+    case "requester":
+    case "more":
+      return UI.textDim;
+    case "separator":
+      return UI.textFaint;
+  }
+}
+
+function workerWaitChunks(parts: readonly WorkerWaitPart[]): TextChunk[] {
+  return parts.map((part) => fgChunk(workerWaitFg(part.role))(part.text));
+}
+
+/**
  * Key over every input a chrome paint reads; a miss leaves stale chrome.
  */
-function chromeComposeKey(shell: AppShell, notice: string): string {
+function chromeComposeKey(
+  shell: AppShell,
+  notice: string,
+  workerWait: string,
+): string {
   const meter = shell.costContext;
   return [
     notice,
+    workerWait,
     pendingColumnRows(shell.session.items)
       .map((row) => `${row.tag ?? ""}:${row.text}`)
       .join("\u0001"),
@@ -217,7 +278,15 @@ export function paintChrome(
   if (shell.renderer.isDestroyed || shell.notice.isDestroyed) return;
   syncPending(shell);
   const notice = noticeText(shell);
-  const key = chromeComposeKey(shell, notice);
+  const workerWait = composeWorkerWaitLine(
+    shell.workerWait,
+    shell.layout.contentWidth,
+  );
+  const key = chromeComposeKey(
+    shell,
+    notice,
+    workerWait.map((part) => part.text).join(""),
+  );
   if (!opts?.force && paintedChromeKey.get(shell) === key) return;
   paintedChromeKey.set(shell, key);
   chromeComposeCounts.set(shell, chromeComposeCount(shell) + 1);
@@ -229,6 +298,20 @@ export function paintChrome(
   syncLandingSuggestions(shell);
   syncNoticeRow(shell, notice);
   syncPendingColumn(shell);
+  shell.workerWaitRow.content = new StyledText(workerWaitChunks(workerWait));
+  syncWorkerWaitRow(shell, workerWait.length > 0);
+}
+
+/**
+ * Give the WORKER WAITING strip its row while any worker is parked, and take
+ * it back once the final identity leaves the snapshot. Same transient
+ * contract as the notice row; the resolver seats it, so it never overlaps.
+ */
+function syncWorkerWaitRow(shell: AppShell, wanted: boolean): void {
+  const bag = shellInternals(shell);
+  if (bag === undefined) return;
+  if ((bag.visibility.workerWait ?? false) === wanted) return;
+  relayout(shell, { visibility: { ...bag.visibility, workerWait: wanted } });
 }
 
 /** Rebuild pendingBox rows only when the painted content moved; unchanged
@@ -778,6 +861,10 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.pendingBox.height = pendingH > 0 ? pendingH : 1;
   shell.pendingBox.visible = pendingH > 0;
 
+  const workerWaitH = Math.max(0, h.worker_wait);
+  shell.workerWaitRow.height = workerWaitH > 0 ? workerWaitH : 1;
+  shell.workerWaitRow.visible = workerWaitH > 0;
+
   const promptH = Math.max(0, h.prompt);
   shell.promptBox.height = promptH > 0 ? promptH : 1;
   shell.promptBox.visible = promptH > 0;
@@ -797,7 +884,8 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   const floating = landing !== null && overlayH > 0;
   // A floated host's bottom edge must land above the mid-screen landing box;
   // covering it would hide what the operator types. Stack: topPad, transcript,
-  // agents, task, prompt (notice and pending are transient).
+  // agents, task, prompt (notice, pending and the worker-wait strip
+  // are transient).
   const promptTop = padH + transcriptBody + agentsH + taskH;
   const hostH = floating
     ? Math.min(overlayH, Math.max(1, promptTop))

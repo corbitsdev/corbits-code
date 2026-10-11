@@ -6,9 +6,11 @@ import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";
 import {
   chromeComposeCount,
+  clearWorkerWait,
   paintChrome,
   setLockupFrame,
   setStatusFlash,
+  setWorkerWaitAsks,
 } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import type { AppShell } from "./shell/internals";
@@ -110,6 +112,45 @@ describe("chrome repaint gate", () => {
       // And the gate still holds afterwards.
       paintChrome(shell);
       expect(chromeComposeCount(shell)).toBe(baseline + 2);
+    });
+  });
+
+  test("worker wait snapshots recompose on change and never on a repeat", async () => {
+    await withShell((shell) => {
+      const ask = {
+        sessionId: "sess-1",
+        agentId: "builder",
+        description: "copy assets",
+        question: "Which destination path should I use?",
+        questionId: "q1",
+      };
+      paintChrome(shell);
+      const baseline = chromeComposeCount(shell);
+
+      setWorkerWaitAsks(shell, [ask]);
+      const shown = chromeComposeCount(shell);
+      expect(shown).toBeGreaterThan(baseline);
+      expect(shell.workerWaitRow.visible).toBe(true);
+
+      // Repeat reports of the same identity and idle ticks cost nothing.
+      setWorkerWaitAsks(shell, [ask]);
+      setWorkerWaitAsks(shell, [{ ...ask }]);
+      for (let tick = 0; tick < 5; tick++) paintChrome(shell);
+      expect(chromeComposeCount(shell)).toBe(shown);
+
+      // A replacement question changes the composed strip: one recompose.
+      setWorkerWaitAsks(shell, [
+        { ...ask, questionId: "q2", question: "Overwrite?" },
+      ]);
+      expect(chromeComposeCount(shell)).toBe(shown + 1);
+
+      // The final removal recomposes and hands the row back.
+      setWorkerWaitAsks(shell, []);
+      expect(chromeComposeCount(shell)).toBeGreaterThan(shown + 1);
+      expect(shell.workerWaitRow.visible).toBe(false);
+      const cleared = chromeComposeCount(shell);
+      clearWorkerWait(shell);
+      expect(chromeComposeCount(shell)).toBe(cleared);
     });
   });
 });

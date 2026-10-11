@@ -34,6 +34,7 @@ import { type RunState, type SessionQueueState } from "../delivery-queue.js";
 import { type StreamRow } from "../stream.js";
 import { createOverlayView } from "../overlay-view.js";
 import { type KillRing } from "../prompt-kill-ring.js";
+import { type WorkerWaitState } from "../worker-wait.js";
 
 export const shellExitHandlers = new WeakMap<AppShell, () => void>();
 
@@ -364,6 +365,11 @@ export interface AppShell {
   /** Queued steer/follow-up items above the prompt box, one row each, hidden
    * when empty; geometry owns the row budget (zone `pending`). */
   readonly pendingBox: BoxRenderable;
+  /**
+   * WORKER WAITING strip on the prompt box. Hidden while no root worker is
+   * parked on ask_director; geometry owns its row (zone `worker_wait`).
+   */
+  readonly workerWaitRow: TextRenderable;
   /** Latest geometry resolution (updated on resize / relayout). */
   layout: GeometryLayout;
   /** Focus tree + scroll lease (updated by shell helpers). */
@@ -415,6 +421,11 @@ export interface AppShell {
   /** Standing plugin warnings (skill misses, failed tool starts); the top rule
    * carries `plugin !` (`mcp ! · plugin !` with MCP). */
   pluginNeedsAttention: boolean;
+  /**
+   * Live parked worker questions, from the latest pending-ask snapshot only.
+   * Display state: nothing reads it to route input or settle an ask.
+   */
+  workerWait: WorkerWaitState;
   /** Clock and motion state for the bottom-left status slot; the bridge pushes
    * it off its monitor tick. */
   lockupNowMs: number;
