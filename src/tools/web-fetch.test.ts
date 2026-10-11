@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createServer, type Server } from "node:http";
 import type { MCPClient } from "../mcp/client.js";
-import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
+import { createDynamicToolRunner } from "../agent/dynamic-tool-runner.js";
 import {
   createExaMCPWebFetchTool,
   createWebFetchTool,

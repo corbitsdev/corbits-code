@@ -6,7 +6,7 @@ import {
 import {
   getToolApprovalBudget,
   runWithToolExecutionWatchdog,
-} from "./tool-execution-watchdog.js";
+} from "../agent/tool-execution-watchdog.js";
 import type { PermissionGateEvent } from "./gate-events.js";
 import type {
   ApprovalOutcome,

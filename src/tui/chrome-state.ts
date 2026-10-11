@@ -40,7 +40,7 @@ import {
   type AgentProgressSession,
   type FleetProgress,
   type LaneState,
-} from "./agent-progress.js";
+} from "../subagent/agent-progress.js";
 import {
   AGENTS_PANEL_MAX_VISIBLE,
   TASKS_PANEL_MAX_VISIBLE,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import { canonicalToolName } from "./canonical-tool-name.js";
 import { resolveRegisteredToolName } from "./resolve-registered-tool-name.js";
 
 const catalog = "mcp__linear__get_release";

@@ -142,7 +142,7 @@ export interface RunnerServices {
   skillDirs: ReturnType<
     typeof import("../../session/runtime-assembly.js").skillDirsFromEnabledPlugins
   >;
-  liveToolWatchdog: import("../tool-execution-watchdog.js").ToolWatchdogConfig;
+  liveToolWatchdog: import("../../agent/tool-execution-watchdog.js").ToolWatchdogConfig;
   liveSessionMode: import("../../config/session-mode.js").SessionMode;
   toolAvailability: import("../../agent/tool-search.js").ToolAvailability;
   toolset: Awaited<

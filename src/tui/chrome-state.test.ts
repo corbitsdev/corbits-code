@@ -11,7 +11,7 @@ import {
   formatTasksPanel,
   type ChromeLiveState,
 } from "./chrome-state";
-import { agentProgress, laneState } from "./agent-progress";
+import { agentProgress, laneState } from "../subagent/agent-progress.js";
 
 const NOW = 1_000_000;
 

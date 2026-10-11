@@ -152,7 +152,7 @@ import {
 import {
   MAX_TOOL_APPROVAL_PAUSE_MS,
   getToolApprovalBudget,
-} from "../tui/tool-execution-watchdog.js";
+} from "../agent/tool-execution-watchdog.js";
 import { createApprovalDeliverer } from "../tui/approval-delivery.js";
 import { createCorrelationAcceptance } from "../tui/correlation-acceptance.js";
 import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../permission/decline-markers.js";

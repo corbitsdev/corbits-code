@@ -62,7 +62,7 @@ describe("tool-name comparison regression guard", () => {
     "src/tui/mcp-view.ts",
     "src/tui/runtime-bridge.ts",
     "src/tui/stall-watchdog.ts",
-    "src/tui/tool-execution-watchdog.ts",
+    "src/agent/tool-execution-watchdog.ts",
     "src/tui/turns-to-blocks.ts",
   ];
 

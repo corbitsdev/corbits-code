@@ -13,7 +13,7 @@ import {
   type TurnMonitorOptions,
   PARKED_CALL_NOT_RUN,
 } from "./runtime-bridge";
-import { DEFAULT_STALL_MS } from "./agent-progress";
+import { DEFAULT_STALL_MS } from "../subagent/agent-progress.js";
 import { appendStreamRow, paintChrome } from "./shell/chrome";
 import {
   getShellBridgeHooks,

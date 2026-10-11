@@ -1,4 +1,4 @@
-import { isSameTool } from "../agent/canonical-tool-name.js";
+import { isSameTool } from "./canonical-tool-name.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
   formatMcpToolTimeoutMessage,

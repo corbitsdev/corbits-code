@@ -12,8 +12,8 @@ import {
 } from "./tool-execution-watchdog.js";
 import { resolveRegisteredToolName } from "./resolve-registered-tool-name.js";
 import { stripTerminalControlSequences } from "../util/control-char-strip.js";
-import { prepareDispatchedToolCall } from "../agent/tool-aliases.js";
-import { UNADVERTISED_MOUNTED_BUILTINS } from "../agent/tool-search.js";
+import { prepareDispatchedToolCall } from "./tool-aliases.js";
+import { UNADVERTISED_MOUNTED_BUILTINS } from "./tool-search.js";
 
 // A tool runner whose set of tools can grow after construction. The static
 // createToolRunner freezes its name map at build time, which cannot accommodate

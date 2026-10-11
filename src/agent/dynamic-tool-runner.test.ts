@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import type { AgentTool } from "@intx/agent";
 import { createDynamicToolRunner } from "./dynamic-tool-runner.js";
-import { advertisedTools } from "../agent/tool-search.js";
+import { advertisedTools } from "./tool-search.js";
 
 const stringTool = (name: string, reply: string): AgentTool => ({
   kind: "string",

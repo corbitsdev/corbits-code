@@ -105,7 +105,7 @@ import type { ToolAvailability } from "../../agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../../agent/lsp-availability.js";
 import type { SessionMode } from "../../config/session-mode.js";
 import { WorkflowHost, type WorkflowHostState } from "../../workflows/host.js";
-import type { ToolWatchdogConfig } from "../tool-execution-watchdog.js";
+import type { ToolWatchdogConfig } from "../../agent/tool-execution-watchdog.js";
 import { createProviderFailureAttemptTracker } from "../provider/failure-attempt.js";
 import { getTelemetry, liveTelemetry } from "../../telemetry/singleton.js";
 import {

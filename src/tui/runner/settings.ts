@@ -61,7 +61,7 @@ import type { AppShell } from "../shell/internals.js";
 import { setShellInputSuspended } from "../shell/prompt.js";
 import { warningsForPluginEntry } from "../../plugins/diagnostics.js";
 import { isPluginEnabledForSurface } from "../plugin-surface.js";
-import { resolveWaitForApproval } from "../tool-execution-watchdog.js";
+import { resolveWaitForApproval } from "../../agent/tool-execution-watchdog.js";
 import { hostOf, type RunnerServices, type RunnerState } from "./state.js";
 import type { ProductHostConnectRequest } from "../product-host.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
