@@ -27,7 +27,11 @@ import { withAppShell } from "./test-helpers";
 import { operatorCancelResult, wireGates } from "./gate-wire.js";
 import { acceptOverlaySelection } from "./shell/overlay-host.js";
 import { moveOverlaySelection } from "./shell/overlay-list.js";
-import { badgeCount, isPaused, SESSION_IDENTITY_ABORT_REASON } from "./delivery-queue";
+import {
+  badgeCount,
+  isPaused,
+  SESSION_IDENTITY_ABORT_REASON,
+} from "./delivery-queue";
 import { LIVE_ACTIVITY_WORDS } from "./chrome-state";
 
 type RecordingPort = ReturnType<typeof createRecordingPort>;
