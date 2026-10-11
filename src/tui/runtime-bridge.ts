@@ -200,8 +200,8 @@ export interface SessionBridge {
   /** Drop queued items, echoes, and fleet hold so a rotation cannot drain
    * into the new reactor. */
   clearQueuedDelivery: () => void;
-  /** True only while draining steers at a live parent tool.boundary; other
-   * drains send. */
+  /** True only while draining steers at a live parent tool.boundary (or
+   * inference.done with tools still outstanding); other drains send. */
   readonly parentCycleLive: boolean;
   /** A gate was raised: blocks the turn (exempt from the stall watchdog)
    * until `gateClosed`; gates nest. */
