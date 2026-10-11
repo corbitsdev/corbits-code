@@ -1,11 +1,9 @@
 /**
- * Shared mutable state for the runner split (CL-6791 phase 4), following the
- * provider-setup `SetupState` pattern: `runTUI` in index.ts threads one state
- * bag plus one const services object through the submit/settings/exit/
- * commands/mcp/session factories so the extracted modules see the same live
- * bindings the old closure did. Lives in its own leaf module because the
- * sibling modules must not import each other (only index composes them), yet
- * need the same contracts.
+ * Shared mutable state for the runner split: index.ts threads one state bag
+ * plus one const services object through the runner factories so the
+ * extracted modules see the same live bindings the old closure did. Lives
+ * in its own leaf module: siblings must not import each other (only index
+ * composes them).
  */
 
 import type { Agent, SendResult } from "@intx/agent";
@@ -57,15 +55,12 @@ export type RunnerHost = Awaited<ReturnType<typeof mountRunnerHost>>;
 
 /**
  * Why a run.json snapshot is being written. Only "run-end" ends the run
- * itself and so clears the active-run handle that the crash handler in
- * index.ts reads.
+ * and clears the active-run handle the crash handler in index.ts reads.
  *
- * RunState.status cannot stand in for this. A /clear or /new rotation
- * persists a terminal "done" for the outgoing session while the process
- * keeps running under a fresh session id, so inferring "the run is over"
- * from a non-"running" status disarms crash finalization for everything
- * after the first rotation -- the session that dies then never gets its
- * terminal record and reads as "running" forever.
+ * RunState.status cannot stand in: a /clear or /new rotation persists a
+ * terminal "done" for the outgoing session while the process keeps running
+ * under a fresh session id, so a non-"running" status would disarm crash
+ * finalization after the first rotation.
  */
 export type SnapshotKind = "progress" | "session-rotation" | "run-end";
 
@@ -204,9 +199,7 @@ export interface RunnerServices {
  * The mutable bindings of the old runTUI closure: every `let` the split
  * modules read or reassign lives here. Late-wired cross-module callbacks
  * (systemNotice, persistRunSnapshot, ...) are optional slots invoked with
- * `?.` — the same idiom the pre-split code used for stampProvider and
- * paintPluginAttention — because they can only fire after index.ts wires
- * them, exactly like the TDZ-safe late reads of the old closure.
+ * `?.` — they fire only after index.ts wires them.
  */
 export interface RunnerState {
   config: Config;
@@ -227,8 +220,7 @@ export interface RunnerState {
   // Host mounts later; attention is painted once the shell exists.
   paintPluginAttention: ((needs: boolean) => void) | null;
   standingPluginWarnings: string[];
-  // Saved through onboarding's "save anyway" bypass without a passing
-  // connection test — surfaced once the shell exists, never before.
+  // Startup plugin warnings that predate the shell; surfaced once it exists.
   startupPluginNotices: string[];
   currentAgent: Agent | undefined;
   // Set alongside currentAgent in buildAgent; getters wire the session's own
@@ -241,9 +233,8 @@ export interface RunnerState {
   inFlight: number;
   pendingReload: boolean;
   fatalBuildError: Error | null;
-  // The source the next inference will use, tracked live so the compaction
-  // summarizer always summarizes with the current model (model switches and
-  // Codex token refreshes update it).
+  // Tracked live so compaction always summarizes with the current model
+  // (model switches and Codex token refreshes update it).
   liveSource: InferenceSource;
   liveSources: InferenceSource[];
   liveDefaultSource: string;
@@ -253,14 +244,13 @@ export interface RunnerState {
   // Every configured server's latest settings entry, for the /mcp surface.
   configuredMcpEntries: MCPServerSettingsEntry[];
   liveHookConfig: Record<string, { enabled: boolean }>;
-  // Tracks the user's intent (persisted opt-in, updated live by the settings
-  // toggle) rather than the held instance's state, so the settings tab shows
-  // On during the first-run hold.
+  // The user's intent (persisted opt-in, updated live by the toggle), not
+  // the held instance's state, so the settings tab shows On during the hold.
   liveTelemetryIntent: boolean;
   liveShowPromptCost: boolean;
-  // The theme pin the settings surface cycles (auto/dark/light). Cycling it
-  // live-applies the winning palette the same way startup does; this only
-  // records the pin so the row reads the choice back.
+  // The theme pin the settings surface cycles (auto/dark/light). Cycling
+  // live-applies the palette as startup does; this records the pin so the
+  // row reads the choice back.
   liveTheme: ThemeSetting;
   // The permissions surface addresses grants by their position in the last
   // listing, so revoke resolves against the same snapshot the operator saw.
@@ -268,9 +258,8 @@ export interface RunnerState {
   // Assigned once mountRunnerHost resolves; callbacks defined before the
   // mount read it through here.
   host: RunnerHost | undefined;
-  // Stable handle handed to the App so the underlying agent can be swapped
-  // out from under it without a remount; stampProvider.fn is wired by index
-  // once the bridge exists.
+  // Stable handle so the App can swap the underlying agent without a
+  // remount; `fn` is wired by index once the bridge exists.
   stampProvider: { fn: ((id: string | undefined) => void) | undefined };
   // Permission-gate persist notices surface through the shell once it exists.
   approvalPersistNotice: { notify?: (text: string) => void };
@@ -299,9 +288,9 @@ export interface RunnerState {
   // reading it (isPaused(host.shell.session)) the way systemNotice is wired.
   // Optional because tests build partial states without that mount.
   isPaused?: () => boolean;
-  // CL-8220: abort-aware compaction lifecycle, created by the TUI session
-  // assembly (session.ts) and read by the interrupt/rotation paths (exit.ts).
-  // Optional because tests build partial states without session assembly.
+  // Abort-aware compaction lifecycle, created by the TUI session assembly
+  // (session.ts), read by the interrupt/rotation paths (exit.ts). Optional
+  // because tests build partial states without session assembly.
   compactionLifecycle?: CompactionLifecycle;
   reloadIfIdle?: () => void;
   systemNotice?: (text: string) => void;
@@ -390,10 +379,9 @@ export function hostOf(state: RunnerState): RunnerHost {
 /**
  * Seed the state bag from the pre-try startup results. Everything here is
  * available before the session lifecycle assembles; later sections assign
- * the remaining fields in place, mirroring the old closure's `let` order.
- * The initial source bundle is resolved eagerly because it is a pure
- * function of the still-unmutated config and session id — identical inputs
- * to the old closure's first call.
+ * the rest in place, mirroring the old closure's `let` order. The initial
+ * source bundle resolves eagerly — a pure function of the unmutated config
+ * and session id.
  */
 export function createRunnerState(start: TUIStart): RunnerState {
   const config = start.config;
@@ -440,8 +428,7 @@ export function createRunnerState(start: TUIStart): RunnerState {
     reconnectRecovery: createReconnectRecoveryState(),
     reconnectRecoveryAttempts: new WeakMap(),
   };
-  // Saved through onboarding's "save anyway" bypass without a passing
-  // connection test — warn now instead of a bare adapter error on first send.
+  // Warn now instead of a bare adapter error on the first send.
   if (config.verified === false) {
     state.startupPluginNotices.push(
       `We couldn't confirm your "${config.providerName}" key works. If your first message fails with an auth error, double-check the key.`,

@@ -1,8 +1,7 @@
 /**
  * Submit path for the TUI runner: composer-line routing/classification, the
- * submit handler, the operator inbound-message builder, the send-failure
- * settle path, the full user-prompt send, and the host's queued/steer
- * deliver routing.
+ * submit handler, inbound-message building, send-failure settling, the
+ * full user-prompt send, and queued/steer deliver routing.
  */
 
 import { getLogger } from "@intx/log";
@@ -66,10 +65,9 @@ export type SubmissionRoute =
   | { kind: "prompt"; text: string };
 
 /**
- * Command names a leading-`/` token may dispatch to. Call sites own the set —
- * registry `listCommands()` names, the same source the `/` popup catalog
- * (`stripUneditedSlashHint`) searches. A supplier stays fresh across registry
- * reloads; a plain set or array is a snapshot.
+ * Command names a leading-`/` token may dispatch to. Call sites own the set
+ * — registry `listCommands()` names, the `/` popup catalog's source. A
+ * supplier stays fresh across registry reloads; a plain set is a snapshot.
  */
 export type KnownCommandNames =
   | readonly string[]
@@ -86,18 +84,13 @@ function hasKnownCommand(known: KnownCommandNames, name: string): boolean {
 }
 
 /**
- * Decide what a submitted composer line is. A leading `/` is a slash command
- * only when its first token (to whitespace, lowercased) exactly matches a
- * registered command id; anything else — paths like `/Users/you/notes`,
- * typos like `/cler` — is a model prompt and reaches it verbatim. Bare `/`
- * stays empty. Callers that omit `knownCommands` (tests and non-registry
- * surfaces) keep the legacy any-leading-slash-is-a-command rule; every
- * product call site passes the registry set.
- *
- * Case is lowered once here: the returned command name is the canonical
- * lowercase registry id, so the downstream exact-`Map.get` lookup
- * (`getCommand`) hits for mixed-case input like `/CLEAR`. Matching stays
- * case-insensitive via `hasKnownCommand`.
+ * What a submitted composer line is: a leading `/` is a slash command only
+ * when its first token (lowercased, to whitespace) exactly matches a
+ * registered id; anything else — absolute paths, unknown slashes — is a
+ * model prompt, sent verbatim. Bare `/` stays empty. Callers omitting
+ * `knownCommands` keep the legacy any-slash-is-a-command rule; product
+ * call sites pass the registry set. The returned name is the canonical
+ * lowercase id, so the exact `getCommand` lookup hits mixed-case input.
  */
 export function routeSubmission(
   raw: string,
@@ -123,16 +116,22 @@ export interface SubmitHandlerDeps {
     text: string,
     attachments?: readonly PendingImageAttachment[],
   ) => void;
-  /** Registry names a leading-`/` token may dispatch to (see routeSubmission). */
+  /**
+   * Registry names a leading-`/` token may dispatch to (see routeSubmission).
+   */
   knownCommands?: KnownCommandNames;
   /** Consent-by-proceeding hook: runs only for real prompts, never commands. */
   onPromptSubmitted?: () => void;
   /**
-   * When true, the next non-command submit is treated as intentional feedback
-   * text (bare `/feedback` multi-turn mode) instead of a model prompt.
+   * When true, the next non-command submit is treated as intentional
+   * feedback text (bare `/feedback` multi-turn mode) instead of a model
+   * prompt.
    */
   isFeedbackCapturePending?: () => boolean;
-  /** Consume the pending feedback arm and handle the text; return operator message. */
+  /**
+   * Consume the pending feedback arm and handle the text; return the
+   * operator message.
+   */
   onFeedbackText?: (text: string) => string;
   /** Drop a pending multi-turn /feedback arm (empty Enter cancel). */
   cancelFeedbackCapture?: () => void;
@@ -140,22 +139,14 @@ export interface SubmitHandlerDeps {
   onSystemNotice?: (text: string) => void;
 }
 
-/**
- * Composer submit handler. Leading-`/` input dispatches against the command
- * registry only on a registered-id hit; anything else is sent to the model
- * as a prompt. When feedback capture is armed (bare `/feedback`), the next
- * non-command line is captured as survey text.
- *
- * Returns an outcome so the session bridge can keep local-only submits off the
- * agent busy path and out of the mid-run queue.
- */
+/** Where a submit lands: "agent" = model turn, "local" = handled here
+ * (command or feedback), "empty" = no-op. */
 export type SubmitOutcome = "agent" | "local" | "empty";
 
 /**
  * Classify a composer line without side effects. Local = registered slash
  * command or armed multi-turn feedback text; empty = no-op (or
- * cancel-feedback); agent = real model turn (including paths and unknown
- * slash names when the registry set is provided).
+ * cancel-feedback); agent = real model turn.
  */
 export function classifySubmission(
   text: string,
@@ -201,7 +192,7 @@ export function createSubmitHandler(
     });
 
     // Empty Enter while /feedback is armed cancels instead of trapping the
-    // operator until they type free text or /clear.
+    // operator.
     if (outcome === "empty") {
       if (feedbackPending) {
         deps.cancelFeedbackCapture?.();
@@ -210,7 +201,7 @@ export function createSubmitHandler(
       return "empty";
     }
     if (route.kind === "command") {
-      // Any other slash command drops a bare-/feedback arm so the next
+      // Other slash commands drop a bare-/feedback arm so the next
       // free-text line is not mis-routed as survey text.
       if (feedbackPending && route.name !== "feedback") {
         deps.cancelFeedbackCapture?.();
@@ -232,15 +223,18 @@ export function createSubmitHandler(
   };
 }
 
-/** Text sent alongside an image when the operator attached one without a prompt. */
+/**
+ * Text sent alongside an image when the operator attached one without a
+ * prompt.
+ */
 export const IMAGE_ONLY_PROMPT = "Please inspect the attached image.";
 
 /**
- * Build the inbound message for a genuine operator submit — the real
- * prompt-submit path in the TUI (sendUserPrompt / the "send" command
- * result), with or without attachments. Carries OPERATOR_ORIGINATED_FLAG so
- * director.ts's loop-protection backstop can tell this apart from
- * system-originated sends (compaction continuations, retries, nudges).
+ * Build the inbound message for a genuine operator submit (sendUserPrompt /
+ * the "send" command result), with or without attachments. Carries
+ * OPERATOR_ORIGINATED_FLAG so director.ts's loop-protection backstop can
+ * tell it from system-originated sends (compaction continuations,
+ * retries, nudges).
  */
 export function userInboundMessage(
   text: string,
@@ -268,12 +262,9 @@ export function userInboundMessage(
 
 /**
  * Present at most one recovery surface when a send settles. The reconnect
- * offer re-auths the exact scope that failed, so it wins whenever it arms
- * and its presenter is wired; otherwise fall through to the credential
- * picker's provider switch. An armed reconnect with no presenter (a wiring
- * gap, never the steady state) must not swallow the credential fallback.
- * Dismissing the reconnect offer never cascades to the credential picker —
- * one offer per failure; /model stays available for a manual switch.
+ * offer re-auths the exact scope that failed, so it wins when armed and
+ * wired; otherwise the credential picker; an armed reconnect with no
+ * presenter must not swallow the credential fallback.
  */
 export function presentSendRecoveryOffer(args: {
   credential: PendingCredentialRecovery | null;
@@ -308,11 +299,9 @@ export function createSubmitPath(
     attachments?: readonly PendingImageAttachment[],
   ) => SubmitOutcome;
 } {
-  // Routed through the shell's notice path rather than straight into the
-  // transcript: anything the runner says before the first turn arrives while
-  // the landing hero still owns the screen, and a transcript row there wipes
-  // the whole composition. Once a session row has ended the landing this is an
-  // ordinary system row, so there is no second behaviour to reason about.
+  // Routed through the shell's notice path, not the transcript: a
+  // transcript row before the first turn would wipe the whole composition
+  // while the landing owns the screen.
   const systemNotice = (text: string): void => {
     surfaceSystemNotice(hostOf(state).shell, text);
   };
@@ -385,9 +374,8 @@ export function createSubmitPath(
       await runWhileAgentBusy(state, async () => {
         const result = await send(message);
         // An ask-tier call parked on the reactor's approval gate settles the
-        // send early; resolve the operator surface here and deliver the
-        // decision on the correlationId signal channel so the parked run
-        // resumes.
+        // send early; deliver the decision on the correlationId signal
+        // channel so the parked run resumes.
         if (result.type === "suspended") {
           services.suspendedApprovalRecovery.capture(
             result,
@@ -466,8 +454,8 @@ export function createSubmitPath(
 
   const send = createSubmitHandler({
     dispatchCommand: (name, args) => state.dispatchCommand?.(name, args),
-    // Live registry names: a leading `/` dispatches only on an exact id hit,
-    // so absolute paths (`/Users/…`) fall through to the model as prompts.
+    // Live registry names: a leading `/` dispatches only on an exact id
+    // hit, so absolute paths fall through to the model as prompts.
     knownCommands: () => listCommands().map((c) => c.name),
     sendPrompt: (text, attachments) => {
       void sendUserPrompt(text, attachments ?? []).catch((error: unknown) => {

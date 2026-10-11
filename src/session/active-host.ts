@@ -1,10 +1,8 @@
 // A module-level slot mirroring active-run.ts's pattern: the top-level
-// process handlers in src/index.ts (a detached-throw handler today, a signal
-// handler alongside it) need to reach runTUI's terminal-restore routine even
-// though it is a closure local to runTUI, bound only once the OpenTUI host
-// has mounted. Cleared the moment runTUI itself finalizes (normally or via
-// its own crash path) so a signal arriving after teardown has nothing left
-// to call.
+// process handlers in src/index.ts need to reach runTUI's terminal-restore
+// routine even though it is a closure local to runTUI, bound only once the
+// OpenTUI host has mounted. Cleared the moment runTUI finalizes so a signal
+// arriving after teardown has nothing left to call.
 export type ActiveDisposeHost = () => void | Promise<void>;
 
 let activeDisposeHost: ActiveDisposeHost | null = null;

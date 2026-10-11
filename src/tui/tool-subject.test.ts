@@ -1,10 +1,6 @@
-/**
- * A tool row's subject is one argument.
- *
- * A serialised argument list spends the row's columns naming keys and then cuts
- * the second value off mid-word ("numR…"), which says nothing at all. The row
- * names the argument the call is about; the rest is behind the arrow.
- */
+/** A tool row's subject is one argument — a serialised list spends the row
+ * naming keys and cuts the second value off mid-word ("numR…"). The rest
+ * stays behind the arrow. */
 import { describe, expect, test } from "bun:test";
 
 import { toolArgsView } from "./tool-args";
@@ -51,8 +47,7 @@ describe("a summarised call's subject", () => {
   });
 
   test("leaves a tool that already names itself alone", () => {
-    // The formatter shortens a path and abbreviates a task description; those
-    // are better subjects than any raw argument value.
+    // The formatter's subjects beat any raw argument value.
     expect(view("read_file", { path: "src/index.ts" })?.summary).toBe(
       "src/index.ts",
     );

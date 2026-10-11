@@ -27,12 +27,8 @@ export function formatSearchTimeoutMessage(
   return `${trimmed}\n\n${notice}`;
 }
 
-// A search_files pattern that has no bound on where a match can begin is a
-// whole-tree walk: bare stars, or a recursive descent that starts at the root
-// with nothing literal before it. A literal path segment before the first `**`
-// (`src/**/*.ts`) pins the walk to that subtree, so it is bounded even though
-// it recurses. Tighter globs (`*.ts`, `*config*`) still match a bounded name
-// space and stay allowed at the root.
+// Whole-tree search_files patterns: recursive descent or a bare star with no
+// literal constraint. Tighter globs (`*.ts`, `*config*`) stay allowed at root.
 export function isUnboundedSearchGlob(pattern: string): boolean {
   if (pattern === "*") return true;
   const firstRecursive = pattern.indexOf("**");
@@ -63,9 +59,9 @@ function hasLiteralBefore(prefix: string): boolean {
   return names.some((segment) => [...segment].some((char) => char !== "*"));
 }
 
-// The raw path argument resolved against the session root: omitted, empty,
-// ".", and the root itself all land on the workspace root. Non-filesystem
-// targets (archive:///, tool-output:///) resolve elsewhere and never match.
+// The raw path resolved against the session root: omitted, empty, ".", and the
+// root itself all land on the workspace root. Non-filesystem targets
+// (archive:///, tool-output:///) resolve elsewhere and never match.
 export function isWorkspaceRootSearch(
   path: string | undefined,
   cwd: string,

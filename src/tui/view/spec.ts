@@ -1,10 +1,9 @@
-// Dynamic layout primitives for the `present` tool. The agent (or MCP converters)
-// composes output using only these; there are no named semantic widgets (no
-// "card", "table", "badge", "list", etc). Layout is fully under the caller's
-// control so structures are not hardcoded in the contract.
-//
-// Every node produces a predictable number of visual lines for a given width,
-// which the event log uses for scrolling and slicing.
+// Dynamic layout primitives for the `present` tool. The agent (or MCP
+// converters) composes output using only these; there are no named semantic
+// widgets ("card", "table", "badge", ...). Layout is fully under the caller's
+// control so structures are not hardcoded in the contract. Every node
+// produces a predictable number of visual lines for a given width, which the
+// event log uses for scrolling and slicing.
 
 export type Tone =
   | "default"

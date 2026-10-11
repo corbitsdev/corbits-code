@@ -43,13 +43,8 @@ describe("integration — crash finalizes run.json", () => {
       const raw = readFileSync(runJsonPath, "utf8");
       const state = JSON.parse(raw) as RunState;
 
-      // The fixture also parks two unawaited straggler "running" snapshot
-      // writes behind a test-only gate (setTestWriteGate) that it releases
-      // only after the crash handler has flipped isCrashed(), guaranteeing
-      // both are still queued — not dispatched to the kernel — at that
-      // moment. Without the isCrashed() guard in saveState
-      // (src/session/state.ts), one of those would win the rename() race
-      // once released and this would read back "running".
+      // The fixture parks two "running" writes behind setTestWriteGate until
+      // isCrashed() flips, so no straggler rename() wins over "crashed".
       expect(state.status).toBe("crashed");
       expect(state.finishedAt).toBeGreaterThan(0);
       expect(state.error).toContain("simulated crash");
@@ -89,10 +84,7 @@ describe("integration — crash finalizes run.json", () => {
       expect(exitCode).toBe(1);
       expect(stderr).toContain("uncaughtException: Error: simulated crash");
 
-      // The bug this pins: the outgoing session's terminal "done" write must
-      // not clear the active-run handle, or the crash below finds it null
-      // and never writes a crashed record for the session actually running
-      // at the time of the crash.
+      // The terminal "done" write must not clear the active-run handle, or the crash writes no record.
       const outgoingRunJsonPath = join(
         sessionDir(cwd, sessionId, home),
         "run.json",
@@ -143,16 +135,10 @@ describe("integration — crash finalizes run.json", () => {
         "uncaughtException: Error: simulated crash during run-end write",
       );
 
-      // The bug this pins: finalizeRunState used to clear the active-run
-      // handle only after its own saveState write resolved. With the
-      // run-end write parked mid-flight (this fixture's gate never
-      // releases), the handle stayed live for the entire window, so the
-      // crash handler saw a live run and wrote a "crashed" record via
-      // saveCrashState — which bypasses the gate — clobbering what should
-      // have been a clean finish. Clearing the handle before the await
-      // closes that window: the crash handler finds no active run and
-      // writes nothing, so the last write to land is the one from the
-      // initial saveState above ("running"), never "crashed".
+      // finalizeRunState used to clear the active-run handle only after its
+      // saveState write resolved; the crash handler then saw a live run and
+      // wrote "crashed" via saveCrashState, clobbering the clean finish.
+      // Clearing the handle before the await closes that window.
       const runJsonPath = join(stdout.trim(), "run.json");
       const raw = readFileSync(runJsonPath, "utf8");
       const state = JSON.parse(raw) as RunState;

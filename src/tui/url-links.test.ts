@@ -197,9 +197,8 @@ describe("splitWrappedLinkSpans", () => {
   });
 
   test("a hitless seed with a short tail fuses against its source URL", () => {
-    // Geometry alone reads this as prose that happens to scan (see the
-    // short-seed test above), but the row's pre-wrap text settles it: the
-    // fragments reassemble to a link the row actually holds.
+    // Geometry alone reads this as prose, but the row's pre-wrap text
+    // settles it: the fragments reassemble to a link it holds.
     const full = "https://x.y";
     const rows = splitWrappedLinkSpans(
       [

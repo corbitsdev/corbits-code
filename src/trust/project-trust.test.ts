@@ -89,8 +89,7 @@ describe("project trust store", () => {
         "/plugins/b",
       ]);
 
-      // File on disk must be complete, valid JSON — not truncated by an
-      // interleaved write.
+      // The file must be complete JSON, not truncated by an interleaved write.
       const raw = await readFile(projectTrustPath(cwd, home), "utf8");
       expect(() => JSON.parse(raw)).not.toThrow();
     });
@@ -183,8 +182,7 @@ describe("project trust store", () => {
   });
 
   test("a relative grant resolves against the project cwd, not process.cwd()", async () => {
-    // process.cwd() during test runs is the repo checkout, not the project
-    // directory under test — a real-world stand-in for "some other tree".
+    // process.cwd() during test runs is the repo checkout, not the project under test.
     expect(process.cwd()).not.toBe("/repo/under/test");
     await withTempHome(async (home, cwd) => {
       await trustPlugin(cwd, "relative/plugin", home);

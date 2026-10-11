@@ -3,32 +3,27 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Dead-export guard (CL-6797, hardened CL-7993): runs ts-prune over the project
-// and fails when any export with no consumer falls outside
-// scripts/dead-export-allowlist.txt. Exports used only inside their own module
-// ("(used in module)") are live enough and do not count. New dead exports must
-// be deleted, not allowlisted: the allowlist covers entry points, cross-lane
-// ownership, plugin surfaces loaded by path, and ts-prune parser false
-// positives only.
+// Dead-export guard: runs ts-prune and fails when an export with no consumer
+// falls outside scripts/dead-export-allowlist.txt. Exports used only inside
+// their own module ("(used in module)") do not count. New dead exports must
+// be deleted, not allowlisted — the allowlist covers entry points, cross-lane
+// ownership, path-loaded plugin surfaces, and ts-prune parser false positives
+// only.
 //
-// Hardening: stale allowlist entries fail the gate instead of warning, every
-// entry must pass shape validation and sit under a reason comment (the gate
-// enforces the reason's presence; review enforces the owning lane — this repo
-// has no CODEOWNERS, so the allowlist header documents the review convention),
-// the ts-prune invocation is pinned to scripts/dead-export-guard.json, and the
-// gate fails closed when the scanned file count drops below that config's
-// floor.
+// Hardening: stale entries fail instead of warning, every entry must pass
+// shape validation and sit under a reason comment (the gate enforces the
+// reason; review enforces the owning lane), the scan is pinned to
+// scripts/dead-export-guard.json, and the gate fails closed when the scanned
+// file count drops below that config's floor.
 
-// Test injection (same pattern as teardownDeadlineMs / maxScanBytes): a
-// subprocess test that needs the real gate without paying for the ~1.5s tsc
-// file-count run can pass the deterministic count itself. Production never
+// Test injection: a subprocess test can pass the deterministic file count
+// instead of paying for the ~1.5s tsc --listFilesOnly run. Production never
 // sets it, so the gate always computes the count in normal runs.
 const scannedFilesEnv = "DEAD_EXPORT_GUARD_SCANNED_FILES";
 
-// Test injection (same pattern as scannedFilesEnv): a subprocess test that
-// needs the wired-up gate without paying for the ~5s full-project ts-prune
-// run can point the pinned scan at a smaller tsconfig. Production never sets
-// it, so the gate always scans the pinned tsconfig in normal runs.
+// Test injection (same pattern as scannedFilesEnv): a subprocess test can
+// point the pinned scan at a smaller tsconfig instead of paying for the ~5s
+// full-project ts-prune run. Production never sets it.
 const tsconfigEnv = "DEAD_EXPORT_GUARD_TSCONFIG";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -94,11 +89,10 @@ export function parseAllowlistText(text: string): AllowRule[] {
   return rules;
 }
 
-// Rejects a single allowlist line that the matcher would silently
-// misinterpret: a mistyped exact entry ("file: bad name!") must not decay into
-// a prefix that matches nothing, and a directory without a trailing slash
-// ("vendor") must not pass as an imprecise prefix. Only `dir/` prefixes and
-// repo-relative `.ts` paths (bare or `file: Name`) are valid.
+// Rejects a line the matcher would silently misinterpret: a mistyped exact
+// entry must not decay into a prefix, and a slash-less directory must not
+// pass as an imprecise prefix. Only `dir/` prefixes and repo-relative `.ts`
+// paths (bare or `file: Name`) are valid.
 export function validateAllowlistEntry(line: string): string | undefined {
   if (line.includes(":")) {
     const exact = line.match(exactEntryPattern);
@@ -137,10 +131,9 @@ export function validateAllowlistText(text: string): string[] {
   return problems;
 }
 
-// Every entry must sit under a reason comment in the same blank-line section
-// and above the entry. The gate enforces the reason's presence; human review
-// enforces that it names the owning lane. A section of entries with no reason
-// above it fails, so exemptions cannot land without a reason on record.
+// Every entry must sit under a reason comment in the same blank-line section.
+// The gate enforces the reason's presence; review enforces that it names the
+// owning lane, so exemptions cannot land without a reason on record.
 export function validateAllowlistOwnership(text: string): string[] {
   const problems: string[] = [];
   let reasoned = false;
@@ -167,10 +160,9 @@ export function loadAllowlist(): AllowRule[] {
   return parseAllowlistText(readFileSync(allowlistPath, "utf8"));
 }
 
-// Parses and validates the pinned scan config. The invocation must be exactly
-// "-p <tsconfig>" and nothing else, so narrowing flags (e.g. "-i"/"--ignore")
-// cannot shrink the scan while the tsc --listFilesOnly file count stays flat.
-// The floor must be a positive integer the gate fails closed against.
+// The invocation must be exactly "-p <tsconfig>": narrowing flags cannot
+// shrink the scan while the file count stays flat. The floor must be a
+// positive integer the gate fails closed against.
 export function parseGuardConfig(raw: unknown): GuardConfig {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error("dead-export guard config must be a JSON object");
@@ -277,18 +269,15 @@ export function evaluateGuard(
   return { dead, violations, unused };
 }
 
-// The gate passes only when nothing new died and no exemption is stale.
-// Stale entries fail (they used to warn) so dead exemptions cannot linger
-// after the code they cover is gone.
+// Passes only when nothing new died and no exemption is stale. Stale entries
+// used to warn; now they fail so dead exemptions cannot linger.
 export function isGuardPassing(outcome: GuardOutcome): boolean {
   return outcome.violations.length === 0 && outcome.unused.length === 0;
 }
 
-// ts-prune's analyzer (ts-morph) under-reports unused exports when the CLI
-// runs on Bun: Linux CI then treats the Darwin/Node allowlist as stale
-// (1 consumer-less export vs ~230). The bin shebang is `node`, but Bun's
-// spawn of that file still executes it with Bun. Always launch the CLI
-// with node so the gate matches `node node_modules/ts-prune/lib/index.js`.
+// ts-prune under-reports unused exports when the CLI runs on Bun (Linux CI
+// then sees the Darwin/Node allowlist as stale). The bin shebang is `node`,
+// but Bun spawns it with Bun anyway. Always launch the CLI with node.
 export function tsPruneSpawn(
   tsPruneBinPath: string,
   tsPruneArgs: readonly string[],
@@ -296,9 +285,8 @@ export function tsPruneSpawn(
   return { command: "node", args: [tsPruneBinPath, ...tsPruneArgs] };
 }
 
-// Parses the test-injection env override. Undefined means compute the count
-// as usual; anything else must be a positive integer or the gate fails
-// closed rather than trusting a bogus number.
+// Undefined means compute the count as usual; anything else must be a
+// positive integer or the gate fails closed rather than trusting it.
 export function parseInjectedScannedFiles(
   value: string | undefined,
 ): number | undefined {
@@ -312,11 +300,10 @@ export function parseInjectedScannedFiles(
   return parsed;
 }
 
-// Counts the TypeScript files the pinned tsconfig pulls into its program via
-// tsc --listFilesOnly: the same project ts-prune analyzes. A narrowed
-// tsconfig (or a moved scan root) shrinks this count, and the gate fails
-// closed against the checked-in floor instead of green-lighting a scan that
-// looked at less code.
+// Counts the TS files the pinned tsconfig pulls into its program via
+// tsc --listFilesOnly — the same project ts-prune analyzes. A narrowed
+// tsconfig shrinks this count, and the gate fails closed against the
+// checked-in floor.
 export function countScannedFiles(
   repoRootDir: string,
   tsconfigPath: string,

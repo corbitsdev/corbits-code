@@ -5,17 +5,12 @@ import {
 } from "@intx/inference";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 
-// Small adapter for Bifrost (https://docs.getbifrost.ai).
-// Bifrost is OpenAI-compatible for chat but uses a virtual-key header
-// `x-bf-vk` (raw key value) in addition to Authorization: Bearer to scope
-// requests to a particular virtual key's permissions and model list.
-//
-// We flag providers with `bifrostVirtualKey: true` so:
-// - buildInferenceSourceForRef emits provider: "bifrost"
-// - this adapter is selected
-// - we inject the x-bf-vk sentinel (and keep the bearer one)
-//
-// Model listing for such providers can be done via fetchBifrostModels which
+// Small adapter for Bifrost (https://docs.getbifrost.ai). Bifrost is
+// OpenAI-compatible for chat but scopes requests to a virtual key's
+// permissions and model list via an `x-bf-vk` header (raw key value)
+// alongside Authorization: Bearer. `bifrostVirtualKey: true` providers get
+// this adapter, the x-bf-vk sentinel, and provider: "bifrost" from
+// buildInferenceSourceForRef. Model listing uses fetchBifrostModels, which
 // calls the gateway's /models with the same headers.
 
 export const BIFROST_PROVIDER = "bifrost";
@@ -40,9 +35,9 @@ export function createBifrostAdapter(source: AdapterSource): ProviderAdapter {
       headers: {
         ...req.headers,
         "x-bf-vk": CREDENTIAL_SENTINEL,
-        // The base adapter will have already emitted authorization as the
-        // BEARER sentinel; we ensure it is present (spread keeps it) and also
-        // tolerate gateways that only look at x-bf-vk.
+        // The base adapter has already emitted authorization as the BEARER
+        // sentinel; spread keeps it, and gateways that only look at x-bf-vk
+        // are tolerated.
       },
     } as BuiltRequest;
   };

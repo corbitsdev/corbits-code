@@ -1,12 +1,10 @@
 /**
- * CL-6699: a queued permission/operator gate must not open onto the host in
- * the middle of a `/` command filter session. The old close-then-reopen
- * refresh released the host between the two calls (idle-notify via
- * onOverlayClosed), and a gate queued behind the popup drained into that gap.
- *
- * CL-6711: accepting a slash/palette command must not drain that same queue
- * onto the host before dispatch has claimed it. A live gate already on the
- * host is not stolen; the command surface waits until that gate settles.
+ * A queued permission gate must not open onto the host mid-`/`-filter: the
+ * old close-then-reopen refresh released the host between the two calls
+ * (idle-notify via onOverlayClosed), and a gate queued behind the popup
+ * drained into that gap. Accepting a slash/palette command must not drain
+ * that queue before dispatch claims it; a live gate already on the host is
+ * not stolen — the command surface waits until it settles.
  */
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
@@ -184,12 +182,11 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
   test("filter keystroke while a gate is queued", async () => {
     await withShell(async ({ shell, press, render }) => {
       const { emitter, dispose } = wireShellGates(shell);
-      // The host going idle (onOverlayClosed) is what the queued gate waits
-      // on to drain — see gate-wire.ts's onOverlayClosed/pending. Under the
-      // old close-then-reopen refresh this fires on every filter keystroke
-      // even though the palette immediately re-stacks on top and every
-      // assertion on shell.overlayKind alone sees only "palette" again by
-      // the time it runs. Counting this call directly is what actually
+      // The host going idle (onOverlayClosed) is what the queued gate drains
+      // on — see gate-wire.ts's onOverlayClosed/pending. Under the old
+      // close-then-reopen refresh this fired on every filter keystroke (the
+      // palette re-stacked immediately, so overlayKind-only assertions saw
+      // only "palette" again). Counting this call directly is what
       // distinguishes the in-place refresh from the old close+reopen one.
       let closedCount = 0;
       const disposeClosedSpy = onOverlayClosed(shell, () => {
@@ -247,8 +244,8 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         expect(gate.outcome).toBeUndefined();
         expect(closedCount).toBe(0);
 
-        // A true dismiss still drains the queue as before. A bare ESC is held
-        // by the input parser until it cannot be a sequence, so render + hold.
+        // A true dismiss still drains the queue. A bare ESC is held by the
+        // input parser until it cannot be a sequence, so render + hold.
         press("Escape");
         await render();
         await Bun.sleep(60);
@@ -333,9 +330,9 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         expect(gate.outcome).toBeUndefined();
         expect(closedCount).toBe(0);
 
-        // `/mcp ` takes no params, so the popup dismisses — but silently: the
+        // `/mcp ` takes no params, so the popup dismisses silently — the
         // operator is mid-word, and the idle-notify is what the queued gate
-        // waits on to drain. It stays queued behind the idle host.
+        // drains on. It stays queued behind the idle host.
         press(" ");
         expect(shell.prompt.value).toBe("/mcp ");
         expect(isSlashPopupOpen(shell)).toBe(false);
@@ -424,8 +421,9 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           ),
         ).toBe(true);
 
-        // Flush-while-busy must keep the deferred slot (the restored gate still
-        // holds the host). Dropping it here would lose /help on the next close.
+        // Flush-while-busy must keep the deferred slot (the restored gate
+        // still holds the host); dropping it would lose /help on the next
+        // close.
         await Promise.resolve();
         expect(shell.overlayKind).toBe("permissions");
 
@@ -439,11 +437,10 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
     });
   });
 
-  // CL-8792: the single-slot host drains queued gates before deferred
-  // command surfaces. Denying the live gate opens the queued card (arming its
-  // timer only now that it is shown); the deferred /help waits until no gate
-  // is outstanding. While the queued card is still hidden its timer stays
-  // unarmed even past its deadline.
+  // The single-slot host drains queued gates before deferred command
+  // surfaces. Denying the live gate opens the queued card (arming its timer
+  // only now that it is shown); the deferred /help waits until no gate is
+  // outstanding. A hidden card's timer stays unarmed even past its deadline.
   test("queued gate takes the host before a deferred /help after the live gate settles", async () => {
     await withShell(async ({ shell }) => {
       const { emitter, dispose } = wireShellGates(shell);
@@ -469,8 +466,8 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
         acceptOverlaySelection(shell);
         expect(shell.overlayKind).toBe("permissions");
 
-        // Past the queued card's deadline while it is still hidden: the timer
-        // must not have run.
+        // Past the queued card's deadline while still hidden: the timer must
+        // not have run.
         await Bun.sleep(20);
         expect(shell.overlayKind).toBe("permissions");
         expect(queued.outcome).toBeUndefined();
@@ -707,9 +704,9 @@ describe("overlay host occupancy and opt-in deferral", () => {
     });
   });
 
-  // CL-8792: a gate arriving over settings preempts it (settings is
-  // suspended, not lost) and settling the gate returns settings, from where
-  // plugins accept still works.
+  // A gate arriving over settings preempts it (settings is suspended, not
+  // lost) and settling the gate returns settings, where plugins accept still
+  // works.
   test("a gate preempts settings and settling it returns settings for plugins accept", async () => {
     const hanging = hangingSettingsList();
     await withShell(async ({ shell }) => {
@@ -903,9 +900,9 @@ describe("overlay host occupancy and opt-in deferral", () => {
     );
   });
 
-  // CL-8792: a replaceable command surface yields to a newly raised
-  // decision gate and returns after that gate settles. Re-opening help while
-  // the gate holds the host must neither settle the gate nor lose the surface.
+  // A replaceable command surface yields to a newly raised decision gate and
+  // returns after it settles. Re-opening help while the gate holds the host
+  // must neither settle the gate nor lose the surface.
   test("a new gate preempts help and help returns after the gate settles", async () => {
     await withShell(async ({ shell }) => {
       const { emitter, dispose } = wireShellGates(shell);

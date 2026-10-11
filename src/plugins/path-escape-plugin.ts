@@ -144,13 +144,13 @@ function escapeValue(
 }
 
 // Explicit allowlist of argument keys treated as filesystem paths. Keys are
-// matched case- and separator-insensitively, so `filePath`, `FILE_PATH`,
-// and `file-path` all count alongside `file_path`; any key ending in
+// matched case- and separator-insensitively, so `filePath`, `FILE_PATH`, and
+// `file-path` all count alongside `file_path`; any key ending in
 // `path`/`paths` (e.g. `somepath`, `outputPaths`) counts too, except query-
 // language and JVM keys (`xpath`, `jsonpath`, `classpath` and their plurals)
-// whose values are expressions, not filesystem paths. Anything else
-// passes through untouched by design: MCP and custom tools may use arbitrary
-// keys whose values only their server interprets, so unknown keys are that
+// whose values are expressions, not filesystem paths. Anything else passes
+// through untouched by design: MCP and custom tools may use arbitrary keys
+// whose values only their server interprets, so unknown keys are that
 // server's contract, not this sandbox's.
 export function looksLikePath(key: string): boolean {
   const normalized = key.toLowerCase().replace(/[-_]/g, "");

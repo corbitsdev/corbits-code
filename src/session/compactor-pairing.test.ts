@@ -9,9 +9,9 @@ import { assertWellFormedToolSequence } from "@intx/inference";
 import { defined } from "../../testkit/defined.js";
 
 // The runtime puts a tool_call on an assistant turn and its tool_result on the
-// FOLLOWING user turn, so the two halves of a pair can land on opposite sides of
-// the compaction boundary. The compactor must keep pairs together; otherwise the
-// inference layer rejects the compacted prompt (dangling call / orphan result).
+// following user turn, so a pair can straddle the compaction boundary. The
+// compactor must keep pairs together or the inference layer rejects the
+// compacted prompt (dangling call / orphan result).
 function assistantCall(id: string, name = "read_file"): ConversationTurn {
   return {
     role: "assistant",
@@ -40,7 +40,7 @@ function userText(text: string): ConversationTurn {
 }
 
 // Large enough that a short fixture's whole transcript is the tail, so
-// stubSupersededReads still runs when there is no summarized region.
+// stubSupersededReads still runs with no summarized region.
 const TAIL_SWALLOWS_TRANSCRIPT = { tailBudgetTokens: 50_000 } as const;
 
 describe("pruning compactor preserves tool_call/tool_result pairing", () => {
@@ -58,8 +58,8 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("g"),
     ];
     const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
+      // Pin a tiny tail budget so the fold covers the older region the old
+      // keepRecentTurns cut.
       compactionShape: { tailBudgetTokens: 120 },
       maxAnchorTurns: 2,
     });
@@ -81,8 +81,8 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("g"),
     ];
     const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
+      // Pin a tiny tail budget so the fold covers the older region the old
+      // keepRecentTurns cut.
       compactionShape: { tailBudgetTokens: 120 },
       maxAnchorTurns: 2,
     });
@@ -126,8 +126,8 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("g"),
     ];
     const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
+      // Pin a tiny tail budget so the fold covers the older region the old
+      // keepRecentTurns cut.
       compactionShape: { tailBudgetTokens: 120 },
       maxAnchorTurns: 2,
     });
@@ -179,8 +179,8 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("g"),
     ];
     const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
+      // Pin a tiny tail budget so the fold covers the older region the old
+      // keepRecentTurns cut.
       compactionShape: { tailBudgetTokens: 120 },
       maxAnchorTurns: 2,
     });
@@ -216,8 +216,8 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
 });
 
 // When the same path is read more than once and both results survive
-// compaction (recent window / anchors), older successful reads become one-line
-// stubs; the newest successful read stays whole; error results stay whole.
+// compaction (recent window / anchors), older successful reads become
+// one-line stubs; newest success and error results stay whole.
 function assistantRead(id: string, path: string): ConversationTurn {
   return {
     role: "assistant",
@@ -450,8 +450,8 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
 });
 
 // grep/search_files/list_dir are replayable the same way read_file is: an
-// identical later call reflects newer workspace state, so an older identical
-// result is stubbed the same way an older full-file read is (CL-6906).
+// identical later call reflects newer workspace state, so the older result is
+// stubbed like an older full-file read.
 function assistantQuery(
   id: string,
   name: string,
@@ -540,8 +540,7 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
 
   test("never supersedes run_shell results, even with byte-identical commands", async () => {
     // The same shell command is not idempotent (builds, tests, mutations can
-    // each produce a genuinely different outcome), so run_shell is excluded
-    // from replayable-result stubbing entirely.
+    // each produce a different outcome), so run_shell is never stubbed.
     const oldBody = "OLD_SHELL_OUTPUT_" + "a".repeat(200);
     const newBody = "NEW_SHELL_OUTPUT_" + "b".repeat(200);
     const args = { command: "npm test" };

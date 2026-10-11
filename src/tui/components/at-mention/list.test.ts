@@ -82,10 +82,10 @@ describe("listPathSuggestions", () => {
     expect(results).toContain("../src/");
   });
 
-  // Why the old `[]` pin changed (CL-7930): the submit path already expands
-  // `~/…` via expandHome, so completing to nothing was a dead end — the popup
-  // offered no way to reach a path submit accepts. Completions now list home
-  // in `~/` display form, so both paths agree.
+  // Why the old `[]` pin changed: the submit path already expands `~/…` via
+  // expandHome, so completing to nothing was a dead end — the popup offered
+  // no way to reach a path submit accepts. Completions now list home in `~/`
+  // display form, so both paths agree.
   test("offers home-relative completions for ~/", async () => {
     const names = await readdir(homedir());
     if (names.length === 0) return;

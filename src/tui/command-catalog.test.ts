@@ -51,8 +51,8 @@ describe("filterPaletteCommands", () => {
     expect(filterPaletteCommands("picker", catalog).map((c) => c.id)).toEqual([
       "model",
     ]);
-    // A rewrite that mapped hits to `{ id, label, keywords }` would stay green
-    // on `.id` alone and blank the overlay description zone after a keystroke.
+    // A rewrite that mapped hits to `{ id, label, keywords }` would stay
+    // green on `.id` alone and blank the description zone.
     expect(filterPaletteCommands("picker", catalog)[0]?.description).toBe(
       "Open model picker",
     );
@@ -168,9 +168,8 @@ describe("slashArgItems", () => {
   });
 
   test("multi-token tail matches no rows — the popup dismisses instead", () => {
-    // The dismiss decision itself lives in openSlashArgRows; the catalog half
-    // is that a second token can never prefix-match a single subcommand name
-    // or an empty-tail hint.
+    // The dismiss decision lives in openSlashArgRows; the catalog half is
+    // that a second token never prefix-matches a subcommand or hint.
     expect(slashArgItems(subCmd, "high --force")).toEqual([]);
     expect(slashArgItems(hintCmd, "abc def")).toEqual([]);
   });
@@ -189,7 +188,7 @@ describe("stripUneditedSlashHint", () => {
 
   test("exact untouched hint strips to the bare base, selection or not", () => {
     // Selection state is irrelevant: an arrow key drops the untouched
-    // selection without editing, and the shape is still the placeholder.
+    // selection without editing.
     expect(stripUneditedSlashHint(catalog, "/release <id>")).toBe("/release ");
   });
 

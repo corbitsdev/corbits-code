@@ -51,11 +51,7 @@ function presentSchema(defs: readonly ToolDefinition[]): unknown {
   return defs.find((d) => d.name === "present")?.inputSchema;
 }
 
-/**
- * Same collaborators the TUI `/model` handler wires through
- * `applyLiveModelSwitch`: live identity (persist reads it), permission gate,
- * inference rebuild, and canonical-then-family-gate advertise.
- */
+/** Same collaborators the TUI `/model` handler wires through `applyLiveModelSwitch`. */
 function createProductionSwitch() {
   let identity: LiveModelRef = MODEL_A;
   let inference: LiveModelRef = MODEL_A;

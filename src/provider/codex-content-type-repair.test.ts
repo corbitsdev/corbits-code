@@ -209,8 +209,8 @@ describe("withCodexContentTypeRepair boundaries", () => {
   test("createInferenceDependencies wires the repair into its fetch", async () => {
     // A fresh module instance (cache-busted specifier) binds our stubbed
     // globalThis.fetch at creation time, so this exercises the production
-    // wiring itself — the cached instance other tests share is untouched
-    // and no test-order dependence is introduced.
+    // wiring itself — the cached instance other tests share is untouched and
+    // no test-order dependence is introduced.
     const originalFetch = globalThis.fetch;
     globalThis.fetch = Object.assign(
       () => Promise.resolve(headerlessResponse(sseBody(SSE_PAYLOADS))),

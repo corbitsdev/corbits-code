@@ -169,9 +169,8 @@ describe("aggregateToolCalls", () => {
 
 describe("createTurnObserver", () => {
   // Regression: the trace id must be built from whatever session id is live
-  // at emission. A call site that captured it once would keep filing turns
-  // under the session the process started in, which is the bug asserting two
-  // different strings produce two different ids can never catch.
+  // at emission — capturing it once would keep filing turns under the session
+  // the process started in.
   test("re-reads the session id per turn, so a new session starts a new trace", () => {
     const { telemetry, captured } = fakeTelemetry();
     let sessionId = "session-one";
@@ -351,11 +350,10 @@ describe("emitAiObservability", () => {
     expect(generation?.properties).not.toHaveProperty("duration_ms");
   });
 
-  // CL-5749: PostHog cost views read only $ai_*-prefixed cache/reasoning
-  // properties. Unprefixed names land as custom fields and skew spend.
-  // Source: https://posthog.com/docs/ai-observability/installation/manual-capture
-  // and PostHog cost-properties reference ($ai_cache_read_input_tokens,
-  // $ai_cache_creation_input_tokens, $ai_reasoning_tokens).
+  // PostHog cost views read only $ai_*-prefixed cache/reasoning properties
+  // ($ai_cache_read_input_tokens, $ai_cache_creation_input_tokens,
+  // $ai_reasoning_tokens); unprefixed names land as custom fields and skew
+  // spend.
   test("names cache and reasoning token properties for PostHog cost views", () => {
     const { telemetry, captured } = fakeTelemetry();
 

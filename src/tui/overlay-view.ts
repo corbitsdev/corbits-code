@@ -54,17 +54,16 @@ export interface OverlayListPresentation {
 }
 
 /**
- * Rows the overlay host spends on itself before any list row: the bordered box
- * costs a top and bottom rule, plus the title line and the wrapped body lines.
- * Omitting the border here hands the list two rows the host cannot render, and
- * flex then stacks the surplus rows onto cells the prompt border already owns.
+ * Rows the bordered box costs the host before any list row: top/bottom
+ * rules, the title line, wrapped body lines. Dropping the border would hand
+ * the list two rows the host cannot render; flex would stack the surplus
+ * onto cells the prompt border already owns.
  */
 export const OVERLAY_HOST_BORDER_ROWS = 2;
 
 /**
- * What an overlay with no choices paints inside the body chrome (CL-6720).
- * Distinct from the "(no matches)" filter sentinel, which is a real choice
- * row — this paints when the list itself is empty and reserves zero rows.
+ * Painted when the list itself is empty; reserves zero rows. Not the
+ * "(no matches)" filter sentinel, which is a real choice row.
  */
 export const OVERLAY_EMPTY_STATE = "(no choices)";
 
@@ -82,9 +81,8 @@ function overlayInteriorWidth(contentWidth: number): number {
 }
 
 /**
- * Overlays that ask a human to authorize something. They get the shaped,
- * spaced treatment from overlay-body.ts; every other list overlay stays a
- * plain one-row-per-item list.
+ * Authorizing overlays get the shaped, spaced treatment from overlay-body.ts;
+ * other list overlays stay a plain one-row-per-item list.
  */
 export function isDecisionOverlay(kind: PrimaryOverlayKind | null): boolean {
   return kind === "permissions" || kind === "operator";
@@ -98,10 +96,8 @@ export function overlayRowsPerItem(kind: PrimaryOverlayKind | null): number {
 }
 
 /**
- * Every other list overlay spends a row on a title rule (`─ permission ─...`);
- * the palette drops it — the box already reads as the palette, and the filter
- * row underneath says what's typed, so the rule was a second header for the
- * same fact.
+ * The palette drops the title rule other overlays spend a row on: the box
+ * reads as the palette and the filter row says what's typed.
  */
 export function overlayTitleRows(kind: PrimaryOverlayKind | null): number {
   return kind === "palette" ? 0 : 1;
@@ -123,11 +119,10 @@ export function overlayChromeRows(
 }
 
 /**
- * Smallest host rows the open overlay can render into without spilling past
- * its own box: fixed chrome (border, title, body lines) plus one row of the
- * list when it has anything to show. Below this the resolver must give ground
- * elsewhere (transcript floor, then the prompt floor) rather than starve the
- * overlay itself.
+ * Fewest host rows the overlay can render without spilling past its own box:
+ * fixed chrome plus one list row when it has items. Below this the resolver
+ * gives ground elsewhere (transcript floor, then prompt floor) rather than
+ * starve the overlay.
  */
 export function overlayMinHostRows(
   chromeRows: number,
@@ -138,9 +133,8 @@ export function overlayMinHostRows(
 }
 
 /**
- * Title row for the overlay host, fitted to the box interior. The title
- * renderable is one row in the host's chrome budget, so a line that wrapped at
- * a narrow width would spend a row nothing accounted for.
+ * Title fitted to the box interior: one row in the host's chrome budget, so
+ * a wrapped line would spend a row nothing accounted for.
  */
 function overlayTitleLine(
   title: string,
@@ -148,7 +142,7 @@ function overlayTitleLine(
   hints: readonly string[] = DEFAULT_OVERLAY_HINTS,
 ): string {
   const trimmed = title.trim();
-  // Empty/blank title: paint hints alone — no leading " · " from a missing title.
+  // Blank title: paint hints alone, no leading " · ".
   if (trimmed.length === 0) {
     for (const hint of hints) {
       const line = ` ${hint}`;
@@ -236,11 +230,9 @@ const MCP_MANAGE_HINTS_WITHOUT_ADD = [
 ] as const;
 
 /**
- * Key hints for the open overlay, longest first — the title line falls back to
- * shorter ones as the terminal narrows.
- *
- * Never promises "Enter choose" when there is nothing to choose: an overlay
- * with no rows says what the operator can actually do instead.
+ * Key hints, longest first — the title line falls back to shorter ones as
+ * the terminal narrows. Never promises "Enter choose" when an overlay has no
+ * rows; say what the operator can do instead.
  */
 function overlayHints(
   presentation: OverlayTitlePresentation,
@@ -305,9 +297,8 @@ export function createOverlayView(ctx: RenderContext) {
     height: 1,
     flexShrink: 0,
     flexDirection: "column",
-    // A short terminal can leave the host fewer rows than its body wants. Rows
-    // that do not fit are clipped rather than painted over the chrome below,
-    // which would leave a half-overlay the operator cannot dismiss.
+    // Rows that do not fit are clipped, never painted over the chrome below —
+    // that would leave a half-overlay the operator cannot dismiss.
     overflow: "hidden",
     border: true,
     borderColor: UI.textDim,
@@ -343,28 +334,27 @@ export function createOverlayView(ctx: RenderContext) {
         content,
         fg,
         height: 1,
-        // Without this, a body taller than its host makes flex shrink every row
-        // toward zero and paint several of them into the same terminal cells.
+        // Without this, a body taller than its host shrinks every row toward
+        // zero and paints several into the same cells.
         flexShrink: 0,
       }),
     );
   }
 
   /**
-   * Selection is a text colour, not a marker or a filled band: the highlighted
-   * row already stands out by sitting under the cursor, so a leading `>` and a
-   * grey block would both be saying the same thing twice. The palette keeps
-   * even the indicator glyph off — its rows are aligned columns.
+   * Selection is a text colour, not a marker or band: the highlighted row
+   * stands out under the cursor, so a leading `>` and a grey block would say
+   * the same thing twice. The palette even drops the indicator glyph — its
+   * rows are aligned columns.
    */
   function paintPaletteList(
     commands: OverlayListPresentation["paletteCommands"],
     list: OverlayList,
     contentWidth: number,
   ): void {
-    // Hint suffixes (`/yolo [on|off]`) paint as plain row text: the select
-    // widget takes unstyled string options, so a dimmed suffix would need a
-    // custom row renderer. Unselected rows already paint dim, which carries
-    // most of the "greyed hint" read.
+    // Hint suffixes paint as plain row text: the select widget takes unstyled
+    // string options, so a dimmed suffix would need a custom row renderer.
+    // Unselected rows already paint dim.
     const interior = overlayInteriorWidth(contentWidth);
     const lines = formatPaletteRows(
       paletteLabels(commands),
@@ -379,7 +369,7 @@ export function createOverlayView(ctx: RenderContext) {
     body.add(list.select);
   }
 
-  /** Paint the fixed rule + two-line description zone under the list, when `describe` is set. */
+  /** Rule + two-line description zone, painted when `describe` is set. */
   function paintDescriptionZone(
     describe: OverlayListPresentation["describe"],
     contentWidth: number,
@@ -395,9 +385,9 @@ export function createOverlayView(ctx: RenderContext) {
   }
 
   /**
-   * Paint the free-text answer field, when the open overlay offers one. Always
-   * on screen so "you may type instead of picking" is visible rather than folk
-   * knowledge; dim and labelled with its key until it is taking keystrokes.
+   * Free-text answer field, when the overlay offers one. Always on screen so
+   * "you may type instead of picking" is visible rather than folk knowledge;
+   * dim and key-labelled until it takes keystrokes.
    */
   function paintAnswerRow(
     answer: OverlayListPresentation["answer"],
@@ -417,8 +407,8 @@ export function createOverlayView(ctx: RenderContext) {
   }
 
   /**
-   * Detach the SelectRenderable before `clearBody` destroys the body's
-   * children — the list owns it across paints, it only re-homes.
+   * Detach the select before `clearBody` destroys the body's children — the
+   * list owns it across paints.
    */
   function detachList(list: OverlayList): void {
     if (list.select.parent === body) body.remove(list.select);
@@ -443,10 +433,10 @@ export function createOverlayView(ctx: RenderContext) {
       paintDescriptionZone(presentation.describe, contentWidth);
       return;
     }
-    // Choice labels are bare action names (scope hints paint in the body
-    // above), so each one paints SelectRenderable's name row plus its reserved
-    // second row of air — nothing wraps, nothing clips. A cramped host may
-    // have already dropped that air to keep one choice inside the box.
+    // Choice labels are bare action names (scope hints paint above), so each
+    // paints the select's name row plus its reserved second row of air —
+    // nothing wraps, nothing clips. A cramped host may already have dropped
+    // that air.
     list.setHeight(list.height, list.rowsPerItem);
     list.select.showSelectionIndicator = true;
     list.select.options = presentation.items.map((label, i) => {
@@ -455,9 +445,8 @@ export function createOverlayView(ctx: RenderContext) {
         ? { name: label, description: "" }
         : { name: label, description: "", value: id };
     });
-    // An empty list renders nothing — the renderable would still claim a row
-    // for its background, spending layout budget a chooser with no choices did
-    // not reserve.
+    // An empty list renders nothing: the renderable would claim a background
+    // row the chooser did not reserve.
     if (presentation.items.length > 0) body.add(list.select);
     else addOverlayRow(` ${OVERLAY_EMPTY_STATE}`, UI.textDim);
     paintAnswerRow(presentation.answer, contentWidth);

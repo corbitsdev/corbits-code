@@ -1,12 +1,10 @@
 /**
  * Opening: the openable-URL gate plus the browser opener behind it.
  *
- * openUrl is the single opener choke point: every armed-row and markdown
- * release path opens through it, and its isOpenableUrl check is the gate
- * that decides. The isOpenableUrl pre-filters in linkColumnHits and
- * followWrapChain stay as defense-in-depth — they keep non-http(s) targets
- * out of highlight and wrap-fusion geometry — and are deliberately not
- * consolidated into this one call site.
+ * openUrl is the single opener choke point — every armed-row and markdown
+ * release path opens through it. The isOpenableUrl pre-filters in
+ * linkColumnHits and followWrapChain stay as defense-in-depth: they keep
+ * non-http(s) targets out of highlight and wrap-fusion geometry.
  */
 import type { MouseEvent } from "@opentui/core";
 
@@ -29,9 +27,8 @@ export type UrlOpener = (url: string) => void;
 /**
  * Argv for opening a URL with the platform handler, without a shell. Windows
  * must never route through `cmd /c start`: cmd.exe re-parses the assembled
- * command line, so `&`, `|` and `&&` in an attacker-influenceable transcript
- * URL would execute as command separators. `rundll32 url.dll,FileProtocolHandler`
- * takes the URL as a plain argv element instead.
+ * command line, so `&`, `|` and `&&` in a transcript URL would execute as
+ * command separators. `rundll32` takes the URL as a plain argv element instead.
  */
 export function platformUrlCommand(platform: string, url: string): string[] {
   if (platform === "darwin") return ["open", url];
@@ -42,8 +39,8 @@ export function platformUrlCommand(platform: string, url: string): string[] {
 
 /**
  * The open gesture: left press while Ctrl is held. Cmd on macOS is the
- * terminal's own OSC-8 click (it handles Cmd+click itself and the app never
- * sees the press); Ctrl is what SGR mouse reports carry on every platform.
+ * terminal's own OSC-8 click — the app never sees it; Ctrl is what SGR mouse
+ * reports carry on every platform.
  */
 export function isUrlOpenClick(
   event: Pick<MouseEvent, "button" | "modifiers">,
@@ -60,8 +57,8 @@ function defaultUrlOpener(url: string): void {
       stdin: "ignore",
     }).unref();
   } catch {
-    // Fire-and-forget from a hover/click handler with no status line to
-    // report to; a missing opener must not break the transcript.
+    // Fire-and-forget from a hover/click handler with no status line; a
+    // missing opener must not break the transcript.
   }
 }
 

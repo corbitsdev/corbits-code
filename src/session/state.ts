@@ -39,21 +39,18 @@ const RunStateSchema = type({
   startedAt: "number",
   "finishedAt?": "number",
   "error?": "string",
-  // The resolved "provider:model" identity in use when this record was written.
-  // Absent only for records predating this field or written outside the run
-  // lifecycle (e.g. a bare rename of a session with no prior state).
+  // "provider:model" in use when the record was written; absent for old
+  // records or renames without prior state.
   "model?": "string",
-  // MCP servers connected during the session, with the tool count each
-  // contributed. Empty until the first server finishes connecting.
+  // MCP servers connected this session, with their tool counts; empty until
+  // the first server finishes connecting.
   "mcpServers?": ConnectedMcpServerSchema.array(),
-  // Tool names promoted on execute this session. Persisted so a resume can
-  // re-activate them before the first post-resume inference — the transcript
-  // still tells the model they are callable. Fold prune omits this field so
-  // a crash cannot restore dropped schemas.
+  // Tools promoted on execute; a resume re-activates them before the first
+  // post-resume infer. Omitted by fold prune so a crash cannot restore
+  // dropped schemas.
   "activatedTools?": "string[]",
-  // Wall time of the last Anthropic-protocol inference. A later process
-  // folds before its first infer once this is at least the published TTL old.
-  // Absent for other providers and for records written before this field.
+  // Last Anthropic-protocol infer time; a later process folds when this is
+  // TTL-old. Absent for other providers or records written before this field.
   "lastCacheWriteAt?": "number",
 });
 
@@ -74,10 +71,9 @@ function isENOENT(err: unknown): boolean {
 
 let tmpWriteCounter = 0;
 
-// Write atomically: serialize to a unique temp file, then rename into place so a
-// crash mid-write never leaves torn JSON. The temp name combines the pid with a
-// monotonic counter so concurrent or rapid successive saves within one process
-// never collide on the same temp path (pid alone is not unique per call).
+// Serialize to a unique temp file, then rename into place, so a crash
+// mid-write never leaves torn JSON. The pid + counter temp name stops
+// concurrent saves within a process from colliding.
 export async function atomicWrite(
   path: string,
   content: string,
@@ -88,29 +84,22 @@ export async function atomicWrite(
   await rename(tmp, path);
 }
 
-// Concurrent saveState calls for the same session (a straggler progress
-// snapshot racing a terminal finalize write) have no ordering guarantee
-// between their underlying rename()s — the later call could still finish
-// first and resurrect a closed run.json as "running". Chaining each session's
-// writes onto the previous one forces them to apply in call order, so a
-// write issued after another always lands after it regardless of how long
-// either write's fs calls take. Keyed by sessionId, not path, since callers
-// only ever address one file per session.
+// Concurrent saveState calls for the same session have no rename() ordering
+// guarantee — a straggler snapshot could land after a terminal write and
+// resurrect run.json as "running". Chain each session's writes so they apply
+// in call order (keyed by sessionId; callers use one file per session).
 const writeChains = new Map<string, Promise<void>>();
 
-// Checked right before a chained write actually fires (not at saveState()
-// call time) so a snapshot write still queued behind another one, at the
-// moment the crash handler flips this flag, sees it and no-ops instead of
-// landing after (and clobbering) the crash write issued via saveCrashState.
-// This cannot recall a write whose writeFile/rename has already been
-// dispatched to the kernel — that residual window is one atomicWrite call
-// wide (a small local JSON write), not the remaining lifetime of the process.
+// Checked when the chained write fires, not at saveState() time, so a queued
+// snapshot sees the crash flag and no-ops instead of clobbering the
+// saveCrashState write. The exposed window is one atomicWrite call, not the
+// process's remaining lifetime.
 async function atomicWriteUnlessCrashed(
   path: string,
   content: string,
 ): Promise<void> {
-  // No-op in production; lets a test hold this write open past the moment
-  // isCrashed() flips, so the check below is proven rather than assumed.
+  // Test hook: holds this write open past the isCrashed() flip so the check
+  // below is proven, not assumed.
   const gate = getTestWriteGate();
   if (gate !== null) await gate;
   if (isCrashed()) return;
@@ -130,33 +119,25 @@ export async function saveState(
     () => atomicWriteUnlessCrashed(path, content),
     () => atomicWriteUnlessCrashed(path, content),
   );
-  // Swallow the error in the chain tail (not in `write`, which still rejects
-  // for this caller) so one failed save doesn't permanently wedge later
-  // saves for the same session.
+  // Swallow the error in the chain tail (write still rejects for this caller)
+  // so one failed save does not wedge later saves.
   const tail = write.catch(() => undefined);
   writeChains.set(sessionId, tail);
-  // Once this is the last write for the session, drop the entry so a
-  // long-lived process doesn't retain a chain per session forever.
+  // Drop the entry once it is the last write, so a long-lived process does
+  // not keep a chain per session.
   void tail.then(() => {
     if (writeChains.get(sessionId) === tail) writeChains.delete(sessionId);
   });
   return write;
 }
 
-// Single write path for a terminal RunState: pairs the on-disk status with
-// clearing the in-memory active-run handle (active-run.ts) so the two facts
-// are set together instead of at two independent call sites that could drift.
-// Callers writing a non-terminal ("running") snapshot should call saveState
-// directly — clearing the active-run handle on a running snapshot would be
-// wrong, not merely redundant.
+// Terminal-write path: clears the in-memory active-run handle (active-run.ts)
+// alongside the on-disk status so the two cannot drift. Non-terminal
+// ("running") snapshots use saveState directly.
 //
-// The clear happens before the saveState await, not after: this run is
-// closing out regardless of whether the write below succeeds, and a signal
-// or uncaught exception landing during that await must see the handle
-// already gone, or it races a second "crashed" write (src/index.ts's process
-// handlers, via saveCrashState) against the terminal write in flight here.
-// Clearing after the await leaves that exact window open on every terminal
-// write, not only the crash path's own.
+// Clear before the await: a crash during the write must see the handle
+// already gone, or it races saveCrashState's "crashed" write (from
+// src/index.ts's process handlers) against this terminal write.
 export async function finalizeRunState(
   cwd: string,
   sessionId: string,
@@ -167,22 +148,15 @@ export async function finalizeRunState(
   await saveState(cwd, sessionId, state, home);
 }
 
-// Crash-time terminal write. Deliberately bypasses writeChains: a hung or
-// still-pending write for this session (possibly the very write mid-flight
-// when the process crashed) must never be awaited here, or a queued write
-// that never settles would block the crash handler's process.exit forever.
-// Callers must call markCrashed() (src/session/active-run.ts) before this, so
-// any snapshot write still queued behind another one in the chain steps
-// aside instead of racing this write's rename().
+// Crash-time terminal write that bypasses writeChains: awaiting a hung queued
+// write would block the crash handler's process.exit. Callers must call
+// markCrashed() (src/session/active-run.ts) first so queued snapshot writes
+// step aside instead of racing this rename().
 //
-// This is a second terminal write path alongside finalizeRunState, and stays
-// separate on purpose: its only callers are index.ts's process-level
-// uncaughtException/unhandledRejection and signal handlers, reached when a
-// crash escapes runTUI's own try/catch entirely. finalizeRunState routes
-// through saveState's per-session write chain so writes apply in call order;
-// that chain is exactly what a crash exit cannot afford to wait on, since
-// process.exit must happen deterministically and a stuck earlier write
-// (possibly the one that caused the crash) would otherwise hang it.
+// Second terminal path, separate on purpose: only index.ts's process-level
+// uncaughtException/unhandledRejection and signal handlers reach it (a crash
+// that escapes runTUI's try/catch). finalizeRunState uses the per-session
+// chain; a crash exit cannot afford to wait on that chain.
 export async function saveCrashState(
   cwd: string,
   sessionId: string,
@@ -197,7 +171,7 @@ type ParseRunStateResult =
   | { ok: true; state: RunState }
   | { ok: false; reason: string };
 
-// Tagged so a valid RunState.error string cannot be mistaken for a parse failure.
+// Tagged so a valid RunState.error string cannot look like a parse failure.
 function parseRunState(data: unknown): ParseRunStateResult {
   const result = RunStateSchema(data);
   return result instanceof type.errors
@@ -302,9 +276,9 @@ async function recoverPreferredRunState(
     });
   }
 
-  // Prefer a newer parseable tmp only over missing, unreadable, or stale
-  // run.json. A fresh canonical file is the in-flight save's destination;
-  // tmp is the normal artifact of every atomicWrite and must not win.
+  // A newer parseable tmp wins only over a missing/unreadable/stale run.json:
+  // the canonical file is the in-flight save's destination and must not be
+  // overridden by tmp.
   const primaryMtime =
     primary.kind === "missing" ? Number.NEGATIVE_INFINITY : primary.mtimeMs;
   const primaryAllowsTmp =

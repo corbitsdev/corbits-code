@@ -1,20 +1,16 @@
 /**
- * Edit-tool diff rendering for the OpenTUI transcript.
+ * Edit-tool diff rendering for the transcript.
  *
- * File edits are the most common tool call in a coding turn, and their tool
- * result is only a confirmation string ("replaced 1 occurrence(s) in x.ts") —
- * the before/after text lives solely in the call's JSON arguments. So the diff
- * is derived from the arguments and carried on the tool row.
+ * An edit's before/after text lives only in the tool call's JSON arguments
+ * (the tool result is just a confirmation string), carried on the tool row.
  *
- * Output is a plain segment model (text + palette colour) rather than the Ink
- * `StyledLine` shape: the OpenTUI row factory paints with `TextChunk`s, and a
- * neutral model keeps this module pure and headlessly testable without a
- * renderer. `shell.ts` maps segments to chunks at paint time.
+ * Output is a plain segment model (text + colour) rather than the Ink
+ * `StyledLine` shape so the module stays renderer-free and headlessly
+ * testable; `shell.ts` maps segments to chunks at paint time.
  */
 
 import { describeToolCall } from "./tool-formatter.js";
-// The one wrap implementation: a diff row soft-wraps by the same column rules
-// as every other row, so a wide glyph cannot overflow the gutter here alone.
+// Diff rows wrap by the same column rules as every other row.
 import { wrapRanges } from "./view/height.js";
 import { DIFF_FG, type StreamRow } from "./stream.js";
 import { toolArgsView } from "./tool-args.js";
@@ -43,9 +39,8 @@ export interface DiffView {
   readonly path?: string;
 }
 
-// A row plus its position in the old/new file. `collapsed` marks the "N
-// unchanged lines" summary row inserted by collapseContext, which occupies no
-// real line in either file and so carries no line numbers.
+// A diff row plus its old/new positions; `collapsed` marks the "N unchanged
+// lines" summary row, which occupies no real line and carries no numbers.
 type NumberedRow = DiffRow & {
   oldNum?: number;
   newNum?: number;
@@ -86,10 +81,9 @@ function lcsTable(a: readonly string[], b: readonly string[]): number[][] {
 }
 
 /**
- * Longest-common-subsequence line diff. The classic dynamic-programming table
- * is fine here: edit hunks (old_string vs new_string) are small, and even a
- * whole-file write diffs against an empty side, so the quadratic cost never
- * bites in practice.
+ * Longest-common-subsequence line diff. The quadratic dynamic-programming
+ * table is fine because edit hunks are small; even a whole-file write diffs
+ * against an empty side.
  */
 export function diffLines(oldText: string, newText: string): DiffRow[] {
   const a = oldText.length === 0 ? [] : oldText.split("\n");
@@ -158,8 +152,8 @@ function numberRows(rows: readonly DiffRow[]): NumberedRow[] {
   });
 }
 
-// Collapse long unchanged stretches to a few lines of context on each side of a
-// change so a large file write or a wide edit does not bury the actual delta.
+// Keep a few context lines around each change so a large edit does not bury
+// the delta in unchanged rows.
 function collapseContext(
   rows: readonly NumberedRow[],
   pad: number,
@@ -201,9 +195,8 @@ function tokenizeWords(line: string): string[] {
 }
 
 /**
- * Token LCS over words/whitespace runs so a rename or argument swap only paints
- * the changed tokens, not the whole line. Emits segments for `line` only (the
- * side being rendered); tokens unique to `paired` are skipped on this pass.
+ * Word-level LCS so a rename or argument swap paints only the changed tokens.
+ * Emits segments for `line` only; tokens unique to `paired` are skipped.
  */
 export function wordDiffSegments(
   line: string,
@@ -265,16 +258,9 @@ function sliceSegments(
 }
 
 export interface DiffRenderOptions {
-  /**
-   * Lines of unchanged context to keep around each change. Undefined keeps the
-   * diff uncollapsed (the right call for small localized edit hunks).
-   */
+  /** Context lines to keep around each change; unset leaves the diff uncollapsed. */
   readonly contextLines?: number;
-  /**
-   * Hide the old/new line-number gutter. edit_file hunks diff old_string
-   * against new_string, so their row indices are snippet-relative and would
-   * read as (wrong) file line numbers if shown.
-   */
+  /** Hide the line-number gutter: edit hunks are snippet-relative, not file lines. */
   readonly lineNumbers?: false;
 }
 
@@ -295,8 +281,7 @@ export function renderDiff(
 
   const showNumbers = opts.lineNumbers !== false;
 
-  // Right-align both columns to the widest line number that actually appears,
-  // so a 3-digit file does not waste columns a 1000-line file would need.
+  // Size both number columns to the widest line number that appears.
   const maxOldNum = rows.reduce(
     (max, row) => Math.max(max, row.oldNum ?? 0),
     0,
@@ -382,10 +367,9 @@ export function isEditToolName(toolName: string): boolean {
 }
 
 /**
- * Pulls the before/after text out of an edit_file or write_file call's JSON
- * arguments. write_file carries only the new content, so its "before" is empty
- * and the whole file reads as an addition. Returns null for any other tool or
- * unparseable arguments.
+ * Reads before/after text from an edit_file or write_file call's JSON
+ * arguments. write_file carries only new content, so its "before" is empty and
+ * the whole file reads as an addition. Null for other tools or bad JSON.
  */
 export function editDiffFromArgs(
   toolName: string,
@@ -423,15 +407,12 @@ export function editDiffFromArgs(
 /** Body width assumed for a transcript diff; wide enough for typical code. */
 export const DIFF_BODY_WIDTH = 100;
 
-/**
- * Cap on painted diff lines. Edit hunks are small, but a whole-file write
- * diffs against an empty side and would otherwise flood the transcript.
- */
+/** Cap on painted diff lines; a whole-file write would otherwise flood the transcript. */
 const MAX_DIFF_LINES = 60;
 
 /**
- * Build the diff view for a tool call's arguments, or null when the tool is not
- * an edit tool or its arguments do not carry both sides.
+ * Diff view for a tool call's arguments; null when the tool is not an edit
+ * tool or its arguments lack a side.
  */
 export function editDiffView(
   toolName: string,
@@ -477,21 +458,19 @@ export interface ToolCallRowInput {
   readonly name: string;
   /** Raw JSON arguments as streamed by the model; may be absent or partial. */
   readonly arguments?: string;
-  /** Runtime call id, when the source (live bridge, saved history) carried one. */
+  /** Runtime call id when the source carried one. */
   readonly callId?: string;
 }
 
 /**
- * Build the transcript row for a tool call: a diff view when the call is a
- * file edit, otherwise a human summary of the arguments with the structured
- * form behind the expand key. Raw argument JSON stays on the row as `text` —
- * it is what the clipboard and any un-summarisable call still need — but it
- * is not what the transcript paints.
+ * Transcript row for a tool call: a diff view for file edits, otherwise a
+ * human summary of the arguments (the structured form sits behind the expand
+ * key). Raw argument JSON stays on the row as `text` for the clipboard and
+ * unsummarisable calls.
  *
  * `verb` + `summary` read as a sentence ("Read path", "Shell command"): the
- * verb comes from `describeToolCall`'s existing tool-name-to-display mapping
- * rather than re-deriving one, and the subject is its argument summary (the
- * command itself for a shell call, the path for a file tool).
+ * verb reuses `describeToolCall`'s display mapping and the subject is the
+ * argument summary.
  */
 export function toolCallRow(input: ToolCallRowInput): StreamRow {
   const args = input.arguments ?? "";
@@ -506,12 +485,8 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
   const call = args.length > 0 ? describeToolCall(input.name, args) : null;
   const summarised =
     diff === null && args.length > 0 ? toolArgsView(input.name, args) : null;
-  // `summarised` (view/JSON-aware) wins when it has an opinion — it is what the
-  // existing collapse mechanism already renders for a view spec or a wide
-  // argument object. `call.summary` only fills the gap it leaves: a short
-  // literal call (e.g. a one-line shell command) that toolArgsView leaves
-  // alone because it already reads fine, but which still needs a subject to
-  // pair with its verb.
+  // `summarised` (view/JSON-aware) wins when it has an opinion; `call.summary`
+  // fills the gap: a short literal call that toolArgsView leaves alone.
   const summary =
     diff !== null
       ? (diff.path ?? summarised?.summary ?? call?.summary)
@@ -522,9 +497,9 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
   // Identity of the sentence this call paints, not of its arguments: two calls
   // that read the same line are what a repeat looks like to the operator.
   const callKey = `${input.name} ${verb ?? ""} ${summary ?? ""}`;
-  // Never leave `summary` unset when we have a verb or a summarised view —
-  // `undefined` makes the paint layer fall through to raw argument JSON
-  // (CL-5762). An empty string is fine: the verb alone names the call.
+  // Never leave `summary` unset when a verb or summarised view exists:
+  // `undefined` makes the paint layer fall through to raw argument JSON. An
+  // empty string is fine — the verb alone names the call.
   const paintSummary =
     summary !== undefined
       ? summary

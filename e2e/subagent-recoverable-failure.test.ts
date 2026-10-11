@@ -36,8 +36,7 @@ describe("e2e — recoverable worker failure does not stall the parent", () => {
         subAgent: {
           provider: WORKER_PROVIDER,
           sessions: fleetSessions,
-          // Abort the inner retry outright — the production backoff waits
-          // on the injected scheduler, which is inert under the harness.
+          // Abort the inner retry; the injected scheduler is inert under the harness.
           outerRetryDelayMs: 0,
           retryPolicy: () => ({ kind: "abort" }),
         },
@@ -66,11 +65,8 @@ describe("e2e — recoverable worker failure does not stall the parent", () => {
             },
           ],
         });
-        // The worker runs one real tool, then its inference dies retryably.
-        // A tool having run vetoes the outer whole-send retry, so the
-        // inner retry budget alone is consumed — a 5xx classifies
-        // "retryable", which the mailbox marks recoverable. (429 would be
-        // quota_exhausted and correctly NOT continuable.)
+        // One real tool runs, then inference dies retryably: the run vetoes
+        // the outer retry, and a 5xx marks the lane recoverable.
         session.harness.scenario.replyOnce("openai", {
           predicate: worker,
           toolCalls: [{ name: "read", args: { path: "marker.txt" } }],
@@ -121,8 +117,7 @@ describe("e2e — recoverable worker failure does not stall the parent", () => {
         subAgent: {
           provider: WORKER_PROVIDER,
           sessions: fleetSessions,
-          // Abort the inner retry outright — the production backoff waits
-          // on the injected scheduler, which is inert under the harness.
+          // Abort the inner retry; the injected scheduler is inert under the harness.
           outerRetryDelayMs: 0,
           retryPolicy: () => ({ kind: "abort" }),
         },
@@ -151,8 +146,7 @@ describe("e2e — recoverable worker failure does not stall the parent", () => {
             },
           ],
         });
-        // The first lane runs one real tool, then its inference dies
-        // retryably — failed+continuable, like the marker test above.
+        // First lane: one tool, then a retryable death — failed+continuable.
         session.harness.scenario.replyOnce("openai", {
           predicate: worker,
           toolCalls: [{ name: "read", args: { path: "marker.txt" } }],
@@ -167,8 +161,7 @@ describe("e2e — recoverable worker failure does not stall the parent", () => {
           text: "Collecting the failed worker.",
           toolCalls: [{ name: "wait_agents", args: { timeout_ms: 30_000 } }],
         });
-        // One successor sibling with the same brief — the most the
-        // continuable marker allows.
+        // One successor sibling with the same brief.
         session.harness.scenario.replyOnce("anthropic", {
           predicate: parent,
           text: "Spawning one successor.",
@@ -183,8 +176,7 @@ describe("e2e — recoverable worker failure does not stall the parent", () => {
             },
           ],
         });
-        // A leaf report must carry the full four-heading envelope —
-        // partial replies trigger the salvage/nudge path instead of done.
+        // A full four-heading report; partial replies trigger the salvage path.
         session.harness.scenario.replyOnce("openai", {
           predicate: worker,
           text: "## Summary\nThe marker holds the marker content.\n## Findings\nnone\n## Blockers\nnone\n## Paths\nmarker.txt",

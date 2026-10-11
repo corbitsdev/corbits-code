@@ -1,8 +1,7 @@
 /**
- * `bin/git-push-scoped` must never write to global git config: not on a
- * normal push, not when two pushes race, and not when one is killed
- * mid-flight. Every test runs against an isolated HOME/GIT_CONFIG_GLOBAL
- * so a bug here can never touch the real machine's config.
+ * bin/git-push-scoped must never write global git config, even under races
+ * or mid-flight kills; every test runs with an isolated HOME so a bug can
+ * never touch the real machine's config.
  */
 
 import { spawn } from "node:child_process";
@@ -71,8 +70,7 @@ beforeEach(() => {
     "[user]\n\tname = Sentinel\n\temail = sentinel@example.com\n",
   );
 
-  // Stub `gh` on PATH so the script's `command -v gh` check passes without
-  // depending on a real GitHub CLI install or credentials.
+  // Stub gh on PATH so the command -v gh check passes without a real install.
   fakeBinDir = join(root, "fakebin");
   mkdirSync(fakeBinDir);
   const ghStub = join(fakeBinDir, "gh");
@@ -126,8 +124,7 @@ describe("git-push-scoped", () => {
     const remote = initBareRemote("remote-slow.git");
     const work = initWorkingRepo("work-slow", remote);
 
-    // A pre-receive hook that sleeps gives us a reliable window to kill the
-    // push while it is in flight.
+    // A sleeping pre-receive hook gives a reliable window to kill the push in flight.
     const hookPath = join(remote, "hooks", "pre-receive");
     writeFileSync(hookPath, "#!/usr/bin/env bash\nsleep 5\n");
     chmodSync(hookPath, 0o755);
@@ -144,8 +141,7 @@ describe("git-push-scoped", () => {
       child.on("exit", (code, signal) => resolve({ code, signal }));
     });
 
-    // The pre-receive hook sleeps 5s, so the push is still in flight here;
-    // kill it well inside that window.
+    // The hook sleeps 5s, so the push is still in flight; kill it inside that window.
     await new Promise((resolve) => setTimeout(resolve, 30));
     child.kill("SIGKILL");
     const { signal } = await exited;

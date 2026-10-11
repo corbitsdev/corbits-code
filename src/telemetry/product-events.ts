@@ -44,8 +44,8 @@ export interface CaptureSubagentEndArgs {
   stopReason?: SubAgentTerminalReason | "setup_error";
   rollup?: SubAgentTelemetryRollup;
   /**
-   * Spawn-time parent `$ai_trace_id` (in-flight turn). Callers must capture
-   * this at dispatch — never default to the last *completed* turn.
+   * Spawn-time parent `$ai_trace_id` (in-flight turn). Capture this at
+   * dispatch — never default to the last *completed* turn.
    */
   parentTraceId?: string | undefined;
 }

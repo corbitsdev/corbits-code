@@ -93,12 +93,9 @@ describe("shouldAbortForStall", () => {
   );
 });
 
-// Awaiting the model's next response with no tokens yet — set right after
-// submit, after the last tool call resolves, and after compact continuation
-// re-entry (`turnStateOnSubmit`, `tool.done`, `beginSystemContinuation`).
-// Cadence still ticks and the notice still arms at STALL_NOTICE_MS; past
-// STALL_TIMEOUT_MS this shape auto-aborts so a continuation that never lands
-// cannot freeze the turn.
+// Awaiting the model's next response with no tokens yet (after submit, a tool
+// batch, or compact re-entry); past STALL_TIMEOUT_MS this shape auto-aborts
+// so a continuation that never lands cannot freeze the turn.
 describe("shouldAbortForStall — awaiting-response with a null stream eventually aborts", () => {
   const awaiting = {
     status: "running" as const,
@@ -130,9 +127,8 @@ describe("shouldAbortForStall — awaiting-response with a null stream eventuall
     ).toBe(false);
   });
 
-  // Two independent exemptions (a gate open on the operator, a sibling tool
-  // call still outstanding) must both keep exempting when combined — neither
-  // one's guard may accidentally require the other's condition to also hold.
+  // A gate open and a sibling tool call exempt independently, and must also
+  // work when both hold at once.
   test("a gate open and a sibling tool call each exempt alone, and together", () => {
     const gateOnly = { ...awaiting, status: "blocked" as const };
     const toolCallOnly = { ...awaiting, activeToolCalls: ["call-2"] };
@@ -182,9 +178,8 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
     ).toBe(true);
   });
 
-  // tool.done of a sibling bash clears currentToolName and streamingType
-  // while wait_agents is still in activeToolCalls. Keying only the last
-  // name would leave that poll unbounded forever.
+  // A sibling tool.done clears the last announced name while the poll is in
+  // flight; keying only that name would leave it unbounded forever.
   test("sibling tool.done while collect is in-flight still aborts at the stall budget", () => {
     const afterSiblingDone = {
       ...collect,
@@ -215,11 +210,8 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
     ).toBe(false);
   });
 
-  // Two concurrent collects share one callIdByName slot: the second
-  // registration overwrites the first, so when the mapping-owning sibling
-  // resolves first and clears the slot, the leftover earlier collect is
-  // invisible to the name-keyed check above. The per-id record keeps it
-  // bounded (CL-8059).
+  // Concurrent collects share one slot; the per-id record bounds the leftover
+  // when the mapping owner resolves first and clears the slot.
   test("concurrent collects with the mapping owner done first still abort at the stall budget", () => {
     const leftover = {
       ...collect,
@@ -437,9 +429,9 @@ describe("the stall level the indicator reads", () => {
   });
 
   test("the indicator keeps reading stalled across the abort threshold", () => {
-    // The notice hands over to the abort so the two never speak at once, but
-    // the phase must not flip back to healthy at the exact moment the run is
-    // most stuck — that was the whole complaint the indicator answers.
+    // The notice hands over to the abort so they never speak at once, but the
+    // indicator must not flip back to healthy at the most stuck moment — the
+    // complaint this answers.
     const midStream = {
       ...base,
       awaitingResponse: false,

@@ -404,10 +404,9 @@ describe("background run_shell (shellGuardPlugin)", () => {
         id: "fg3",
         name: "run_shell",
         arguments: {
-          // Fifteen lines ~5 ms apart: far more chunk arrivals than one
-          // cadence window per 100 ms can allow. Without the Date.now() gate
-          // in emitPendingOutput every arrival emits (~16 emissions) and this
-          // ceiling fails — the assertion is what pins the cadence.
+          // 15 lines ~5 ms apart: more arrivals than one 100 ms cadence
+          // window allows, so without the Date.now() gate every arrival emits
+          // (~16) and the ceiling below fails.
           command:
             "i=1; while [ $i -le 15 ]; do echo line$i; sleep 0.005; i=$((i+1)); done",
         },
@@ -418,9 +417,9 @@ describe("background run_shell (shellGuardPlugin)", () => {
     // The final flush lands the tail (including the last line) in the feed.
     expect(feed.snapshot()).toContain("line1");
     expect(feed.snapshot()).toContain("line15");
-    // At most one emit per 100 ms of wall time (~300 ms with the pwd probe
-    // trailer), plus the final flush. Still far below the ~16 arrivals, so a
-    // broken cadence gate cannot pass.
+    // One emit per 100 ms of wall time (~300 ms with the pwd probe trailer)
+    // plus the final flush — far below the ~16 arrivals, so a broken cadence
+    // gate cannot pass.
     const elapsedMs = 350;
     expect(emits).toBeLessThanOrEqual(Math.ceil(elapsedMs / 100) + 1);
   });
@@ -674,10 +673,8 @@ describe("shellGuardPlugin", () => {
         );
       });
 
-    // Override the default 10s budget by racing a short outer abort is hard —
-    // instead assert the middleware wires a signal that the next handler sees.
-    // We stub a search tool that only finishes on abort, and force a tiny budget
-    // by using the public with-timeout path indirectly via a patched plugin call.
+    // Stub a search tool that only finishes on abort; a fast parent abort
+    // then proves the middleware wires its signal through.
     const plugin = shellGuardPlugin(process.cwd());
     // Inject a fast abort parent so the search budget settles quickly.
     const controller = new AbortController();
@@ -939,9 +936,8 @@ describe("shellGuardPlugin", () => {
   });
 
   test("returns promptly when the search tool ignores the budget", async () => {
-    // Reproduces the non-abortable fallback grep: next() never settles and never
-    // observes the abort. The guard must stop waiting once the budget fires
-    // instead of awaiting the walk forever.
+    // Reproduces the non-abortable fallback grep: next() never settles nor
+    // observes the abort, so the guard must stop waiting when the budget fires.
     const hangs = (): Promise<ToolResult> =>
       new Promise<ToolResult>(() => undefined);
     const plugin = shellGuardPlugin(process.cwd());

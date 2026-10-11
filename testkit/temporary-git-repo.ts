@@ -10,9 +10,9 @@ export interface InitTemporaryGitRepoOpts {
 /**
  * Initialize a throwaway Git repository for tests.
  *
- * Sets a local identity and points `core.hooksPath` at an empty directory
- * inside the repo so machine-level hooks cannot reject fixture commits.
- * Never writes global or system Git configuration and does not use
+ * Sets a local identity and points `core.hooksPath` at an empty
+ * repo-internal directory so machine-level hooks cannot reject fixture
+ * commits. Never writes global/system Git configuration and avoids
  * `GIT_CONFIG_*` env workarounds.
  */
 export function initTemporaryGitRepo(

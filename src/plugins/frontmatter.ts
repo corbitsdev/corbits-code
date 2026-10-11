@@ -1,6 +1,5 @@
-// Shared markdown frontmatter parsing for data-only plugins. Agents and
-// commands both ship as markdown with optional YAML frontmatter, so the split
-// logic lives here once rather than being duplicated (and drifting) per kind.
+// Shared markdown frontmatter parsing for data-only plugins: agents and
+// commands both ship markdown with optional YAML frontmatter.
 
 export interface ParsedMarkdown {
   // Parsed YAML frontmatter, an empty object when no block is present, or null
@@ -9,9 +8,8 @@ export interface ParsedMarkdown {
   body: string;
 }
 
-// Slash-command names are kebab-case identifiers. Data-only command files and
-// skill commands validate the same shape, so the pattern lives here once —
-// both modules already import this file for splitFrontmatter.
+// Slash-command names are kebab-case identifiers shared by data-only command
+// files and skill commands.
 export const COMMAND_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 // Strip a leading `---\n...\n---` YAML block. Returns { frontmatter, body }.

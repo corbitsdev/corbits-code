@@ -45,8 +45,8 @@ async function saveClient(
   await save(info);
 }
 
-// linear's discovery document endpoints, canned; the POST branch is the
-// per-test part (token endpoint behavior varies by scenario).
+// Canned discovery endpoints; the POST branch is per-test (token endpoint
+// behavior varies by scenario).
 function linearDiscoveryFetch(
   onPost: (init: RequestInit) => Promise<Response>,
 ): (url: string | URL, init?: RequestInit) => Promise<Response> {
@@ -111,8 +111,8 @@ async function expectStoredClient(
 describe("createOAuthProvider", () => {
   test("drops stale DCR client when redirect port changed and no tokens exist", async () => {
     const home = await tempHome();
-    // Legacy file: stale registration plus a PKCE verifier from when the
-    // verifier flowed through disk. Both must be scrubbed, not persisted.
+    // Legacy file: stale registration plus a disk-flowed PKCE verifier; both
+    // must be scrubbed, not persisted.
     const path = authFilePath(linear, home);
     await mkdir(dirname(path), { recursive: true });
     await writeFile(
@@ -196,8 +196,8 @@ describe("createOAuthProvider", () => {
       b.saveCodeVerifier("verifier-b"),
     ]);
 
-    // The verifier is instance-local: b reads its own, a has none, and the
-    // concurrent memory-only save cannot clobber the disk tokens.
+    // Verifier is instance-local: b reads its own, a has none, and the
+    // memory-only save cannot clobber the disk tokens.
     expect(b.codeVerifier()).toBe("verifier-b");
     expect(() => a.codeVerifier()).toThrow("No PKCE code verifier saved");
     const disk = await loadAuthState(linear, home);
@@ -214,8 +214,7 @@ describe("createOAuthProvider", () => {
       onAuthURL: () => undefined,
       home,
     });
-    // The SDK browser flow persists DCR client info, then the PKCE verifier,
-    // then the exchanged tokens — in that order.
+    // SDK browser flow persists client info, then verifier, then tokens.
     await saveClient(provider, clientInfo(62000));
     await provider.saveCodeVerifier("pkce-one-time");
     await provider.saveTokens({
@@ -266,8 +265,8 @@ describe("createOAuthProvider", () => {
     await provider.saveTokens({ access_token: "tok", token_type: "bearer" });
     expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
 
-    // A transient stat failure (EACCES here, file still present) must not
-    // discard live credentials — only a real deletion (ENOENT) does.
+    // Transient stat failure (EACCES, file present) must not discard live
+    // credentials; only a real deletion (ENOENT) does.
     const dir = dirname(authFilePath(linear, home));
     await chmod(dir, 0o000);
     try {

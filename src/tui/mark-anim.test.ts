@@ -126,8 +126,7 @@ describe("renderMark", () => {
   });
 
   test("still holds the mountain fixed while the clock advances", () => {
-    // Snow moves with the clock even in still mode (the idle landing screen),
-    // so isolate the mountain by stripping snow before comparing.
+    // Snow moves with the clock even in still mode, so strip it first.
     const a = stripSnow(markText(renderMark({ nowMs: 0, still: true })));
     const b = stripSnow(markText(renderMark({ nowMs: 987_654, still: true })));
     expect(b).toBe(a);

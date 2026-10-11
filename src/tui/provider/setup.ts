@@ -1,15 +1,13 @@
 /**
- * First-run provider setup on OpenTUI: the `runProviderSetup` surface
- * assembly and step navigation.
+ * Provider setup on OpenTUI: `runProviderSetup` surface assembly and step
+ * navigation.
  *
- * Selection first: the operator picks a known provider from the first-class
- * catalog (which prefills base URL and models), types only the API key, then
- * picks a model. "Custom" falls back to the full manual form for endpoints the
- * catalog does not know.
+ * Selection first: pick a known provider (prefills base URL and models), type
+ * only the API key, then pick a model. "Custom" falls back to the full manual
+ * form.
  *
- * The surface owns paint + input only; the caller owns the connection test and
- * the settings write via `onSubmit`. Painting lives in surface.ts, the browser
- * sign-in and account-name flows in oauth.ts, model discovery in discovery.ts.
+ * The surface owns paint + input only; the caller owns the connection test
+ * and the settings write via `onSubmit`.
  */
 
 import {
@@ -94,7 +92,7 @@ export async function runProviderSetup(
 ): Promise<boolean> {
   // A caller-supplied renderer (a headless test harness, or a live session's
   // renderer reused for a mid-session reconnect) is owned by that caller —
-  // teardown here must not destroy it out from under them.
+  // teardown here must not destroy it.
   const externalRenderer = config.createRenderer !== undefined;
   const renderer = config.createRenderer
     ? await config.createRenderer()
@@ -221,10 +219,9 @@ export async function runProviderSetup(
       !state.typedModel
     );
   };
-  // The "name" step means two different things depending on the path: a
-  // free-text provider name (custom) or a multi-instance account slug (OAuth
-  // and first-class API-key) with suggestion/collision machinery. Only the
-  // latter needs this branch.
+  // The "name" step is a free-text provider name (custom) or a multi-instance
+  // account slug (OAuth / first-class API-key) with suggestion/collision
+  // machinery. Only the latter needs this branch.
   const isAccountNameStep = (): boolean =>
     currentStep() === "name" && state.choice !== null && !state.choice.custom;
   const isGoModelListStep = (): boolean =>
@@ -502,9 +499,9 @@ export async function runProviderSetup(
     if (state.submitting || isListStep()) return;
     if (isAccountNameStep()) {
       state.values.oauthProfile = next;
-      // An edit invalidates whatever the last submit attempt found — the
-      // confirm applies to one exact slug, and any inline error is stale
-      // the moment the text it described changes.
+      // An edit invalidates the last submit attempt's finding — the confirm
+      // applies to one exact slug, and any inline error is stale the moment
+      // the text it described changes.
       const hadFeedback =
         state.oauthProfileError !== null || state.oauthProfileConfirmPending;
       state.oauthProfileError = null;

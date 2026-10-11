@@ -144,11 +144,8 @@ async function resolvePathLikeSkillBody(
 
 // Resolve a skill reference (e.g. scribe or gaas:scribe) to its body text — the
 // frontmatter is stripped, leaving the instructions to inject into context.
-//
-// Bare names search `skillBaseDirs` (plugin dirs then, unless pluginDirsOnly,
-// project-local fallbacks). Path-like refs (`./skills/style`, `skills/foo`)
-// resolve only under `options.pluginRoot` with containment checks; absolute
-// and escape paths fail.
+// Bare names search `skillBaseDirs`; path-like refs resolve only under
+// `options.pluginRoot` with containment checks; absolute and escape paths fail.
 export async function resolveSkillBody(
   cwd: string,
   ref: string,
@@ -176,11 +173,9 @@ export async function resolveSkillBody(
 
 // Discover every available skill (name + one-line description). Deduped by name:
 // the first base dir that provides a skill wins, so a higher-precedence dir
-// shadows a lower one. Descriptions feed skill_search and the slash picker; the
-// system prompt lists names only. Skills with `disable-model-invocation: true`
-// are omitted from the returned listing but still occupy the name in `seen` so
-// a lower-priority same-name skill cannot leak in. Explicit `use_skill` /
-// `resolveSkillBody` loads still work.
+// shadows a lower one. `disable-model-invocation: true` skills are omitted from
+// the listing but still claim the name so a lower-priority same-name skill
+// cannot leak in; explicit `use_skill` / `resolveSkillBody` loads still work.
 export async function discoverSkills(
   cwd: string,
   pluginDirs: string[] = [],
@@ -206,15 +201,10 @@ export async function discoverSkills(
   return skills;
 }
 
-// CL-9010: process-lifetime skill catalog cache keyed by resolved cwd +
-// plugin dirs. Spawned workers share the dispatcher's catalog: the first
-// same-cwd spawn pays discovery and later spawns reuse the snapshot, so
-// spawn_agent dispatch stays non-blocking on repeated waves. The fallback
-// base dirs are cwd-relative, so the key must include the cwd — different
-// dirs (or a different cwd) always rediscover. Callers get a copy; the
-// cached canonical is never handed out, so one worker cannot mutate
-// another's catalog. Unbounded in practice the same way the inference
-// singleton is: one entry per distinct (cwd, dirs) pair per process.
+// Process-lifetime skill catalog cache keyed by resolved cwd + plugin dirs, so
+// repeated spawn_agent waves skip discovery. The fallback base dirs are
+// cwd-relative, so the key includes the cwd. Callers get a copy; the cached
+// canonical is never handed out, so one worker cannot mutate another's catalog.
 const skillSnapshotCache = new Map<string, readonly SkillSummary[]>();
 
 function skillSnapshotCacheKey(

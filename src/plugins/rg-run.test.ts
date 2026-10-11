@@ -30,17 +30,14 @@ test("an over-cap run is capped regardless of how stdout is chunked", async () =
     expect(result.kind).toBe("partial");
     if (result.kind !== "partial") continue;
     expect(result.stdout.length).toBeLessThanOrEqual(200);
-    // No notice of its own: the final tool result gets exactly one
-    // truncation notice, from result-truncation-plugin.ts.
+    // No own notice: result-truncation-plugin.ts adds the one truncation notice.
     expect(result.notice).toBeUndefined();
   }
 });
 
-// The Linux CI failure: process close can be delivered before the last stdout
-// chunk is dispatched to the data handler. Ordering is now explicit — close is
-// deferred one immediate turn so queued data runs first, and the collector
-// re-checks the cap at process end. Either way partial wins over complete
-// output when the body is over the limit.
+// Linux CI: close can land before the last stdout chunk, so close is deferred
+// one turn for queued data and the cap is re-checked at process end. Over-limit
+// always yields partial, never complete.
 test("an over-cap run is capped when close is ordered before stdout data", async () => {
   const bulk = line.repeat(400);
   const result = await run({ stdout: [bulk], code: 0, closeFirst: true });

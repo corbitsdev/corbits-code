@@ -31,8 +31,8 @@ export interface ListModalConfig {
   readonly options: readonly ResidualCatalogEntry[];
   readonly activeIndex?: number;
   /**
-   * Claim printable keys for a `>` filter row so the list narrows as you type.
-   * Off by default so other satellite lists keep j/k navigation.
+   * Claim printable keys for a `>` filter row so the list narrows as you
+   * type. Off by default so satellite lists keep j/k navigation.
    */
   readonly typeToFilter?: boolean;
   /** Renderer factory override for headless mounting in tests. */

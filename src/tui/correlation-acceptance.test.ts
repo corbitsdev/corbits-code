@@ -85,7 +85,7 @@ describe("createCorrelationAcceptance", () => {
       type: "message.correlated",
       data: { correlationId: "corr-1", message: approvedMessage("corr-1") },
     });
-    // Acceptance-timeout path: drops the waiter without resolving it, but the
+    // Acceptance-timeout path: drops the waiter without resolving, but the
     // approved hold must survive so the retry waiter below still settles.
     acceptance.abandon("corr-1");
     await new Promise((resolve) => setTimeout(resolve, 5));

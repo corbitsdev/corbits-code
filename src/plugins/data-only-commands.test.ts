@@ -152,8 +152,8 @@ describe("loadDataOnlyPlugin command routing", () => {
     });
     const plugin = defined(await loadDataOnlyPlugin(dir), "plugin");
     expect(plugin.manifest.kind).toBe("agent");
-    // Both exports are attached; commands wire as an added surface via the
-    // agent-kind allowance in isEnabledCommandPlugin.
+    // Both exports attach; commands wire via the agent-kind allowance in
+    // isEnabledCommandPlugin.
     expect(plugin.agentPlugin).toBeDefined();
     expect(plugin.commandPlugin).toBeDefined();
   });

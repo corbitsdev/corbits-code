@@ -1,11 +1,11 @@
 /**
  * Product clipboard port over the @opentui/core clipboard service.
  *
- * The shell's copy surfaces speak the fire-and-forget ClipboardPort contract
- * (void or rejected promise), while OpenTUI reports a structured host/terminal
- * result pair. Helper binaries are the host leg; the renderer's OSC 52 path is
- * the remote-session fallback. A write only fails when both legs failed, so
- * `writeClipboard` never flashes success for text nobody took.
+ * Shell copy surfaces speak the fire-and-forget ClipboardPort contract (void
+ * or rejected promise), while OpenTUI reports a structured host/terminal
+ * result pair. Helper binaries are the host leg; the renderer's OSC 52 path
+ * is the remote-session fallback. A write fails only when both legs failed,
+ * so `writeClipboard` never flashes success for text nobody took.
  */
 
 import {

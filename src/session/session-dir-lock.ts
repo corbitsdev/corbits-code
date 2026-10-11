@@ -2,10 +2,8 @@ import path from "node:path";
 
 const locks = new Map<string, Promise<unknown>>();
 
-/**
- * Process-wide mutex keyed by resolved directory. Wrapper staging and
- * `base.commit()` / audit writes must not interleave on the same repo.
- */
+/** Process-wide mutex keyed by resolved directory: wrapper staging and
+ * `base.commit()` / audit writes must not interleave. */
 export async function withResolvedDirLock<T>(
   dir: string,
   fn: () => Promise<T>,

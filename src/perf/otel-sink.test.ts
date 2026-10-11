@@ -14,8 +14,7 @@ import {
 } from "./otel-sink.js";
 import type { EnabledOtelExportConfig } from "./otel-config.js";
 
-// The span store is process-wide, so a perf test cannot assume the tests that
-// ran before it in this process left it empty. Reset on both edges.
+// Span store is process-wide: earlier tests may leave it non-empty. Reset both edges.
 beforeEach(() => {
   clear();
 });

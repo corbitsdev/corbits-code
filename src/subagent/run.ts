@@ -209,11 +209,9 @@ import type { TaskIntent } from "./report.js";
 import { runWithSubAgentIdentity } from "./identity-context.js";
 
 /**
- * Worker authorization denies unresolved approvals without suspending, so the
- * reactor should never park a gate and Agent.send should always settle on
- * "reply". This guard is the sound fallback if that ever drifts: instead of
- * flattening the suspension into an opaque message, the thrown error carries
- * the correlationId and approval snapshot needed to resume or diagnose.
+ * Worker authorization denies without suspending, so Agent.send must settle
+ * on "reply" — a parked gate would wedge the worker. If that drifts, the
+ * thrown error still carries the correlationId and approval snapshot.
  */
 export function assertReplySend(
   result: SendResult,
@@ -234,30 +232,20 @@ export function assertReplySend(
   throw error;
 }
 
-// Bounded outer retry for the main send (CL-7677). The harness policy in
-// vendor/intx-inference/src/retry-policy.ts already retries retryable faults
-// up to 3 times per send; this loop covers the case where the harness gives
-// up and the failure terminalizes the worker anyway. A terminal worker death
-// is not a non-terminal director turn (CL-6910), so the outer budget is one
-// retry, not a second full schedule — harness-weighted worst case is 2 outer
-// x 3 inner sends. The single delay matches the first step of the harness
-// backoff (500ms before attempt 2 in vendor/intx-inference/src/retry-policy.ts)
-// with the same jitter applied below: the outer budget is one retry, so only
-// the first backoff step is ever reached — a table would be dead weight.
-// createCorbitsRetryPolicy decides per-attempt retry inside a live send and
-// must not drive this loop.
-// Retrying after a tool already executed is unsafe — the second send would
-// replay side effects — so any recorded tool start vetoes the retry.
+// One outer retry after the harness's per-attempt retries give up (3x per
+// send, vendor/intx-inference/src/retry-policy.ts). Delay matches the first
+// backoff step below. Per-attempt retry runs inside the live send
+// (createCorbitsRetryPolicy), never this loop. Never retry after a tool
+// started — a second send would replay side effects.
 const MAX_OUTER_ATTEMPTS = 2;
 const OUTER_RETRY_DELAY_MS = 500;
 
 /**
- * CL-7990 reap deadline for the session-stream drain on teardown. A worker
- * parked behind a live shell descendant holds `streamPromise` open; awaiting
- * it unbounded wedges interrupt/close forever. Abandoning the drain after
- * this deadline settles the session — late stream events just go unsalvaged.
- * Calibrated to the shell-guard reap scale (2s), not the 30s close deadline:
- * the drain is salvage bookkeeping, not teardown.
+ * Reap deadline for the session-stream drain on teardown. A worker parked
+ * behind a live shell descendant holds `streamPromise` open, so awaiting
+ * it unbounded would wedge interrupt/close forever — expiry drops late
+ * stream events, matching the shell-guard reap scale (2s), not the 30s
+ * close deadline.
  */
 const SUBAGENT_STREAM_DRAIN_REAP_MS = 2_000;
 
@@ -280,9 +268,8 @@ function drainStreamWithReapDeadline(
   return bounded;
 }
 
-// Tests inject a short outer-retry delay so provider-failure suites do not
-// pay the production 500ms backoff per retry in wall clock; production never
-// sets the param and keeps the default.
+// Tests inject a shorter outer-retry delay so provider-failure suites do not
+// pay the 500ms backoff per retry in wall clock; production keeps the default.
 function outerRetryDelayMs(params: RunSubAgentParams): number {
   return params.outerRetryDelayMs ?? OUTER_RETRY_DELAY_MS;
 }
@@ -312,11 +299,9 @@ export type {
   SubAgentSandboxDeps,
 } from "./types.js";
 
-// The source used when no profile tier resolves. Exported for tests: the
-// parent's provider may need a non-default adapter (Bifrost virtual keys,
-// Codex or xAI OAuth profiles speak the Responses API and reject plain Chat
-// Completions requests with HTTP 426), so the catalog entry's markers pick
-// the adapter exactly as the tiered path does.
+// Source used when no profile tier resolves. Exported for tests: catalog
+// entry markers pick the adapter (Bifrost virtual keys, Codex/xAI OAuth
+// profiles speak the Responses API, rejecting Chat Completions with 426).
 export function buildSubAgentPrimarySource(
   provider: SubAgentProvider,
   catalog?: readonly ProviderCatalogEntry[],
@@ -370,13 +355,9 @@ export function buildSubAgentPrimarySource(
   return { sources: [primarySource], defaultSource: primarySource.id };
 }
 
-// Web tools are always-on core built-ins in the main session (see
-// src/agent/tools.ts); the sub-agent discipline block tells every worker to
-// reach for web_fetch/web_search instead of curl/wget, so the tools must
-// actually be installed here too. Read-only-network, so no capability filter
-// special-case: they pass through applyCapabilityFilter by name like any
-// other tool (an "explore" intent that wants a read-only leaf can still
-// exclude them explicitly via capabilities.tools).
+// Web tools are main-session built-ins (src/agent/tools.ts); the sub-agent
+// discipline block sends workers to web_fetch/web_search instead of
+// curl/wget, so install them here too — no capability special-case.
 export function coreSubAgentWebTools(
   inherited: readonly AgentTool[] = [],
 ): AgentTool[] {
@@ -388,20 +369,13 @@ export function coreSubAgentWebTools(
 
 /**
  * Capability allowlist/exclude over the assembled worker tool set, with
- * on-demand inherited-MCP mounting (CL-9476 follow-up).
+ * on-demand inherited-MCP mounting.
  *
- * Inherited MCP tools (`mcp__<server>__<tool>`) mount only when the dispatch
- * requested them. An explicit stamp always counts: a `requiresTools` entry
- * (the requires_tools gate, validated pre-spawn against the live inherited
- * set) or an allowlist naming in `capabilities.tools`. Inheritance itself
- * also counts: names in `inheritedMcpTools` — the live set returned by
- * `inheritMcpTools` for this worker — mount without an extra stamp when no
- * narrower constraint applies (no `capabilities`, no `requiresTools`), so
- * the inherit-by-default contract holds and the worker gate (parent grant)
- * governs execution. An explicit stamp narrows: with `requiresTools`
- * present only stamped MCP names mount, even inherited siblings. An
- * `mcp__*` name outside both sets never mounts. An explicit exclude still
- * withholds a requested live MCP tool (surfacing downstream as a stale
+ * `mcp__*` tools mount only when stamped (`requiresTools` or a
+ * `capabilities.tools` allowlist) or inherited via `inheritedMcpTools` when
+ * no narrower constraint applies; a stamp narrows inheritance to the
+ * stamped names. Unstamped `mcp__*` names never mount, and an explicit
+ * exclude still withholds a requested live tool (surfacing as a stale
  * snapshot, normally pre-empted by the dispatch preflight).
  */
 export function applyCapabilityFilter(
@@ -452,20 +426,17 @@ export interface SubAgentRunController {
   deadlineHit: () => boolean;
   /** Abort the run from inside, distinct from parent cancel and deadline. */
   abort: (reason: Error) => void;
-  // Normally tears down the timer and the parent-abort forwarding listener.
-  // Pass keepParentListener:true for a run that is persisting (retained,
-  // clean completion) — otherwise a later parent abort would stop
-  // propagating into runController.signal, and closeOnAbort would never
-  // fire for the still-open session.
+  // Tears down the timer and the parent-abort forwarding listener. Pass
+  // keepParentListener:true for a persisting run — otherwise a later parent
+  // abort stops reaching runController and closeOnAbort never fires.
   dispose: (opts?: { keepParentListener?: boolean }) => void;
 }
 
 /**
- * Combines an optional caller cancel signal with an optional opt-in wall-clock
- * deadline into one abort signal. The run has a single signal to check while
- * still being able to tell a genuine cancel apart from the deadline firing
- * (deadlineHit()) when picking a forcedStopReport reason. When deadlineMs is
- * omitted, no timer is armed — cancel remains the only bound.
+ * Merges the caller's cancel signal with an optional wall-clock deadline
+ * into one abort signal, so salvage can tell a genuine cancel apart from
+ * the deadline firing (deadlineHit()). No timer when deadlineMs is
+ * omitted.
  */
 export function createSubAgentRunController(
   parentSignal: AbortSignal | undefined,
@@ -484,9 +455,8 @@ export function createSubAgentRunController(
   let timer: ReturnType<typeof setTimeout> | undefined;
   if (deadlineMs !== undefined && deadlineMs > 0) {
     timer = setTimeout(() => {
-      // Only mark deadline if we are the abort source. A parent cancel that
-      // already aborted must not be relabeled as a deadline hit when the timer
-      // fires later (e.g. during stream drain before dispose).
+      // Mark deadline only if we are the abort source; a parent cancel must
+      // not be relabeled as a deadline hit when the timer fires later.
       if (controller.signal.aborted) return;
       hit = true;
       controller.abort(
@@ -524,10 +494,8 @@ function abortReasonText(signal: AbortSignal): string | undefined {
   return undefined;
 }
 
-/**
- * Findings payload for cancel/deadline salvage. Prefer multi-turn accumulated
- * prose; fall back to the last turn-boundary text, then the in-flight cycle tail.
- */
+/** Findings payload for cancel/deadline salvage: accumulated prose, then
+ * the last turn-boundary text, then the in-flight cycle tail. */
 function salvageFindingsText(
   accumulatedProse: string,
   lastPartialText: string,
@@ -612,12 +580,10 @@ const askDirectorDefinition: ToolDefinition = {
   },
 };
 
-// Spin up an isolated, autonomous agent loop, hand it one task, and return
-// its final report. `params.cwd` is either the dispatcher's own cwd (shared
-// mode) or a worktree snapshotted from the dispatcher's last commit
-// (isolated mode, see agent-fleet.ts's useWorktree) — either way this loop
-// gets its own posix tool instances and its own git-backed context store so
-// the two loops never trample each other's state.
+// Spin up an isolated agent loop for one task and return its final report.
+// `params.cwd` is the dispatcher's cwd (shared mode) or a worktree from its
+// last commit (isolated mode) — each loop gets its own posix tools and
+// git-backed context store, so the two never trample each other's state.
 export async function runSubAgent(
   params: RunSubAgentParams,
 ): Promise<RunSubAgentResult> {
@@ -671,15 +637,14 @@ async function runSubAgentInner(
   telemetryRollup: SubAgentTelemetryRollup,
   settlementState: { latestModel: string },
 ): Promise<RunSubAgentResult> {
-  // CL-9010: fleet-spawned workers skip the pricing-cache seed re-read —
-  // the parent runtime already applied the process seed at boot.
+  // Fleet-spawned workers skip the pricing-cache seed re-read; the parent
+  // runtime already applied the process seed at boot.
   const inferenceDeps = await assembleInferenceBase(undefined, {
     ...(params.skipPricingSeed === true ? { skipPricingSeed: true } : {}),
   });
 
-  // CL-9475: the fleet session id the parent observes (params.id); falls
-  // back to the local session id below when run without a fleet caller.
-  // Harness-owned denied-call envelopes are keyed by this id.
+  // Session id the parent observes (params.id); falls back to a local id
+  // without a fleet caller. Denied-call envelopes are keyed by this id.
   let workerGrantSessionId: string | undefined =
     params.id !== undefined && /^[A-Za-z0-9_-]+$/.test(params.id)
       ? params.id
@@ -693,26 +658,22 @@ async function runSubAgentInner(
   const compactContinue = createDeferredContinuation();
   let deliverCompactContinue = (): void => undefined;
   const spawnRegistry = createSubAgentSpawnRegistryPlugin();
-  // Assigned inside the try once the agent handle exists; before that (or after
-  // close) a completion is dropped, matching the continuation contract.
+  // Assigned once the agent handle exists; before that (or after close) a
+  // completion is dropped, matching the continuation contract.
   let backgroundExitSink: ((exit: BackgroundShellExit) => void) | null = null;
   const backgroundShells = createBackgroundShellRegistry({
     onExit: (exit) => backgroundExitSink?.(exit),
   });
   // A worker whose capability filter drops run_shell has no bash to detach
-  // from. The getter is live so the filter below can unwire it before the
-  // first tool call.
+  // from; the getter stays live so the filter below can unwire it first.
   let backgroundShellsMounted = true;
-  // Live: read_file PDF diagnosis asks whether this worker can run pdftotext
-  // via bash. The capability filter below may unmount run_shell after the
-  // plugin stack is built, so the getter is flipped in the same place as
-  // backgroundShellsMounted.
+  // read_file PDF diagnosis asks whether this worker can run pdftotext via
+  // bash; flip with backgroundShellsMounted when the filter unmounts shell.
   let hostCommandsMounted = true;
   // Child tools resolve spills against the child's own store first, then
-  // the parent's: parent tool-output:// URIs handed in the brief must
-  // remain readable after spawn, and the child's own spills stay local.
-  // Writer/context dir bind after createSessionStores — tools wrap first,
-  // same late-bind as primary getBlobWriter.
+  // the parent's: tool-output:// URIs handed in the brief stay readable
+  // after spawn. Writer/context dir bind after createSessionStores, same
+  // late-bind as the primary getBlobWriter.
   let childBlobReader: BlobReader | undefined;
   let childBlobWriter: SpillBlobWriter | undefined;
   let childContextDir: string | undefined;
@@ -757,34 +718,25 @@ async function runSubAgentInner(
   > | null = null;
   let streamPromise: Promise<void> | undefined;
   let closeOnAbort: (() => void) | undefined;
-  // Set only on the clean-completion return path; read by the finally block
-  // to decide whether a persisted session's teardown is skipped.
+  // Set on the clean-completion path; the finally block reads it to decide
+  // whether a persisted session's teardown is skipped.
   let turnSucceeded = false;
-  // Set only on the interrupt_agent path (a dedicated signal fired by the
-  // `interrupt` handle below, never runController) — the finally block
-  // skips teardown here too, so the agent and its workdir lock stay live
-  // for a later resume_agent.
+  // Set on the interrupt_agent path (`interrupt` handle's signal, never
+  // runController) — the finally block skips teardown so the agent and its
+  // workdir lock stay live for a later resume_agent.
   let interruptedKeepAlive = false;
-  // Scoped to this run's `agent.send()` call only. Firing it rejects that
-  // one send's promise (per Agent.send's documented signal option) without
-  // touching agent.close() or runController — the reactor cycle it belongs
-  // to keeps running in the background, exactly as the vendored send-queue
-  // documents, so a later resume_agent's agent.send() simply queues behind
-  // it rather than racing a half-torn-down session.
-  // Per-turn abort for interrupt_agent. Recreated at the start of each
-  // followup send so a prior abort cannot immediately reject the next turn,
-  // and so interrupt_agent can stop a resumed agent.send().
+  // Scoped to one `agent.send()` call: rejects only that send's promise,
+  // never agent.close() or runController — the reactor keeps running, so a
+  // later resume_agent queues behind it. Recreated per followup so a prior
+  // abort cannot reject the next turn.
   let interruptController = new AbortController();
-  // Declared before try (same reasoning as closeOnAbort above): assigned once
-  // requestContinuation/modelFamilyPolicy exist inside the try, but must be
-  // visible to the finally block, which is a sibling scope, not a child.
+  // Declared before try (like closeOnAbort): assigned once inside the try,
+  // but must be visible to the finally block, a sibling scope, not a child.
   let stallWatchdog: ReturnType<typeof setInterval> | undefined;
-  // Combines the caller's cancel signal with an optional opt-in wall-clock
-  // deadline so a leaf that hits the deadline can still return a salvage
-  // report. When deadlineMs is omitted, no timer is armed — cancel remains
-  // the only bound. Declared before try so finally can dispose.
-  // spawn_agent is exempt from the generic per-tool watchdog (see
-  // resolveToolExecutionTimeoutMs), so there is no outer budget to clamp under.
+  // Wall-clock bound so a leaf that hits it can still return a salvage
+  // report; resolved before try so finally can dispose. spawn_agent is
+  // exempt from the per-tool watchdog (resolveToolExecutionTimeoutMs), so
+  // no outer budget clamps it.
   const resolvedDeadlineMs =
     params.deadlineMs !== undefined
       ? resolveSubAgentDeadlineMs(params.deadlineMs, undefined)
@@ -819,14 +771,10 @@ async function runSubAgentInner(
     }
 
     const runManageTasks = createManageTasksRunner();
-    // Worker skill mounts: every worker, including grok/kimi leaves, mounts
-    // skill_search + use_skill. Scoped to the dispatch's allowedSkillNames
-    // (union of pkg.attachedSkills and optionalSkills). Mounted before the
-    // capability filter so worker allowlists keep them like any other named
-    // tool; the scope cannot widen — use_skill refuses names outside the
-    // allowlist and refuses attached/already-loaded names without dumping the
-    // body again. Plugin skill dirs match the primary so bundled
-    // corbits-skills resolve.
+    // Every worker mounts skill_search + use_skill, scoped to the
+    // dispatch's allowedSkillNames, before the capability filter so
+    // allowlists keep them like any named tool. The scope cannot widen —
+    // use_skill refuses names outside the allowlist.
     const modelFamilyPolicy = resolveModelFamilyPolicy({
       providerName: params.provider.providerName,
       model: params.provider.model,
@@ -836,9 +784,8 @@ async function runSubAgentInner(
         : {}),
     });
     const skillDirs = [...(params.skillDirs ?? [])];
-    // CL-9010: reuse the dispatcher's catalog when the lane shares its cwd;
-    // otherwise fall back to the cached discovery (same-cwd repeat spawns
-    // skip the rescan). Copies keep one worker from mutating another's list.
+    // Reuse the dispatcher's catalog when the lane shares its cwd, else the
+    // cached discovery (repeat spawns skip the rescan). Copies isolate workers.
     const skillSnapshot =
       params.skills !== undefined
         ? [...params.skills]
@@ -894,9 +841,8 @@ async function runSubAgentInner(
     );
     backgroundShellsMounted = hostCommandsMounted;
 
-    // Every sub-agent is an agent: multi-step jobs get their own manage_tasks
-    // checklist. The handler is local to this loop; parent and child never share
-    // a list (the parent TUI tracks only the parent's manage_tasks calls).
+    // Every sub-agent gets its own manage_tasks checklist. The handler is
+    // local to this loop; parent and child never share a list.
     tools = [
       ...tools,
       stringTool({
@@ -921,9 +867,8 @@ async function runSubAgentInner(
           handler: async (
             rawArgs: Record<string, unknown>,
           ): Promise<string> => {
-            // Read the live binding (not the dispatch-time value): steering
-            // rotates turnToken, so a submission under the old token lands here
-            // and must be rejected as stale.
+            // Read the live binding, not the dispatch-time value: steering
+            // rotates turnToken, so an old-token submission is stale.
             const currentToken = turnToken;
             if (currentToken === undefined) {
               return "Error: this run has no turn token, so submit_result cannot verify freshness.";
@@ -969,15 +914,13 @@ async function runSubAgentInner(
       ];
     }
 
-    // Orchestrators need fleet tools installed, not just mentioned in the prompt.
-    // Nested dispatch always forbids further orchestration so the tree
-    // bottoms out after one hop. Fleet discovery (search_agents) is Tier-1
-    // only (CL-7051) — nested directors keep spawn allowlists.
+    // Orchestrators need fleet tools installed, not just mentioned. Nested
+    // dispatch forbids further orchestration, so the tree bottoms out after
+    // one hop; search_agents stays orchestrator-tier only.
     if (params.orchestrator === true) {
-      // Tier enforcement at the mount point, not the prompt, fails closed:
-      // an unresolved tier defaults to "leaf" rather than skipping the check,
-      // so an AgentProfile outside the closed director set cannot mount
-      // spawn_agent/search_agents just by setting orchestrator: true.
+      // Tier enforcement at the mount point fails closed: an unresolved tier
+      // defaults to "leaf", so a profile outside the director set cannot
+      // mount fleet verbs by setting orchestrator: true.
       const tier = params.orchestratorTier ?? "leaf";
       const mayDiscoverFleet = tier === "orchestrator";
       for (const verb of [
@@ -1016,14 +959,10 @@ async function runSubAgentInner(
               }),
             ]
           : []),
-        // Every worker at every nesting depth is created under the same root
-        // workdirBase (nestedDispatch.getWorkdirBase is threaded through
-        // unchanged, never rebound to this worker's own dir), so the trace
-        // reader's search root is that same function. Descendant-only
-        // scoping is enforced inside the tool via assertCanTargetAgent,
-        // reusing the fleet nodes SubAgentSessionStore already tracks and
-        // this worker's own store id (params.id) — not the disk layout,
-        // which is intentionally flat across the whole fleet.
+        // Every worker at any depth keeps the same root workdirBase
+        // (never rebound to its own dir), so the trace reader searches that
+        // root. Descendant scoping is enforced via assertCanTargetAgent on
+        // fleet nodes, not the flat on-disk layout.
         createReadAgentTraceTool(nd.getWorkdirBase, {
           actorId: params.id,
           tier,
@@ -1048,8 +987,8 @@ async function runSubAgentInner(
           ? { secretGuardExtraDeniedPaths: nd.secretGuardExtraDeniedPaths }
           : {}),
         ...(nd.skillDirs !== undefined ? { skillDirs: nd.skillDirs } : {}),
-        // CL-9010: nested shared-cwd lanes reuse this worker's catalog, which
-        // was discovered (or inherited) for exactly this cwd.
+        // Nested shared-cwd lanes reuse this worker's catalog, discovered
+        // (or inherited) for exactly this cwd.
         skillSnapshot,
         ...(nd.extraToolPlugins !== undefined
           ? { extraToolPlugins: nd.extraToolPlugins }
@@ -1104,12 +1043,10 @@ async function runSubAgentInner(
       ];
     }
 
-    // CL-9476 mount echo: dispatch verified requires_tools pre-spawn, but the
-    // filter or mount may have shifted since — a stamped tool missing here is
-    // a stale snapshot, a setup_error that never retries (non-continuable).
-    // Dispatch-side rejection is the normal path. This check runs after ALL
-    // mounts (manage_tasks, leaf submit_result/ask_director, fleet verbs), so
-    // a dispatch that passed preflight against the same mount never throws.
+    // Mount echo: dispatch verified requires_tools pre-spawn, but the filter
+    // or mount may have shifted — a stamped tool missing here is a stale
+    // snapshot, a non-continuable setup_error. Runs after all mounts, so a
+    // dispatch that passed preflight never throws here.
     if (params.requiresTools !== undefined && params.requiresTools.length > 0) {
       const mountedNames = tools.map((tool) => tool.definition.name);
       const mountedCheck = checkMountedRequiresTools(
@@ -1185,8 +1122,8 @@ async function runSubAgentInner(
       getContextDir: () => childContextDir,
     });
 
-    // CL-9010: same-cwd spawns within the TTL share the git/top-level
-    // snapshot instead of re-running git per lane.
+    // Same-cwd spawns within the TTL share the git/top-level snapshot
+    // instead of re-running git per lane.
     const environment = await gatherEnvironmentCached(params.cwd);
     const attachedSection =
       params.attachedSkills !== undefined && params.attachedSkills.length > 0
@@ -1234,9 +1171,8 @@ async function runSubAgentInner(
     // Assigned once the leaf's trace dir exists; the director factory closes
     // over this binding and only fires after that point.
     let interventions: InterventionSink = NOOP_INTERVENTION_SINK;
-    // Set by the director when it force-stops via capabilities.reply (the
-    // normal agent.send success path) — carried into the returned result
-    // instead of being re-derived by parsing the report text.
+    // Set by the director on force-stop via capabilities.reply (the normal
+    // send success path) — carried into the result, not re-derived from text.
     let directorForcedStopReason: ForcedStopReason | undefined;
     let agentHandle: Awaited<
       ReturnType<typeof createAgentWithLiveToolDispatch>
@@ -1252,12 +1188,11 @@ async function runSubAgentInner(
       }
     };
 
-    // modelFamilyPolicy is resolved above at the skill mount; reused here for
-    // stall timing and wire-schema normalization.
+    // modelFamilyPolicy is resolved above at the skill mount; reused here
+    // for stall timing and wire-schema normalization.
 
-    // Family-gate wire schemas the same way main sessions do. Worker advertise
-    // uses a smaller prefix plus tool_search; computeAdvertised already
-    // normalizes for kimi/muse/grok.
+    // Family-gate wire schemas like main sessions: worker advertise uses a
+    // smaller prefix plus tool_search; computeAdvertised normalizes family.
     const directorDef = defineDirector({
       id: `${ID_PREFIX}/subagent`,
       configSchema: type({}),
@@ -1290,10 +1225,9 @@ async function runSubAgentInner(
         director.observeInterventions((event) => {
           interventions(event);
         });
-        // Continuation infers run after tool results land, possibly long after
-        // the attempt-start refresh. The wrapper ensures the OAuth credential
-        // is fresh and pushes it to the live agent before the reactor executes
-        // the infer; decide() itself stays pure.
+        // Continuation infers after tool results land, long after the
+        // attempt-start refresh: the wrapper re-freshes the OAuth credential
+        // before the reactor executes the infer; decide() stays pure.
         return withContinuationOAuthRefresh(director, {
           getAgent: () => agent,
           sources: bundle.sources,
@@ -1303,13 +1237,12 @@ async function runSubAgentInner(
       },
     });
 
-    // Directors are pure decide(event, ...) functions with no timer of their
-    // own (see checkStallPing on SubAgentDirector), so a silent leaf needs an
-    // external nudge to even get a decide() call. Ping the same continuation
-    // channel compaction uses at the stall interval; the director only acts on
-    // a ping if nothing happened since the last one. Drop the ping while
-    // ask_director is parked — do not defer it through compactContinue, or the
-    // post-unpark flush would look like a stall-window empty continuation.
+    // Directors are pure decide() functions with no timer (see
+    // checkStallPing), so a silent leaf needs an external nudge: ping the
+    // compaction continuation channel at the stall interval; the director
+    // acts only if nothing happened since. Skip while ask_director is
+    // parked — a deferred ping would make the post-unpark flush look like
+    // an empty stall window.
     stallWatchdog = setInterval(() => {
       if (askDirectorState.pending) return;
       deliverCompactContinue();
@@ -1351,17 +1284,16 @@ async function runSubAgentInner(
     });
 
     // Reuse the caller's session-store id as the on-disk directory name
-    // when it is safe as a path segment, so read_agent_trace's descendant
-    // check can walk the same parentSessionId chain SubAgentSessionStore
-    // already tracks instead of needing a second, disk-only identity
-    // scheme.
+    // when it is safe as a path segment, so read_agent_trace walks the
+    // same parentSessionId chain SubAgentSessionStore already tracks — no
+    // second, disk-only identity scheme.
     const safeRequestedId =
       params.id !== undefined && /^[A-Za-z0-9_-]+$/.test(params.id)
         ? params.id
         : undefined;
     const sessionId = safeRequestedId ?? generateSessionId();
-    // CL-9475: fleet-less runs mint their own id — keep the grant sidecar
-    // keyed to the same session the parent would observe.
+    // Fleet-less runs mint their own id — keep the grant sidecar keyed to
+    // the same session the parent would observe.
     if (workerGrantSessionId === undefined) workerGrantSessionId = sessionId;
     const workdir = join(params.workdirBase, "subagents", sessionId);
     await mkdir(workdir, { recursive: true });
@@ -1429,12 +1361,11 @@ async function runSubAgentInner(
       storage,
       workdir,
       // Secrets resolve out of the first-party credential cell (see
-      // ../config/source-credentials.ts): sources name a credentialId and the
-      // vendored harness reads the secret through this resolver at send time.
+      // ../config/source-credentials.ts): sources name a credentialId and
+      // the vendored harness reads the secret through this resolver.
       readCurrentMaterial: readSourceCredentialMaterial,
-      // contextTransforms ride deps: the published @intx/agent forwards deps
-      // into reactor assembly verbatim, and the vendored assembly picks the
-      // transforms up from there.
+      // contextTransforms ride deps: @intx/agent forwards deps into reactor
+      // assembly verbatim; the vendored assembly picks them up from there.
       deps: {
         ...inferenceDeps,
         contextTransforms: [
@@ -1468,13 +1399,12 @@ async function runSubAgentInner(
       }
     };
 
-    // Collect tool activity for the parent-facing report, and optionally forward
-    // progress without dumping the full sub-agent event stream into the chat
-    // transcript (which would interleave sub-agent text with the parent turn).
+    // Collect tool activity for the parent report; forward progress without
+    // dumping the event stream into the transcript (avoids interleaving).
     const toolNamesUsed: string[] = [];
     let lastPartialText = "";
-    // Accumulate assistant prose across turns (capped) so cancel/deadline
-    // salvage Findings keep substantive mid-run text, not only the final cycle.
+    // Cap accumulated prose so cancel/deadline salvage keeps substantive
+    // mid-run text, not only the final cycle.
     const TURN_PROSE_CAP = 12_000;
     let accumulatedProse = "";
     let terminalProviderError: InferenceErrorLike | undefined;
@@ -1484,9 +1414,8 @@ async function runSubAgentInner(
       ...result,
       telemetry: { ...telemetryRollup },
     });
-    // Watch the streamed text of the in-flight cycle so a salvage on
-    // cancel/deadline has the cycle's tail as its payload, even though no
-    // turn boundary has completed yet to carry it.
+    // Watch the in-flight cycle's streamed text so a cancel/deadline salvage
+    // has the cycle tail before a turn boundary carries it.
     const cycleRecorder = createCycleTextRecorder(() => workdir);
     const runSettlement = createRunEventSettlement();
     const streamSink = (rawEvent: ReactorEmittedEvent): void => {
@@ -1652,13 +1581,11 @@ async function runSubAgentInner(
       });
     }
 
-    // Hand the caller a bounded, idempotent close it can call at any time
-    // (close_agent) — independent of whether this run ends up retained.
-    // Aborting first stops a still-running turn before tearing down; on an
-    // already-finished turn the abort is a no-op. posix dispose/reap runs
-    // before waiting on agent.close so a wedged close cannot skip killing
-    // detached run_shell children. The deadline abandons a hung close and
-    // fails rather than reporting success while children may still be live.
+    // Bounded, idempotent close handle (close_agent). Abort stops a
+    // still-running turn; a finished turn is a no-op. posix dispose/reap
+    // runs before agent.close so a wedged close cannot skip killing
+    // detached run_shell children; the deadline abandons a hung close
+    // rather than report success while children stay live.
     if (params.onAgentReady !== undefined) {
       const boundedClose = async (
         deadlineMs = DEFAULT_CLOSE_DEADLINE_MS,
@@ -1678,15 +1605,14 @@ async function runSubAgentInner(
             deadlineMs,
           );
         } finally {
-          // The finally block kept the parent-abort forwarding listener alive
-          // for a persisted session (see runController.dispose's doc); now that
-          // this session is actually closing, tear it down for real.
+          // The finally block kept the parent-abort forwarding listener
+          // alive for a persisted session (see runController.dispose's doc);
+          // tear it down now that the session is actually closing.
           runController.dispose();
         }
       };
-      // Interrupt only fires interruptController — never runController/
-      // close, so it cannot hang teardown on a wedged agent.close. The session
-      // (and its live shell children) stays alive.
+      // Interrupt fires interruptController only — never runController or
+      // close — so a wedged agent.close cannot hang teardown; session lives.
       const interrupt = (): void => {
         if (!interruptController.signal.aborted) {
           interruptController.abort(
@@ -1700,8 +1626,8 @@ async function runSubAgentInner(
         resetAskDirectorTurn(askDirectorState);
         interruptController = new AbortController();
         // A steer supersedes the dispatched turn: mint a fresh submit_result
-        // token (the handler closure reads this binding, so the old token is
-        // rejected from here on) and hand the worker the replacement.
+        // token (the handler closure reads this binding, so the old token
+        // is rejected from here on) and hand the worker the replacement.
         let steered = message;
         if (turnToken !== undefined) {
           turnToken = generateSessionId();
@@ -1780,9 +1706,8 @@ async function runSubAgentInner(
       );
     try {
       ensureNotAborted();
-      // Combine the run's own controller with the dedicated interrupt
-      // signal so either one stops this send() call, while only
-      // runController's abort is wired to closeOnAbort/teardown.
+      // Either the run controller or the interrupt signal stops this send(),
+      // but only runController's abort is wired to closeOnAbort/teardown.
       const sendOpts = { signal: sendAbortSignal() };
       const outerStartedAt = Date.now();
       let attempt = 0;
@@ -1854,10 +1779,9 @@ async function runSubAgentInner(
         break;
       }
       if (result.type !== "reply") assertReplySend(result);
-      // A successful non-empty reply must not be clobbered by a late cancel that
-      // races the completion window — keep the completed report. Empty replies
-      // still honor abort so we salvage (or rethrow) rather than fabricating
-      // a "no textual result" success over a cancelled run.
+      // A successful non-empty reply must not be clobbered by a late cancel
+      // racing the completion window. Empty replies still honor abort so a
+      // cancelled run salvages or rethrows instead of faking a result.
       if (preferCompletedSubAgentReply(result.reply) === "honor-abort") {
         ensureNotAborted();
       }
@@ -1866,32 +1790,28 @@ async function runSubAgentInner(
           ? result.reply.trim()
           : "Sub-agent finished without a textual result.";
       // Normalize into the structured envelope so the parent always gets a
-      // consistent shape even when the model rambling-returns free-form prose.
+      // consistent shape even when the model returns free-form prose.
       const report = formatSubAgentReport(parseSubAgentReport(reply));
-      // A clean completion is the only outcome that retains: an aborted or
-      // salvaged run below falls through without setting this, so the
-      // finally block still tears down for those.
+      // Only a clean completion retains: an aborted or salvaged run falls
+      // through without setting this, so the finally still tears down.
       turnSucceeded = true;
       return withTelemetry({
         report: parentFacing(report, directorForcedStopReason),
         ...(directorForcedStopReason !== undefined
           ? { stopReason: directorForcedStopReason }
           : {}),
-        // Only this path skips teardown below when persist is set — tell
-        // the caller so a salvage below is never mistaken for a still-live,
-        // resumable agent.
+        // Only this path skips teardown under persist — tell the caller so
+        // a salvage below is never mistaken for a live, resumable agent.
         ...(params.persist === true ? { agentRetained: true } : {}),
       });
     } catch (err) {
       // interrupt_agent fired its own signal, not runController's — check
-      // that first so an interrupted send doesn't fall into the cancel/
-      // deadline salvage path or rethrow as a bare AbortError.
+      // first so it skips the cancel/deadline salvage and bare AbortError.
       if (thisTurnInterrupt.signal.aborted && !runController.signal.aborted) {
         interruptedKeepAlive = true;
-        // No stream drain here: the session stays alive for followup, so a
-        // stream held open by a live shell descendant would park this
-        // settlement forever. The recorder already snapshotted the buffer at
-        // entry; late events are simply unsalvaged.
+        // No stream drain: the session stays alive for followup, and a live
+        // shell descendant would park this settlement forever. The recorder
+        // snapshotted the buffer at entry; late events are unsalvaged.
         const abortedCycleText = await cycleRecorder.dispose("cancelled");
         const tail = salvageFindingsText(
           accumulatedProse,
@@ -1911,22 +1831,17 @@ async function runSubAgentInner(
         });
       }
       if (isSubAgentCancelError(err, runController.signal)) {
-        // Close the recorder against the dead cycle before its inference.error
-        // arrives: closing at entry stops that auto-flush from mislabeling this
-        // salvage with the generic error reason. Draining first lets the sink's
-        // own bookkeeping (lastPartialText) catch late tool.start / inference.done
-        // events before bare-vs-salvage is decided.
-        // Deadline is already known here; a parent cancel is labeled cancelled
-        // even if the outcome below resolves to rethrow. The drain is reaped
-        // on a bounded deadline: a stream wedged by a live shell descendant
-        // settles the run instead of parking it past every deadline.
+        // Close the recorder before the dead cycle's inference.error so its
+        // auto-flush cannot mislabel this salvage. Drain first so
+        // lastPartialText catches late tool events before bare-vs-salvage is
+        // decided. A parent cancel stays labelled cancelled even if the
+        // outcome below rethrows; the bounded drain reaps a wedged stream.
         const abortedCycleText = await cycleRecorder.dispose(
           runController.deadlineHit() ? "deadline" : "cancelled",
           { drain: drainStreamWithReapDeadline(streamPromise) },
         );
-        // Deadline always salvages (even with zero output). Cancel after any
-        // tools or assistant prose salvages so the parent keeps partial work;
-        // pre-progress cancel still surfaces as a bare AbortError.
+        // Deadline always salvages (even with zero output); cancel salvages
+        // after any progress. Pre-progress cancel surfaces as AbortError.
         const hadProgress =
           toolNamesUsed.length > 0 ||
           lastPartialText.trim().length > 0 ||
@@ -1969,28 +1884,24 @@ async function runSubAgentInner(
     }
   } finally {
     if (stallWatchdog !== undefined) clearInterval(stallWatchdog);
-    // A run keeps its agent alive either because it completed cleanly
-    // under persist, or because interrupt_agent fired and the session must
-    // stay reusable. Both skip teardown and both need the parent-signal
-    // listener kept so a later cancel still reaches them.
+    // A run keeps its agent alive on clean completion under persist, or
+    // when interrupt_agent fired and the session must stay reusable. Both
+    // skip teardown and keep the parent-signal listener for a later cancel.
     const persisting =
       (params.persist === true && turnSucceeded) || interruptedKeepAlive;
-    // A persisting run must keep the parent-signal forwarding alive (see
-    // createSubAgentRunController's dispose doc) — boundedClose (the
-    // close_agent handle) fully disposes the runController itself once the
-    // session actually tears down.
+    // A persisting run keeps the parent-signal forwarding alive (see
+    // createSubAgentRunController's dispose doc); boundedClose disposes the
+    // runController fully once the session actually tears down.
     runController.dispose({ keepParentListener: persisting });
-    // A persisted, cleanly-completed session skips teardown here — it
-    // stays open until close_agent (or a later failed/aborted run) tears it
-    // down.
+    // A persisted, cleanly-completed session skips teardown — it stays open
+    // until close_agent (or a later failed/aborted run) tears it down.
     if (!persisting || !backgroundShellsMounted) {
       backgroundShells.disposeAll("sub-agent closed");
     }
     if (!persisting) {
-      // Bounded like close_agent: a session teardown wedged by a live shell
-      // descendant fails the run instead of parking it forever. Tests inject
-      // a short deadline so wedged-close suites do not pay the production
-      // 30s bound; production never sets it and keeps the default.
+      // Bounded like close_agent: teardown wedged by a live shell descendant
+      // fails the run instead of parking it forever. Tests inject a short
+      // deadline; production keeps the 30s default.
       await awaitBoundedTeardown(
         disposeSubAgentSession({
           signal: runController.signal,

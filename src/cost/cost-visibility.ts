@@ -34,10 +34,10 @@ export function isCodingPlanProviderName(name: string): boolean {
 }
 
 // Codex OAuth bills against the user's ChatGPT subscription via
-// chatgpt.com/backend-api. Public per-token rates for the same model ids do
-// not apply there, so dollar estimates must be suppressed. Matched against
-// the canonical Codex base (origin + path prefix) so api.openai.com stays
-// metered and a bare chatgpt.com host does not hide costs.
+// chatgpt.com/backend-api; public per-token rates do not apply there, so
+// dollar estimates are suppressed. Matched against the canonical Codex base
+// (origin + path prefix) so api.openai.com stays metered and a bare
+// chatgpt.com host does not hide costs.
 const CODEX_BASE = new URL(CODEX_BASE_URL);
 const CODEX_ORIGIN = CODEX_BASE.origin;
 const CODEX_PATH = CODEX_BASE.pathname.replace(/\/$/, "").toLowerCase();
@@ -74,9 +74,8 @@ export interface CostVisibilityInput {
   baseURL?: string | undefined;
   // Live /model identity. When set, it wins over a stale launch baseURL for
   // ChatGPT-subscription and coding-plan hides: Codex names hide even on
-  // api.openai.com, zai names hide even on a metered URL; a present
-  // non-matching name shows even when launch URL would hide. Undefined
-  // falls back to URL.
+  // api.openai.com, zai names hide even on a metered URL. Undefined falls
+  // back to URL.
   providerName?: string | undefined;
   modelId: string;
   providerFree?: boolean | undefined;

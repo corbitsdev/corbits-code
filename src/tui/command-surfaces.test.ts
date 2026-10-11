@@ -266,8 +266,7 @@ describe("settings surface", () => {
       const deps: CommandSurfaceDeps = {
         notify: () => undefined,
         // Only the fields this test exercises; the rest of PluginsSurfaceDeps
-        // (credentials, verify, web providers) belongs to the plugins surface,
-        // not to this arrow-navigation scoping test.
+        // belongs to the plugins surface, not to this scoping test.
         plugins: {
           list: () => [
             {

@@ -31,10 +31,9 @@ export interface FirstClassProviderPath {
   /**
    * Models on this path whose endpoint rejects `max_tokens` and requires
    * `max_completion_tokens` instead (first-party OpenAI reasoning models).
-   * An explicit per-model list: adding a model here declares its own
-   * requirement, never inferred from name prefixes. Relays serving the same
-   * model names through other endpoints are unaffected — the quirk follows
-   * this endpoint, not the bare model name.
+   * Explicit per-model list, never inferred from name prefixes. Relays
+   * serving the same model names through other endpoints are unaffected —
+   * the quirk follows this endpoint, not the bare model name.
    */
   maxCompletionTokensModels?: readonly string[];
 }

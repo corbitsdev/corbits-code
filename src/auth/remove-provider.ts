@@ -7,9 +7,8 @@ import type { ProviderCatalogEntry } from "../config/index.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 
 /**
- * The auth-store side of removing an OAuth-projected provider. Owns no UI
- * and performs no settings edits — the caller deletes the catalog row and
- * only then drops the credential through this target.
+ * Auth-store side of removing an OAuth-projected provider: no UI, no settings
+ * edits — the caller deletes the catalog row, then drops the credential here.
  */
 export interface OAuthStoreTarget {
   /** Profile name embedded in the "<prefix><profile>" provider name. */
@@ -21,9 +20,9 @@ export interface OAuthStoreTarget {
   ) => Promise<string[]>;
 }
 
-// Maps a catalog provider to its OAuth auth store only when the current catalog
-// entry carries the matching auth-store profile marker. Names alone are
-// user-controlled and cannot authorize credential deletion.
+// Maps a catalog provider to its OAuth auth store only when the catalog entry
+// carries the matching auth-store profile marker; names alone are user-controlled
+// and cannot authorize credential deletion.
 export function oauthStoreForProvider(
   provider: Pick<
     ProviderCatalogEntry,

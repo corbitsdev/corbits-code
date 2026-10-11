@@ -1,7 +1,7 @@
-// MCP tools return arbitrary JSON, often huge (Linear's list_projects is tens of
-// thousands of characters). Rendering that verbatim freezes the TUI and is
-// unreadable. This module turns an MCP result into a compact, bounded, readable
-// form: a one-line preview ("12 projects") and a bounded multi-line body that
+// MCP tools return arbitrary JSON, often huge (Linear's list_projects is tens
+// of thousands of characters); rendering that verbatim freezes the TUI and is
+// unreadable. This module turns an MCP result into a compact, bounded,
+// readable form: a one-line preview and a bounded multi-line body that
 // summarizes each item by its salient fields rather than dumping raw JSON.
 
 const MAX_ITEMS = 30;
@@ -37,10 +37,10 @@ export interface McpRecords {
   label: string;
 }
 
-// Pull out the array-of-records an MCP result is "about", if any: a bare array of
-// objects, or the single array-valued key of a list wrapper. Returns null when
-// the result is not a record list (a single record, a scalar, or plain text),
-// in which case callers fall back to the text summary.
+// Pull out the array-of-records an MCP result is "about", if any: a bare
+// array of objects, or the single array-valued key of a list wrapper. Null
+// when the result is not a record list — callers fall back to the text
+// summary.
 export function extractMcpRecords(content: string): McpRecords | null {
   let parsed: unknown;
   try {

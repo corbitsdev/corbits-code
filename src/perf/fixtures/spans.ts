@@ -1,16 +1,11 @@
-/**
- * Shared span builders and reactor-event fixtures for perf tests. `span`
- * builds a PerfSpan with fixed nanosecond times (no live clock); the
- * `event`/`inferenceDone` pair feeds `createPerfReactorObserver`.
- */
+/** Shared builders and reactor-event fixtures for perf tests. */
 
 import { afterEach, beforeEach } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { clear, type PerfSpan } from "../index.js";
 
 /**
- * The span store is process-wide, so a perf test cannot assume the tests that
- * ran before it in this process left it empty. Reset on both edges.
+ * Span store is process-wide: earlier tests may leave it non-empty. Reset both edges.
  */
 export function useCleanSpanStore(): void {
   beforeEach(() => {

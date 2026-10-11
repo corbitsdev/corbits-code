@@ -74,10 +74,8 @@ describe("e2e — credential recovery switches the live source", () => {
             material: { secret: "backup-key" },
           },
         },
-        // The production Corbits policy with a stubbed OAuth refresh —
-        // the refresh succeeds, the retry is armed, the second 401 is
-        // terminal. A real scheduler lets the zero-delay retry actually
-        // elapse; the harness scheduler is inert.
+        // Production retry policy with a stubbed OAuth refresh; a real
+        // scheduler lets the zero-delay retry actually elapse.
         retryPolicy: createCorbitsRetryPolicy({
           providerId: PRIMARY.id,
           refreshCredential: async () => undefined,
@@ -145,9 +143,8 @@ describe("e2e — credential recovery switches the live source", () => {
           "no backup alternative offered",
         );
 
-        // Phase 2: the real switch path — setSources on the live agent,
-        // arm on the real director, deliver the continuation, then pump
-        // the replayed turn through the backup provider.
+        // Phase 2: switch sources on the live agent, arm the continuation,
+        // deliver, and pump the replayed turn through the backup provider.
         const pump = session.harness.run({ wallClockBudgetMs: Infinity });
         const acceptance = applyCredentialRecoverySelection({
           state: recovery,
@@ -180,8 +177,7 @@ describe("e2e — credential recovery switches the live source", () => {
         const backupHits = requests.filter((r) =>
           RequestURL.assert(r).url.includes(BACKUP_HOST),
         );
-        // Two primary hits prove the refresh→retry path ran: an inert or
-        // api-key provenance would terminal-fail after the first 401.
+        // Two primary hits prove the refresh→retry path ran.
         expect(primaryHits).toHaveLength(2);
         expect(backupHits).toHaveLength(1);
         // The replay carries the original operator message, not a synthetic

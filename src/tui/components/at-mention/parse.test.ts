@@ -35,7 +35,7 @@ describe("parseAtState", () => {
   });
 
   test("cursor inside a completed token still detects @", () => {
-    // cursor at position 4 inside "@src/foo" — still inside the token
+    // cursor inside "@src/foo" — still in the token
     expect(parseAtState("@src/foo", 4)).toEqual({ prefix: "src", atStart: 0 });
   });
 

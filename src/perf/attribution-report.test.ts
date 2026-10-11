@@ -139,12 +139,8 @@ describe("attributionFromSpans — subagent + transport", () => {
   });
 
   test("nested exclusive under subagent does not double-count (share sum ≈ 1)", () => {
-    // turn 10_000
-    //   inference 2000 (top-level exclusive)
-    //   subagent 6000 containing nested inference 2500 + tools 1500
-    //   tool 1000 (sibling exclusive)
-    // Exclusive: inference=2000, subagent=6000, tools=1000, other=1000
-    // Nested under subagent must NOT add 2500+1500 into exclusive buckets.
+    // Exclusive: inference=2000, subagent=6000, tools=1000, other=1000;
+    // nested subagent spans (2500+1500) do not add to exclusive buckets.
     const spans: PerfSpan[] = [
       span({ id: "t1", name: "turn", startNs: 0n, endNs: 10_000n }),
       span({

@@ -1,5 +1,5 @@
 /**
- * The single overlay host: float/relayout, reservations, deferred commands, close paths, answer field.
+ * The single overlay host: open/close paths, reservations, deferred commands.
  */
 import { type CliRenderer, type KeyEvent } from "@opentui/core";
 import { RUNTIME_FLASH_MS } from "../runtime-notices.js";
@@ -82,14 +82,9 @@ export function applyOverlayBodyText(
 ): void {
   const width = overlayRowWidth(shell.layout.contentWidth);
   const bag = shellInternals(shell);
-  // Scoped to decision overlays: a palette stacked over an open approval
-  // calls this too, with its own (usually empty) body text. Caching that
-  // would overwrite the approval's cached raw text with the palette's, and
-  // popping the palette restores the approval's `overlayBodyLines` but not
-  // this cache (`PriorOverlaySnapshot` never carried it) — so a resize right
-  // after would re-shape the approval's body from the palette's stale empty
-  // string instead of its own, blanking it. The palette itself never reads
-  // this cache (not a decision overlay), so it never needs to be cached.
+  // Cache decision overlays only: a stacked palette calls this too and never
+  // reads the cache — caching would let it clobber the approval's cache on
+  // resize (the snapshot never carried it).
   if (bag && isDecisionOverlay(shell.overlayKind))
     bag.overlayRawBodyText = text;
   if (text.length === 0) {
@@ -119,11 +114,8 @@ export function applyOverlayBodyText(
   shell.overlayBodyFgs = lines.map(() => UI.text);
 }
 
-/**
- * Snapshot the live primary frame: list, body, bindings, answer field, title.
- * The palette stack and command-surface suspend share it so a suspended
- * surface returns pixel-identical.
- */
+/** Snapshot the live primary frame (list, body, bindings, answer, title)
+ * so a suspended surface restores pixel-identical. */
 function capturePrimaryFrame(
   shell: AppShell,
   bag: NonNullable<ReturnType<typeof shellInternals>>,
@@ -144,7 +136,7 @@ function capturePrimaryFrame(
   };
 }
 
-/** Restore a frame captured by `capturePrimaryFrame` onto the empty host. */
+/** Restore a frame from `capturePrimaryFrame` onto the empty host. */
 function restorePrimaryFrame(
   shell: AppShell,
   bag: NonNullable<ReturnType<typeof shellInternals>>,
@@ -175,13 +167,10 @@ function restorePrimaryFrame(
 }
 
 /**
- * Command surfaces that occupy the shared host and can yield to a decision
- * gate. Kinds are the live `PrimaryOverlayKind` values those surfaces open
- * with (`model_picker` / `add_provider`, not the command-surface aliases
- * `models` / `add-provider`). Inline popups (mentions, palette, pickers that
- * stack) keep their stacking contracts — suspending one would strand its
- * owner, the CL-6698 mention-refresh stall — so a gate arriving behind them
- * stays queued.
+ * Replaceable surfaces that yield the host to a decision gate, keyed by the
+ * `PrimaryOverlayKind` they open with (`model_picker` / `add_provider`, not
+ * the `models` / `add-provider` aliases). Popups are never suspended — that
+ * strands their owner — so gates behind them stay queued.
  */
 const GATE_PREEMPTABLE_SURFACE_KINDS: ReadonlySet<PrimaryOverlayKind> = new Set(
   [
@@ -197,12 +186,9 @@ const GATE_PREEMPTABLE_SURFACE_KINDS: ReadonlySet<PrimaryOverlayKind> = new Set(
 );
 
 /**
- * Suspend the live replaceable command surface so a decision gate can take
- * the host; the surface returns after the gate settles (see
- * `resumeSuspendedCommandSurface`). Live gates and stacked popups
- * (palette, mentions) keep their contracts: arrivals behind them
- * stay queued. Never loses a surface: a second suspend is a no-op while one
- * is held.
+ * Suspend the live replaceable surface for an arriving decision gate; it
+ * returns after the gate settles. Live gates and popups are never suspended;
+ * a second suspend while one is held is a no-op.
  */
 export function suspendReplaceableOverlay(shell: AppShell): void {
   const bag = shellInternals(shell);
@@ -214,24 +200,19 @@ export function suspendReplaceableOverlay(shell: AppShell): void {
   const frame = capturePrimaryFrame(shell, bag);
   if (frame === null) return;
   bag.suspendedCommandSurface = frame;
-  // Suspend is not dismiss: keep the captured onCancel/onDispose for restore.
-  // closeInsetOverlay would otherwise run both — MCP's onDispose unsubscribes
-  // without a matching onOpened on restore, and remove-confirm onCancel would
-  // reopen a list onto the empty host and steal it from the arriving gate.
+  // Suspend is not dismiss: null the callbacks so close cannot run them (MCP
+  // would unsubscribe without onOpened; remove-confirm would reopen a list
+  // and steal the host from the arriving gate).
   bag.primaryBindings.onCancel = null;
   bag.primaryBindings.onDispose = null;
   // Restore reuses this SelectRenderable; clearBody would destroy it.
   shell.overlayView.detachList(frame.list);
-  // Unsuspended close: idle-notify lets an older queued gate take the host
-  // first (FIFO); the caller opens its gate only if the host is still free.
+  // Unsuspended close: idle-notify lets an older queued gate take the host.
   closeInsetOverlay(shell);
 }
 
-/**
- * Return a suspended command surface to the host. No-op unless the host is
- * empty — a queued gate always takes it first (the settle path drains gates
- * before calling here).
- */
+/** Return a suspended surface to the host. No-op while busy — a queued gate
+ * always takes it first (the settle path drains gates). */
 export function resumeSuspendedCommandSurface(shell: AppShell): void {
   const bag = shellInternals(shell);
   const suspended = bag?.suspendedCommandSurface;
@@ -242,13 +223,12 @@ export function resumeSuspendedCommandSurface(shell: AppShell): void {
 }
 
 /**
- * Open an inset list overlay on the shared host (permissions / operator / picker / palette).
- * Measures body + list into geometry — no guessed absolute paint.
- *
- * Single host: a non-palette open while anything is showing is a silent no-op
- * unless `deferIfBusy` is set, in which case it waits in one deferred slot
- * with a system line. Callers that replace a non-gate list close it first.
- * Palette may stack over a prior primary.
+ * Open an inset list overlay on the shared host (permissions / operator /
+ * picker / palette); measures body + list into geometry — no guessed paint.
+ * Single host: a non-palette open while anything shows is a silent no-op
+ * unless `deferIfBusy` queues it (one slot, with a system line);
+ * replace-first callers close a non-gate list first; palette stacks over a
+ * prior primary.
  */
 export function openListOverlay(
   shell: AppShell,
@@ -257,10 +237,6 @@ export function openListOverlay(
   const kind = opts?.kind ?? "demo";
   const isPalette = kind === "palette";
 
-  // Single host: non-palette open is a silent no-op while anything is open,
-  // unless the caller opted into the one deferred command-surface slot.
-  // Command surfaces that should replace a non-gate list call
-  // closeReplaceableOverlay first. Palette may stack over a prior primary.
   if (shell.overlayList) {
     if (!isPalette) {
       if (opts?.deferIfBusy === true) deferBusyCommandOpen(shell, opts);
@@ -329,29 +305,26 @@ export function openListOverlay(
           : {
               text: "",
               // With nothing to choose, typing is the only way to answer, so
-              // the field takes the keys immediately.
+              // the field takes keys immediately.
               active: opts.textAnswerActive ?? labels.length === 0,
               onSubmit: opts.onTextAnswer,
             };
     }
   }
 
-  // Type-to-filter list overlays paint a `>` query row; everything else uses
-  // the caller's body text (or empty).
+  // Type-to-filter overlays paint a `>` query row; the rest use the caller's
+  // body text (or empty).
   const bodyText =
     !isPalette && opts?.typeToFilter === true
       ? `> ${bag?.listFilter?.query ?? ""}`
       : (opts?.body ?? "");
-  // Operator question and permission approval context get body lines; other
-  // list-only overlays keep the body empty.
+  // Operator questions and approval context get body lines; list-only
+  // overlays stay empty.
   applyOverlayBodyText(shell, bodyText, 0);
 
-  // Ask for exactly what the content needs. The resolver caps the request
-  // against OVERLAY_MAX_FRACTION and the transcript floor, and applyLayout
-  // shrinks the viewport to whatever survived — so a longer list scrolls
-  // instead of growing, and a short one leaves no dead rows below it.
-  // An empty list charges no rows: a chooser with nothing to choose must not
-  // reserve a blank band the operator can neither read nor act on.
+  // Ask for exactly what the content needs: the resolver caps against
+  // OVERLAY_MAX_FRACTION and the transcript floor — longer lists scroll,
+  // short ones leave no dead rows, empty ones charge nothing.
   const listItems = labels.length;
 
   shell.overlayList = createOverlayList(shell.renderer as CliRenderer, {
@@ -421,10 +394,8 @@ export function repaintListFilter(shell: AppShell): void {
   setOverlayBody(shell, `> ${state.query}`);
 }
 
-/**
- * Move the open overlay's free-text field in or out of taking keystrokes.
- * Returns false when the overlay offers no such field.
- */
+/** Toggle whether the open overlay's free-text field takes keystrokes.
+ * False when the overlay offers no such field. */
 export function setOverlayAnswerActive(
   shell: AppShell,
   active: boolean,
@@ -438,10 +409,8 @@ export function setOverlayAnswerActive(
   return true;
 }
 
-/**
- * Esc inside a live answer field means "back to the choices", not "abandon the
- * question" — but only when there are choices to go back to.
- */
+/** Esc in a live answer field means "back to the choices" — but only when
+ * choices exist. */
 export function exitOverlayAnswerMode(shell: AppShell): boolean {
   const answer = overlayAnswerState(shell);
   if (answer === null || !answer.active) return false;
@@ -449,11 +418,8 @@ export function exitOverlayAnswerMode(shell: AppShell): boolean {
   return setOverlayAnswerActive(shell, false);
 }
 
-/**
- * Keys the free-text answer field claims while it is taking input. Printable
- * characters and backspace edit the answer; Enter submits it and closes the
- * overlay through the per-open `onTextAnswer` callback.
- */
+/** Keys the answer field claims while active: printable/backspace edit the
+ * answer; Enter submits and closes via the per-open `onTextAnswer`. */
 export function handleOverlayAnswerKey(
   shell: AppShell,
   key: KeyEvent,
@@ -486,8 +452,8 @@ export function handleOverlayAnswerKey(
         meta: overlayKindWord(shell.overlayKind ?? "operator"),
       });
     }
-    // Deliberate submit, not a dismiss — closeInsetOverlay must not also fire
-    // the Esc/cancel path.
+    // Deliberate submit, not a dismiss — closeInsetOverlay must not fire the
+    // Esc/cancel path.
     if (bag) bag.primaryBindings.onCancel = null;
     closeInsetOverlay(shell);
     submit(text);
@@ -527,9 +493,8 @@ export function closeInsetOverlay(
   const bag = shellInternals(shell);
   if (bag) bag.listFilter = null;
   const prior = wasPalette ? (bag?.priorOverlay ?? null) : null;
-  // A primary overlay that registers onCancel owns cleanup for every dismiss
-  // path. A palette stacked over another overlay restores that prior frame
-  // instead, so its callback must remain untouched.
+  // A primary overlay's onCancel owns cleanup for every dismiss path; a
+  // palette restores the prior frame instead, so its callback stays untouched.
   const onCancel = !prior ? (bag?.primaryBindings.onCancel ?? null) : null;
   const onDispose = !prior ? (bag?.primaryBindings.onDispose ?? null) : null;
 
@@ -540,8 +505,8 @@ export function closeInsetOverlay(
   shell.paletteCommands = [];
   shell.copyTargets = null;
   shell.overlayView.clearBody();
-  // Esc / dismiss: drop accept path without invoking it (onCancel above is
-  // captured before this clears, and is invoked separately once state settles).
+  // Esc/dismiss: drop the accept path without invoking it — onCancel fires
+  // separately once state settles.
   if (bag && !prior) {
     bag.primaryBindings = { ...EMPTY_PRIMARY_BINDINGS };
     bag.overlayAnswer = null;
@@ -575,10 +540,9 @@ export function closeInsetOverlay(
   applyFocus(shell);
   if (bag) bag.overlayGeneration += 1;
   // Keystroke-driven `/` re-parse dismisses (empty arg stage, multi-token
-  // tail) suppress this: the operator is mid-word, and the notify is what a
-  // queued permission/operator gate waits on to drain. The gate stays queued
-  // until the next genuine dismiss or submit. Deferred command surfaces still
-  // flush below — only the gate-draining notify is suppressed.
+  // tail) suppress this: the operator is mid-word, and a queued gate waits on
+  // the notify to drain. Deferred surfaces still flush — only that notify is
+  // suppressed.
   if (!opts?.suppressIdleNotify && isOverlayHostIdle(shell)) {
     notifyOverlayClosed(shell);
   }
@@ -591,12 +555,9 @@ export function closeInsetOverlay(
 }
 
 /**
- * Close the current overlay only when dismissing it does not settle a
- * decision gate (`isGate`). Command surfaces that need a fresh host
- * (settings cycle, plugins, mcp) call this instead of `closeInsetOverlay`
- * so a live gate is left in place and `openListOverlay` can defer.
- * Overlays that bind `onDispose` for cleanup (mcp unsubscribe) still
- * run that hook; `onCancel` is Esc/dismiss only and is skipped here.
+ * Close the current overlay unless it settles a decision gate (`isGate`).
+ * Surfaces that need a fresh host (settings cycle, plugins, mcp) use this so
+ * a live gate stays put; `onDispose` still runs, `onCancel` is skipped.
  */
 export function closeReplaceableOverlay(shell: AppShell): void {
   const bag = shellInternals(shell);
@@ -606,9 +567,9 @@ export function closeReplaceableOverlay(shell: AppShell): void {
 }
 
 /**
- * Subscribe to "the overlay host is idle". Idle means no live list, no
- * deferred command surface, and no host reservations. Callers that must not
- * lose an open (gate wiring) queue on this instead of racing a busy host.
+ * Subscribe to "overlay host is idle" (per `isOverlayHostIdle`). Callers
+ * that must not lose an open (gate wiring) queue on this instead of racing
+ * a busy host.
  */
 export function onOverlayClosed(
   shell: AppShell,
@@ -622,11 +583,8 @@ export function onOverlayClosed(
   };
 }
 
-/**
- * True when the shared overlay host can accept a new primary open: the shell
- * is live, no list is showing, no deferred command is waiting, and nothing
- * holds a reservation.
- */
+/** True when the host can accept a new primary open: shell live, no list,
+ * no deferred command, no reservation. */
 export function isOverlayHostIdle(shell: AppShell): boolean {
   if (shell.disposed) return false;
   const bag = shellInternals(shell);
@@ -646,10 +604,9 @@ export function notifyOverlayClosed(shell: AppShell): void {
 }
 
 /**
- * Hold the overlay host idle-notify while an async command surface is still
- * claiming it (permissions.list() before settings/permissions paint). Release
- * clears the hold, flushes a deferred surface if one is waiting, and notifies
- * if the host is actually idle.
+ * Hold the idle-notify while an async surface still claims the host
+ * (permissions.list() before paint). Release clears the hold, flushes a
+ * deferred surface, and notifies if idle.
  */
 export function reserveOverlayHost(shell: AppShell): () => void {
   const bag = shellInternals(shell);
@@ -748,9 +705,8 @@ export function setOverlayBody(
 ): void {
   if (!shell.overlayList) return;
   applyOverlayBodyText(shell, text, maxLines);
-  // Ask for the whole list again, not the height it currently has: a body that
-  // shrank should hand its rows back to the choices rather than leave the
-  // viewport stuck at the size an earlier, taller body forced it to.
+  // Re-ask the full list, not its current height: a shrunken body hands its
+  // rows back rather than leaving the viewport at the earlier size.
   relayoutOverlayHost(shell, shell.overlayItems.length);
   paintOverlayList(shell);
 }
@@ -759,7 +715,8 @@ export interface OverlayContinuationToken {
   readonly generation: number;
 }
 
-/** Capture overlay generation for an async continuation. Stale after a newer open, a full close, or Esc abort. */
+/** Capture overlay generation for an async continuation. Stale after a
+ * newer open, a full close, or Esc abort. */
 export function captureOverlayContinuation(
   shell: AppShell,
 ): OverlayContinuationToken {
@@ -785,10 +742,8 @@ export function isOverlayGenerationCurrent(
   );
 }
 
-/**
- * Refresh an overlay owned by either the foreground or the frame beneath a
- * stacked palette. Returns false once that overlay no longer owns either slot.
- */
+/** Refresh an overlay owned by the foreground or the frame beneath a stacked
+ * palette. False once it no longer owns either slot. */
 export function setOwnedOverlayItems(
   shell: AppShell,
   kind: PrimaryOverlayKind,
@@ -847,12 +802,9 @@ export function setOwnedOverlayItems(
   return true;
 }
 
-/**
- * Replace the open overlay's item labels (and optionally ids) in place,
- * keeping the active row's position. Cycling a value redraws the row it
- * changed rather than closing and reopening the overlay, which would lose
- * the cursor and retrigger the open animation for a one-key edit.
- */
+/** Replace the open overlay's item labels (and optionally ids) in place,
+ * keeping the active row. No close/reopen: that would lose the cursor and
+ * retrigger the open animation. */
 export function setOverlayItems(
   shell: AppShell,
   items: readonly string[],
@@ -865,17 +817,16 @@ export function setOverlayItems(
   const bag = shellInternals(shell);
   if (bag && itemIds) bag.primaryBindings.itemIds = [...itemIds];
   if (bag && itemValues) bag.primaryBindings.itemValues = [...itemValues];
-  // Most callers (mention/model-picker filtering) keep the operator's current
-  // selection as the list narrows. The `/` popup instead resets to the top
-  // row on every keystroke, matching pre-refresh behavior where each filter
-  // reopened the overlay fresh.
+  // Most callers keep the current selection as the list narrows; the `/`
+  // popup resets to the top row on every keystroke.
   shell.overlayList.setCount(items.length);
   if (opts?.resetActive) shell.overlayList.jump(0);
   paintOverlayList(shell);
 }
 
-/** Accept active overlay item → callback + system line + close (palette dispatches action).
- * Mention Enter that is not live (stale generation or cursor off that `@`) dismisses. */
+/** Accept the active overlay item: callback + system line + close (palette
+ * dispatches action). Mention Enter that is not live (stale generation or
+ * cursor off that `@`) dismisses. */
 export function acceptOverlaySelection(shell: AppShell): void {
   if (!shell.overlayList) return;
 
@@ -887,10 +838,9 @@ export function acceptOverlaySelection(shell: AppShell): void {
   const bag = shellInternals(shell);
   const kind = shell.overlayKind ?? "demo";
   // Empty chooser: Enter must not synthesize a phantom row. Stay open when a
-  // free-text answer field is the way to reply, or when this is not a live
-  // gate. A live gate with nowhere to answer fail-closes via onAccept with no
-  // id so the helper can mark unavailable instead of hanging or impersonating
-  // Esc/Reject through onCancel.
+  // free-text field is the reply path or this is not a live gate — a gate
+  // with nowhere to answer fail-closes via onAccept with no id, instead of
+  // hanging or faking Esc/Reject.
   if (shell.overlayItems.length === 0) {
     if (
       bag?.primaryBindings.isGate !== true ||
@@ -915,8 +865,8 @@ export function acceptOverlaySelection(shell: AppShell): void {
   if (kind === "palette") {
     const cmd = shell.paletteCommands[idx];
     if (!cmd) {
-      // Type-to-filter plants a "(no matches)" row with no command. Stay open.
-      // Slash popup (`typeToFilter: false`) still closes — intentional dismiss.
+      // Type-to-filter's "(no matches)" row has no command — stay open; a
+      // slash popup (typeToFilter: false) still closes intentionally.
       if (bag?.paletteFilter?.typeToFilter === true && !isSlashPopupOpen(shell))
         return;
       closeInsetOverlay(shell);
@@ -945,11 +895,10 @@ export function acceptOverlaySelection(shell: AppShell): void {
   const painted = shell.overlayList.select.getSelectedOption()?.value;
   const itemIds = bag?.primaryBindings.itemIds ?? [];
   const idKeyed = typeof painted === "string" && itemIds.includes(painted);
-  // Gate accept is id-keyed. A painted Select value missing from the live
-  // itemIds is a stale or mismatched row — remapping via index would bind
-  // Enter to the new question's same-index choice. Dispatch the painted id
-  // (or omit id) so the gate helper fail-closes as unavailable instead of
-  // impersonating Reject through onCancel.
+  // Gate accept is id-keyed: a painted value missing from the live itemIds is
+  // a stale row — remapping via index would bind Enter to the new question's
+  // same-index choice. Dispatch the painted id (or omit it) so the gate
+  // helper fail-closes as unavailable instead of impersonating Reject.
   let id: string | undefined;
   if (idKeyed) {
     id = painted;
@@ -958,9 +907,8 @@ export function acceptOverlaySelection(shell: AppShell): void {
   } else if (typeof painted === "string") {
     id = painted;
   }
-  // Type-to-filter plants "(no matches)" with an empty-id sentinel. Stay open
-  // on non-gate lists. A live gate must not dead-end — omit the sentinel so
-  // the helper fail-closes as unavailable.
+  // "(no matches)" carries an empty-id sentinel: stay open on non-gate lists;
+  // a live gate must not dead-end, so omit the sentinel and fail-closed.
   if (id === "") {
     if (bag?.primaryBindings.isGate !== true) return;
     id = undefined;
@@ -975,8 +923,8 @@ export function acceptOverlaySelection(shell: AppShell): void {
   };
   // Capture before close clears per-open state.
   const perOpen = bag?.primaryBindings.onAccept ?? null;
-  // This is a deliberate accept, not a dismiss — closeInsetOverlay must not
-  // also fire the Esc/cancel path below.
+  // Deliberate accept, not dismiss — closeInsetOverlay must not fire the
+  // Esc/cancel path.
   if (bag) bag.primaryBindings.onCancel = null;
 
   if (bag?.overlayEchoChoice !== false) {
@@ -986,8 +934,8 @@ export function acceptOverlaySelection(shell: AppShell): void {
       meta: overlayKindWord(kind),
     });
   }
-  // Accept is not operator dismiss: keep mention accept state for onAccept
-  // after this close (closeInsetOverlay would otherwise bump the generation).
+  // Accept is not dismiss: keep mention accept state for onAccept after
+  // this close (closeInsetOverlay would bump the generation).
   if (kind === "mentions") mentionPopups.delete(shell);
   const release = reserveOverlayHost(shell);
   closeInsetOverlay(shell);
@@ -998,10 +946,8 @@ export function acceptOverlaySelection(shell: AppShell): void {
   }
 }
 
-/**
- * Dispatch a selected `/` command list item after the popup has closed.
- * Every entry is registry-backed — the host's `onCommand(name)` runs it.
- */
+/** Dispatch a selected `/` command item after the popup closes. Every entry
+ * is registry-backed — the host's `onCommand(name)` runs it. */
 export function dispatchPaletteSelection(
   shell: AppShell,
   cmd: PaletteCommand,

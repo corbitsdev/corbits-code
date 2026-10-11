@@ -39,11 +39,11 @@ import {
   selectableZenModelIds,
 } from "./model-catalogs.js";
 
-// CL-5691: provider/model identity unification. FIRST_CLASS_PROVIDERS is the
-// canonical static registry; the Codex/xAI live-fetch fallbacks stay separate
-// (they back live calls) but every auth path serving the same provider must
-// agree on identity metadata. These tests fail loudly on drift instead of
-// letting another list quietly diverge.
+// Provider/model identity unification. FIRST_CLASS_PROVIDERS is the canonical
+// static registry; the Codex/xAI live-fetch fallbacks stay separate (they back
+// live calls) but every auth path serving the same provider must agree on
+// identity metadata. These tests fail loudly on drift instead of letting
+// another list quietly diverge.
 describe("provider identity divergence", () => {
   beforeEach(() => {
     resetZenModelDiscoveryForTests();

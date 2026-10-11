@@ -1,19 +1,12 @@
 /**
  * Intervention log: one record every time the harness decides a run is stuck.
  *
- * There was no way to tell how often a stop or nudge trigger was wrong. Every
- * threshold in the tree was set by judgment, and the tuning history is a
- * record of that not working — a grok 6/10 pair reverted as miscalibrated,
- * and a grok stall timeout reverted.
+ * Threshold tuning used to be judgment calls with no data. Each record
+ * carries the trigger's measured value beside its threshold, the model it
+ * fired on, and run state to judge later whether the run was stuck.
  *
- * The point of this file is that a threshold change can cite data. Each record
- * carries the trigger's *measured value beside its threshold*, the identity of
- * the model it fired on, and enough run state to judge afterwards whether the
- * run was actually stuck — did it edit files, how far into its budget was it,
- * did the parent later succeed on a mutated brief.
- *
- * Writes are best effort and never block or throw: a diagnostic must not be
- * able to fail a run.
+ * Writes are best effort and never block or throw: a diagnostic must
+ * never fail a run.
  */
 
 import { appendFile } from "node:fs/promises";
@@ -26,15 +19,13 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 export const INTERVENTION_FILE = "interventions.jsonl";
 
 /**
- * What the harness did. `stop` ends the run, `nudge` injects text and keeps
+ * What the harness did: `stop` ends the run, `nudge` injects text and keeps
  * running, `block` refuses a parent re-dispatch. `outcome` records what a
- * completed dispatch actually produced (a salvage kind or a clean complete),
- * independent of any stop/nudge/block — it is the log's real outcome signal:
- * a `block` record can be read alongside the `outcome` record(s) for later
- * dispatches of the same brief fingerprint to see what, if anything, the
- * parent's re-dispatch after a mutated brief actually produced. `conflict`
- * records a detected overlap between two concurrently running lanes; it is
- * advisory only — the dispatch that triggered it was never blocked.
+ * completed dispatch produced (a salvage kind or a clean complete),
+ * independent of any stop/nudge/block — the log's real outcome signal, so
+ * a `block` record reads alongside later `outcome` records of the same
+ * brief fingerprint. `conflict` records overlap between two concurrent
+ * lanes; advisory only — it never blocked the dispatch.
  */
 export type InterventionClass =
   | "stop"
@@ -77,10 +68,10 @@ export interface InterventionRecord {
   /** Present on `class: "outcome"` records only. */
   outcome?: InterventionOutcome;
   /**
-   * Run state at the moment of the decision — the raw material for judging the
-   * decision later. `editedPaths` is the count of paths the run had already
-   * written when the trigger fired, recorded so a stop can be weighed against
-   * what the run had already produced, not treated as proof either way.
+   * Run state at the moment of the decision — the raw material for judging
+   * it later. `editedPaths` counts paths the run had already written when
+   * the trigger fired, so a stop can be weighed against what the run
+   * produced.
    */
   state?: {
     turnsCompleted?: number;
@@ -91,9 +82,8 @@ export interface InterventionRecord {
   /** Free-form specifics, kept short (a looped window, a refused fingerprint). */
   detail?: string;
   /**
-   * How many consecutive same-trigger audits this record represents. Present when
-   * the director coalesced a burst (e.g. several failed tool.done events before
-   * the pending recovery nudge was consumed) into one flush. Absent means one.
+   * How many consecutive same-trigger audits this record represents, when the
+   * director coalesced a burst into one flush. Absent means one.
    */
   count?: number;
 }
@@ -110,10 +100,9 @@ export type InterventionSink = (
     "ts" | "role" | "provider" | "model" | "family" | "intent"
   > &
     // Outcome records are written parent-side, one per completed dispatch, so
-    // provider/model/family are not fixed at sink construction like a leaf's
-    // context — they vary per call with the child that was actually dispatched.
-    // Omitting these keys (not passing them as undefined) leaves the sink's
-    // bound context untouched for callers that do have a fixed context.
+    // provider/model/family vary per call. Omitting the keys (not passing
+    // undefined) leaves the sink's bound context untouched for fixed-context
+    // callers.
     Partial<Pick<InterventionRecord, "provider" | "model" | "family">>,
 ) => void;
 
@@ -123,9 +112,9 @@ export const NOOP_INTERVENTION_SINK: InterventionSink = () => undefined;
 /**
  * Append-only sink over `<dir>/interventions.jsonl`.
  *
- * Appends are fire-and-forget: the caller is a director decision path, and a
- * diagnostic write must not add latency to it or fail the run. Ordering within
- * a run is preserved by chaining each append onto the previous one.
+ * Fire-and-forget: the caller is a director decision path, and a diagnostic
+ * write must not add latency or fail the run. Ordering within a run is
+ * preserved by chaining each append onto the previous one.
  */
 export function createInterventionLog(
   dir: string,

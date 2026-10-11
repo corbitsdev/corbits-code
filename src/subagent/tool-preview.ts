@@ -2,10 +2,10 @@
  * One-line previews of what a live tool call is doing — the subject of a lane
  * row, not a serialisation of its arguments.
  *
- * Operators watching a fleet need to tell six shell commands apart;
- * the bare tool name cannot. Previews are bounded, single-line, and secret-
- * scrubbed so the agents strip never becomes a new leak path for credentials
- * that happen to sit in a command string.
+ * Operators watching a fleet need to tell shell commands apart; the bare tool
+ * name cannot. Previews are bounded, single-line, and secret-scrubbed so the
+ * agents strip never becomes a new leak path for credentials that happen to
+ * sit in a command string.
  */
 
 import { scrubSecrets } from "../web/secret-scrub.js";
@@ -35,8 +35,8 @@ function extractSubject(name: string, rawArgs: string): string | null {
   if (rawArgs.length === 0) return null;
   const args = parseObject(rawArgs);
   if (args === null) {
-    // Incomplete JSON streams through here mid-delta. Do not surface the raw
-    // fragment as a subject — wait for a parseable object.
+    // Incomplete JSON streams through here mid-delta; wait for a parseable
+    // object rather than surfacing a raw fragment.
     const trimmed = rawArgs.trim();
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) return null;
     // Non-JSON payload — only useful when short enough to be the whole subject.
@@ -48,8 +48,7 @@ function extractSubject(name: string, rawArgs: string): string | null {
 
   const tool = name.toLowerCase();
 
-  // Shell: the command is the whole story. Old surface replaced the tool name
-  // with it entirely; we produce the same subject here.
+  // Shell: the command is the whole story.
   if (
     tool === "run_shell" ||
     tool === "shell" ||

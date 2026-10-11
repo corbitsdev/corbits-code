@@ -10,9 +10,9 @@ import {
 import { GROK_PROMPT_RESIDUAL } from "./model-family-policy.js";
 
 // Advertise every gated core tool when the caller has no session-start facts
-// (tests, ad-hoc prompt previews) — except wait_agents, which is mount-gated:
-// the default preview shows the unmounted (TUI/nested) surface. Real sessions
-// always pass their detected availability — see tui/runner.ts and exec/runner.ts.
+// (tests, ad-hoc prompt previews), except wait_agents — it is mount-gated and
+// the default preview shows the unmounted surface. Real sessions always pass
+// their detected availability.
 const DEFAULT_TOOL_AVAILABILITY: ToolAvailability = {
   languageServerAvailable: true,
 };
@@ -52,13 +52,10 @@ export function buildChatRole(
 }
 
 // Facts the model cannot derive from its training: what the permission layer
-// blocks, what loads on demand, and the harness-specific tools. Everything a
-// frontier model already knows about being a coding agent is deliberately omitted.
-// `dynamicTools` controls the tool-loading fact: the main chat agent starts with
-// core tools plus the advertised catalog and finds MCP and other unadvertised
-// tools via tool_search, whereas a sub-agent is
-// handed its full toolset upfront and has no tool_search — telling it otherwise
-// wastes turns on a tool that does not exist.
+// blocks, what loads on demand, and the harness-specific tools. `dynamicTools`
+// controls the tool-loading fact: the main chat agent starts with core tools
+// plus the advertised catalog and finds MCP/plugin tools via tool_search; a
+// sub-agent gets its full toolset upfront and has no tool_search.
 export function buildHarnessFacts(
   opts: {
     dynamicTools?: boolean;
@@ -251,8 +248,7 @@ export function buildGuidelines(
 
 // Shared across every provider family and both chat/sub-agent entry points —
 // appended exactly once per built prompt. Prohibition form throughout: these
-// are the failure modes observed across shipped agents (OpenCode, Codex CLI,
-// Gemini CLI, Claude Code, Warp, Aider, Cline), not general advice.
+// are the failure modes observed across shipped agents, not general advice.
 export function buildPromptDisciplineBlock(
   opts: { subAgent?: boolean } = {},
 ): string {
@@ -302,9 +298,9 @@ export function buildActiveContext(
   ].join("\n");
 }
 
-// The live environment, computed per run. This is what lets a weaker model act
-// without burning turns rediscovering its own situation: where it is, what git
-// looks like right now, and what sits at the top level.
+// The live environment, computed per run. Lets a weaker model act without
+// burning turns rediscovering where it is, what git looks like right now, and
+// what sits at the top level.
 export function buildEnvironmentContext(env: EnvironmentInfo): string {
   const lines = [
     "<env>",
@@ -342,8 +338,7 @@ function contextSection(env?: EnvironmentInfo): string {
 }
 
 // The static base — role, harness facts, guidelines. A SYSTEM.md override
-// keeps custom text but still appends mode-specific harness + guidelines; tools,
-// env, and appended extensions attach after that.
+// keeps custom text but still appends mode-specific harness + guidelines.
 function baseSection(
   baseOverride: string | undefined,
   sessionMode: SessionMode,
@@ -382,8 +377,8 @@ export function buildChatSystemPrompt(
   guidelineConfig?: GuidelineConfig,
   opts: {
     /**
-     * Family policy residual (CL-8297) appended once at the tail so it
-     * cannot disturb the cached prompt prefix. Unset for families with none.
+     * Family policy residual appended once at the tail so it cannot disturb
+     * the cached prompt prefix. Unset for families with none.
      */
     promptResidual?: string | undefined;
   } = {},
@@ -435,10 +430,8 @@ export function buildSubAgentReportContract(
 // Tiny residual for Grok/xAI workers: mining showed higher tools-only thrash
 // than Codex on the same harness. Shared thrash harness + spawn contracts do
 // the structural work; this is only a finish-bias nudge, not a full rewrite.
-// Single source of truth is the GROK_PROMPT_RESIDUAL block in
-// model-family-policy.ts (CL-8296 merged the three ceremony lines into it);
-// this returns that block verbatim so the prompt carries one grok residual
-// with no line twice.
+// Returns GROK_PROMPT_RESIDUAL (model-family-policy.ts) verbatim so the
+// prompt carries one grok residual with no line twice.
 export function buildGrokLeafAntiThrashNote(): string {
   return GROK_PROMPT_RESIDUAL;
 }
@@ -456,8 +449,8 @@ export function buildSubAgentSystemPrompt(
     /** When true, append the tiny Grok/xAI finish-bias note (provider residual). */
     grokAntiThrash?: boolean;
     /**
-     * Family policy residual (CL-8297) appended once at the tail so it
-     * cannot disturb the cached prompt prefix. Unset for families with none.
+     * Family policy residual appended once at the tail so it cannot disturb
+     * the cached prompt prefix. Unset for families with none.
      */
     promptResidual?: string | undefined;
   } = {},
@@ -468,9 +461,9 @@ export function buildSubAgentSystemPrompt(
       : defaultChatTools;
   const askDirector = toolListForPrompt.includes("ask_director");
   const orchestrator = opts.orchestrator === true;
-  // Lean worker assembly (CL-8212): [contract, tool-names-only, env,
-  // director body, grok note]. No guidelines, no tool catalog, no appendix —
-  // the contract owns identity, escalation, and the report envelope.
+  // Lean worker assembly: [contract, tool-names-only, env, director body,
+  // grok note]. No guidelines, no tool catalog, no appendix — the contract
+  // owns identity, escalation, and the report envelope.
   const base =
     baseOverride !== undefined && baseOverride.trim().length > 0
       ? baseOverride.trim()

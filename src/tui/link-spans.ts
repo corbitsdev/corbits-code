@@ -40,9 +40,9 @@ export function findLinks(text: string): LinkHit[] {
 }
 
 /**
- * The end of a URL match once prose punctuation is out: trailing sentence
- * punctuation never belongs to the link, and a closing paren only does when
- * the match opened one to balance it.
+ * End of a URL match once prose punctuation is out: sentence punctuation
+ * never belongs to the link; a closing paren only does when the match
+ * opened one to balance it.
  */
 export function trimUrlEnd(text: string, start: number, end: number): number {
   let trimmed = end;

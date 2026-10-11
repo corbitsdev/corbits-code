@@ -1,14 +1,10 @@
 /**
- * Human-readable tool arguments for the transcript.
+ * Human-readable tool arguments for the transcript: what a call shows — a
+ * path, a command, the shape of a view — with the structured form kept behind
+ * the expand key.
  *
- * Raw JSON arguments are the single loudest thing a transcript can paint and
- * the least readable, so a call shows what it *is* — a path, a command, the
- * shape of a view — and keeps the structured form behind the expand key.
- *
- * The summary wording comes from `tui/tool-formatter`, which already knows how
- * every first-party tool is shaped; the expanded view tree comes from
- * `tui/view`, which already knows how to lay one out. Neither is re-derived
- * here: this module only maps them onto the OpenTUI palette and row model.
+ * Wording comes from `tui/tool-formatter`; the view tree from `tui/view`.
+ * This module only maps them onto the palette and row model.
  */
 
 import { isMcpToolName } from "../mcp/tool-name.js";
@@ -22,9 +18,8 @@ import { UI } from "./theme.js";
 
 /**
  * A summarised call: the collapsed line, and the body the expand key reveals.
- * An empty summary means the row's verb already names the whole call and a
- * subject would only repeat it; an absent detail means there is nothing behind
- * the summary worth an arrow.
+ * Empty summary: the verb already names the call. Absent detail: nothing
+ * behind the summary worth an arrow.
  */
 export interface ToolArgsView {
   readonly summary: string;
@@ -32,9 +27,8 @@ export interface ToolArgsView {
 }
 
 /**
- * View roles in the Corbits terminal palette. Warning and danger both land on
- * the action orange for the same reason the MCP table does: there is no red in
- * the brand system, and no decision marker competes on these rows.
+ * View roles in the Corbits palette. Warning and danger share action orange
+ * — the brand has no red, and no decision marker competes on these rows.
  */
 const ROLE_FG: Partial<Record<SemanticRole, string>> = {
   accent: UI.inFlightBright,
@@ -70,11 +64,8 @@ function parseObject(raw: string): Record<string, unknown> | null {
   return parsed as Record<string, unknown>;
 }
 
-/**
- * The view tree a call carries, either as its whole argument object or under a
- * `view` key. Validated rather than duck-typed: an unvalidated tree would reach
- * a renderer that trusts its shape.
- */
+/** The view tree a call carries, whole-args or under a `view` key.
+ * Validated, not duck-typed: renderers trust the shape. */
 function viewArgument(args: Record<string, unknown>): ViewNode | null {
   const candidate = "view" in args ? args.view : args;
   const result = validateView(candidate);
@@ -126,12 +117,12 @@ function isScalar(value: unknown): boolean {
 }
 
 /**
- * Scalar (or scalar-array) arguments as `key  value` pairs with their newlines
- * intact — a shell command or a spawn prompt is written to be read as text, and
- * pretty-printed JSON would hand it back with its line breaks escaped (CL-5762).
+ * Scalar (or scalar-array) args as `key  value` pairs with newlines intact:
+ * a shell command reads as text, and pretty-printed JSON would escape its
+ * line breaks.
  *
- * Nested objects recurse one level so a task brief expands as fields rather than
- * a JSON dump; deeper nesting collapses to a compact token.
+ * Nested objects recurse one level so a task brief expands as fields; deeper
+ * nesting collapses to a compact token.
  */
 function fieldDetail(
   args: Record<string, unknown>,
@@ -178,7 +169,7 @@ function fieldDetail(
       continue;
     }
     if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-      // One level of nesting is enough for a spawn brief; deeper stays compact.
+      // One nesting level is enough for a spawn brief.
       if (indent === 0) {
         lines.push([{ text: `${pad}${key}:`, fg: UI.textDim }]);
         lines.push(
@@ -192,7 +183,7 @@ function fieldDetail(
       }
       continue;
     }
-    // Arrays of objects, etc. — compact rather than a wall of JSON.
+    // Arrays of objects: compact, not a wall of JSON.
     lines.push([
       { text: `${pad}${key}: `, fg: UI.textDim },
       {
@@ -215,10 +206,10 @@ function jsonDetail(value: unknown): readonly StyledBodyLine[] {
 const INLINE_MAX = 60;
 
 /**
- * Argument a call is *about*, most-meaningful first. A row's subject is one
- * value — the query, the command, the URL — because a transcript is scanned,
- * and a serialised argument list spends the row's columns on a second argument
- * that is then cut off mid-word ("numR…"). Everything else is behind the arrow.
+ * Argument a call is *about*, most-meaningful first. A transcript is
+ * scanned, so the subject is one value — the query, the command, the URL —
+ * not a serialised list that would cut the next argument mid-word. The rest
+ * stays behind the arrow.
  */
 const SUBJECT_KEYS = [
   "command",
@@ -240,11 +231,8 @@ function flatten(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-/**
- * The one argument worth painting, or null when nothing scalar stands out.
- * Falls back to the first scalar argument so an unknown tool still reads as a
- * subject rather than as a key/value dump.
- */
+/** The one argument worth painting, or null when nothing scalar stands out.
+ * Falls back to the first scalar so an unknown tool still has a subject. */
 function primarySubject(args: Record<string, unknown>): string | null {
   for (const key of SUBJECT_KEYS) {
     const value = args[key];
@@ -260,11 +248,8 @@ function primarySubject(args: Record<string, unknown>): string | null {
     : flatten(first[1] as string).slice(0, SUBJECT_MAX);
 }
 
-/**
- * Whether the formatter fell back to serialising the whole argument object.
- * Its per-tool cases (a shortened path, a task description) are better subjects
- * than anything picked here, and they never lead with `key: `.
- */
+/** Whether the formatter serialised the whole argument object: its per-tool
+ * cases never lead with `key: ` and make better subjects. */
 function isArgumentList(
   args: Record<string, unknown>,
   summary: string,
@@ -279,17 +264,14 @@ function subjectFor(
   args: Record<string, unknown>,
 ): string {
   const { summary } = summarizeToolArgs(name, raw);
-  // An empty formatter summary is not a subject — fall through to primarySubject
-  // so a task without description still paints its prompt rather than raw JSON.
+  // An empty formatter summary is not a subject — fall through so a task
+  // without a description paints its prompt, not raw JSON.
   if (summary.length > 0 && !isArgumentList(args, summary)) return summary;
   return primarySubject(args) ?? summary;
 }
 
-/**
- * The summary/detail pair for a tool call's arguments, or null when the call
- * has nothing worth hiding — short literal arguments read better as themselves
- * than as a summary with an expand hint attached.
- */
+/** The summary/detail pair for a call's arguments, or null when short
+ * literal args read better as themselves. */
 export function toolArgsView(
   name: string,
   rawArgs: string,
@@ -305,9 +287,8 @@ export function toolArgsView(
     }
   }
 
-  // An MCP call's verb is already "Linear: list issues" — the whole sentence.
-  // Its arguments are a query, not a subject: nobody reads a transcript for
-  // the pagination cursor, so they belong behind the expand key or nowhere.
+  // An MCP call's verb is the whole sentence; its args are a query, not a
+  // subject — they belong behind the expand key or nowhere.
   if (args !== null && isMcpToolName(name)) {
     return withDetail("", fieldDetail(args));
   }
@@ -321,16 +302,12 @@ export function toolArgsView(
   }
   const subject = subjectFor(name, raw, args);
   // Object args always get a summarised view — even with an empty subject the
-  // verb alone names the call and the body expands with real line breaks. A
-  // null return here is what used to dump raw argument JSON into the transcript.
+  // verb names the call.
   return withDetail(subject, fieldDetail(args));
 }
 
-/**
- * Pair a summary with a body only when the body says something the summary does
- * not. An expansion that restates its own collapsed line earns an arrow that
- * leads nowhere, which is worse than showing nothing.
- */
+/** Pair a summary with a body only when the body adds something — an arrow
+ * that leads nowhere is worse than none. */
 function withDetail(
   summary: string,
   detail: readonly StyledBodyLine[],
@@ -344,8 +321,8 @@ function withDetail(
     )
     .join("\n")
     .trim();
-  // A one-argument call whose subject *is* that argument reveals nothing but
-  // the key it was already named by, so it earns no arrow.
+  // A one-argument call whose subject is that argument reveals nothing but
+  // the key it was named by; no arrow.
   const bare = plain.includes("\n")
     ? plain
     : plain.replace(/^[A-Za-z_][\w.-]*:\s*/, "");

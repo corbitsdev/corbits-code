@@ -98,9 +98,9 @@ describe("codex refresh lock", () => {
     const dir = await tempDir();
     try {
       const lock = join(dir, "refresh.lock");
-      // Simulate a crashed holder in the real tag format but with a PID that
-      // is already dead: takeover must fire via liveness, not the stale
-      // horizon (which defaults far above the default timeout).
+      // Crashed holder in real tag format with a dead PID: takeover must
+      // fire via liveness, not the stale horizon (which defaults far above
+      // the default timeout).
       const exited = Bun.spawn(["bun", "--version"], {
         stdout: "ignore",
         stderr: "ignore",
@@ -164,9 +164,9 @@ describe("codex refresh lock", () => {
       import.meta.url,
     ).pathname;
     const lock = join(dir, "refresh.lock");
-    // Hold 600ms: the parent's 300ms acquisition attempt below must run
-    // entirely while the holder still holds (2x headroom), and the parent
-    // then waits for the holder to release, so the hold is the test's floor.
+    // Hold 600ms so the parent's 300ms acquisition attempt below runs
+    // entirely while the holder holds (2x headroom); the parent then waits
+    // for release.
     const proc = Bun.spawn(["bun", "run", holderPath, lock, "600"], {
       stdout: "pipe",
       stderr: "pipe",

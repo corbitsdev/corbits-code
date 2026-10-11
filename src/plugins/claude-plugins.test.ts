@@ -291,11 +291,10 @@ describe("discoverClaudeInstalledPlugins", () => {
   });
 
   test("resolves marketplace members with ../agents sources under ~/.claude/plugins", async () => {
-    // Real Claude marketplaces declare members as ../agents/<name> relative to the
-    // install root (sibling directory), still under ~/.claude/plugins. Those must load.
+    // Real Claude marketplaces declare members as ../agents/<name> relative to
+    // the install root — a sibling dir still under ~/.claude/plugins.
     const home = await mkdtemp(join(tmpdir(), "claude-home-agents-src-"));
     const pluginsRoot = join(home, ".claude", "plugins");
-    // installPath is the marketplace root; ../agents/x is a sibling under pluginsRoot.
     const marketplaceRoot = join(pluginsRoot, "cache", "mkt", "bundle");
     const agentDir = join(pluginsRoot, "cache", "mkt", "agents", "scout-agent");
     await writeAgentPlugin(agentDir, "scout-agent");

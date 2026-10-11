@@ -1,10 +1,9 @@
 /**
- * Frame-coalesced tool-row updates (CL-6791 J3): the high-frequency row
- * repaints — elapsed clocks, agent progress, repeat-call coalescing —
- * accumulate here and apply once per renderer frame through the same flush
- * seam as the open streaming row (J1), instead of repainting the row per
- * event. Immediate seams (a result merging into its call) take the pending
- * row back out so they read and write the freshest state.
+ * Frame-coalesced tool-row updates: high-frequency repaints — elapsed
+ * clocks, agent progress, repeat-call coalescing — accumulate here and apply
+ * once per renderer frame through the same flush seam as the open streaming
+ * row. Immediate seams (a result merging into its call) take the pending row
+ * back out so they read and write the freshest state.
  */
 import { replaceStreamRowAt } from "./shell/chrome.js";
 import { streamRowAt } from "./shell/transcript.js";

@@ -4,12 +4,11 @@ import type { ContentBlock, ConversationTurn } from "@intx/types/runtime";
 // Repairs persisted history at the request-build boundary so a turn produced
 // by one provider replays safely against another. transformMessages (vendored)
 // strips thinking blocks for foreign-model turns, rewrites safety_rating to
-// text, and answers dangling tool_calls with synthetic error results — the
-// same tool_result/isError shape the reactor's gate-timeout path appends.
-// What it does not cover, this module handles first: output-only block types
-// with no cross-provider wire shape (refusal, citation, redacted_thinking,
-// audio, video, code execution) that make adapter builders throw, and opaque
-// provider signatures that a foreign provider rejects when echoed back.
+// text, and answers dangling tool_calls with synthetic error results. This
+// module handles what it does not: output-only block types with no
+// cross-provider wire shape (refusal, citation, redacted_thinking, audio,
+// video, code execution) that make adapter builders throw, and opaque
+// provider signatures a foreign provider rejects when echoed back.
 
 export const THINKING_ONLY_OMITTED = "[thinking-only turn omitted]";
 
@@ -53,10 +52,10 @@ function hasTextOrToolCall(content: ContentBlock[]): boolean {
 
 // transformMessages drops an assistant turn only when stripping thinking
 // leaves empty content. Same-model thinking-only and leftover-only turns
-// survive with no text/tool_call; adapters then 400 or used to drop them,
+// survive with no text/tool_call; adapters then 400 or dropped them,
 // producing an identical next request and a thinking-only loop. Replace
-// the unusable turn with a stable text marker so the turn stays, roles
-// alternate, and the wire body changes.
+// the turn with a stable text marker so it stays, roles alternate, and
+// the wire body changes.
 function replaceUnusableAssistantTurn(
   turn: ConversationTurn,
 ): ConversationTurn {
@@ -73,14 +72,11 @@ export function sanitizeReplayTurns(
   turns: ConversationTurn[],
   targetModel: string,
 ): ConversationTurn[] {
-  // A turn with no `model` recorded (an optional field on the persisted
-  // schema) is not evidence it came from a foreign provider. Both this
-  // module's own foreign-turn gate below AND the vendored transformMessages'
-  // same-model check key off exact `model` equality — transformMessages is
-  // not ours to change, so a model-less turn is stamped with the target
-  // model before either stage runs. That reads as "this model", not
-  // "foreign", to both stages; without it transformMessages strips the
-  // turn's thinking blocks outright regardless of what this module decides.
+  // A turn with no `model` recorded (an optional persisted field) is not
+  // evidence it came from a foreign provider. Both this module's gate and
+  // transformMessages' same-model check key off exact `model` equality, so
+  // a model-less turn is stamped with the target model before either runs —
+  // it reads as "this model" to both, and thinking blocks are kept.
   const modelFilled = turns.map((turn) =>
     turn.role === "assistant" && turn.model === undefined
       ? { ...turn, model: targetModel }

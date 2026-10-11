@@ -118,10 +118,9 @@ describe("buildSubAgentProvider", () => {
 });
 
 describe("createLiveSubAgentSources", () => {
-  // One live-config owner for every fact a spawn reads. These were three
-  // separately-seeded snapshots that each switch path had to remember to
-  // refresh; a mid-session model switch refreshed none of them, so workers
-  // kept running against the provider the operator had switched away from.
+  // One live-config owner for every fact a spawn reads. Three separately
+  // seeded snapshots each switch path had to refresh; a mid-session model
+  // switch refreshed none, stranding workers on the old provider.
   const entry = (name: string): SubAgentSourcesConfig["providers"][number] => ({
     name,
     baseURL: "https://api.openai.com/v1",
@@ -504,7 +503,7 @@ describe("createSessionPruningCompactor", () => {
     const llm = createSessionPruningCompactor({
       summarize,
       summaryContext: () => ctx,
-      // CL-9007: pin a one-token tail budget so this tiny fixture still folds.
+      // Pin a one-token tail budget so this tiny fixture still folds.
       compactionShape: { tailBudgetTokens: 1 },
     });
     const now = Date.now();
@@ -523,7 +522,7 @@ describe("createSessionPruningCompactor", () => {
     const folding = createSessionPruningCompactor({
       summarize,
       onFolded: (info) => folds.push(info),
-      // CL-9007: pin a one-token tail budget so this tiny fixture still folds.
+      // Pin a one-token tail budget so this tiny fixture still folds.
       compactionShape: { tailBudgetTokens: 1 },
     });
     const now = Date.now();
@@ -581,7 +580,7 @@ describe("createSessionPruningCompactor", () => {
       telemetry,
       onFolded: (info) => folds.push(info),
       isAborted: () => aborted,
-      // CL-9489: pin a one-token tail budget so this tiny fixture still folds.
+      // Pin a one-token tail budget so this tiny fixture still folds.
       compactionShape: { tailBudgetTokens: 1 },
     });
     const now = Date.now();

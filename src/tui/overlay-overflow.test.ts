@@ -1,5 +1,5 @@
 /**
- * CL-5694: approval/operator overlay overflow conformance.
+ * Approval/operator overlay overflow conformance.
  *
  * On a short terminal the decision overlay must cap its host, shrink the
  * list-viewport, and keep every choice reachable by navigation — not spill

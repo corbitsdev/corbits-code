@@ -1,8 +1,8 @@
 /**
- * CL-5750 follow-up: a palette stacked over an open approval must not
- * clobber the approval's cached raw body text, which a resize re-shapes
- * against the new height's context budget (see `decisionContextBudget` /
- * `applyOverlayBodyText` in shell.ts).
+ * A palette stacked over an open approval must not clobber the approval's
+ * cached raw body text, which a resize re-shapes against the new height's
+ * context budget (see `decisionContextBudget` / `applyOverlayBodyText` in
+ * shell.ts).
  */
 import { describe, expect, test } from "bun:test";
 import { makePermissionItems, withTestRenderer } from "./harness.js";
@@ -36,7 +36,8 @@ describe("decision overlay body cache survives a stacked palette", () => {
           await h.renderOnce();
           expect(shell.overlayBodyLines.length).toBeGreaterThan(0);
           const hostBefore = shell.layout.overlayHeight;
-          // Chrome is border (2) + title (1) + body lines; list is N * perItem.
+          // Chrome is border (2) + title (1) + body lines; list is N *
+          // perItem.
           expect(hostBefore).toBe(
             shell.overlayBodyLines.length +
               3 +

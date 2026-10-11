@@ -28,9 +28,8 @@ const STDIO_MCP_ENV_ALLOWLIST = new Set([
   "NODE_OPTIONS",
 ]);
 
-// Build the environment for a stdio MCP child: a small inherited allowlist plus
-// server-specific entries from settings. The full parent process.env is not passed
-// through, so provider credentials and unrelated secrets stay out of MCP servers.
+// Stdio MCP child env: inherited allowlist plus server-specific settings; the
+// full parent env is not passed through, so provider credentials stay out.
 export function buildStdioMcpProcessEnv(
   parentEnv: NodeJS.ProcessEnv,
   serverEnv: Record<string, string> | undefined,

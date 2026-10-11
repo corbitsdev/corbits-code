@@ -4,10 +4,9 @@
 
 // Reasoning-effort levels carried through to the provider. The canonical
 // definition lives here; src/provider/reasoning-effort.ts mirrors it as the
-// runtime array. Ordered from least to most effort; "ultra" is not simply a
-// bigger thinking budget than "max" — it additionally enables automatic
-// sub-task delegation, so code that treats effort as a scalar dial may need
-// to branch on it separately.
+// runtime array. Ordered from least to most effort; "ultra" also enables
+// automatic sub-task delegation, so code that treats effort as a scalar dial
+// may need to branch on it separately.
 export const REASONING_EFFORTS = [
   "none",
   "minimal",
@@ -36,8 +35,8 @@ export interface InferenceLeg {
   reasoningEffort?: ReasoningEffort;
 }
 
-// Per-agent model selection spec, evaluated at dispatch time against the user's
-// configured providers. `mode: "pin"` requires one of the legs to be available
+// Per-agent model selection spec, evaluated at dispatch time against the
+// user's configured providers. `mode: "pin"` requires one leg to be available
 // (else error / fallback per settings.agentModelFallback); `mode: "prefer"`
 // (default) walks the chain and falls back if none are viable.
 export interface InferenceSpec {

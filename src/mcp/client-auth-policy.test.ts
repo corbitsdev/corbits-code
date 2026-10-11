@@ -51,9 +51,8 @@ const authProvider = {
 };
 
 async function transportAuth(self: MockTransportSelf): Promise<void> {
-  // SDK 403 upscoping uses raw `_fetch` with no init.signal. Hang on the
-  // connect signal the product also installs as `fetch`, so abort still
-  // settles this path.
+  // SDK 403 upscoping uses raw `_fetch` with no init.signal; hang on the
+  // connect signal also installed as `fetch` so abort still settles this path.
   const signal = self.signal;
   tokenRefreshSignals.push(signal);
   await hangUntilAbort(

@@ -1,9 +1,6 @@
 /**
- * Transcript-facing text for a classified inference failure.
- *
- * The raw provider body behind a failed call is a JSON blob with a stack of
- * gateway framing around it; what the operator needs is one line saying what
- * happened and whether they can do anything about it.
+ * Transcript-facing text for a classified inference failure: one line saying
+ * what happened and whether the operator can act on it.
  */
 
 import { formatCodexUsageLimitMessage } from "./auth/codex/usage-limit-error.js";
@@ -42,10 +39,9 @@ const FRIENDLY_BY_CATEGORY: Record<string, string> = {
 };
 
 /**
- * Provider-agnostic detection of context-window-overflow error text. The
- * upstream classifier only tags a 400 with specific English phrases as
- * context_overflow; providers that return a 429 or a differently-worded body
- * (e.g. z.ai) slip through mislabeled, so the message is re-checked here.
+ * Provider-agnostic context-window-overflow detection. The upstream classifier
+ * only tags 400s with specific phrases; 429s and differently-worded bodies
+ * slip through mislabeled, so the message is re-checked here.
  */
 export function looksLikeContextOverflow(message: string): boolean {
   const lower = message.toLowerCase();
@@ -72,7 +68,7 @@ export function classifyInferenceErrorCategory(
 
 /**
  * Whether a normalized provider-failure category is transient enough that a
- * parent may spawn one successor with the same brief (CL-8978). Allowlist:
+ * parent may spawn one successor with the same brief. Allowlist:
  * retryable/timeout — including 429 overload, which normalizes to retryable.
  * Fatal categories win explicitly: credential, quota, and context-overflow
  * failures must never read as continuable.
@@ -176,9 +172,8 @@ export function terminalProviderFailureMessage(
 
 /**
  * Split a `kind/name` provider id into its reconnect scope. Unslashed ids
- * reconnect the `default` profile. Returns undefined for malformed ids so the
- * guidance never spells a broken command. Shared with the reconnect
- * descriptor (Phase 3) — one split, not two.
+ * reconnect the `default` profile; malformed ids return undefined so the
+ * guidance never spells a broken command.
  */
 export function splitReconnectScope(
   providerId: string,
@@ -196,10 +191,10 @@ export function splitReconnectScope(
 }
 
 /**
- * Explicit one-action reconnect command for reconnect-class terminal failures
- * (credential_failure on a known-OAuth id): `Run "/connect <kind> <profile>"
- * to reconnect profile "<profile>".` Empty for anything else, and empty when
- * the diagnostic already carries the explicit command — never a stutter.
+ * One-action reconnect command for reconnect-class failures: `Run "/connect
+ * <kind> <profile>" to reconnect profile "<profile>".` Empty outside
+ * credential_failure on a known-OAuth id, and when the diagnostic already
+ * carries the command — never a stutter.
  */
 function reconnectCommandGuidance(
   providerId: string,
@@ -219,15 +214,13 @@ function terminalProviderFailureGuidance(
   providerId: string,
 ): string {
   if (category === "credential_failure") {
-    // Normalized credential failures already carry the re-login hint in the
-    // diagnostic (e.g. Codex profile copy); repeating it reads as a stutter.
-    // Shared with the classifier via carriesCodexReLoginHint — one predicate.
+    // Normalized credential failures already carry the re-login hint;
+    // repeating it reads as a stutter (one shared predicate).
     const base = carriesCodexReLoginHint(error.message ?? "")
       ? ""
       : CREDENTIAL_FAILURE_USER_MESSAGE;
-    // Reconnect-class failures additionally spell the explicit command so the
-    // operator can repair the named profile in one action (issue #1295). The
-    // Codex branded line keeps its wording; the explicit command is additive.
+    // Reconnect-class failures spell the explicit command so the operator can
+    // repair the named profile in one action; the Codex line keeps its wording.
     const explicit = reconnectCommandGuidance(
       error.providerId ?? providerId,
       error.message ?? "",
@@ -236,8 +229,7 @@ function terminalProviderFailureGuidance(
     return base.length > 0 ? `${base} ${explicit}` : explicit;
   }
   if (category === "context_overflow") return "Try /clear to start fresh.";
-  // A 429 that survived the harness's paced retries is a wait-it-out rate
-  // limit, not a generic flake: say so instead of the bare "Try again."
+  // A 429 that survived paced retries is a wait-it-out rate limit, not a flake.
   if (category === "retryable" && error.statusCode === 429) {
     return "Wait a moment and try again.";
   }
@@ -302,9 +294,8 @@ export function isResolvedProviderFailureError(
 export function inferenceErrorMessage(error: InferenceErrorLike): string {
   if (isGatewayOverloadInferenceError(error))
     return gatewayOverloadUserMessage(error);
-  // Dual-path: harness may still emit intx's quota_exhausted for a known-xAI
-  // or known-Codex short 429; FRIENDLY_BY_CATEGORY would otherwise say
-  // "Quota exhausted".
+  // The harness may still emit quota_exhausted for a known-xAI / known-Codex
+  // short 429; FRIENDLY_BY_CATEGORY would otherwise say "Quota exhausted".
   if (
     isXaiShortRateLimitInferenceError(error) ||
     isCodexShortRateLimitInferenceError(error)

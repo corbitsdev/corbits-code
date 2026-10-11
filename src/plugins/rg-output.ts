@@ -1,11 +1,10 @@
-// Collects a ripgrep run's stdout and decides its outcome. `data`, `close` and
-// the timeout fire in a platform-dependent order, so the decision lives here
-// rather than in the handlers: the collector owns the accumulated bytes and
-// settles exactly once, whichever handler gets there first. The cap is applied
-// to those bytes as they arrive and again at process end, so an over-cap run
-// can never be reported as a complete success and can never hand back more
-// than the cap — even when close races ahead of the data handler that would
-// have tripped the mid-stream check.
+// Collects a ripgrep run's stdout and decides its outcome. `data`, `close`
+// and the timeout fire in a platform-dependent order, so the decision lives
+// here rather than in the handlers: the collector owns the accumulated bytes
+// and settles exactly once, whichever handler gets there first. The cap is
+// applied to those bytes as they arrive and again at process end, so an
+// over-cap run can never be reported as a complete success and can never
+// hand back more than the cap.
 
 export type RgOutcome =
   | { kind: "output"; stdout: string }

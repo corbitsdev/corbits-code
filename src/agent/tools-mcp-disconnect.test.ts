@@ -381,9 +381,8 @@ const { MCP_RECONNECTING_TOOL_ERROR, isDegradedMcpState } =
 const { mcpNotice } = await import("../tui/runtime-notices.js");
 const { mcpReconnectDelayMs } = await import("./tools.js");
 
-// The mocked connectMCPServer records its options, so tests simulate a dead
-// transport by invoking the onDisconnect hook the real client wires to
-// transport.onclose.
+// connectMCPServer is mocked; tests simulate a dead transport by invoking the
+// onDisconnect hook the real client wires to transport.onclose.
 function killTransport(): void {
   mock.connectOptions.at(-1)?.onDisconnect?.();
 }
@@ -580,8 +579,8 @@ describe("unintentional disconnect and automatic reconnect", () => {
     jest.useFakeTimers();
     try {
       await toolset.connectMCPServer(acme, callbacks(states, [], true));
-      // The redial offers an auth URL, then pends on the operator.
-      // A redial can pend on the operator before the mode branch runs.
+      // The redial offers an auth URL, then pends on the operator before the
+      // mode branch runs.
       mock.authURL = "https://auth.example.test/approve";
       mock.mode = "deferred";
       killTransport();

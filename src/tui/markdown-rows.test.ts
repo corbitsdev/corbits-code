@@ -1,7 +1,5 @@
-/**
- * Transcript markdown rendering — assistant rows must render formatted,
- * not as literal markdown source.
- */
+/** Transcript markdown rendering — assistant rows render formatted, not as
+ * literal markdown source. */
 
 import { describe, expect, test } from "bun:test";
 import {
@@ -28,12 +26,9 @@ const shellOpts = {
   wireKeys: false,
 } as const;
 
-/**
- * Highlighting runs on a worker outside the render scheduler, so the
- * scheduler goes idle before the highlighted frame lands. Pass a predicate
- * for the settled shape and get the frame back the moment it's true, rather
- * than gambling on a fixed sleep long enough to outrun load.
- */
+/** Highlighting runs on a worker, so the render scheduler idles before the
+ * frame lands. Poll with a settled-shape predicate instead of sleeping long
+ * enough to outrun load. */
 async function settle(
   h: Harness,
   isSettled: (frame: string) => boolean,
@@ -84,10 +79,9 @@ describe("markdown transcript rows", () => {
 
       const frame = await settle(
         h,
-        // Require formatted heading, bold, fence, and link: "docs" plus
-        // absence of "## Title" can match a frame where the heading has not
-        // painted yet, and formatted heading+bold can land while fence/link
-        // syntax is still literal (same class as the ### heading flake below).
+        // Require heading, bold, fence, and link: "docs" without "## Title"
+        // can match before the heading paints, and heading+bold can land
+        // while fence/link syntax is still literal.
         (f) =>
           f.includes("Title") &&
           f.includes("bolded") &&
@@ -126,9 +120,8 @@ describe("markdown transcript rows", () => {
 
       const frame = await settle(
         h,
-        // Require the bold body line too: heading-only frames can pass a
-        // "no ### / no **Hardware:**" check while the body has not painted yet
-        // (CI flake CL-5715).
+        // Require the bold body line too: heading-only frames pass the
+        // "no ### / no **Hardware:**" check before the body paints.
         (f) =>
           f.includes("What the site is") &&
           f.includes("Hardware:") &&
@@ -185,10 +178,9 @@ describe("markdown transcript rows", () => {
         text: ["Some body text.", "", "#### "].join("\n"),
       });
 
-      // `####` on its own is not yet a heading, so the parser reads it as
-      // literal text and the row paints the bare markers until the title's
-      // first character lands. Held back instead, so the line's classification
-      // cannot flip under text already on screen.
+      // `####` alone is not yet a heading: the parser would paint bare
+      // markers until the title's first char lands. Held back instead, so
+      // the line's classification cannot flip under text already on screen.
       const frame = await settle(
         h,
         (f) => f.includes("Some body text.") && !f.includes("####"),
@@ -211,10 +203,9 @@ describe("markdown transcript rows", () => {
   });
 
   test("a row with no settled heading paints through a single renderer, not a wasted split", async () => {
-    // Most rows never have a settled heading behind their tail (no heading at
-    // all, or the only one is still being typed). Building the frozen/live
-    // pair unconditionally would double every markdown row's renderer count
-    // for no benefit in the common case.
+    // Most rows have no settled heading behind their tail (none at all, or
+    // the only one is still being typed). Building the frozen/live pair
+    // unconditionally would double every row's renderer count for nothing.
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, shellOpts);
       const node = createStreamRowRenderable(shell, {
@@ -228,13 +219,9 @@ describe("markdown transcript rows", () => {
   });
 
   test("a closed heading renders in its own settled renderer, separate from the prose after it", async () => {
-    // The library's default block mode merges a heading into the same raw
-    // chunk as the paragraph that follows it, so every keystroke of that
-    // paragraph re-highlights the heading's already-settled text too — the
-    // heading's markers and styling visibly flicker while the rest of the
-    // message keeps streaming in. Splitting the body at the heading gives it
-    // its own renderer, marked non-streaming, that the live (still-growing)
-    // half never shares — so it is never asked to re-highlight again.
+    // Default block mode merges the heading into the paragraph after it, so
+    // keystrokes there re-highlight the settled heading (flicker). Splitting
+    // gives it its own non-streaming renderer the live half never shares.
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, shellOpts);
       const node = createStreamRowRenderable(shell, {
@@ -289,9 +276,9 @@ describe("markdown transcript rows", () => {
   });
 
   test("a list directly under a paragraph, with no blank line, keeps that shape after the split", async () => {
-    // Regression guard: the split must never fall at a list boundary — only
-    // at a settled heading — so paragraph/list spacing stays byte-identical
-    // to the unsplit renderer's own default layout.
+    // Regression guard: the split never falls at a list boundary — only at a
+    // settled heading — so paragraph/list spacing stays byte-identical to the
+    // unsplit renderer's default layout.
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, shellOpts);
       appendStreamRow(shell, {
@@ -339,12 +326,11 @@ describe("markdown transcript rows", () => {
   }
 
   test("a settled heading's painted span never changes while the prose after it keeps streaming", async () => {
-    // The shake this fixes is a transient re-highlight, not a settled-frame
-    // difference — a snapshot taken only after several idle ticks (as every
-    // other test in this file does) cannot see it, because the async
-    // highlight pass has always finished by then. This test instead samples
-    // the heading's span on every delta, immediately after a single render
-    // with no settle wait, which is the one place the flicker would show up.
+    // The shake is a transient re-highlight, not a settled-frame difference:
+    // snapshots after idle ticks (as every other test here takes) miss it
+    // because the async highlight pass has finished. This test samples the
+    // heading's span on every delta, right after one render with no settle
+    // wait — the one place the flicker shows.
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, shellOpts);
       const full =
@@ -355,7 +341,7 @@ describe("markdown transcript rows", () => {
         text: ["### Title", "", full.slice(0, 1)].join("\n"),
       });
       // Warm up once: the first highlight pass in a process loads the
-      // tree-sitter grammar and is not itself part of what this test samples.
+      // tree-sitter grammar and is not what this test samples.
       await settle(h, () => headingSpan(h) !== null);
       const baseline = headingSpan(h);
       expect(baseline).not.toBeNull();
@@ -455,10 +441,9 @@ describe("markdown transcript rows", () => {
     });
 
     test("a closing-fence-shaped line carrying trailing text does not close the fence", () => {
-      // CommonMark: the closing delimiter may contain only the fence
-      // characters and trailing whitespace. "```stillcode" is more fence
-      // content, not a closer, so the `#` after the real closer is still the
-      // first heading — not the "```stillcode" line before it.
+      // CommonMark: a closing delimiter holds only fence characters and
+      // trailing whitespace. "```stillcode" is fence content, not a closer,
+      // so the `#` after the real closer is the first heading.
       const text = [
         "```bash",
         "echo hi",
@@ -482,7 +467,7 @@ describe("markdown transcript rows", () => {
 
     test("adversarial fence pairings: length and character must both match, indentation is bounded", () => {
       // Four backticks are not closed by three — the fence stays open, so
-      // "### Title" is fence content too and there is no heading at all.
+      // "### Title" is fence content too and there is no heading.
       expect(
         splitAtSettledHeading(
           ["````", "# not a heading", "```", "### Title", "", "body"].join(
@@ -555,15 +540,15 @@ describe("markdown transcript rows", () => {
           ),
         ).frozen,
       ).toContain("### Title");
-      // 4 spaces is indented code, not a fence — the `#` line is still inside
-      // it as indented code, never a heading boundary on its own.
+      // 4 spaces is indented code, not a fence — the `#` line stays inside
+      // it as indented code, never a heading boundary.
       expect(
         splitAtSettledHeading(
           ["    ```", "    # not a heading", "body"].join("\n"),
         ),
       ).toBeNull();
-      // An unclosed fence at end of input, with a `#` line inside it and no
-      // real heading anywhere: nothing to split at.
+      // Unclosed fence at end of input with a `#` line inside and no real
+      // heading: nothing to split at.
       expect(
         splitAtSettledHeading(
           ["```", "# still fence content, not a heading", "still going"].join(
@@ -767,7 +752,7 @@ describe("closed-block frozen/live streaming", () => {
   test("incremental streaming settles into the same frame as a one-shot paint", async () => {
     const full = `${FROZEN_HEAD}\n\ntail words here`;
     // The footer ticker cycles live activity words by timing, so two shells
-    // can never agree on that one line. Everything above it must match.
+    // never agree on that one line; everything above it must match.
     const withoutFooter = (frame: string): string =>
       frame
         .split("\n")

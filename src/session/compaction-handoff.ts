@@ -2,54 +2,36 @@
 //
 // SPDX-License-Identifier: GPL-2.0-only WITH AI-Exception-2.0
 //
-// CL-8744: fat handoff file + thin live spine with pointer.
+// A fold writes a fat structured handoff file (the HandoffArtifact sections)
+// under one STABLE key every fold overwrites, plus a thin spine in the live
+// prompt: goal cut at a token boundary, standing output tokens uncut, top
+// constraints/decisions, cumulative evidence echo, activated tools, and a
+// tool-output:/// pointer back to the file.
 //
-// A fold writes two things instead of one inline summary:
-//   - a fat structured handoff file (goal, constraints, decisions, evidence
-//     markers, files/commands, verification, dead ends, next actions, plus a
-//     verbatim exact-facts appendix), persisted as a context-store blob by the
-//     reactor under one STABLE key that every fold overwrites;
-//   - a thin spine that stays in the live prompt: goal one-liner (cut at a
-//     token boundary, never mid-token), standing output-format tokens uncut,
-//     top constraints/decisions, a cumulative evidence echo, activated tools,
-//     and an explicit pointer (tool-output:/// URI) so the agent can re-read
-//     the full operator ask and output contract when a detail is missing.
-//
-// Everything the file carries is copied verbatim out of the folded turns —
-// never paraphrased — so exact-required facts (paths, commands, counts, user
-// decisions) survive the fold. Each fold's file unions the previous fat file
-// with fresh verbatim detail (iterative fold) instead of stacking competing
-// summaries or storing spine-truncated cuts. The spine format below starts
-// with COMPACTED_PREFIX, so the compactor's existing foldable-handoff
-// detection picks it up and it never becomes an anchor.
-//
-// COMPLETENESS: a prior spine is dropped text. The completeness gate accepts
-// the drop when the bytes are archived as a user_message (recordAdoptedHandoff)
-// or still present verbatim in the output. The live spine therefore may grow
-// with new constraints, decisions, and evidence tokens. Pre-format fat
-// `[Compacted prior context]` summaries are adopted the same way.
+// Everything carried is verbatim out of the folded turns — never paraphrased —
+// so exact facts survive; each fold unions the prior file with fresh detail.
+// The spine starts with COMPACTED_PREFIX so the compactor's foldable-handoff
+// detection picks it up. A dropped prior spine passes the completeness gate
+// only when its bytes are archived as a user_message or still verbatim in the
+// output.
 
 import { ArkErrors, type } from "arktype";
 import type { ConversationTurn, StrategyBlob } from "@intx/types/runtime";
 import { VERIFY_REPAIR_HEADING } from "./compaction-verify.js";
 
-// Canonical home of the fold marker. compactor.ts re-exports it so existing
-// importers keep working; this module owns the literal.
+// Canonical home of the fold marker. compactor.ts re-exports it; this module
+// owns the literal.
 export const COMPACTED_PREFIX = "[Compacted prior context]";
 
-// Stable blob key for the fat handoff file. Every fold overwrites the same
-// "latest" file (a per-fold unique key would make each spine novel). The
-// overwrite unions the previous file so no verbatim fact is lost — only
-// per-fold prose snapshots, which the spine never carried anyway.
+// Stable blob key for the fat handoff file; every fold overwrites the same
+// key.
 export const HANDOFF_LATEST_KEY = "compaction-handoff-latest.md";
 
 const HANDOFF_TOOLS_LINE_PREFIX =
   "Tools still activated and callable directly (no tool_search needed): ";
 const HANDOFF_OUTPUT_LINE_PREFIX = "Output: ";
 
-// Structured handoff artifact: the fat file's sections. Every entry is a
-// verbatim excerpt from the folded turns (or carried verbatim from a prior
-// file / spine), never a paraphrase.
+// The fat file's sections; every entry is verbatim.
 export const HandoffArtifact = type({
   version: "'1'",
   goal: "string",
@@ -89,17 +71,14 @@ const CONSTRAINT_SIGNAL =
 // Shell invocations worth recording verbatim for replay or audit.
 const VERIFICATION_SIGNAL = /test|check|lint|build|typecheck|verify/i;
 
-// Evidence echo tokens, e.g. [[evidence:decision|operator:correction|west]].
-// Recovered verbatim out of folded text so exact facts survive paraphrase.
-// The class excludes brackets and newlines so a truncation-cut token (no
-// closing brackets on its line) can never pair with a later `]]` and swallow
-// the lines between.
+// Evidence echo tokens ([[evidence:...]]). Excludes brackets and newlines so
+// a truncation-cut token (no closing bracket on its line) can never pair with
+// a later `]]` and swallow the lines between.
 const EVIDENCE_TOKEN = /\[\[evidence:[^[\]\r\n]+\]\]/g;
 
-// Standing reply-contract tokens (FILES_DONE=..., SUMMARY=...). The spine
-// and the file goal must keep these whole; a char slice is how they become
-// FILES_DO. Harvest from the uncapped source so a 500-char cap cannot drop
-// a token that starts just past the cut.
+// Standing reply-contract tokens (FILES_DONE=...). The spine and file goal
+// keep these whole — a char slice makes them FILES_DO. Harvest from the
+// uncapped source so a cap cannot drop a token starting just past the cut.
 function outputFormatTokenRe(): RegExp {
   return /\b[A-Z][A-Z0-9_]+=\S+/g;
 }
@@ -153,11 +132,10 @@ function mergeStandingOutputToken(
 ): string {
   if (goal === undefined || goal.length === 0) return token;
   if (hasStandingOutputToken(goal, token)) return goal;
-  // cutSpineGoal glues "..." onto a start-at-0 token longer than the cap.
-  // outputFormatTokenRe (\S+) eats that sentinel, so Goal's harvested token
-  // is token+"..." and never equals the Output token. Strip the glued
-  // sentinel and keep the standing token once, including when the standing
-  // token already ends with "...".
+  // cutSpineGoal glues "..." onto a start-at-0 token over the cap; the token
+  // regex eats that sentinel, so Goal's token is token+"..." and never equals
+  // Output's. Strip the glued sentinel and keep the standing token once, even
+  // when it already ends with "...".
   if (goal.endsWith(SPINE_CUT_SENTINEL)) {
     const prefix = goal.slice(0, -SPINE_CUT_SENTINEL.length);
     if (
@@ -310,9 +288,8 @@ function emptyCarried(): CarriedFacts {
   };
 }
 
-// Parse a prior thin spine back into carried facts so the next file merges
-// prior + fresh verbatim (iterative fold) and the next spine can grow with
-// newly discovered constraints/decisions/evidence/tools.
+// Parse a prior thin spine back into carried facts so the next fold unions
+// prior + fresh verbatim.
 function parseSpineText(text: string): CarriedFacts {
   const carried = emptyCarried();
   for (const line of text.split("\n")) {
@@ -447,11 +424,10 @@ function parseHandoffFile(text: string): Partial<HandoffArtifact> {
   };
 }
 
-// Prefer the full prior-file text over a spine-truncated prefix of the same
-// fact. Distinct facts append until the cap. Production prior-file text is
-// full, so union is exact: `Must never write to /tmp` and `.../tmp/cache`
-// stay distinct, including when the shorter fact is naturally 80 chars.
-// Prefix collapse is only for spine cuts marked with SPINE_CUT_SENTINEL.
+// Prefer full prior-file text over a spine-truncated prefix of the same fact;
+// production prior text is full, so `Must never write to /tmp` and
+// `.../tmp/cache` stay distinct even when the shorter fact is naturally 80
+// chars. Prefix collapse applies only to cuts marked SPINE_CUT_SENTINEL.
 function isSpineTruncationOf(fragment: string, full: string): boolean {
   if (!fragment.endsWith(SPINE_CUT_SENTINEL)) return false;
   const prefix = fragment.slice(0, -SPINE_CUT_SENTINEL.length);
@@ -529,12 +505,9 @@ export interface HandoffExtractOpts {
 }
 
 /**
- * Build the structured handoff artifact from the folded turn region plus the
- * fold's own summary narrative. Deterministic and verbatim: paths, commands,
- * counts, evidence markers, and user decisions are copied out of the turns
- * (and the previous fat file), never rewritten. Prior spine turns contribute
- * their carried facts and are otherwise skipped so the spine is not
- * double-counted as a fresh user turn.
+ * Build the artifact from the folded turns plus the fold's own summary.
+ * Prior spine turns contribute their carried facts and are skipped so the
+ * spine is not double-counted as a fresh turn.
  */
 export function extractHandoffArtifact(
   foldedTurns: readonly ConversationTurn[],
@@ -601,14 +574,10 @@ export function extractHandoffArtifact(
   const nonEmptyUserTexts = freshUserTexts.filter(
     (text) => text.trim().length > 0,
   );
-  // CL-9007: the budgeted tail can lift every user turn out of the folded
-  // region (anchored initiating task, whole newest messages), leaving no fresh
-  // user text to name the goal. Fall back to the fold's own summary narrative
-  // — the model's statement of what the region was about — before Unknown, so
-  // the next fold's "update this" context still names the work (e.g. src/a.ts)
-  // instead of dropping it. The verify-repair appendix is stripped first: it
-  // carries exact file lists that stay in the fat file by design (CL-8744) and
-  // must not leak into the thin spine.
+  // A budgeted tail can lift every user turn out of the region, leaving no
+  // fresh text to name the goal; fall back to the fold's summary before
+  // Unknown so the next fold still names the work. Strip the verify-repair
+  // appendix first: its exact file lists stay in the fat file, not the spine.
   const narrativeGoal = capGoal(
     narrative.split(VERIFY_REPAIR_HEADING)[0] ?? "",
     MAX_GOAL_CHARS,
@@ -828,8 +797,8 @@ function section(title: string, items: readonly string[]): string {
 
 /**
  * Render the fat handoff file. The narrative is the fold's own summary
- * (model-written, may paraphrase); the Exact facts appendix below it is
- * verbatim and is what later folds must preserve.
+ * (model-written, may paraphrase); the Exact facts appendix is verbatim and
+ * is what later folds must preserve.
  */
 export function renderHandoffFile(
   artifact: HandoffArtifact,
@@ -856,11 +825,9 @@ export function renderHandoffFile(
 }
 
 /**
- * Render the thin live spine. Goal (token-boundary cut), standing output
- * contract tokens uncut, constraints/decisions, the cumulative evidence echo,
- * activated tools, and the explicit file pointer. Starts with COMPACTED_PREFIX
- * so the next fold treats it as a foldable handoff turn. Counts, file lists,
- * and next actions stay in the fat file.
+ * Render the thin live spine (shape in the module doc). Starts with
+ * COMPACTED_PREFIX so the next fold parses it as a handoff turn; counts,
+ * file lists, and next actions stay in the fat file.
  */
 export function renderHandoffSpine(
   spine: SpineFacts,
@@ -922,10 +889,9 @@ export interface HandoffFold {
 }
 
 /**
- * Build one fold's handoff: extract the verbatim artifact from the folded
- * turns (unioned with the previous fat file when provided), render the fat
- * file under the stable latest key, and return the thin spine carrying the
- * file's pointer.
+ * Build one fold's handoff: extract the artifact (unioned with the previous
+ * fat file when provided), render the fat file, and return the thin spine
+ * carrying the file's pointer.
  */
 export function buildHandoffFold(
   foldedTurns: readonly ConversationTurn[],

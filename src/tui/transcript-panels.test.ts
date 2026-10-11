@@ -14,8 +14,8 @@ import { rowGroupGap, type StreamRow } from "./stream";
 /**
  * Text the frame must show once the last row's body has painted: a collapsed
  * skill row never shows its raw text (it waits for the collapsed summary
- * line instead), and a markdown table renders its cells without the pipe
- * delimiters, so those probe a cell body rather than the raw line.
+ * line), and a markdown table renders cells without pipe delimiters, so those
+ * probe a cell body rather than the raw line.
  */
 function rowProbe(row: StreamRow | undefined): string {
   if (row === undefined) return "";
@@ -33,9 +33,8 @@ function rowProbe(row: StreamRow | undefined): string {
 
 /**
  * Markdown blocks highlight asynchronously; settle before capturing a frame.
- * Polls until the last row's text is painted instead of paying a fixed wait,
- * bounded by a deadline so a highlight stall fails the inspect assertions
- * instead of hanging.
+ * Polls until the last row's text is painted instead of a fixed wait, bounded
+ * by a deadline so a highlight stall fails the assertions instead of hanging.
  */
 async function settle(h: Harness, rows: readonly StreamRow[]): Promise<string> {
   const deadline = Date.now() + 2_000;

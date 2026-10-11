@@ -1,9 +1,4 @@
-/**
- * Sub-agent public API barrel.
- *
- * Implementation lives in focused modules; this file re-exports for stable
- * import paths (`../subagent/index.js`, `./subagent.js`, etc.).
- */
+/** Sub-agent public API barrel: re-exports for stable import paths. */
 
 export type { SubAgentSessionStore } from "./session-store.js";
 export { createSubAgentSessionStore } from "./session-store.js";

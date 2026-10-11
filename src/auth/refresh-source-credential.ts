@@ -44,11 +44,9 @@ export async function refreshSourceCredentialByProvenance(
   return refreshSourceCredentialFromRecord(credentialId, record);
 }
 
-/**
- * Refreshes from a caller-held record snapshot. The snapshot must be taken
- * before the caller's first await so a deferred refresh still compares
- * against the registration it started from and cannot overwrite a newer one.
- */
+/** Refreshes from a caller-held record snapshot taken before the caller's first
+ * await, so a deferred refresh compares against its original registration and
+ * cannot overwrite a newer one. */
 export async function refreshSourceCredentialFromRecord(
   credentialId: string,
   record: SourceCredentialRecord,

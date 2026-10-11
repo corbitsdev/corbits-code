@@ -55,8 +55,7 @@ function openWith(gate: ReturnType<typeof gateWithDeferredApproval>["gate"]) {
   });
 }
 
-// The resume path reads history (async) before raising the approval surface,
-// so tests must wait for the ask rather than yielding a single microtask.
+// The resume path reads history before raising the approval surface, so wait for the ask.
 async function waitForAsk(
   ctx: ReturnType<typeof gateWithDeferredApproval>,
 ): Promise<void> {
@@ -95,8 +94,7 @@ describe("integration — reactor approval suspend/resume", () => {
         expect(parkedCalls).toHaveLength(1);
         expect(parkedCallId).toBe(defined(parkedCalls[0]).id);
 
-        // The parked call carried an approver-facing snapshot and parked on a
-        // gate keyed by the correlationId (reactor.gate.blocked).
+        // The parked call carried an approver-facing snapshot on the correlationId gate.
         expect(result.approvalSnapshot?.name).toBe("run_shell");
         expect(
           turn.events.some(
@@ -105,14 +103,11 @@ describe("integration — reactor approval suspend/resume", () => {
               e.data.correlationId === result.correlationId,
           ),
         ).toBe(true);
-        // No tool ran, and no approval surface was raised yet — raising it is
-        // the resume path's job (the send merely parks).
+        // Nothing ran yet — raising the surface is the resume path's job.
         expect(toolDoneEvents(turn.events)).toHaveLength(0);
         expect(ctx.asks.length).toBe(0);
 
-        // Production resume path: rebuild the request from the persisted
-        // snapshot, settle it through the gate's requestApproval seam (which
-        // mints grants), deliver the decision on the correlation channel.
+        // Resume: rebuild the request from the snapshot, settle it through requestApproval, deliver.
         const snapshot = result.approvalSnapshot;
         if (snapshot === undefined)
           throw new Error("suspension carried no approval snapshot");
@@ -136,9 +131,7 @@ describe("integration — reactor approval suspend/resume", () => {
 
         const reply = await turn.reply();
         expect(Date.now() - started).toBeLessThan(1000);
-        // The parked call was re-dispatched and actually executed (approvedOnce
-        // bypass, real tool.start) without a second ask, and its result is not
-        // a permission denial.
+        // The parked call re-dispatched and executed without a second ask; no denial.
         expect(ctx.asks.length).toBe(1);
         expect(
           turn.events.some(
@@ -196,9 +189,8 @@ describe("integration — reactor approval suspend/resume", () => {
 
         await turn.reply();
         expect(Date.now() - started).toBeLessThan(1000);
-        // resume.tool_result answers the parked call by committing the result
-        // turn directly (upstream does not emit tool.done for it), so the
-        // approver's reason reaches the model through history.
+        // resume.tool_result commits the result turn directly (no tool.done),
+        // so the reason lands in history.
         const history = await session.agent.history();
         const denied = history
           .flatMap((t) => t.content)
@@ -316,11 +308,9 @@ describe("integration — reactor approval suspend/resume", () => {
         expect(dones.length).toBeGreaterThanOrEqual(1);
         const denied = defined(dones[0], "tool done event");
         expect(denied.data.result.isError).toBe(true);
-        // Assert the block text: this deny is a policy deny, not an operator
-        // decline, so the director's classification must leave it unmatched.
+        // A policy deny, not an operator decline.
         expect(denied.data.result.content).toContain("Denied by policy:");
-        // Stricter-than-authz command deny is preserved as a block effect; the
-        // approval surface was never raised.
+        // Hard deny blocks without raising the approval surface.
         expect(ctx.asks.length).toBe(0);
       } finally {
         await closeIntegrationSession(session);
@@ -360,8 +350,7 @@ describe("integration — reactor approval suspend/resume", () => {
         ctx.reject("never touch the network");
         expect(await handling).toBe(true);
 
-        // The reply must come from re-inference (the scenario's scripted
-        // model turn), not the director's canned decline.
+        // The reply must come from re-inference, not the canned decline.
         const reply = await turn.reply();
         expect(reply).toBe("I'll skip the fetch, then.");
         expect(reply).not.toBe("Tool call rejected by operator.");
@@ -372,8 +361,7 @@ describe("integration — reactor approval suspend/resume", () => {
   );
 });
 
-// The vendored authz seam must hand the authorize callback the full ToolCall —
-// argument-level policy is exactly why this stage adopted the primitive.
+// The authorize callback must receive the full ToolCall for argument-level policy.
 describe("authz seam carries the ToolCall context", () => {
   function extWith(policy: (call: ToolCall) => void) {
     return createReactorAuthorize({

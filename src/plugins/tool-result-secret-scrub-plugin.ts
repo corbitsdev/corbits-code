@@ -5,10 +5,10 @@ import {
   scrubSecretShapedValue,
 } from "./tool-result-secret-scrub.js";
 
-// Posix-middleware scrub path only. search_agents is listed for future unified
-// scrubbing if it ever rides this middleware; live scrub for profile bodies is in
-// formatAgentSearchResults (agent-search.ts) because search_agents is a core agent
-// tool and never hits the posix ToolPlugin chain.
+// Posix-middleware scrub only. search_agents is listed for future unified
+// scrubbing if it ever rides this middleware; profile bodies scrub live in
+// formatAgentSearchResults (agent-search.ts) since search_agents never hits
+// the posix ToolPlugin chain.
 const SCRUBBABLE_TOOLS = new Set([
   "grep",
   "run_shell",
@@ -33,8 +33,8 @@ export function toolResultSecretScrubPlugin(): ToolPlugin {
       if (result.content !== null && typeof result.content === "object") {
         const scrubbed = scrubSecretShapedValue(result.content);
         if (scrubbed === result.content) return result;
-        // Keep a validated object shape — never coerce scrubbed Records to a
-        // JSON string (that broke downstream structure-aware consumers).
+        // Keep the validated object shape — never coerce scrubbed Records to
+        // a JSON string (broke structure-aware consumers).
         if (isRecord(scrubbed)) {
           const nextResult: ToolResult = { ...result, content: scrubbed };
           return nextResult;

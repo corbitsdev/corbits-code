@@ -56,10 +56,9 @@ export function registerBuiltInCommands(): void {
     handler: (_args, _ctx) => ({ type: "overlay", overlay: "hooks" }),
   });
 
-  // Layout-proof add-provider path: `/` works on every keyboard. There is no
-  // standalone /login; OAuth sign-in is still reached only through this flow.
-  // `/connect <kind> [profile]` pre-scopes the overlay to one account so a
-  // reconnect offer (or a pasted terminal command) lands on the failed row.
+  // Layout-proof add-provider path: `/` works on every keyboard; there is no
+  // standalone /login. `/connect <kind> [profile]` pre-scopes the overlay so
+  // a reconnect offer lands on the failed row.
   registerCommand({
     name: "connect",
     description:
@@ -80,10 +79,10 @@ export function registerBuiltInCommands(): void {
     },
   });
 
-  // signalClear rotates to a fresh session: the on-screen transcript and run
-  // telemetry are reset and the agent is rebuilt against a new state directory,
-  // so the conversation starts empty. The prior session stays on disk under its
-  // own id. Nothing is sent to the model — this is a local reset, not a message.
+  // signalClear rotates to a fresh session: transcript and run telemetry are
+  // reset and the agent is rebuilt against a new state directory. The prior
+  // session stays on disk under its own id. Local reset — nothing is sent to
+  // the model.
   registerCommand({
     name: "clear",
     description: "Start a fresh session in a new state directory",
@@ -206,8 +205,9 @@ export function registerBuiltInCommands(): void {
   });
 
   // Intentional product feedback → PostHog survey (headless). Can ship when
-  // ambient telemetry is off; env kill switches still block. Free text 2000 cap.
-  // Hidden from the slash menu until survey env ids are set (still callable).
+  // ambient telemetry is off; env kill switches still block. Free text 2000
+  // cap. Hidden from the slash menu until survey env ids are set (still
+  // callable).
   registerCommand({
     name: "feedback",
     description: "Send product feedback (env kill switches still apply)",
@@ -252,10 +252,10 @@ export function registerBuiltInCommands(): void {
     },
   });
 
-  // Pivot: fold the context through the shared operator pipeline, then
-  // immediately start the next turn with the trailing instructions as the
-  // inbound content (default copy when omitted). Unlike `/compact`, which
-  // stops after the fold, handoff always re-infers.
+  // Pivot: fold the context through the shared operator pipeline, then start
+  // the next turn with the trailing instructions as inbound content (default
+  // copy when omitted). Unlike `/compact`, which stops after the fold,
+  // handoff always re-infers.
   registerCommand({
     name: "handoff",
     description: "Fold context now, then continue with optional instructions",

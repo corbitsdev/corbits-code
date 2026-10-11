@@ -1,13 +1,9 @@
 // Model-backed compaction summarizer.
 //
-// When the context crosses the compaction threshold, the pruning compactor
-// replaces older turns with a summary. A deterministic stats blob ("Turns: N,
-// Tools called: ...") loses everything that matters for resuming work, so this
-// module produces a structured, workflow-aware narrative via a one-shot
-// inference call against the session's own model. Empty output or a failed
-// call throws so the compact cycle can substitute a statistics-only stub.
-// The operator notice for that fallback is owned by the session pruning
-// wrapper, which fires it only after the fold actually commits.
+// On compaction the pruning compactor replaces older turns with a summary. A
+// deterministic stats blob loses what resuming work needs, so this module
+// writes a structured, workflow-aware narrative in one inference call on the
+// session's own model.
 
 import { type } from "arktype";
 import { runInference, type Dependencies } from "@intx/inference";
@@ -33,14 +29,10 @@ import { readSourceCredentialMaterial } from "../config/source-credentials.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "session", "summarizer"]);
 
-// Token-budgeted compaction excerpt from the evidence archive.
-//
-// The live transcript is a clipped view. The archive holds the authorized
-// payloads compaction is about to drop, so the summary call should read those
-// rather than 400-character stubs. Budget is the control: later kinds yield
-// when earlier ones fill the window. Gap rows contribute metadata only.
+// Token-budgeted excerpt of the evidence archive compaction is about to drop,
+// richer than the clipped live transcript. Budget is the control: later kinds
+// yield when earlier ones fill the window. Gap rows contribute metadata only.
 export const SUMMARY_EXCERPT_DEFAULT_BUDGET_CHARS = 80_000;
-
 const KIND_PRIORITY: readonly ArchiveKind[] = [
   "user_message",
   "attachment",
@@ -65,8 +57,8 @@ function heading(occ: ArchiveOccurrence): string {
 }
 
 /**
- * Build a budgeted, kind-prioritized excerpt for the compaction summary call.
- * Empty archives return "" so the caller can fall back to the live transcript.
+ * Budgeted, kind-prioritized excerpt for the summary call. Empty archives
+ * return "" so the caller can fall back to the live transcript.
  */
 export async function buildArchiveSummaryExcerpt(
   archive: SummaryExcerptArchive,
@@ -126,9 +118,8 @@ export async function buildArchiveSummaryExcerpt(
   return `${excerpt}\n\n${note}`;
 }
 
-// What the agent was doing when compaction fired. Lets the summary preserve
-// the workflow contract ("we are at step 3/7 of /build") rather than dropping
-// it into the compacted region.
+// What the agent was doing when compaction fired, so the summary preserves
+// the workflow contract ("we are at step 3/7 of /build").
 export interface SummaryContext {
   workflow?: {
     name?: string;
@@ -136,22 +127,17 @@ export interface SummaryContext {
     stepIndex?: number;
     total?: number;
   };
-  // Tool names activated via tool_search and still on the wire. Pinned names
-  // live in the advertised prefix, not this list — callers pass
-  // activatedToolNames.list() only.
+  // Tool names activated via tool_search and still on the wire; pinned names
+  // live in the advertised prefix, not this list.
   activatedTools?: string[];
   /**
-   * Optional operator guidance from `/compact [instructions]` or
-   * `/handoff [instructions]`. Sticky across later auto-folds: the governor
-   * holds them, and a rebuilt director restores them from the latest compact
-   * record.
+   * Operator guidance from `/compact` or `/handoff`; sticky across later
+   * auto-folds via the governor and the latest compact record.
    */
   extraInstructions?: string;
   /**
-   * Newest prior handoff spine text on a repeat fold. The next summary updates
-   * this text with what changed instead of summarizing beside it — the spine
-   * turn itself rides the summarized region so the handoff fold absorbs it;
-   * this is the copy the model prompt carries.
+   * Prior handoff spine text on a repeat fold. The next summary updates this
+   * text with what changed instead of restating it.
    */
   priorSummary?: string;
 }
@@ -186,10 +172,9 @@ const SYSTEM_INSTRUCTION = [
   "turns can retrieve the evidence. Do not invent archive contents.",
 ].join("\n");
 
-// The user-message window is recency-bounded, which starves the standing
-// goal once the session runs long: the summary call would only see the last
-// dumps. Pin the first user message — the initiating ask — ahead of the
-// recent window so the goal survives no matter how many turns pile up.
+// The user-message window is recency-bounded, which starves the standing goal
+// on long sessions. Pin the first user message ahead of the recent window so
+// the goal survives.
 const CONDENSED_USER_WINDOW = 6;
 
 function withPinnedGoal(userMessages: string[]): string[] {
@@ -201,9 +186,9 @@ function withPinnedGoal(userMessages: string[]): string[] {
   return recent;
 }
 
-// Pull a compact, model-readable excerpt out of the turns being dropped:
-// recent user asks, assistant reasoning snippets, tool calls and the files
-// they touched. Bounded so the summary call itself stays cheap.
+// Compact, model-readable excerpt of the turns being dropped: recent user
+// asks, assistant reasoning snippets, tool calls, touched files. Bounded so
+// the summary call stays cheap.
 export function condenseTurns(turns: ConversationTurn[]): string {
   const userMessages: string[] = [];
   const assistantSnippets: string[] = [];
@@ -310,20 +295,17 @@ export function buildSummaryPrompt(
   return `${contextPreamble(ctx)}Session excerpt:\n\n${body}`;
 }
 
-// Per-call wall-clock cap for the summary call. Compaction runs inline on the
-// reactor, so a summarizer that inherits the director's 600 s budget freezes
-// the session for the full window; the summary prompt is small and a slow
-// answer is almost always a stuck call, not a thinking model.
+// Per-call wall-clock cap for the summary call; compaction runs inline on the
+// reactor, so a slow answer is a stuck call, not a thinking model.
 export const DEFAULT_SUMMARIZER_TIMEOUT_MS = 90_000;
 
-// The harness's default policy retries retryable and timeout categories up to
-// three times inside one call. The summarizer owns its retry budget instead —
-// one retry per failure class below — so a stalled call cannot multiply into
-// minutes of frozen reactor.
+// The harness would retry retryable and timeout categories up to three times
+// inside one call; the summarizer owns its budget instead — one retry per
+// failure class below — so a stalled call cannot freeze the reactor for
+// minutes.
 const NO_HARNESS_RETRY: RetryPolicy = () => ({ kind: "abort" });
-
-// Low-level completion: one inference round-trip returning assistant text.
-// Injectable so tests can drive the summarizer without a live model.
+// One inference round-trip returning assistant text. Injectable so tests can
+// drive the summarizer without a live model.
 export type CompletionFn = (
   turns: ConversationTurn[],
   source: InferenceSource,
@@ -340,8 +322,8 @@ function defaultComplete(deps: Dependencies, timeoutMs: number): CompletionFn {
       signal,
       nextSeq: () => seq++,
       deps,
-      // The source names a credentialId; resolve its secret from the
-      // first-party cell (see ../config/source-credentials.ts).
+      // Resolve the source's credential secret from the first-party cell
+      // (see ../config/source-credentials.ts).
       readMaterial: readSourceCredentialMaterial,
       inferenceOptions: {
         totalTimeoutMs: timeoutMs,
@@ -362,9 +344,9 @@ function defaultComplete(deps: Dependencies, timeoutMs: number): CompletionFn {
   };
 }
 
-// The class a failed summary call falls into. `auth` and `provider` each earn
-// one retry; `timeout` never does — the point of the smaller cap is to stop a
-// stalled call from freezing the reactor, and retrying would double the stall.
+// Failure class of a summary call. `auth` and `provider` earn one retry;
+// `timeout` never does — retrying would double the reactor stall the cap
+// exists to stop.
 export type SummarizerFailureClass =
   | "auth"
   | "provider"
@@ -375,14 +357,12 @@ export type SummarizerFailureClass =
 
 const EMPTY_SUMMARY_MESSAGE = "compaction summary returned empty text";
 
-// xAI's Responses proxy reports mid-stream generation failures as a
-// response.failed envelope, which the adapter classifies protocol_mismatch —
-// a category the harness never retries, though the fault is transient.
+// xAI's Responses proxy reports mid-stream generation failures as
+// response.failed, which the adapter classifies protocol_mismatch — a
+// category the harness never retries, though the fault is transient.
 const PROVIDER_INTERNAL_ERROR = /internal error during token generation/i;
-
-// defaultComplete attaches the harness's classified InferenceError as `cause`;
-// errors without one (injected fakes, thrown parser detail) classify by
-// bounded message markers.
+// defaultComplete attaches the harness's classified InferenceError as
+// `cause`; errors without one classify by message markers instead.
 function inferenceErrorCause(error: unknown): InferenceError | undefined {
   if (!(error instanceof Error) || error.cause === undefined) return undefined;
   const parsed = InferenceError(error.cause);
@@ -421,10 +401,10 @@ export function classifySummarizerFailure(
   return "failed";
 }
 
-// One-line operator notice for a stub fold that actually committed. The
-// reason named is the provider's own first line when short enough to be
-// useful, else the class. Callers must not fire this until the fold lands:
-// verify abort keeps prior context, so claiming a stub was used would lie.
+// One-line operator notice for a stub fold that actually committed: the
+// provider's first error line when short enough to be useful, else the
+// failure class. Callers must not fire this until the fold lands — verify
+// abort keeps prior context, so claiming a stub was used would lie.
 export function summarizerStubFallbackNotice(
   failureClass: SummarizerFailureClass,
   error: Error,
@@ -453,15 +433,15 @@ export interface ModelSummarizerOptions {
   maxChars?: number;
   /**
    * Per-call wall-clock cap for the summary call, profile-configurable via
-   * `summarizerTimeoutMs`. Deliberately far below the director's
-   * `totalTimeoutMs` — compaction blocks the reactor, so a stuck summary call
-   * must give up in seconds, not minutes.
+   * `summarizerTimeoutMs`, far below the director's `totalTimeoutMs`:
+   * compaction blocks the reactor, so a stuck call must give up in seconds,
+   * not minutes.
    */
   timeoutMs?: number | undefined;
   /**
-   * Re-read the provider credential (OAuth token store) before the single
-   * `auth` retry. Several processes share one auth file, so a 401 may only
-   * mean this process holds a token another already rotated.
+   * Re-read the provider credential before the single `auth` retry. Several
+   * processes share one auth file, so a 401 may only mean this process holds
+   * a token another already rotated.
    */
   refreshAuth?: (() => Promise<void>) | undefined;
   telemetry?: Telemetry | undefined;
@@ -471,11 +451,9 @@ export interface ModelSummarizerOptions {
 
 /**
  * Build a `summarize(turns, ctx)` function suitable for `CompactorConfig`.
- * Produces a structured, workflow-aware summary via the model. Empty output
- * or a failed call throws so the compact cycle can substitute a
- * statistics-only stub. The operator-visible fallback notice is owned by
- * the session pruning wrapper, which fires it only after that stub fold
- * actually commits.
+ * Throws on empty output or a failed call so the compact cycle can substitute
+ * a statistics-only stub; the pruning wrapper owns that stub's notice and
+ * fires it only after the fold commits.
  */
 export function createModelSummarizer(
   options: ModelSummarizerOptions,
@@ -513,8 +491,8 @@ export function createModelSummarizer(
     const retried = new Set<SummarizerFailureClass>();
     for (;;) {
       // Hoisted out of the try so the catch can tell whether this attempt's
-      // own signal was aborted: the lifecycle mints a fresh signal on reset,
-      // so re-reading getSignal() here could miss an abort that already fired.
+      // signal was aborted; the lifecycle mints a fresh signal on reset, so
+      // re-reading getSignal() here could miss an abort that already fired.
       const signal = options.getSignal?.() ?? new AbortController().signal;
       try {
         const text = await complete(promptTurns, options.getSource(), signal);
@@ -555,12 +533,10 @@ export function createModelSummarizer(
         logger.warn("compaction summary call failed: {error}", {
           error: err.message,
         });
-        // A lifecycle abort (interrupt/rotation mid-compact) is operator
-        // intent, not a summarizer failure: the wrapCompactor race already
-        // returns its no-op fold and the lifecycle emits its own
-        // "interrupted" notice, so a summarizer_failure telemetry event
-        // would be noise — and a "failed" framing actively misleads. Stay
-        // silent here and just rethrow so the race resolves as an abort.
+        // A lifecycle abort is operator intent, not a summarizer failure: the
+        // wrapCompactor race already returns its no-op fold and the lifecycle
+        // emits its own "interrupted" notice, so a summarizer_failure event
+        // would be noise.
         if (failureClass === "aborted" && signal.aborted) throw err;
         const source = options.getSource();
         telemetry.capture("summarizer_failure", {

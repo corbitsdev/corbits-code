@@ -1,7 +1,7 @@
 /**
  * The MCP surface keeps a reconnecting row distinct from connecting: the
- * label carries the redial attempt and the retained tool count, and Enter
- * single-dials via retryServer instead of waiting for backoff.
+ * label carries the redial attempt and retained tool count; Enter dials
+ * once via retryServer instead of waiting for backoff.
  */
 import { describe, expect, test } from "bun:test";
 import {

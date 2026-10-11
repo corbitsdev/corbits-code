@@ -203,11 +203,9 @@ export type ChangelogDisplayDecision =
   | { kind: "current"; stampVersion?: undefined };
 
 /**
- * Decide what to show on interactive start.
- * - Missing/empty/malformed watermark → first install: stamp package version, no history dump.
- * - New versioned sections after watermark → upgrade notes (stamp only once actually shown).
- * - Otherwise quiet.
- *
+ * Decide what to show on interactive start: first install (stamp watermark, no
+ * history dump), upgrade notes when new versioned sections exist after the
+ * watermark (stamp only once actually shown), otherwise quiet.
  * Persistence of the watermark is separate: see {@link stampVersionAfterStartup}.
  * Callers must not stamp upgrade notes unless they rendered them (CL-5475).
  */
@@ -249,12 +247,9 @@ export function decideStartupChangelog(input: {
 
 /**
  * Version to persist as `lastChangelogVersion` after this interactive start, or
- * `null` to leave the watermark alone.
- *
- * - first_install: always stamp (quiet; never dump history on later launches).
- * - upgrade: stamp only when `notesShown` is true. A dead surface must not
- *   consume notes by stamping without display (CL-5475).
- * - current: no write.
+ * `null` to leave the watermark alone. First install always stamps; upgrade
+ * stamps only when `notesShown` is true (a dead surface must not consume notes
+ * by stamping without display); `current` writes nothing.
  */
 export function stampVersionAfterStartup(
   decision: ChangelogDisplayDecision,

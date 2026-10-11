@@ -1,10 +1,8 @@
 /**
- * Runner-facing mount for the OpenTUI product host.
- *
- * Owns everything renderer-specific about the interactive path so the session
- * runner keeps only agent/session wiring: catalog assembly from live config,
- * chrome pushes on session change, subagent observe resolution, and the quit
- * key that resolves `waitUntilExit`.
+ * Runner-facing mount for the OpenTUI product host. Keeps renderer-specific
+ * concerns out of the session runner: catalog assembly from live config,
+ * chrome pushes on session change, subagent observe resolution, and the
+ * quit key that resolves `waitUntilExit`.
  */
 
 import type { EventEmitter } from "node:events";
@@ -97,8 +95,8 @@ export interface RunnerHostDeps {
   readonly favoriteModels?: readonly ModelCatalogRef[];
   /**
    * Provider+model the session is actually running, read live on every
-   * picker open. Marks that row "(current)" — independent of recents, which
-   * only move on an explicit `/model` pick and can go stale.
+   * picker open to mark that row "(current)". Recents only move on an
+   * explicit `/model` pick and can go stale.
    */
   readonly activeModel?: () => ModelCatalogRef | undefined;
   readonly onModelSelect: (id: string) => void;
@@ -125,21 +123,21 @@ export interface RunnerHostDeps {
   /** Branch lookup override for tests; defaults to a real `git rev-parse`. */
   readonly fetchBranch?: FetchBranch;
   /**
-   * Live `profile · model · effort` source for the top border label. Read on
-   * mount and again after every model selection, so the label follows the
-   * same config the picker mutates.
+   * Live `profile · model · effort` source for the top border label, read on
+   * mount and after every model selection so the label follows the same
+   * config the picker mutates.
    */
   readonly modelLabel?: () => PromptActionBarModelLabelInput;
   /**
-   * Live cost/context source for the bottom border's meter. Read on mount, after
-   * every completed inference turn, and after a live model pick so hide/show
-   * follows the new identity without waiting for the next inference.
+   * Live cost/context source for the bottom border's meter, re-read after
+   * every completed turn and live model pick so the meter follows the new
+   * identity without waiting for the next inference.
    */
   readonly readCostSummary?: () => CostSummary | undefined;
   /**
-   * Live read of the show-cost setting. Consulted on every cost push so the
-   * cost run is omitted at the source when off, rather than composed and
-   * then hidden. Defaults to false (off) when omitted.
+   * Live read of the show-cost setting, consulted on every cost push so the
+   * cost run is omitted at the source when off. Defaults to false when
+   * omitted.
    */
   readonly showPromptCost?: () => boolean;
   readonly commands:
@@ -149,11 +147,9 @@ export interface RunnerHostDeps {
   /** Live chrome snapshot source, read on mount and on every notify. */
   readonly chrome: () => ChromeSessionInput;
   /**
-   * Registers a chrome-change notifier; returns an unsubscribe. Required, not
-   * optional: an omitted subscription used to type-check cleanly while
-   * silently leaving the task/agents panels frozen at their mount-time
-   * snapshot — the exact "mechanism built, never wired" shape this signature
-   * now makes impossible to omit by accident.
+   * Registers a chrome-change notifier; returns an unsubscribe. Required: an
+   * omitted subscription type-checks cleanly while leaving the task/agents
+   * panels frozen at their mount-time snapshot.
    */
   readonly subscribeChrome: (notify: () => void) => () => void;
   /** Live subagent sessions for the palette observe action. */
@@ -178,8 +174,8 @@ export interface RunnerHostDeps {
 export type RunnerHost = ProductHost & {
   /**
    * Open a command surface. Returns false when the requested surface has no
-   * OpenTUI implementation, so the caller can report the gap.
-   * `connectScope` pre-scopes add-provider to one kind/profile (reconnects).
+   * OpenTUI implementation, so the caller can report the gap. `connectScope`
+   * pre-scopes add-provider to one kind/profile (reconnects).
    */
   readonly openSurface: (
     kind: CommandSurfaceKind,
@@ -188,12 +184,12 @@ export type RunnerHost = ProductHost & {
   ) => boolean;
   /**
    * Recompute the models-first catalog from fresh recent/favorite refs and
-   * push it into the already-open host — the picker's Recent/Favorites
-   * sections would otherwise never reflect a same-session selection.
+   * push it into the already-open host, so a same-session selection shows in
+   * the picker.
    *
-   * `providers` defaults to the value last passed here (or the mount-time
-   * deps) — pass a fresh one after a live provider connect so a newly
-   * authorized provider's models appear without a restart.
+   * `providers` defaults to the last value passed; pass a fresh one after a
+   * live provider connect so newly authorized models appear without a
+   * restart.
    */
   readonly refreshModels: (
     recentModels: readonly ModelCatalogRef[],
@@ -209,8 +205,8 @@ export type RunnerHost = ProductHost & {
   }) => boolean;
   /**
    * Idle-only one-action reconnect offer for a reconnect-class terminal
-   * failure. Single row, no type-to-filter, Enter re-keys via a pre-scoped
-   * /connect, Esc dismisses. Returns false when the run is not idle.
+   * failure. Single row, no type-to-filter; Enter re-keys via a pre-scoped
+   * /connect, Esc dismisses.
    */
   readonly openReconnectRecovery: (args: {
     scope: ReconnectScope;
@@ -247,9 +243,8 @@ export function rowFromTranscriptEntry(
 }
 
 /**
- * A subagent transcript as rows. Tool entries are folded, not mapped one to
- * one: a call and its result share a row, and a repeated call collapses onto
- * the row it repeats.
+ * A subagent transcript as rows. Tool entries fold: a call and its result
+ * share a row, a repeated call collapses onto the row it repeats.
  */
 export function rowsFromTranscript(
   entries: readonly SubAgentTranscriptEntry[],
@@ -279,8 +274,9 @@ export function rowsFromTranscript(
 }
 
 /**
- * Pick the session the operator most likely wants to watch: the newest running
- * one, else the most recent session of any status. No sessions → null.
+ * Pick the session the operator most likely wants to watch: the newest
+ * running one, else the most recent session of any status. No sessions →
+ * null.
  */
 export function observeSessionFromSubAgents(
   sessions: readonly SubAgentSession[],
@@ -409,8 +405,7 @@ export async function mountRunnerHost(
   };
   pushCostContext();
   // Completed turns update cost/context; inference.start also refreshes so a
-  // post-compact estimate (synced in decide before the infer) paints before
-  // the next inference.done arrives with provider usage. connector.reply
+  // post-compact estimate paints before the next inference.done. connector.reply
   // covers idle empty compact, which syncs the meter then waits (no infer).
   const onCostEvent = (event: { type: string }): void => {
     if (
@@ -423,9 +418,9 @@ export async function mountRunnerHost(
   };
   deps.eventEmitter.on("event", onCostEvent);
 
-  // Wipe the meter immediately on /clear|/new. refreshCostContext would re-read
-  // the still-occupied sink and restore the stale percent before rotation
-  // finishes.
+  // Wipe the meter immediately on /clear|/new. refreshCostContext would
+  // re-read the still-occupied sink and restore the stale percent before
+  // rotation finishes.
   const onSessionClear = (): void => {
     setPromptCostContext(host.shell, {
       contextPercentUsed: null,
@@ -443,11 +438,10 @@ export async function mountRunnerHost(
       : {}),
   });
 
-  // Quitting is Ctrl+C twice, the binding this interface has always used. The
-  // host claims no key of its own: a second exit chord split the one thing
-  // every operator already knows across two keys, and Ctrl+D stays the
-  // prompt's delete-character-under-cursor.
-
+  // Quitting is Ctrl+C twice, the binding this interface has always used.
+  // The host claims no key of its own: a second exit chord would split the
+  // one gesture every operator already knows, and Ctrl+D stays the prompt's
+  // delete-character-under-cursor.
   let disposed = false;
   const dispose = (): void => {
     if (disposed) return;
@@ -460,8 +454,8 @@ export async function mountRunnerHost(
     host.dispose();
   };
 
-  // A bare `exit` / `quit` at the prompt routes through the same teardown as
-  // the Ctrl+C exit, so finalize still runs.
+  // A bare `exit` / `quit` at the prompt routes through the same teardown
+  // as the Ctrl+C exit, so finalize still runs.
   setShellExitHandler(host.shell, dispose);
 
   const surfaceDeps: CommandSurfaceDeps = {

@@ -15,8 +15,7 @@ const WireRequest = type({
   messages: type({ role: "string", content: "unknown" }).array(),
 });
 
-// claude-integration resolves a 200k context window, so a 200k-token usage
-// frame reports over the 120k auto-compaction threshold.
+// A 200k-token usage frame clears the 120k auto-compaction threshold.
 const TRIGGER_USAGE = {
   input: 200_000,
   output: 1,
@@ -41,16 +40,12 @@ function logLines(count: number): string {
 async function openFoldSession(): Promise<E2ESession> {
   const session = await openE2ESession({
     permissionGate: e2ePermissionGate(),
-    // A tiny tail budget keeps the fold honest: the default 2500-token
-    // budget would absorb this small scenario into the live tail and the
-    // compactor would correctly no-op.
-    // Budget fits the paged read windows in the live tail but not the bulky
-    // pad turns, so the fold still fires.
+    // A tiny tail budget keeps this small scenario from fitting the live tail;
+    // the budget fits the read windows but not the bulky pad turns, so the
+    // fold fires.
     compactionShape: { tailBudgetTokens: 500 },
-    // A short handoff, not a prompt echo: complete() receives the summarizer
-    // prompt turns, and a 4k echo gets truncated off the verify-repair tail
-    // so the fold aborts. This scenario asserts on kept live bodies, not the
-    // summary text.
+    // A short handoff keeps the fold from aborting on a 4k echo; assertions
+    // target the kept live bodies, not the summary text.
     compactionCompletion: async () =>
       "Goal: page through var/log/big.log. Next: keep reading remaining windows.",
   });
@@ -84,12 +79,9 @@ async function padTurns(session: E2ESession, count: number): Promise<void> {
 }
 
 /**
- * One user turn that pages through the log and folds mid-turn: each scripted
- * read reply reports low usage so the governor stays disarmed until the
- * final call, whose 200k usage frame arms the tool.done intercept — the
- * compact+emit batch runs, the delivered continuation re-enters inference,
- * and the last scripted reply answers the post-fold request. Keeping every
- * read inside this turn is what lands the kept windows in the live tail.
+ * One user turn that pages through the log and folds mid-turn: reads report
+ * low usage until the final 200k frame arms the compact+emit batch; keeping
+ * every read in this turn lands the kept windows in the live tail.
  */
 async function readChainThenFold(
   session: E2ESession,
@@ -130,9 +122,8 @@ describe("e2e — automatic compaction keeps the read resume recipe", () => {
         );
         expect(spines).toHaveLength(1);
 
-        // Each kept window still carries its own body and resume recipe —
-        // the summary echoed turn text only, so these strings can only come
-        // from the live kept results.
+        // Each kept window still carries its own body and resume recipe — the
+        // summary echoed turn text only, so these strings come from the live results.
         expect(body).toContain("Use offset=40 to continue");
         expect(body).toContain("Use offset=60 to continue");
         expect(body).toContain("log line 25");
@@ -160,8 +151,7 @@ describe("e2e — automatic compaction keeps the read resume recipe", () => {
 
         const body = await lastRequestBody(session);
         expect(body).toContain(COMPACTED_PREFIX);
-        // The newest copy of the identical window keeps its body and notice;
-        // exactly one older duplicate renders as a stub.
+        // The newest duplicate stays whole; exactly one older one renders as a stub.
         expect(body).toContain("Use offset=40 to continue");
         const stubs = body.match(/omitted from context/g) ?? [];
         expect(stubs).toHaveLength(1);

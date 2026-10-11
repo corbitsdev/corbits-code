@@ -90,7 +90,7 @@ const DEFAULT_DEBOUNCE_MS = 3000;
 // Builds a RootsProvider for `cwd`. The listing is lazy: nothing runs until
 // the first read, since most permission checks never leave cwd and should
 // never pay for a `git worktree list` call. `lister` is injectable so tests
-// can spy on/replace the underlying git call without shelling out for real.
+// can replace the underlying git call without shelling out for real.
 export function createWorktreeRootsProvider(
   cwd: string,
   lister: (cwd: string) => string[] = listWorktreeRootsSync,

@@ -5,9 +5,9 @@
  * continue into model/provider setup. Returning users who already completed
  * this gate (`settings.onboarded`) skip straight to setup.
  *
- * The mark art is the same silhouette the idle landing uses (`renderMark` /
- * mark grids); this surface only owns the standalone full-screen composition
- * and the advance/cancel contract.
+ * The mark art is the same silhouette the idle landing uses; this surface
+ * only owns the standalone full-screen composition and the advance/cancel
+ * contract.
  */
 
 import {

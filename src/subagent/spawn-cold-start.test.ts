@@ -1,14 +1,13 @@
 /**
- * CL-9010 spawn cold start: fleet workers reuse the dispatcher's already-paid
- * init work — the parent skill catalog, the inference deps + pricing seed,
- * and the short-TTL environment snapshot — instead of re-running discovery,
- * git, and the pricing seed per lane. Spawn dispatch itself stays
- * non-blocking: every reuse lookup on the dispatch path is a sync
- * cache/reference handoff.
+ * Spawn cold start: fleet workers reuse the dispatcher's already-paid init —
+ * the parent skill catalog, inference deps + pricing seed, and the short-TTL
+ * environment snapshot — instead of re-running discovery, git, and the
+ * pricing seed per lane. Dispatch stays non-blocking: every reuse lookup on
+ * the dispatch path is a sync cache/reference handoff.
  *
  * Pattern follows run-skill-scope.test.ts (real runSubAgent against the
- * failing local provider; mount decisions run before the send) and
- * run-authority.test.ts (re-import run.js inside the module mock).
+ * failing provider) and run-authority.test.ts (re-import run.js inside the
+ * module mock).
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { execFile } from "node:child_process";

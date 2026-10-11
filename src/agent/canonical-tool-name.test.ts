@@ -53,7 +53,7 @@ describe("isSameTool", () => {
 
 // Callsites that compare incoming wire names must go through isSameTool (or
 // the canonical modules themselves). A new raw `name === "<tool>"` compare in
-// one of these files reintroduces the #1252 breakage on the next wire rename,
+// one of these files reintroduces the wire-rename breakage on the next rename,
 // so this test fails until the callsite is converted.
 describe("tool-name comparison regression guard", () => {
   const CALLSITES = [

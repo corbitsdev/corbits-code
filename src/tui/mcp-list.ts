@@ -70,9 +70,9 @@ function liveMcpEntry(
 }
 
 /**
- * `/mcp` identity: configured catalog (including disabled, plus implicit builtin
- * Exa when that name is absent) union live names that are not `disconnected`.
- * Configured `enabled === false` wins; leftover live `disconnected` is never painted.
+ * `/mcp` identity: configured catalog (including disabled, plus implicit
+ * builtin Exa when absent) union live names that are not `disconnected`.
+ * Configured `enabled === false` wins.
  */
 export function mergeMcpSurfaceEntries(
   configured: readonly MCPServerSettingsEntry[],

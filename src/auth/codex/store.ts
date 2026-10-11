@@ -4,10 +4,9 @@ import type { CodexTokens } from "@corbits/codex-provider";
 
 import { createAuthStore } from "../store.js";
 
-// On-disk store for Codex OAuth profiles. A user may hold multiple Codex
+// On-disk store for Codex OAuth profiles: a user may hold multiple
 // subscriptions (personal, work, ...), so credentials are keyed by a
-// user-chosen profile name within a single file. The provider type is shared;
-// the profile name is what differentiates instances throughout the app.
+// user-chosen profile name within a single file.
 
 export type { CodexTokens };
 
@@ -25,8 +24,8 @@ function isCodexTokens(value: unknown): value is CodexTokens {
 }
 
 // The package mapper leaves expiresAt unset when the token endpoint omits
-// expires_in. Disk profiles must have a concrete expiry so the arktype guard
-// can load them; 3600s matches the previous host mapper.
+// expires_in; disk profiles need a concrete expiry so the arktype guard can
+// load them. 3600s matches the previous host mapper.
 const DEFAULT_EXPIRES_IN_S = 3600;
 
 export function withDefaultCodexExpiry(

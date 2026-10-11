@@ -1,29 +1,11 @@
 /**
  * Approval log: one record every time the permission gate settles a
- * consequential action — whether that settlement came from an operator
- * prompt or from auto mode deciding without one.
+ * consequential action, from an operator prompt or auto mode.
  *
- * Before this file, the only durable record of an approval was a lifetime
- * "Allow Always" grant (see store.ts) — every allow-once and every deny, the
- * overwhelming majority of answers, was discarded the moment it was given.
- * There was no way to answer how many approvals a session fires, which
- * classifier rule triggers them, or whether a prompt was even auto-allowed by
- * policy rather than shown to the operator (CL-5666).
- *
- * No command text, file content, path, credential, or any other
- * model-authored or user-authored free text ever appears here — only the tool
- * name (a fixed identifier), the classifier/auto-shell rule that fired
- * (reusing the rule names already defined in auto-shell-policy.ts and
- * classify.ts, plus a small closed set of additional literals this file
- * defines for decisions those modules don't otherwise name — never a new
- * taxonomy), a shell chain's segment count, and timing. Every field is either
- * a fixed enum, a count, or a timestamp; a sub-agent's free-text dispatch
- * label was deliberately left out even though it would enable a per-agent
- * breakdown, because nothing constrains what a model puts in it. Writes are
- * fire-and-forget and never throw: a diagnostic must not be able to fail a
- * run. A hard size cap on the serialized line (see MAX_RECORD_BYTES) is
- * belt-and-suspenders insurance against a future field reintroducing free
- * text.
+ * Records hold only fixed enums, counts, and timestamps — never command
+ * text, paths, or model-authored free text. Writes are fire-and-forget and
+ * never throw, so a diagnostic cannot fail a run. MAX_RECORD_BYTES caps
+ * the line against future free text.
  */
 
 import { appendFile } from "node:fs/promises";
@@ -36,14 +18,14 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 export const APPROVAL_LOG_FILE = "approvals.jsonl";
 
-/** Whether the settlement came from an unattended policy decision or an operator prompt. */
+/** Settlement source: unattended policy decision or operator prompt. */
 export type ApprovalMode = "auto" | "interactive";
 
 /**
  * How the request settled. `allow-once` / `allow-with-scope` / `deny` are
- * operator decisions; `auto-allow` / `auto-deny` are auto-mode policy
- * decisions made without a prompt; `timeout` / `abort` are the gate settling
- * itself because the operator never answered.
+ * operator decisions; `auto-allow` / `auto-deny` are auto-mode decisions
+ * made without a prompt; `timeout` / `abort` mean the gate settled because
+ * the operator never answered.
  */
 export type ApprovalOutcomeKind =
   | "allow-once"
@@ -59,9 +41,9 @@ export interface ApprovalRecord {
   id: string;
   tool: string;
   /**
-   * The classifier/auto-shell rule name that triggered this decision (e.g.
-   * "dependency-install", "sensitive-path" from auto-shell-policy.ts), when
-   * one fired. Undefined for a plain interactive ask with no specific rule.
+   * Auto-mode rule that triggered this decision (e.g. "dependency-install",
+   * "sensitive-path" from auto-shell-policy.ts), when one fired. Undefined
+   * for a plain interactive ask with no specific rule.
    */
   rule?: string;
   mode: ApprovalMode;
@@ -71,10 +53,9 @@ export interface ApprovalRecord {
   /** ISO timestamp the request was raised (queued for an operator or a policy check). */
   queuedAt: string;
   /**
-   * ISO timestamp the request actually reached the operator's screen. Equal
-   * to queuedAt unless the request sat behind another overlay first — the gap
-   * between the two is the CL-5664 defect signal (timers arming before the
-   * operator can see the request).
+   * ISO timestamp the request reached the operator's screen. Equal to
+   * queuedAt unless it sat behind another overlay — the gap is the defect
+   * signal for timers arming before the operator can see the request.
    */
   displayedAt: string;
   /** ISO timestamp the request settled (decided, auto-decided, timed out, or aborted). */
@@ -92,12 +73,9 @@ export interface AskEvent {
   segments?: number;
 }
 
-// Belt-and-suspenders cap on the serialized record. Every field here is
-// either a fixed enum, a count, or a timestamp, so a well-formed line should
-// never come close to this — it exists only so a future field that
-// reintroduces free text (an agent label, a subject, a message) cannot grow
-// this file into a content leak; oversized lines are dropped, not truncated,
-// so no partial secret survives half-written.
+// Cap on the serialized record. Fixed enums/counts/timestamps never come
+// close to it; it only guards a future field that reintroduces free text.
+// Oversized lines are dropped, not truncated, so no partial secret survives.
 const MAX_RECORD_BYTES = 512;
 
 /** Handle for one in-flight ask, returned by ApprovalLog.ask(). */
@@ -126,7 +104,7 @@ export const NOOP_APPROVAL_LOG: ApprovalLog = {
  * Append-only sink over `<dir>/approvals.jsonl`.
  *
  * Appends are fire-and-forget: the caller is on the permission-gate decision
- * path, and a diagnostic write must not add latency to it or fail the run.
+ * path, so a diagnostic write must not add latency to it or fail the run.
  * Ordering within a session is preserved by chaining each append onto the
  * previous one.
  */
@@ -188,8 +166,8 @@ export function createApprovalLog(
       };
     },
     // Resolves once every append issued so far has settled. The decision
-    // path never awaits it; tests use it instead of a sleep to read the
-    // log deterministically.
+    // path never awaits it; tests use it instead of a sleep to read the log
+    // deterministically.
     flush: () => tail,
   };
 }

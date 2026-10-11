@@ -1,11 +1,10 @@
 /**
- * close_agent / resume_agent: the session-lifecycle half of
- * reusable worker sessions. spawn_agent/wait_agents start and
- * collect workers; these two verbs let an orchestrator tear one down on
- * purpose (close_agent) or start the next turn on a retained completed
- * or interrupted session (resume_agent), returning immediately so
- * wait_agents collects. send_input steers an in-flight running turn, or
- * answers a pending ask_director (soft; does not deliver a steer inbound).
+ * close_agent / resume_agent: the session-lifecycle half of reusable
+ * worker sessions. spawn_agent/wait_agents start and collect workers;
+ * these verbs tear one down (close_agent) or start the next turn on a
+ * retained completed or interrupted session (resume_agent), returning
+ * immediately so wait_agents collects. send_input steers an in-flight
+ * turn, or answers a pending ask_director (soft; no steer inbound).
  */
 
 import { tool } from "@intx/agent";
@@ -88,7 +87,8 @@ export const resumeAgentToolDefinition: ToolDefinition = {
   },
 };
 
-/** Every id in `target`'s subtree (nodes with target somewhere up their parentSessionId chain), deepest first, target last. */
+/** Every id in `target`'s subtree (nodes with target somewhere up their
+ * parentSessionId chain), deepest first, target last. */
 function descendantsClosingOrder(
   nodes: readonly { id: string; parentSessionId?: string | undefined }[],
   target: string,
@@ -143,10 +143,10 @@ export type ResumeAgentToolDeps = LifecycleToolDeps & {
 };
 
 /**
- * Clip a late-send summary the same way digestCollectedReport clips its inline
- * digest section: structured reports keep up to MAILBOX_DIGEST_SECTION_CHARS,
- * unstructured (no envelope sections) keep a short teaser — the blob holds
- * the rest.
+ * Clip a late-send summary the same way digestCollectedReport clips its
+ * inline digest section: structured reports keep up to
+ * MAILBOX_DIGEST_SECTION_CHARS, unstructured (no envelope sections) keep
+ * a short teaser — the blob holds the rest.
  */
 function clipLateSendSummary(text: string, unstructured: boolean): string {
   const max = unstructured
@@ -157,11 +157,10 @@ function clipLateSendSummary(text: string, unstructured: boolean): string {
 }
 
 /**
- * Late-send_input redirect per terminal status. Only `completed` delivered a
- * report (via mailbox mail); `interrupted` never did, and `shutdown` sessions
- * are gone for good (resumeOne after closeOne fails), so only `completed`
- * names resume_agent. Shutdown/evicted point at read_agent_trace / a fresh
- * spawn instead.
+ * Late-send_input redirect per terminal status: only `completed` delivered
+ * a report, so only it names resume_agent; `interrupted` never did;
+ * `shutdown`/evicted sessions are gone (resumeOne after closeOne fails),
+ * pointing at read_agent_trace / a fresh spawn.
  */
 function lateSendRedirect(
   target: string,
@@ -416,8 +415,9 @@ export function createInterruptAgentTool(
         );
       }
       // Soft interrupt leaves the run in flight; projectWaitStatus treats
-      // interrupted+inFlight as running so resume cannot collect a stale stamp.
-      // Flip the wait mailbox overlay so in-flight wait_agents unblocks as interrupted.
+      // interrupted+inFlight as running so resume cannot collect a stale
+      // stamp. Flip the wait mailbox overlay so in-flight wait_agents
+      // unblocks as interrupted.
       deps.fleetRecords.interrupt(target);
       return lifecycleResult(
         call.id,
@@ -506,12 +506,9 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
           : {}),
       });
       if (!outcome.ok) {
-        // CL-8016: name the teardown when one is recorded — after a stop the
+        // Name the teardown when one is recorded — after a stop the
         // session is gone, and a bare status would read as "never existed".
-        // Late-send redirect is scoped per terminal status: only `completed`
-        // delivered a report (summary + report_uri below, resume for more);
-        // `interrupted` never delivered one; `shutdown`/evicted sessions are
-        // gone for good, so they point at read_agent_trace / a fresh spawn.
+        // Redirect per terminal status (see lateSendRedirect).
         const session = deps.sessions.get(target);
         const redirect = lateSendRedirect(
           target,
@@ -525,7 +522,7 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
           `Error: cannot send_input to "${target}" (status: ${outcome.status}).${hint}${redirect}`,
         );
       }
-      // CL-7331: an interrupt-with-followup is transitional, not terminal.
+      // An interrupt-with-followup is transitional, not terminal.
       // interrupt_agent/close_agent flip the wait mailbox so an in-flight
       // wait_agents unblocks as interrupted; a queued followup must instead
       // stay wait-live (running/queued) so the followup reply surfaces via

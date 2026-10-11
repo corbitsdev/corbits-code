@@ -1,7 +1,7 @@
 /**
  * The transcript never labels a row with the machinery that produced it:
- * a "thinking" meta paints an empty gutter, and an accepted overlay writes
- * its recap row tagged with the overlay's own gutter word.
+ * "thinking" paints an empty gutter, an accepted overlay recap carries the
+ * overlay's own gutter word.
  */
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness.js";

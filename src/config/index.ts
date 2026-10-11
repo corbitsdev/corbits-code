@@ -107,21 +107,19 @@ import {
 } from "../mcp/exa.js";
 import { resolveProfile } from "./profiles.js";
 
-// The per-call token ceiling for the inference source. Lives here so agent
-// creation (runner.ts) and live provider switching (the /agent
-// modal) all build the source the same way and a live switch can never silently
-// revert the ceiling.
+// Per-call token ceiling for inference sources, shared by agent creation
+// (runner.ts) and live provider switching (the /agent modal) so a live switch
+// cannot silently revert it.
 export const SOURCE_MAX_TOKENS = 16384;
 
-// Placeholder resolved from the credential cell for keyless local providers
-// (e.g. Ollama). Sources that need no secret register this sentinel; the
-// harness still sends it as `Bearer <key>` but keyless servers ignore it.
+// Credential-cell placeholder for keyless local providers (e.g. Ollama). The
+// harness still sends it as `Bearer <key>`; keyless servers ignore it.
 export const KEYLESS_API_KEY = "keyless";
 
 // Registers the secret behind a source id in the credential cell (see
 // ./source-credentials.ts), falling back to the keyless sentinel when no key
 // was configured. Every buildXSource below calls this so the vendored
-// credentialId auth model resolves the secret at send time.
+// credentialId model resolves the secret at send time.
 function registerSourceSecret(
   id: string,
   apiKey: string | undefined,
@@ -160,9 +158,9 @@ function applyPersistedOAuthDefaults(
   return merged;
 }
 
-// OAuth entries in settings.json carry no credentials; they are only usable
-// while a matching auth-store profile exists. Drop orphans in memory so a
-// removed profile does not pin resolution to an unauthenticatable provider.
+// OAuth entries in settings.json carry no credentials; they work only while a
+// matching auth-store profile exists. Drop orphans in memory so a removed
+// profile does not pin resolution to an unauthenticatable provider.
 export function dropOrphanedOAuthEntries(
   settings: Settings | null,
   projected: Record<string, ProviderSettings>,
@@ -187,10 +185,9 @@ export function dropOrphanedOAuthEntries(
   };
 }
 
-// A codex/<slug> or xai/<slug> settings row carrying its own credential is the
-// operator's explicit config, not an OAuth placeholder: OAuth profile
-// projections must never overwrite it, orphan-sweep it, or drop it from the
-// catalog. Credential-less namespaced rows stay placeholders (CL-6728).
+// A codex/<slug> or xai/<slug> row with its own credential is explicit
+// config, not an OAuth placeholder: projections must never overwrite or
+// orphan-sweep it. Credential-less namespaced rows stay placeholders.
 function isHandNamedProviderEntry(
   entry: Pick<ProviderSettings, "apiKey" | "keyless"> | undefined,
 ): boolean {
@@ -306,56 +303,47 @@ export function buildOpenAISource(fields: {
   };
 }
 
-// One configured provider the /agent modal can switch to. Carries credentials
-// because live switching builds an InferenceSource from it; the modal only ever
-// receives fields needed for provider management, never the key. Derived from
-// ProviderSettings (the persisted record) so the field *set* stays tied to it:
-// a newly required ProviderSettings field forces every catalog-entry literal
-// to supply it. `name` becomes required (every catalog entry is resolved to a
-// concrete provider id) and `contextWindow` is dropped (it is a settings-only
-// override, never surfaced to the /agent modal). The OAuth-profile markers
-// below have no ProviderSettings counterpart because such entries are never
-// written to settings.json (their credentials live in the Codex/xAI auth
-// stores). Optional fields still need the round-trip test in config.test.ts —
-// TS does not flag a missing optional property against an explicitly-typed
-// object literal, so forwarding of an optional field can only be caught at
-// runtime.
+// One configured provider the /agent modal can switch to. Derived from
+// ProviderSettings so a new required field forces every catalog literal to
+// supply it; `name` is required (a concrete provider id), `contextWindow` is
+// dropped (settings-only, never surfaced). Carries credentials the modal
+// never shows. OAuth-profile markers have no ProviderSettings counterpart
+// and are never written to settings.json. Optional fields still need the
+// config.test.ts round-trip: TS misses a missing optional property on an
+// explicitly-typed literal.
 export type ProviderCatalogEntry = Omit<
   ProviderSettings,
   "name" | "contextWindow"
 > & {
   name: string;
-  // Set when this entry is a Codex OAuth profile rather than an API-key
-  // provider. Holds the profile name; the send path uses it to refresh the
-  // access token before each turn.
+  // Codex OAuth profile name (not an API-key provider); the send path
+  // refreshes the access token with it before each turn.
   codexProfile?: string;
   // ChatGPT account id for a Codex profile, sent as the chatgpt-account-id
-  // header by the Responses adapter. Present only on Codex entries.
+  // header by the Responses adapter. Codex entries only.
   codexAccountId?: string;
-  // Set when this entry is an xAI/Grok OAuth profile. It still routes through
-  // openai-compatible; the marker only controls token refresh and persistence.
+  // xAI/Grok OAuth profile. Still routes through openai-compatible; the
+  // marker only controls token refresh and persistence.
   xaiProfile?: string;
-  // When true this provider is backed by a Bifrost virtual key. Inference
-  // sources for it are built with provider "bifrost" so the adapter can
-  // inject the x-bf-vk header (in addition to Authorization). The flag is
-  // also used to enable /models auto-discovery scoped to the key.
+  // Bifrost virtual key: sources use provider "bifrost" so the adapter
+  // injects the x-bf-vk header; also enables /models auto-discovery scoped
+  // to the key.
   bifrostVirtualKey?: boolean;
-  // Anthropic Messages API (x-api-key). Used by first-class Anthropic and by
-  // OpenCode Go models that speak the messages protocol.
+  // Anthropic Messages API (x-api-key): first-class Anthropic and OpenCode Go
+  // models that speak the messages protocol.
   anthropic?: boolean;
-  // OpenCode Go multi-protocol provider. Per-model routing picks
-  // openai-compatible, openai-responses, or anthropic at source-build time.
+  // OpenCode Go multi-protocol provider; per-model routing picks the adapter
+  // at source-build time.
   opencodeGo?: boolean;
-  // False when this credential was persisted without a passing connection
-  // test. See ProviderSettings.verified in settings.ts.
+  // False when persisted without a passing connection test; see
+  // ProviderSettings.verified in settings.ts.
   verified?: boolean;
 };
 
-// Build the InferenceSource for a Codex OAuth profile. Routes to the
-// "codex-responses" adapter (the Codex backend speaks the Responses API, not
-// Chat Completions) and carries the session id through providerOptions. The
-// access token and account id are registered together in the credential cell;
-// the harness resolves both at send time.
+// Build the InferenceSource for a Codex OAuth profile: routes to
+// "codex-responses" (Codex speaks the Responses API, not Chat Completions)
+// and carries the session id through providerOptions; the access token and
+// account id register together in the credential cell.
 export function buildCodexSource(fields: {
   id: string;
   profile: string;
@@ -388,12 +376,10 @@ export function buildCodexSource(fields: {
   };
 }
 
-// Build the InferenceSource for an xAI/Grok OAuth profile. Routes to the
-// "grok-responses" adapter (the grok-cli proxy speaks the Responses API, not
-// Chat Completions). The access token is registered in the credential cell
-// under the source id; the caller's user id is
-// decoded from it and lifted into the x-grok-user-id header by the adapter.
-// The session id becomes the request's prompt_cache_key so every call in the
+// Build the InferenceSource for an xAI/Grok OAuth profile: routes to
+// "grok-responses" (the grok-cli proxy speaks the Responses API, not Chat
+// Completions); the adapter decodes the caller's user id from the token into
+// x-grok-user-id. Session id becomes prompt_cache_key so every call in the
 // thread routes to the same cache shard (store:false has no other signal).
 export function buildXaiSource(fields: {
   id: string;
@@ -425,9 +411,9 @@ export function buildXaiSource(fields: {
   };
 }
 
-// Build the InferenceSource for a Bifrost virtual-key provider.
-// Routes to the "bifrost" adapter (a thin wrapper around openai-compatible)
-// which injects the x-bf-vk sentinel header.
+// Build the InferenceSource for a Bifrost virtual-key provider. Routes to the
+// "bifrost" adapter (a thin openai-compatible wrapper) which injects the
+// x-bf-vk sentinel header.
 export function buildBifrostSource(fields: {
   id: string;
   baseURL: string;
@@ -468,8 +454,9 @@ export function buildAnthropicSource(fields: {
   };
 }
 
-// OpenCode Go: per-model protocol routing (chat completions / responses / messages).
-// sessionId feeds the Responses-protocol prompt_cache_key (see buildXaiSource).
+// OpenCode Go: per-model protocol routing (chat completions / responses /
+// messages). sessionId feeds the Responses-protocol prompt_cache_key (see
+// buildXaiSource).
 export function buildGoSource(fields: {
   id: string;
   apiKey?: string;
@@ -534,8 +521,9 @@ export function buildGoSource(fields: {
   };
 }
 
-// OpenCode Zen: per-model protocol routing (chat completions / responses / messages).
-// sessionId feeds the Responses-protocol prompt_cache_key (see buildXaiSource).
+// OpenCode Zen: per-model protocol routing (chat completions / responses /
+// messages). sessionId feeds the Responses-protocol prompt_cache_key (see
+// buildXaiSource).
 export function buildZenSource(fields: {
   id: string;
   apiKey?: string;
@@ -607,7 +595,7 @@ export interface Config {
   providerName: string;
   keyless?: boolean;
   // False when the active provider's credential was persisted without a
-  // passing connection test. See ProviderSettings.verified in settings.ts.
+  // passing connection test (see ProviderSettings.verified).
   verified?: boolean;
   cwd: string;
   task: string;
@@ -615,9 +603,9 @@ export interface Config {
   // Experimental prompt shrink after an Anthropic cache expiry. Off unless
   // settings set anthropicCachePrompt.
   anthropicCachePrompt: boolean;
-  // True when dangerouslySkipPermissions came from the active settings source
-  // rather than this invocation's CLI flag. Entry points use this to surface a
-  // startup notice since the persisted value is otherwise silent.
+  // True when dangerouslySkipPermissions came from the settings source rather
+  // than this invocation's CLI flag; entry points use it to surface a startup
+  // notice, since the persisted value is otherwise silent.
   skipPermissionsFromSettings: boolean;
   auto: boolean;
   /**
@@ -626,28 +614,29 @@ export interface Config {
    */
   director?: DirectorId;
   /**
-   * Entry mode. `"tui"` is the interactive Ink shell; `"exec"` is the non-TUI
-   * product agent path (`corbits exec "prompt"`). Same directors/tools/permissions.
+   * Entry mode. `"tui"` is the interactive Ink shell; `"exec"` is the
+   * non-TUI product agent path (`corbits exec "prompt"`). Same
+   * directors/tools/permissions.
    */
   command: "tui" | "exec";
   /** Active settings source, including an explicit --config path. */
   globalSettingsPath: string;
   globalDefaultProvider?: string;
   // Every provider available to switch to at runtime. From the settings file
-  // when present; in env-only mode it is just the single resolved provider.
+  // when present; env-only mode has just the single resolved provider.
   providers: ProviderCatalogEntry[];
   profile?: string;
   systemPromptExtensions?: string[];
   // Guideline sub-block ids to drop from the chat system prompt (see
-  // GUIDELINE_SUB_BLOCK_IDS in agent/prompts.ts). Omitted = full guidelines.
+  // GUIDELINE_SUB_BLOCK_IDS in agent/prompts.ts); omitted = full guidelines.
   promptSectionOmit?: GuidelineSubBlockId[];
   // Per-call inactivity timeout in ms (default 120_000 in the harness). Tune
   // higher for reasoning models with long silent-thinking stretches.
   inactivityTimeoutMs?: number;
   // Per-call total wall-clock cap in ms (default 600_000 in the harness).
   totalTimeoutMs?: number;
-  // Per-call wall-clock cap for the compaction summary call in ms
-  // (default 90_000 in the summarizer).
+  // Per-call wall-clock cap for the compaction summary call in ms (default
+  // 90_000 in the summarizer).
   summarizerTimeoutMs?: number;
   reasoningEffort?: ReasoningEffort;
   mcpServers?: ResolvedMCPServerConfig[];
@@ -676,22 +665,21 @@ export interface Config {
   // Deprecated no-op retained for CLI compatibility.
   noWorkflow: boolean;
   /**
-   * Runtime settings view for provider resolution. Includes OAuth provider
-   * projections from the live catalog that are never written to settings.json.
-   * Do not pass this object to saveGlobalSettings — rebuild with
-   * providerCatalogToSettings (or re-read disk) before any persist.
+   * Runtime settings view for provider resolution, including OAuth
+   * projections never written to settings.json. Not for saveGlobalSettings —
+   * rebuild with providerCatalogToSettings (or re-read disk) first.
    */
   settings?: Settings;
   /**
-   * Fail-open diagnostics from local settings load (unknown keys, invalid JSON,
-   * stripped credentials). Shown on the main TUI so startup never hard-crashes.
+   * Fail-open diagnostics from local settings load (unknown keys, invalid
+   * JSON, stripped credentials); shown so startup never hard-crashes.
    */
   settingsDiagnostics?: SettingsLoadDiagnostic[];
 }
 
-// Returned by loadConfig when no provider is configured and allowUnconfigured is
-// true. Carries enough context for the TUI to launch the onboarding flow instead
-// of exiting. Headless callers must treat this as a fatal error.
+// Returned by loadConfig when no provider is configured and allowUnconfigured
+// is true. Carries enough context for the TUI to launch the onboarding flow
+// instead of exiting. Headless callers must treat this as a fatal error.
 export interface UnconfiguredConfig {
   configured: false;
   cwd: string;
@@ -713,9 +701,8 @@ export interface UnconfiguredConfig {
   // The original error message, used for non-TUI (exec) error output.
   providerError: string;
   /**
-   * Fail-open diagnostics from local settings load. Still threaded on the
-   * unconfigured path so junk local files surface via stderr/banner rather
-   * than disappearing when provider setup fails early.
+   * Fail-open diagnostics from local settings load, threaded when provider
+   * setup fails early so junk local files surface via stderr/banner.
    */
   settingsDiagnostics?: SettingsLoadDiagnostic[];
 }
@@ -806,13 +793,13 @@ export interface LoadConfigOptions {
   // Override the home directory used for project-key session roots (tests).
   // Production callers leave this unset so sessions resolve under ~/.corbits.
   home?: string;
-  // When true, a missing/unresolvable provider returns an UnconfiguredConfig
-  // instead of throwing. The TUI uses this to open the onboarding flow rather
-  // than exiting. Headless callers should leave this false (the default).
+  // When true, a missing/unresolvable provider returns UnconfiguredConfig
+  // instead of throwing; the TUI uses this to open onboarding rather than
+  // exiting. Headless callers leave this false (the default).
   allowUnconfigured?: boolean;
   // Pricing metadata fetcher overrides. Tests must inject an offline fetchImpl
-  // here — the default performs a real request to models.dev, and a stray
-  // background fetch inside the suite destabilizes timing-sensitive tests.
+  // — the default hits models.dev for real, and a stray background fetch
+  // inside the suite destabilizes timing-sensitive tests.
   pricing?: PricingFetcherOptions;
 }
 
@@ -856,9 +843,9 @@ export async function loadConfig(
   } else if (leading === "resume" || leading === "continue") {
     command = "tui";
     args.shift();
-    // Bare resume opens the list. A session id is the only direct-resume path.
-    // Invalid non-flag positionals error instead of falling through to last
-    // (a free-form token would otherwise become task while skipInitialTask is set).
+    // Bare resume opens the list; a session id is the only direct-resume path.
+    // Invalid non-flag positionals error instead of falling through (a
+    // free-form token would otherwise become task while skipInitialTask is set).
     const next = args.slice()[0];
     if (next === "--pick" || next === "--list") {
       resumeMode = "pick";
@@ -891,12 +878,11 @@ export async function loadConfig(
 
   let cwd = process.cwd();
   let dangerouslySkipPermissions = false;
-  // Auto mode is the default: non-destructive consequential actions (file
-  // writes/edits and unconstrained shell) run without prompting, while shell
-  // file-mutation stays denied and installs / recursive rm / worktree /
-  // sensitive-path / opaque-wrapper shell still ask. Pass --no-auto to revert
-  // to ask-on-every-write. There is currently no in-session key to toggle auto;
-  // Shift+Tab in the TUI cycles reasoning effort instead.
+  // Auto mode: non-destructive consequential actions (file writes/edits,
+  // unconstrained shell) run unprompted; shell file-mutation stays denied and
+  // installs / recursive rm / worktree / sensitive-path / opaque-wrapper
+  // shell still ask. --no-auto reverts to ask-on-every-write; no in-session
+  // key toggles auto (Shift+Tab cycles reasoning effort instead).
   let auto = true;
   let director: DirectorId | undefined;
   let configPath: string | undefined;
@@ -978,9 +964,9 @@ export async function loadConfig(
         throw new Error("cannot combine a session id with --resume");
       }
       // Optional session id on the interactive path: `corbits --resume <uuid>`
-      // reopens that session (an alias for `corbits resume <uuid>`); bare
-      // `--resume` opens the picker. Exec / `-p` require the id — headless
-      // has no picker. A non-id token errors instead of leaking into task text.
+      // reopens that session (alias for `corbits resume <uuid>`); bare
+      // `--resume` opens the picker. Exec / `-p` require the id — headless has
+      // no picker. A non-id token errors instead of leaking into task text.
       const next = args[i + 1];
       if (next !== undefined && !isFlagToken(next)) {
         if (!isSessionId(next)) {
@@ -1030,13 +1016,11 @@ export async function loadConfig(
   );
 
   // OAuth profiles live in home-level auth stores (~/.corbits/codex-auth.json,
-  // xai-auth.json), entirely separate from settings.json. --config only
-  // overrides where provider *definitions* come from, so it must still merge
-  // in OAuth profiles or every codex/xai OAuth run through --config reaches
-  // the provider unauthenticated (CL-6973: HTTP 426/404 before a single
-  // turn). Only the programmatic `globalSettingsPath` test override — never
-  // exposed as a CLI flag — opts out, for tests that want a fully controlled
-  // provider set with no home-directory reads at all.
+  // xai-auth.json), separate from settings.json. --config only overrides where
+  // provider *definitions* come from, so OAuth profiles must still merge in or
+  // every codex/xai OAuth run through --config reaches the provider
+  // unauthenticated. Only the programmatic `globalSettingsPath` test override
+  // (never a CLI flag) opts out — tests want no home-directory reads.
   const useOAuthProfiles = options.globalSettingsPath === undefined;
   const [codexProfiles, xaiProfiles]: [CodexProfile[], XaiProfile[]] =
     useOAuthProfiles
@@ -1065,9 +1049,8 @@ export async function loadConfig(
           { persist: true },
         );
 
-  // Track whether the effective value came from the active settings source
-  // rather than this invocation's --dangerously-skip-permissions flag, so the
-  // TUI/exec entry points can surface a startup notice for the silent case.
+  // True when the value came from settings, not this invocation's
+  // --dangerously-skip-permissions flag (Config.skipPermissionsFromSettings).
   const skipPermissionsFromSettings =
     !dangerouslySkipPermissions &&
     settings?.dangerouslySkipPermissions === true;
@@ -1085,10 +1068,10 @@ export async function loadConfig(
     projectedOAuthProviders,
   );
 
-  // The per-repo selection file still applies on top of a --config source: that
-  // file supplies provider definitions, while .corbits/settings.json supplies
-  // the provider/model selection. CLI --provider/--model override both.
-  // Fail open on unknown/invalid local keys — never crash startup.
+  // The per-repo selection file still applies on top of --config: that file
+  // supplies provider definitions, .corbits/settings.json supplies the
+  // provider/model selection; CLI --provider/--model override both. Fail open
+  // on unknown/invalid local keys — never crash startup.
   const localResult =
     localSettingsFile === null
       ? { settings: null, diagnostics: [] }
@@ -1142,8 +1125,8 @@ export async function loadConfig(
       ...(configPath !== undefined ? { cliConfigPath: configPath } : {}),
       programmaticSettingsPath: options.globalSettingsPath !== undefined,
       providerError: err instanceof Error ? err.message : String(err),
-      // Keep diagnostics even when provider setup fails early so junk local
-      // files still reach stderr (exec) / banner (TUI after onboarding).
+      // Keep diagnostics when provider setup fails early so junk local files
+      // reach stderr (exec) / banner (TUI after onboarding).
       ...(settingsDiagnostics.length > 0 ? { settingsDiagnostics } : {}),
     };
   }
@@ -1168,9 +1151,9 @@ export async function loadConfig(
     providers.find((entry) => entry.name === resolved.providerName),
   );
   // Enforce model/effort compatibility at the boundary. The modal only offers
-  // supported levels, but a hand-edited local settings file can pair an effort
-  // with a model that does not accept it; reject it here rather than shipping an
-  // effort the model will refuse. Pricing metadata was seeded above from cache.
+  // supported levels, but a hand-edited local file can pair an effort with a
+  // model that rejects it; reject here rather than shipping an effort the
+  // model will refuse.
   if (local?.reasoningEffort !== undefined) {
     const verdict = validateEffort(
       resolved.model,
@@ -1185,8 +1168,9 @@ export async function loadConfig(
     }
   }
 
-  // Resume resolution: project-key sessions live under ~/.corbits/projects/<key>/
-  // keyed to this checkout's git toplevel (linked worktrees do not share lists).
+  // Resume resolution: project-key sessions live under
+  // ~/.corbits/projects/<key>/, keyed to this checkout's git toplevel (linked
+  // worktrees do not share lists).
   let sessionId = generateSessionId();
   let skipInitialTask = false;
   let resumePicker = false;
@@ -1286,8 +1270,8 @@ export async function loadConfig(
             mcpServerEntries: [],
           }),
     // Runtime view includes OAuth projections so inference resolution can see
-    // Codex/xAI providers that are never written to settings.json. Not safe
-    // to persist as-is — use providerCatalogToSettings or re-read disk.
+    // providers never written to settings.json; not safe to persist as-is
+    // (use providerCatalogToSettings or re-read disk).
     ...(settingsForResolution !== null
       ? { settings: settingsForResolution }
       : {}),
@@ -1296,29 +1280,21 @@ export async function loadConfig(
 }
 
 // Settings-file providers plus Codex/xAI OAuth profile-store entries, merged
-// the same way loadConfig assembles Config.providers. Exposed so a live
-// provider connect (mid-session, no restart) can rebuild the picker's
-// catalog after writing new credentials, instead of only taking effect on
-// the next process start.
+// the way loadConfig assembles Config.providers. Exposed so a live provider
+// connect (mid-session, no restart) can rebuild the picker's catalog after
+// writing new credentials.
 //
-// Credential-removal convergence (CL-5446) is rebuild-only: every rebuild
-// derives rows from the current settings file plus the live Codex/xAI
-// stores, so a provider without a credential is rebuilt without one and
-// re-auth restores it on the next rebuild. Settings-file rows are
-// re-projected verbatim and never deleted — with one exception: the legacy
-// bare `codex`/`xai` row dedupe (CL-5606), which drops the bare settings row
-// once that family has a live credential-backed profile. Otherwise the
-// disable-not-delete rationale holds: nothing the operator wrote is lost, and
-// nothing stale survives past the next rebuild. A dedicated disabled flag
-// was rejected: no such state exists on the catalog entry, the picker
-// option, or the host boundary, and no removal event drives a refresh
-// (there is no logout/disconnect surface or auth-store watcher; refresh
-// runs on connect, prefetch, and startup), so removal takes effect on the
-// next rebuild, not live.
-// Compare a settings-row baseURL against the OAuth endpoint so a
-// proxy/mirror row is never mistaken for the legacy bare-row duplicate.
-// Normalization failures fall back to a trailing-slash-insensitive compare
-// rather than dropping a row whose URL cannot be parsed.
+// Rebuild-only convergence: every rebuild derives rows from the current
+// settings file plus the live stores, so a provider without a credential is
+// rebuilt without one and re-auth restores it on the next rebuild. Settings
+// rows pass through verbatim and are never deleted — except the legacy bare
+// `codex`/`xai` dedupe below. A dedicated disabled flag was rejected: no
+// removal event drives a refresh (no logout/disconnect surface or auth-store
+// watcher).
+//
+// Bare-row dedupe compares the settings baseURL with the OAuth endpoint so a
+// proxy/mirror row is never mistaken for the legacy duplicate; normalization
+// failures fall back to a trailing-slash-insensitive compare.
 function sameEndpoint(raw: string | undefined, oauthBaseURL: string): boolean {
   if (raw === undefined) return false;
   const normalized = (value: string): string => {
@@ -1338,13 +1314,12 @@ export function mergeOAuthCatalog(
 ): ProviderCatalogEntry[] {
   const codexEntries = codexProfilesToCatalogEntries(codexProfiles);
   const xaiEntries = xaiProfilesToCatalogEntries(xaiProfiles);
-  // A legacy bare `codex`/`xai` settings row (the original single-instance
-  // connect key) reads as a second, separately-added provider next to the
-  // credential-backed `<kind>/<profile>` entries. Drop it once that family
-  // has a live profile; when nothing is connected the bare row is the only
-  // ChatGPT/Grok access and stays. A bare row pointed at a different
-  // endpoint (proxy/mirror) is a distinct provider, not the legacy
-  // duplicate, so it stays alongside the credential-backed entries.
+  // Legacy bare `codex`/`xai` row (the original single-instance connect key)
+  // next to live credential-backed `<kind>/<profile>` entries reads as a
+  // second provider. Drop it once that family has a live profile; when
+  // nothing is connected the bare row is the only ChatGPT/Grok access and
+  // stays. A bare row at a different endpoint is a distinct provider (see
+  // sameEndpoint), so it stays too.
   const dropBare = new Set([
     ...(codexEntries.length > 0 &&
     sameEndpoint(settings?.providers["codex"]?.baseURL, CODEX_BASE_URL)
@@ -1356,13 +1331,13 @@ export function mergeOAuthCatalog(
       : []),
   ]);
   const settingsRows = buildProviderCatalog(settings, resolved);
-  // A hand-named codex/<slug> or xai/<slug> API-key row is the operator's
-  // explicit config, not an OAuth placeholder: keep it and skip the colliding
-  // live profile projection instead of overwriting it (CL-6728). Read the raw
-  // settings rows only: buildProviderCatalog synthesizes a [resolved] row when
-  // settings is null/empty, and when resolved is itself codex/<slug> that row
-  // carries the live apiKey with no profile marker — treating it as hand-named
-  // would eject the real marked entry for a stale token snapshot.
+  // A hand-named codex/<slug> or xai/<slug> API-key row is explicit config,
+  // not an OAuth placeholder (see isHandNamedProviderEntry): keep it and skip
+  // the colliding live profile projection. buildProviderCatalog
+  // synthesizes a [resolved] row when settings is null/empty, and when
+  // resolved is itself codex/<slug> that row carries the live apiKey with no
+  // profile marker — treating it as hand-named would eject the real marked
+  // entry for a stale token snapshot.
   const handNamed = new Set(
     Object.entries(settings?.providers ?? {})
       .filter(
@@ -1450,8 +1425,8 @@ export function catalogEntryAsProviderSettings(
   entry: ProviderCatalogEntry,
 ): ProviderSettings {
   // Anthropic and Go anthropic-protocol bases must not be forced through the
-  // OpenAI-compatible normalizer (which assumes a /v1 chat-completions root).
-  // Go identity is flag, known provider id, or Go baseURL — always force
+  // OpenAI-compatible normalizer (which assumes a /v1 chat-completions root);
+  // Go identity is flag, known provider id, or Go baseURL — always force the
   // subscription base.
   const go = isOpenCodeGoProvider(entry);
   const baseURL =
@@ -1489,10 +1464,9 @@ export function catalogEntryAsProviderSettings(
 }
 
 // Overlay the full live catalog (including OAuth profiles) onto settings for
-// runtime provider resolution. OAuth credentials live in home auth stores
-// and are stripped from settings.json; the catalog is the source of truth for
-// which OAuth providers are available right now. Never pass the result to a
-// disk write path — use providerCatalogToSettings for persistence.
+// runtime provider resolution. OAuth credentials live in home auth stores,
+// stripped from settings.json; the catalog is the source of truth for which
+// OAuth providers are available now. Persist via providerCatalogToSettings.
 export function runtimeSettingsWithCatalog(
   settings: Settings | undefined,
   catalog: readonly ProviderCatalogEntry[],
@@ -1507,7 +1481,7 @@ export function runtimeSettingsWithCatalog(
     return { providers: fromCatalog };
   }
   // OAuth-marked catalog rows carry live profile tokens; they overlay
-  // credential-less placeholders but never a hand-named API-key row (CL-6728).
+  // credential-less placeholders but never a hand-named API-key row.
   const overlaid = Object.fromEntries(
     Object.entries(fromCatalog).filter(
       ([name]) =>
@@ -1524,10 +1498,9 @@ export function runtimeSettingsWithCatalog(
   };
 }
 
-// The set of providers the /agent modal can switch between. When a settings
-// file is present its providers are the catalog. In env-only mode there is no
-// file, so the single resolved provider is the whole catalog (the modal still
-// renders, switching is just a no-op against one entry).
+// The providers the /agent modal can switch between. With a settings file its
+// providers are the catalog; env-only mode has just the single resolved
+// provider (the modal still renders; switching is a no-op against one entry).
 export function buildProviderCatalog(
   settings: Settings | null,
   resolved: ResolvedProvider,
@@ -1535,8 +1508,7 @@ export function buildProviderCatalog(
   if (settings !== null && Object.keys(settings.providers).length > 0) {
     return Object.entries(settings.providers).map(
       ([name, p]): ProviderCatalogEntry => {
-        // Heal mis-seeded Go rows on load: known id/label, flag, or Go baseURL →
-        // pin baseURL + flag.
+        // Heal mis-seeded Go rows on load (rule in healOpenCodeGoProviders).
         const go = isOpenCodeGoProvider({
           name,
           ...(p.opencodeGo === true ? { opencodeGo: true as const } : {}),
@@ -1595,7 +1567,7 @@ export function providerCatalogToSettings(
   existing?: Settings,
 ): Settings {
   // OAuth entries are credential-backed by home-level auth stores, not by
-  // settings.json. Exclude them so provider edits never persist short-lived
+  // settings.json; exclude them so provider edits never persist short-lived
   // access tokens into the settings file.
   const persistable = catalog.filter(
     (p) => p.codexProfile === undefined && p.xaiProfile === undefined,
@@ -1607,9 +1579,8 @@ export function providerCatalogToSettings(
     ]),
   );
   // Spread the full existing settings so provider saves never drop plugins,
-  // pluginPaths, shell, tools, or other unknown keys. Only the catalog and
-  // defaultProvider are replaced. A hand-picked allowlist previously missed
-  // fields and could wipe unrelated settings after a /model save.
+  // pluginPaths, shell, tools, or other unknown keys — only the catalog and
+  // defaultProvider are replaced.
   if (existing === undefined) {
     return {
       ...(defaultProvider !== undefined ? { defaultProvider } : {}),

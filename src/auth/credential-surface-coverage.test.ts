@@ -15,7 +15,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 // Auth-owned credential literals live in exactly these store modules. Test
 // fixtures (concurrent-auth.json, test-auth.json) live in *.test.ts, which the
-// scan below excludes, so fixture names can never become denylist patterns.
+// scan excludes, so fixture names can never become denylist patterns.
 const STORE_FILES = [
   join(here, "codex", "store.ts"),
   join(here, "xai", "store.ts"),

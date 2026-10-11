@@ -23,8 +23,7 @@ function request(
 }
 
 // Mirrors the predicate PermissionGateOptions.onGrant hands callers: coverage
-// judged with the gate's own path restriction and project workspace, not
-// ones re-derived here.
+// judged with the gate's own path restriction and workspace, not re-derived here.
 function coversFor(
   approval: Approval,
   activeProviderModel?: string,

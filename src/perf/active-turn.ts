@@ -1,10 +1,8 @@
 /**
- * Process-wide open-turn id for nesting permission.wait / subagent outside the
- * reactor observer.
- *
- * Single-primary assumption: one run-sink observer owns the slot. A second
- * concurrent observer overwrites the parent used by gate/task spans — not
- * supported. `clear()`, observer `reset()`, and `closeTurn` null the slot.
+ * Process-wide open-turn id for nesting permission.wait/subagent spans outside
+ * the reactor observer. One observer owns the slot; a second concurrent
+ * observer overwrites it — unsupported. `clear()`, `reset()`, and `closeTurn`
+ * null it.
  */
 
 let activeTurnId: string | null = null;

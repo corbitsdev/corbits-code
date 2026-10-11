@@ -464,8 +464,8 @@ describe("approval resume stillCurrent at resolve", () => {
 });
 
 describe("approval resume occupancy until correlation", () => {
-  // Shared rig: a resume whose deliver parks on correlation acceptance while
-  // a rebuild waits on inFlight draining to zero. `run()` starts the handle.
+  // Shared rig: deliver parks on correlation acceptance while rebuild waits
+  // for inFlight to drain; `run()` starts the handle.
   function occupancyResume() {
     const events: string[] = [];
     const { enqueue, awaitTail } = createSessionOperationQueue();

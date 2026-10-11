@@ -303,7 +303,7 @@ describe("CL-7782: project approvals require grant trust", () => {
         )
       ).allowed,
     ).toBe(false);
-    // CL-8002: the second evaluate is a same-turn retry of the already-declined
+    // The second evaluate is a same-turn retry of the already-declined
     // request (same stable fingerprint), so the gate returns the cached decline
     // instead of re-prompting. Both requests are still denied — nothing here
     // auto-allows — but the operator is asked only once.

@@ -1,6 +1,5 @@
-// Collector for plugin load/discovery diagnostics. Callers (especially the
-// interactive TUI) accumulate warnings and emit a single summary instead of
-// writing one stderr line per miss mid-frame.
+// Collect load/discovery warnings and emit one summary instead of writing
+// one stderr line per miss mid-frame.
 
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
@@ -15,7 +14,7 @@ export function createPluginLoadDiagnostics(): PluginLoadDiagnostics {
   return { warnings: [] };
 }
 
-/** Build an onWarning callback that records into `diag`. */
+/** onWarning callback recording into `diag`. */
 export function pluginWarningSink(
   diag: PluginLoadDiagnostics,
 ): (msg: string) => void {
@@ -25,10 +24,9 @@ export function pluginWarningSink(
 }
 
 /**
- * Resolve the warning sink for a load call. There is no default: callers
- * must decide between a diagnostics collector (batched into one summary,
- * safe mid-frame) and an explicit onWarning (e.g. a raw stderr writer for
- * headless paths where no frame is being held).
+ * Resolve the sink for a load call. No default: callers choose a collector
+ * (batched, safe mid-frame) or an explicit onWarning (raw stderr where no
+ * frame is held).
  */
 export function resolvePluginWarningHandler(
   opts:
@@ -40,20 +38,16 @@ export function resolvePluginWarningHandler(
     : opts.onWarning;
 }
 
-/** Named raw-stderr choice: `{ onWarning: stderrPluginWarning }`. */
+/** Raw-stderr choice: `{ onWarning: stderrPluginWarning }`. */
 export function stderrPluginWarning(msg: string): void {
   process.stderr.write(`plugins: ${msg}\n`);
 }
 
 /**
- * One-line summary for a batch of load warnings. Skill-miss messages are
- * collapsed to `N skills missing: a, b, c`; mixed warnings get a count line.
- * Returns undefined when there is nothing to report.
- *
- * Skill names are deduplicated because a skill is missing once no matter how
- * many plugins referenced it — the operator installs it once to fix all of
- * them — and the count is taken from the deduplicated list so the number can
- * never disagree with the names printed beside it.
+ * One-line load-warning summary. Skill misses collapse to `N skills
+ * missing: a, b, c`; mixed warnings get a count line; nothing to report
+ * yields undefined. Skill names dedupe: listed once however many plugins
+ * referenced them, so the count matches the printed names.
  */
 export function formatPluginWarningsSummary(
   warnings: readonly string[],
@@ -86,8 +80,8 @@ export function formatPluginWarningsSummary(
 }
 
 /**
- * Format + emit a diagnostics summary in one call. Default write is one stderr
- * line; pass a custom sink for logger-backed callers (e.g. headless exec).
+ * Format and emit a summary in one call. Default writes one stderr line;
+ * pass a sink for logger-backed callers (headless exec).
  */
 export function emitPluginWarningSummary(
   diag: PluginLoadDiagnostics,
@@ -100,21 +94,18 @@ export function emitPluginWarningSummary(
 }
 
 /**
- * Emit a diagnostics summary through the structured logger instead of raw
- * stderr. Interactive callers (the TUI holds the alternate screen for the
- * whole session) must use this, not the raw-stderr default above — a bare
- * write lands mid-frame and corrupts the rendered transcript. The logger is
- * already routed to `~/.corbits/logs/corbits.log` by `installFileLogSink`
- * (first statement of `mainWithRunners`), so this reuses that sink rather
- * than adding a second suppression path.
+ * Emit the summary via the structured logger, not raw stderr. The TUI
+ * holds the alternate screen the whole session, so a bare write lands
+ * mid-frame and corrupts the transcript. The logger already routes to the
+ * startup file-log sink, so this reuses it.
  */
 export function emitPluginWarningLog(diag: PluginLoadDiagnostics): void {
   emitPluginWarningSummary(diag, (line) => pluginDiagnosticsLogger.warn(line));
 }
 
 /**
- * Extract a plugin or agent id a warning names, when present. Skill-miss lines
- * lead with `agent <id>:`; tool-plugin start failures quote the candidate id.
+ * Extract the plugin or agent id a warning names. Skill-miss lines lead
+ * with `agent <id>:`; tool-plugin start failures quote the candidate id.
  */
 export function pluginWarningSubjectId(warning: string): string | undefined {
   const agent = /^agent ([^:]+):/.exec(warning)?.[1];
@@ -125,8 +116,7 @@ export function pluginWarningSubjectId(warning: string): string | undefined {
 }
 
 /**
- * Warnings attributable to one plugin: subject id matches the plugin id or any
- * of its agent profile ids.
+ * Warnings whose subject id matches the plugin id or an agent profile id.
  */
 export function warningsForPluginEntry(
   warnings: readonly string[],

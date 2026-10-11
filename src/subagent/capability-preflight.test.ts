@@ -36,8 +36,7 @@ function preflight(
   });
 }
 
-// A BUILD_TOOLS-like allowlist: built-ins only, no MCP names — the shape
-// that used to strip inherited Linear tools at both layers.
+// Built-ins-only allowlist; this shape used to strip inherited Linear tools.
 const ALLOW_BUILD_NO_MCP: CapabilityFilter = {
   mode: "allow",
   tools: ["read_file", "run_shell"],
@@ -177,8 +176,7 @@ describe("preflightCapabilities", () => {
       DEFAULT_KNOWN_ENGINES,
       ["mcp__linear__list_teams", "mcp__linear__create_issue"],
     );
-    // On-demand: the stamp covers exactly the requested tool — the live
-    // sibling is not implied and mounts only under its own stamp.
+    // On-demand: the stamp covers only the requested tool, never its live sibling.
     expect(result).toEqual({
       ok: true,
       canonical: ["mcp__linear__list_teams"],

@@ -17,8 +17,7 @@ function recordingExec(
   const calls: string[][] = [];
   const exec: WorktreeExec = async (args) => {
     calls.push(args);
-    // Prefer a two-arg key so `rev-parse --show-toplevel` and `rev-parse HEAD`
-    // can return different fixtures; fall back to the verb alone.
+    // Two-arg keys let rev-parse variants return different fixtures; fall back to the verb.
     const key2 = args.slice(0, 2).join(" ");
     const key1 = defined(args[0]);
     const response = responses[key2] ?? responses[key1];
@@ -131,8 +130,7 @@ describe("cleanupSubAgentWorktree", () => {
     stashBaseline: string[] | null;
     headAtCreate?: string;
     notice: string[];
-    // Most preserved cases never reach `worktree remove`; the removal-failure
-    // case does (and fails), so it opts out of the no-call assertion.
+    // Removal-failure reaches worktree remove, so it opts out of the no-call assertion.
     noWorktreeCall?: boolean;
   }
 

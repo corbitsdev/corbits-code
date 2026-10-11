@@ -6,18 +6,17 @@ import {
   splitChainedCommand,
 } from "../shell/command-segments.js";
 import { sliceTailToWidth, sliceToWidth, stringWidth } from "./view/height.js";
-// The marker word of a heredoc redirect starting at `i` (pointing at `<<`),
-// or null when `<<` is not a heredoc opener (e.g. `<<<` here-string).
-// stripTabs is true only for `<<-`, which strips leading tabs from the
-// closing line.
+// Marker word of a heredoc redirect at `i` (on `<<`), or null when `<<` is
+// not an opener (e.g. `<<<` here-string). stripTabs is true only for `<<-`,
+// which strips leading tabs from the closing line.
 function parseHeredocMarker(
   command: string,
   i: number,
 ): { marker: string; stripTabs: boolean } | null {
   if (command[i] !== "<" || command[i + 1] !== "<" || command[i + 2] === "<")
     return null;
-  // Same `<`-run rule as parseHeredocOpener: the second `<` of a `<<<`
-  // here-string must not parse the here-string word as a heredoc marker.
+  // Same `<`-run rule as parseHeredocOpener: the second `<` of `<<<` must
+  // not parse the here-string word as a marker.
   if (command[i - 1] === "<") return null;
   let j = i + 2;
   const stripTabs = command[j] === "-";
@@ -48,18 +47,18 @@ export function groupChainSegmentsForDisplay(command: string): string[] {
 export interface VerbatimLine {
   text: string;
   // True only for a genuine full-line shell comment: never for heredoc body
-  // lines or for a line the shell joins onto the previous one via a
-  // backslash-newline continuation (where a leading # is executable payload).
+  // lines or backslash-newline continuations (where a leading # is
+  // executable payload).
   isComment: boolean;
 }
 
 // Split an already-control-stripped command into the lines the verbatim block
-// renders. A top-level LF is a genuine command separator and becomes a real
-// rendered line. A newline inside quotes is the Trojan-Source vector — a
-// quoted argument line-breaking itself to imitate a fresh list entry — so it
-// stays inline as a visible "↵" marker, as does a bare CR (which the shell
-// would not treat as a separator but a terminal would repaint on). CRLF is an
-// ordinary line ending and follows the LF rule.
+// renders. A top-level LF is a real command separator and becomes a rendered
+// line. A newline inside quotes is the Trojan-Source vector — a quoted
+// argument line-breaking to imitate a fresh list entry — so it stays inline
+// as a visible "↵" marker, as does a bare CR (the shell would not treat it
+// as a separator, but a terminal would repaint on it). CRLF is an ordinary
+// line ending and follows the LF rule.
 export function verbatimCommandLines(text: string): VerbatimLine[] {
   const normalized = text.replace(/\r\n/g, "\n");
   const lines: VerbatimLine[] = [];
@@ -175,22 +174,21 @@ export interface CollapsedPayload {
 }
 
 export interface CollapsedSegment {
-  // The segment with each qualifying payload (a heredoc body, or a quoted
-  // string spanning multiple lines) replaced by a short "<label, N lines>"
-  // placeholder. A segment returned by groupChainSegmentsForDisplay is
-  // already boundary-resolved, so any newline still inside it comes from one
-  // of these two sources — never a chain boundary — which is what lets the
-  // collapsed segment always render as a single line.
+  // The segment with each qualifying payload (heredoc body, or multi-line
+  // quoted string) replaced by a short "<label, N lines>" placeholder. Any
+  // newline left in a boundary-resolved segment comes from one of these two
+  // sources — never a chain boundary — so the collapsed segment always
+  // renders as one line.
   display: string;
   // The full text of each collapsed payload, in placeholder order, shown when
   // the operator expands via Alt+E.
   payloads: CollapsedPayload[];
 }
 
-// Picks a short, human label for a collapsed quoted payload by looking at the
-// flag token immediately before it (`-m`/`--message`/`-F` read as a commit
-// message; anything else is generic "text"). Display-only guesswork — never
-// used for classification or matching.
+// Picks a short label for a collapsed quoted payload from the flag token
+// immediately before it (`-m`/`--message`/`-F` read as a commit message;
+// anything else is "text"). Display-only guesswork — never used for
+// classification or matching.
 function payloadLabel(segment: string, quoteStart: number): string {
   let k = quoteStart - 1;
   while (k >= 0 && (segment[k] === " " || segment[k] === "=")) k--;
@@ -207,15 +205,14 @@ function lineCountSuffix(count: number): string {
 }
 
 // Commands that hand a payload to a shell/interpreter to execute rather than
-// consuming it as inert data. A segment naming one of these must never
-// collapse — the operator has to be able to read the code they are approving.
-// `ssh` is unconditional too: whatever payload follows the host runs on the
-// remote end regardless of flags, so there is no safe "no -c present" case.
+// consuming it as inert data — a segment naming one must never collapse: the
+// operator has to read the code they approve. `ssh` is unconditional too
+// (whatever follows the host runs remotely).
 //
-// Interpreters are unconditional for the same reason: they can take code via
-// `-c`/`-e`, stdin (`-s` / `-`), a heredoc body, or a pipe from an earlier
-// stage — flag-gated detection left those paths free to collapse executable
-// bodies. Fail open: any segment that names an interpreter never collapses.
+// Interpreters can take code via `-c`/`-e`, stdin, a heredoc body, or a
+// pipe, so flag-gated detection would leave those paths free to collapse
+// executable bodies — fail open: any segment naming an interpreter never
+// collapses.
 const CODE_CONSUMING_COMMANDS = new Set([
   "eval",
   "source",
@@ -243,12 +240,10 @@ const CODE_CONSUMING_COMMANDS = new Set([
 
 // Command-position words only: the program name and its flags, never text
 // inside a quoted argument or heredoc body. A naive whitespace split would
-// let a trigger word incidentally appearing inside a quoted payload (a commit
-// message mentioning "source", a heredoc line mentioning "env") falsely mark
-// the segment as code-consuming and suppress collapsing it — this walk skips
-// quoted/heredoc spans entirely so only the actual command and its arguments
-// are considered. Display-only guesswork (see the file header) — never used
-// for classification.
+// let a trigger word inside a quoted payload (a commit message mentioning
+// "source") falsely mark the segment as code-consuming — this walk skips
+// quoted/heredoc spans entirely. Display-only guesswork — never used for
+// classification.
 function segmentWords(segment: string): string[] {
   const words: string[] = [];
   let current = "";
@@ -318,8 +313,8 @@ function segmentWords(segment: string): string[] {
           segment[i] === "'" || segment[i] === '"' ? segment[i++] : null;
         i += marker.length;
         if (markerQuote !== null && segment[i] === markerQuote) i++;
-        // The parser strips a CRLF trailing \r from the marker, so skip it
-        // here too instead of leaking it into the word stream.
+        // The parser strips a CRLF trailing \r from the marker; skip it here
+        // too so it does not leak into the word stream.
         if (segment[i] === "\r") i++;
         continue;
       }
@@ -343,9 +338,9 @@ function segmentWords(segment: string): string[] {
   return words;
 }
 
-// The POSIX basename of a word naming a program: strips any directory
-// prefix, so `/bin/bash`, `./bash`, and `bash` are all recognized as the
-// same interpreter. Display-only guesswork, same as the rest of this file.
+// POSIX basename of a word naming a program: strips any directory prefix, so
+// `/bin/bash`, `./bash`, and `bash` are all the same interpreter. Display-only
+// guesswork, same as the rest of this file.
 function programBasename(word: string): string {
   const slash = word.lastIndexOf("/");
   return slash === -1 ? word : word.slice(slash + 1);
@@ -353,13 +348,11 @@ function programBasename(word: string): string {
 
 // True when `segment` names a command that treats a quoted or heredoc payload
 // as code — directly (eval, source, xargs, env, ssh) or via an interpreter
-// (bash/sh/python/node/…), including one reached through a `$(...)`/backtick
-// command substitution, since those words show up as ordinary tokens in the
-// segment either way. Interpreter names are matched by basename so a
-// path-qualified spelling (`/bin/bash`, `./sh`) is not missed, and wrapper
-// prefixes (env, sudo, nohup, timeout, ...) are handled for free because this
-// scans every word rather than just the first.
-//
+// (bash/sh/python/node/…), including one reached through `$(...)`/backtick
+// substitution (those words appear as ordinary tokens). Interpreter names
+// match by basename so a path-qualified spelling (`/bin/bash`, `./sh`) is not
+// missed; wrapper prefixes (env, sudo, nohup, timeout, ...) are handled for
+// free because every word is scanned, not just the first.
 function isCodeConsumingSegment(segment: string): boolean {
   const words = segmentWords(segment);
   const bareWord = (word: string): string =>
@@ -371,12 +364,12 @@ function isCodeConsumingSegment(segment: string): boolean {
   return false;
 }
 
-// Collapse a heredoc body or a multi-line quoted-string argument within one
-// display segment into a placeholder. Never influences classification or
-// grant matching — display only, mirroring the header comment for this file.
-// A segment that hands its payload to an interpreter as code is never
-// collapsed (see isCodeConsumingSegment) — only data-consuming payloads
-// (commit messages, file contents piped to tee/cat, echoed text) collapse.
+// Collapse a heredoc body or multi-line quoted-string argument within one
+// display segment into a placeholder. Display only — never influences
+// classification or grant matching. A segment handing its payload to an
+// interpreter as code never collapses (see isCodeConsumingSegment); only
+// data-consuming payloads (commit messages, file contents piped to tee/cat,
+// echoed text) do.
 export function collapseSegmentPayloads(segment: string): CollapsedSegment {
   if (isCodeConsumingSegment(segment))
     return { display: segment, payloads: [] };
@@ -436,10 +429,10 @@ export function collapseSegmentPayloads(segment: string): CollapsedSegment {
   return { display, payloads };
 }
 
-// Truncate to `max` columns keeping both the head and tail, so a set of
-// strings that share a long common prefix (e.g. persistent Allow options that
-// differ only in their trailing grant note) stay visually distinguishable
-// instead of all clipping at the same point.
+// Truncate to `max` columns keeping both head and tail, so strings sharing a
+// long common prefix (e.g. persistent Allow options differing only in their
+// trailing grant note) stay distinguishable instead of clipping at the same
+// point.
 export function middleEllipsis(text: string, max: number): string {
   if (stringWidth(text) <= max) return text;
   if (max <= 1) return sliceToWidth(text, max);
@@ -451,29 +444,27 @@ export function middleEllipsis(text: string, max: number): string {
 
 export interface CommandDisplay {
   readonly lines: readonly string[];
-  // How many payloads were replaced by a placeholder. Zero when nothing was
-  // collapsed, which is what tells the caller whether to offer the expand key.
+  // Payloads replaced by a placeholder. Zero means nothing collapsed — what
+  // tells the caller whether to offer the expand key.
   readonly payloadCount: number;
 }
 
-// A payload line is rendered through verbatimCommandLines so a bare CR inside
-// it shows as a visible ↵ instead of repainting the row the operator is
-// reading — the same Trojan-Source defence the verbatim block applies.
+// Render a payload line through verbatimCommandLines so a bare CR shows as a
+// visible ↵ instead of repainting the row being read — the same Trojan-Source
+// defence the verbatim block applies.
 function renderPayloadLine(line: string): string {
   return verbatimCommandLines(line)
     .map((l) => l.text)
     .join(" ");
 }
 
-// Render an approval subject for the operator: every chain segment on its own
-// numbered line (so a second destructive command can never hide inside a wall
-// of text), with heredoc / multi-line quoted payloads collapsed to a
-// placeholder. When `expanded`, each placeholder keeps its line and the full
-// payload is printed underneath it — the placeholder never disappears, so the
-// collapsed and expanded views describe the same command.
-//
-// A single unchained segment is not numbered: the number exists to expose
-// chaining, and prefixing a lone command with "1)" only adds noise.
+// Render an approval subject: every chain segment on its own numbered line
+// (so a second destructive command cannot hide inside a wall of text), with
+// heredoc / multi-line quoted payloads collapsed to a placeholder. When
+// `expanded`, each placeholder keeps its line and the full payload prints
+// underneath — the two views describe the same command. A single unchained
+// segment is not numbered: the number exists to expose chaining, and "1)" on
+// a lone command is only noise.
 export function formatCommandForApproval(
   command: string,
   opts?: { readonly expanded?: boolean },
@@ -481,10 +472,10 @@ export function formatCommandForApproval(
   const segments = groupChainSegmentsForDisplay(command);
   if (segments.length === 0) return { lines: [command], payloadCount: 0 };
 
-  // The canonical splitter deliberately discards operators, so it cannot tell
-  // a pipeline from another chain after splitting. If any connected segment
-  // consumes code, fail open for the whole chain rather than hide a payload
-  // that may feed that interpreter through a pipe.
+  // The canonical splitter discards operators, so it cannot tell a pipeline
+  // from another chain after splitting. If any connected segment consumes
+  // code, fail open for the whole chain rather than hide a payload that may
+  // feed that interpreter through a pipe.
   const chainConsumesCode = segments.some(isCodeConsumingSegment);
   const collapsed = chainConsumesCode
     ? segments.map((segment) => ({ display: segment, payloads: [] }))

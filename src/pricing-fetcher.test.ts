@@ -354,9 +354,8 @@ describe("parseModelsDevContextWindows", () => {
 
 describe("parseModelsDevPricing root array", () => {
   test("walks a top-level array payload the same way the other collectors do", () => {
-    // A nesting level where the root itself is an array, rather than an object
-    // whose values are arrays. parseModelsDevReasoning and
-    // parseModelsDevContextWindows already handle this; pricing must match.
+    // A nesting level where the root itself is an array; the reasoning and
+    // context-window parsers already handle this, pricing must match.
     const models = parseModelsDevPricing([
       { id: "m1", input_cost_per_million: 1, output_cost_per_million: 2 },
     ]);

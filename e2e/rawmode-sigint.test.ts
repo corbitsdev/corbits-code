@@ -1,13 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-// src/index.ts's installSignalHandlers relies on an empirical claim: Bun's
-// stdin.setRawMode(true) clears ISIG on this platform, so a real Ctrl+C
-// keypress never reaches process.on("SIGINT") during an interactive TUI
-// session -- only out-of-band kill(2) signals do. If a future Bun upgrade
-// changes that, the in-session double-tap-to-quit gesture (shell.ts,
-// CTRL_C_EXIT_WINDOW_MS) would silently start racing a process-level exit
-// on the very first Ctrl+C. This test pins the assumption against a real
-// forked pty rather than trusting it to hold forever.
+// Pins the empirical claim behind installSignalHandlers: Bun's setRawMode
+// clears ISIG, so a real Ctrl+C keypress never reaches SIGINT during a TUI
+// session — only out-of-band kill(2) signals do. If a future Bun changes
+// that, the double-tap-to-quit gesture would race a process-level exit.
+// Tested against a real forked pty.
 describe("integration — raw-mode stdin and SIGINT", () => {
   test("Ctrl+C is delivered as a stdin byte, not as SIGINT, while raw mode is active", async () => {
     const probe = new URL(

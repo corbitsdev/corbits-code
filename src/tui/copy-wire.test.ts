@@ -8,8 +8,8 @@ import type { FlashSchedule } from "./shell/internals";
 import { confirmCopySelection, copyAllTargets } from "./shell/overlay-host";
 import { createRecordingClipboard } from "./copy-path";
 
-// One renderer for the whole file: harness renderers are a scarce native
-// resource and the suite exhausts them when every test claims its own.
+// One renderer for the whole file: harness renderers are scarce, and the
+// suite exhausts them when every test claims its own.
 let harness: Harness;
 
 beforeAll(async () => {

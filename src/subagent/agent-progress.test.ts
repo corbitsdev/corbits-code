@@ -152,9 +152,8 @@ describe("agentProgress", () => {
     });
   });
 
-  // The defect the whole surface turned on: a worker inside one long tool call
-  // emits nothing for the entire execution, so every lane of a fleet running
-  // e.g. a test suite flipped to "stalled" simultaneously while working fine.
+  // A worker in one long tool call emits nothing, so a fleet running a
+  // test suite must not flip every lane to "stalled".
   test("silence inside an outstanding tool call is not a stall", () => {
     const progress = agentProgress(
       {
@@ -182,8 +181,8 @@ describe("agentProgress", () => {
   });
 
   test("default stall window tolerates a multi-minute Grok think gap", () => {
-    // DEFAULT_STALL_MS is 300s — 180s of quiet with no tool outstanding must
-    // still read working, or worker/spawn_agent rows false-stall on healthy Responses thinks.
+    // 180s of quiet with no tool outstanding must still read working, or
+    // healthy Responses thinks false-stall the row.
     const progress = agentProgress(
       { ...base, currentToolName: null, lastActivityAt: 0 },
       180_000,
@@ -331,7 +330,6 @@ describe("fleetLabel", () => {
 
   test("never names stalled count to the operator", () => {
     const label = fleetLabel({ running: 6, working: 4, inTool: 0, stalled: 2 });
-    // the running count is the only number the operator sees
     expect(label).toContain("6");
     expect(label).not.toContain("2");
     expect(label).not.toMatch(/stall/i);
@@ -354,8 +352,6 @@ describe("the in-tool bound", () => {
     lastActivityAt: 0,
   };
 
-  // in_tool must not be terminal, or a wedged build reads as busy forever and
-  // never reaches the fleet stall count.
   test("a call outstanding past the bound escalates to stalled", () => {
     expect(laneState(wedged, IN_TOOL_STALL_MS - 1_000)).toBe("in_tool");
     expect(laneState(wedged, IN_TOOL_STALL_MS + 1_000)).toBe("stalled");

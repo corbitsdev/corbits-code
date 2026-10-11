@@ -1,7 +1,7 @@
 /**
- * Neutral leaf for the `/connect <kind> [profile]` scope both the slash
- * command and the reconnect-recovery state share. Lives outside commands/
- * and runner/ so neither layer reaches into the other for one split.
+ * Neutral `/connect <kind> [profile]` scope shared by the slash command and
+ * reconnect-recovery state; lives outside commands/ and runner/ so neither
+ * reaches into the other.
  */
 
 export interface ReconnectScope {

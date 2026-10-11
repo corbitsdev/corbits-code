@@ -1,8 +1,8 @@
-// Spawned as a subprocess by e2e/signal-finalize.test.ts.
-// Mimics what runTUI does at startup (register the active run, write the
-// initial "running" run.json) and what index.ts does at process entry
-// (install the signal handlers), then waits to receive a real signal sent by
-// the test from outside the process.
+// Spawned as a subprocess by e2e/signal-finalize.test.ts. Mimics what runTUI
+// does at startup (register the active run, write the initial "running"
+// run.json) and what index.ts does at process entry (install the signal
+// handlers), then waits to receive a real signal sent by the test from
+// outside the process.
 //
 // Also parks two unawaited straggler snapshot writes behind setTestWriteGate,
 // released only after the signal handler has flipped isCrashed via

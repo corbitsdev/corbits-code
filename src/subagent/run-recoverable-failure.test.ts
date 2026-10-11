@@ -15,9 +15,8 @@ import {
 } from "./fleet-test-harness.js";
 
 function retryableAfterToolsFailure(): Error {
-  // runSubAgentInner throws without an outer retry once any tool already ran,
-  // so a retryable provider fault after tool use lands in the agent-fleet
-  // catch as a ResolvedProviderFailureError with category "retryable".
+  // After any tool ran, runSubAgentInner throws without an outer retry; the
+  // fleet catch resolves it as retryable.
   return createResolvedProviderFailureError("test-provider", {
     category: "retryable",
     message: "upstream overloaded, retry later",
@@ -26,10 +25,8 @@ function retryableAfterToolsFailure(): Error {
 }
 
 describe("CL-8978 recoverable subagent failure", () => {
-  // The full retryable-after-tools scenario (failed lane, continuable
-  // marker, parent not stalled) runs end-to-end in
-  // e2e/subagent-recoverable-failure.test.ts. The cases below stay
-  // unit-level: they exercise mailbox/deliver seams below e2e granularity.
+  // The full retryable-after-tools scenario runs in
+  // e2e/subagent-recoverable-failure.test.ts; these stay unit-level on mailbox/deliver seams.
   test("credential failure stays failed without a continuable marker", async () => {
     const deps = createFleetDeps(async () => {
       throw createResolvedProviderFailureError("test-provider", {
@@ -72,8 +69,7 @@ describe("CL-8978 recoverable subagent failure", () => {
     const id = spawned.agent_id as string;
     await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, id);
 
-    // Terminal failure is occupancy-yielding, so the parent is driven back
-    // into a turn instead of sitting silent for the stall bound.
+    // Terminal failure yields occupancy so the parent turns, not sits silent.
     expect(occupancyShouldYieldWait(deps.fleetRecords)).toBe(true);
 
     const prompts: string[] = [];

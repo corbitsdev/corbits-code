@@ -3,10 +3,11 @@
 // src/subagent/stop-policy.ts (detectToolFingerprintThrash). For every
 // maximal tool-only run (consecutive assistant turns with tool calls and no
 // text) in every local session, finds the largest number of exact repeats
-// observed for each candidate period 1-6, plus run-length percentiles —
-// mirroring the CL-5611 analysis (54 sessions, healthy streaks topping out
-// at 13 turns, zero sessions repeating a fingerprint 3+ times consecutively)
-// but extended to check every period, not just period 1.
+// observed for each candidate period 1-6, plus run-length percentiles — the
+// same analysis the stop-policy thresholds were derived from (54 sessions,
+// healthy streaks topping out at 13 turns, zero sessions repeating a
+// fingerprint 3+ times consecutively), extended to check every period, not
+// just period 1.
 //
 // Run: bun run scripts/tool-fingerprint-forensics.ts
 //
@@ -150,9 +151,8 @@ console.log(
       runLengthP90: percentile(90),
       runLengthP99: percentile(99),
       runLengthMax: runLengths[runLengths.length - 1] ?? 0,
-      // Largest number of exact repeats observed anywhere, for each period.
-      // A value of 1 means "no repeat beyond the base occurrence was ever
-      // observed" at that period.
+      // Largest exact-repeat count observed per period; 1 means no repeat
+      // beyond the base occurrence.
       maxRepeatsByPeriod: periodBest,
     },
     null,

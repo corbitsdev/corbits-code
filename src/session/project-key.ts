@@ -11,8 +11,7 @@ import { SETTINGS_DIR_NAME } from "../branding.js";
 // ~/.corbits/projects/<project-key>/<thread-id>/. Prefer this checkout's git
 // toplevel so linked worktrees each have their own resume list; fall back to
 // the workspace realpath for non-git trees. The key is a readable slug plus a
-// short hash of the absolute root so common folder names ("src", "app") do
-// not collide.
+// short hash of the absolute root so common folder names do not collide.
 
 function realpathOr(path: string): string {
   try {

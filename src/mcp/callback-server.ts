@@ -7,8 +7,8 @@ export interface CallbackServer {
   // The redirect_uri to register with the authorization server.
   redirectUrl: string;
   expectState: (state: string) => void;
-  // Resolves once the authorization server redirects back with a code, or rejects
-  // if the signal aborts, the server reports an error, or close() runs.
+  // Resolves with the code once the server redirects back; rejects on abort,
+  // error, or close().
   waitForCode: (signal: AbortSignal) => Promise<string>;
   close: () => void;
 }
@@ -23,9 +23,8 @@ const CALLBACK_PATH = "/callback";
 const CLOSED_ERROR =
   "OAuth callback server closed before authorization completed.";
 
-// Start a loopback server to receive the OAuth redirect. close() fail-closes
-// waitForCode so disposing the toolset cannot leave authorization hung.
-// `serverName` only names the authorization on the page the browser lands on.
+// Loopback server for the OAuth redirect. close() fail-closes waitForCode so
+// disposal cannot leave authorization hung; `serverName` only names the page.
 export async function startCallbackServer(
   serverName?: string,
 ): Promise<CallbackServer> {
@@ -137,8 +136,8 @@ export async function startCallbackServer(
         );
       }),
     close: () => {
-      // Rejecting the waiter here is what unblocks toolset disposal: a server
-      // that merely stops listening would leave a pending waitForCode hung.
+      // Rejecting the waiter unblocks disposal; stopping the listener alone
+      // would leave waitForCode hung.
       if (closed) return;
       closed = true;
       pendingResult = undefined;

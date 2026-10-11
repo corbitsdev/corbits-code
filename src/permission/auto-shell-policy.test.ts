@@ -8,10 +8,9 @@ const shellCall = (command: string): ToolCall => ({
   arguments: { command },
 });
 
-// Base git-global-config routing (--global/--system/--edit, --file targets,
-// unset/reassignment of GIT_CONFIG_GLOBAL, repo-local pass-through) is pinned
-// in classify-security.test.ts. This file pins the surface that file does not:
-// shell wrappers and quoting must not demote the ask to an auto-allow.
+// Base git-global-config routing is pinned in classify-security.test.ts. This
+// file pins the rest: shell wrappers and quoting must not demote the ask to
+// an auto-allow.
 describe("git-global-config ask survives shell wrappers", () => {
   // Control: the plain form names the rule the wrapped forms must still hit.
   test("plain form names the rule", () => {
@@ -54,8 +53,7 @@ describe("git-global-config ask survives shell wrappers", () => {
   });
 
   test("a NAME=value prefix still asks (env-assignment fires first)", () => {
-    // The assignment itself is the earlier ask rule in the table, so the name
-    // differs — what is pinned here is that the call never auto-allows.
+    // env-assignment fires first; what is pinned is that the call never auto-allows.
     const rule = autoShellRuleForCall(
       shellCall("FOO=bar git config --global user.name foo"),
     );
@@ -105,10 +103,9 @@ describe("git worktree force spellings ask (CL-6824)", () => {
     ).toBeUndefined();
   });
 
-  // Git has no --force=<value> form — real git dies with
-  // "error: option `force' takes no value" (exit 129) — but the spelling
-  // still expresses force intent, so the policy asks rather than letting the
-  // --flag=value skip swallow it the way the old exact-match check did.
+  // Real git dies on --force=<value>, but the spelling still expresses force
+  // intent, so the policy asks rather than letting the --flag=value skip
+  // swallow it.
   test("--force=<value> spellings hit the worktree ask rule", () => {
     for (const flag of ["--force=true", "--force=1", "--force="]) {
       expect(
@@ -118,11 +115,9 @@ describe("git worktree force spellings ask (CL-6824)", () => {
     }
   });
 
-  // Short -f takes no value either — real git dies with
-  // "error: unknown switch `='" for `-f=<value>` and
-  // "error: unknown switch `<char>'" for glued `-f<val>` (exit 129 both) —
-  // but the spellings still express force intent, so the policy asks rather
-  // than letting the generic-flag skip swallow them.
+  // -f=<value> and glued -f<val> express force intent too (real git dies on
+  // both), so the policy asks rather than letting the generic-flag skip
+  // swallow them.
   test("-f=<value> and glued -f<val> spellings hit the worktree ask rule", () => {
     for (const flag of ["-f=true", "-f=", "-ftrue", "-ff"]) {
       expect(

@@ -27,9 +27,8 @@ export function endpointErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-// Single GET against an OpenAI-compatible /models endpoint. Every caller that
-// probes a provider's model list goes through here so URL normalization and
-// the request timeout stay consistent.
+// Single GET against an OpenAI-compatible /models endpoint, so URL
+// normalization and the request timeout stay consistent across callers.
 export async function requestModelsEndpoint(args: {
   baseURL: string;
   headers?: Record<string, string>;

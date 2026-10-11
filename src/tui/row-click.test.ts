@@ -1,9 +1,8 @@
 /**
- * The expand arrow is a hit target.
- *
- * It looks like an affordance, so it answers a click: one row, the row that
- * owns the arrow. The row's own text does not — people click text to select
- * and copy it, and a whole-row target would toggle under every drag.
+ * The expand arrow is a hit target: it looks like an affordance, so it
+ * answers a click on the row that owns it. The row's own text does not —
+ * people click text to select and copy it, and a whole-row target would
+ * toggle under every drag.
  */
 import { describe, expect, test } from "bun:test";
 

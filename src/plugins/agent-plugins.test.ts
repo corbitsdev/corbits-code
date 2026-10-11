@@ -114,8 +114,8 @@ describe("resolveAgentPluginProfiles", () => {
     expect(defined(profiles[0]).source).toBe("claude");
   });
 
-  // Gating uses isPluginModuleEnabled (same as skills), not the bare
-  // isPluginEnabled (settings-only) that tool plugins use for consent-gating.
+  // Gating uses isPluginModuleEnabled (same as skills), not the settings-only
+  // isPluginEnabled tool plugins use for consent-gating.
   test("loads profiles from a repo plugin with defaultEnabled and no settings entry", async () => {
     const mod: PluginModule = {
       manifest: { id: "p1", name: "p1", kind: "agent", defaultEnabled: true },

@@ -13,9 +13,9 @@ import { splitFrontmatter } from "./frontmatter.js";
 import { type } from "arktype";
 import { WIRE_TO_ENGINE, HIDDEN_TO_ENGINE } from "../agent/tool-aliases.js";
 
-// Reasoning-effort schema derived from the canonical array, mirroring the
-// pattern in ../agent/profiles.ts (arktype's `type()` needs a literal union
-// string, so a computed one is threaded through `unknown`).
+// Literal union built from REASONING_EFFORTS, same pattern as
+// ../agent/profiles.ts (arktype needs a literal union string, so the computed
+// one is threaded through `unknown`).
 const reasoningEffortLiteral = REASONING_EFFORTS.map((e) => `'${e}'`).join(
   " | ",
 );
@@ -23,45 +23,40 @@ const ReasoningEffortSchema = type(
   reasoningEffortLiteral as unknown as "'none'",
 );
 
-// Shared shape for one inference leg across the two frontmatter dialects that
-// carry them (native `inference.order[]` and the `model` field). Each call
-// site still owns how it resolves `reasoningEffort` (own value vs. a
-// top-level fallback), so that stays outside the schema.
+// Shared shape of one inference leg for the `inference.order[]` and `model`
+// dialects. `reasoningEffort` resolution differs per call site (own value vs.
+// top-level fallback), so it stays outside the schema.
 const InferenceLegBaseSchema = type({
   provider: "string>0",
   model: "string>0",
 });
 
 // Native `capabilities: { mode, tools[] }` block. Only `mode` is
-// schema-validated here; `tools` elements are filtered rather than
-// whole-array-validated, so one malformed entry narrows the tool set instead
-// of invalidating the entire capabilities block and falling through to
-// undefined (unrestricted) access — a rejected block must never widen access.
+// schema-validated; `tools` elements are filtered individually, so one
+// malformed entry narrows the tool set instead of invalidating the block and
+// falling through to unrestricted access.
 const NativeCapabilitiesModeSchema = type("'allow' | 'exclude'");
 
-// A data-only agent plugin is a directory containing either:
-//   • an `agents/` subfolder holding `*.md` files (standard layout), or
-//   • the `*.md` files directly (e.g. you point the plugin path at an `agents/`
-//     folder itself).
-// Optional `skills/<name>/SKILL.md` live beside the chosen agents container
-// (or inside it for a flat layout). The loader recognizes it without an
-// index.ts by walking the markdown files and synthesizing the same
-// `agentPlugin.agents[]` shape a JS plugin would export. Validation is
-// identical: every synthesized profile passes through AgentProfileSchema.
+// A data-only agent plugin is a directory of `*.md` agent files under an
+// `agents/` subfolder (standard) or directly (the plugin path can point at an
+// agents/ folder itself). No index.ts: the loader walks the markdown,
+// synthesizes the same `agentPlugin.agents[]` shape a JS plugin exports, and
+// validates every profile through AgentProfileSchema. Optional
+// `skills/<name>/SKILL.md` live beside the agents container (or inside it for
+// a flat layout).
 //
-// Frontmatter is accepted from any of three live dialects, normalized to a
-// single AgentProfile:
+// Frontmatter from any of three live dialects is normalized to one AgentProfile:
 //
 //   - Claude Code:   name, description, tools[], disallowedTools[], model, effort
-//   - OpenCode:      name, description, mode, permission: { tool: "*": deny, read: allow }
+//   - OpenCode:      name, description, mode, permission: { tool: { "*": "deny", read: "allow" } }
 //                    (legacy: tools: { read: true, bash: false })
 //   - corbitsdev:    name, description, mode, color, permission: { read: "allow", bash: "deny" }
 //
-// Native Corbits Code keys also work and win ties: inference, capabilities,
-// skills (frontmatter list, in addition to body `Load the X skill` lines).
+// Native Corbits Code keys (inference, capabilities, skills) also work and win
+// ties; skills additionally come from body `Load the X skill` lines.
 
-// Upstream tool-name aliases mapped to Corbits Code engine ids. Case-insensitive.
-// Posix wire/hidden names come from the shared CL-8400 table.
+// Upstream tool-name aliases -> Corbits Code engine ids, case-insensitive.
+// Posix wire/hidden names come from the shared alias table.
 const TOOL_ALIASES: Record<string, readonly string[]> = {
   ...Object.fromEntries(
     Object.entries({ ...WIRE_TO_ENGINE, ...HIDDEN_TO_ENGINE }).map(
@@ -106,17 +101,17 @@ function pickId(
   return base.length > 0 ? base : undefined;
 }
 
-// Normalize the union of `tools` / `disallowedTools` / `permission` shapes from
-// the three dialects into a single CapabilityFilter. Returns undefined when no
-// restriction was declared (agent inherits all tools).
+// Normalize the dialects' `tools` / `disallowedTools` / `permission` shapes
+// into one CapabilityFilter; undefined means no restriction declared (the
+// agent inherits all tools).
 function normalizeCapabilities(
   fm: Record<string, unknown> | null,
 ): CapabilityFilter | undefined {
   if (fm === null) return undefined;
 
-  // Native: capabilities: { mode, tools[] } — mode must validate, but tools
-  // elements are filtered individually so a stray non-string entry restricts
-  // rather than rejecting the whole block (see NativeCapabilitiesModeSchema).
+  // Native: mode must validate, tools elements filtered individually so a
+  // stray non-string entry restricts rather than rejecting the block (see
+  // NativeCapabilitiesModeSchema).
   if (
     fm.capabilities !== undefined &&
     typeof fm.capabilities === "object" &&
@@ -154,8 +149,8 @@ function normalizeCapabilities(
     if (tools.length > 0) return { mode: "exclude", tools };
   }
 
-  // OpenCode legacy: tools: { read: true, bash: false }
-  // Pick the smaller set: if false-list is shorter, use exclude; else allow.
+  // OpenCode legacy tools map: pick the smaller set — exclude when the
+  // false-list is shorter, else allow.
   if (
     fm.tools !== undefined &&
     typeof fm.tools === "object" &&
@@ -174,19 +169,17 @@ function normalizeCapabilities(
     if (excluded.length > 0 && allowed.length === 0)
       return { mode: "exclude", tools: excluded };
     if (allowed.length > 0 && excluded.length > 0) {
-      // Mixed: pick whichever is shorter to minimize the filter size.
       return excluded.length <= allowed.length
         ? { mode: "exclude", tools: excluded }
         : { mode: "allow", tools: allowed };
     }
   }
 
-  // corbitsdev / OpenCode permission: flat or nested map of allow/deny values.
-  // `mode: primary` upstream means "the host granted the agent its full set of
-  // tools" — so allow entries are descriptive, not restrictive, and would
-  // wrongly narrow the agent to only the listed tools. Deny entries are real
-  // restrictions and stay. (Subagents' allow entries are real allowlists
-  // because there's no inheritance intent.)
+  // corbitsdev / OpenCode permission map. `mode: primary` means the host
+  // granted the full tool set, so allow entries are descriptive and would
+  // wrongly narrow the agent to the listed tools; deny entries are real
+  // restrictions and stay. (Subagent allow entries are real allowlists — no
+  // inheritance intent.)
   if (
     fm.permission !== undefined &&
     typeof fm.permission === "object" &&
@@ -211,7 +204,7 @@ function normalizeCapabilities(
 // Permission accepts two shapes:
 //   flat (corbitsdev):     { read: "allow", bash: "deny", write: "allow" }
 //   nested (OpenCode):     { tool: { "*": "deny", read: "allow" } }
-// Resource types other than "tool" (skill, mcp) are ignored in v1.
+// Non-tool resource types (skill, mcp) are ignored in v1.
 function normalizePermission(
   perm: Record<string, unknown>,
 ): CapabilityFilter | undefined {
@@ -238,8 +231,8 @@ function normalizePermission(
     if (k === "*" || k === "**") continue;
     if (v === "allow") allowed.push(...aliasTools(k));
     else if (v === "deny") denied.push(...aliasTools(k));
-    // "ask" is treated as allowed for v1 — the ask-vs-allow distinction needs
-    // a permission UI that doesn't exist for sub-agents yet.
+    // "ask" counts as allowed for v1: telling them apart needs a permission
+    // UI that sub-agents don't have yet.
     else if (v === "ask") allowed.push(...aliasTools(k));
   }
 
@@ -251,13 +244,10 @@ function normalizePermission(
   return undefined;
 }
 
-// Normalize the union of `model` / `effort` / `inference` shapes into an
-// explicit InferenceSpec. Native `inference` wins; then `model` (object or
-// array) with optional `effort` applied to legs that don't declare their own.
-//
-// A bare Claude Code `effort: high` with no `model` has nothing to attach the
-// effort to now that tiers (which used to map effort to a model swap) are
-// gone, so it is ignored — set `model` alongside `effort` to pin both.
+// Normalize `model` / `effort` / `inference` into an explicit InferenceSpec.
+// Native `inference` wins; else `model` (object or array), with `effort`
+// applied to legs that don't declare their own. A bare `effort` with no
+// `model` has nothing to attach to, so it is ignored.
 function normalizeInference(fm: Record<string, unknown> | null): {
   inference?: InferenceSpec;
 } {
@@ -305,8 +295,8 @@ function normalizeInferenceSpec(
   return { mode, order };
 }
 
-// Accept either a single leg object or an array of legs. An optional top-level
-// `effort` is applied to legs that don't declare their own.
+// Single leg object or array; top-level `effort` applies to legs that don't
+// declare their own.
 function normalizeModelField(
   model: unknown,
   effort: unknown,
@@ -337,12 +327,11 @@ function normalizeModelField(
   return { mode: "prefer", order: legs };
 }
 
-// Appendix injected into every data-only agent's system prompt so the upstream
-// markdown does not need to know Corbits Code-specific tool names or task rules.
-// Resolve a skill body via the shared skill resolver so data-only plugins and
-// the main session's `use_skill` tool agree on what a skill name means. The
-// plugin's own skills/ directory is prepended to the search path so it shadows
-// same-named skills from project-local directories.
+// Appendix injected into every data-only agent's prompt so upstream markdown
+// need not know Corbits-specific tool names or task rules. Skill bodies go
+// through the shared skill resolver so data-only plugins and the session's
+// `use_skill` agree on skill names; the plugin's own skills/ is prepended to
+// the search path so it shadows same-named project-local skills.
 import { resolveSkillBody } from "../extensions/skills.js";
 
 async function loadSkillText(
@@ -351,17 +340,16 @@ async function loadSkillText(
   pluginDir: string,
   extraPluginDirs: readonly string[],
 ): Promise<string | undefined> {
-  // resolveSkillBody prepends `<pluginDir>/skills` for each entry in pluginDirs.
-  // Prepend the data-only plugin's own directory so its skills/ wins.
+  // resolveSkillBody prepends `<pluginDir>/skills` for each pluginDirs entry;
+  // the data-only plugin's own directory goes first so its skills/ wins.
   // Path-like refs (`./skills/style`) resolve under pluginDir only.
   return resolveSkillBody(cwd, skillName, [pluginDir, ...extraPluginDirs], {
     pluginRoot: pluginDir,
   });
 }
 
-// Parse "Load the `style` skill" lines from the body. corbitsdev agents declare
-// skills in prose rather than frontmatter; this recognizes that convention so
-// those files can load co-located or project-provided skills without modification.
+// Parse "Load the `style` skill" lines from the body — corbitsdev agents
+// declare skills in prose, not frontmatter.
 function parseSkillReferencesFromBody(body: string): string[] {
   const out: string[] = [];
   // Match: load the `style` skill  /  Load the \`philosophy\` skill
@@ -379,11 +367,9 @@ export interface DataOnlyAgentPlugin {
   agentPlugin: { agents: unknown[] };
 }
 
-// Build a data-only agent plugin module from a directory containing agents/*.md.
-// Returns null if the directory has no usable agent files.
-//
-// `pluginId` defaults to the directory basename; an explicit id can be supplied
-// by the caller (e.g. read from a sibling plugin.yaml in the future).
+// Build a data-only agent plugin from a directory of agents/*.md; null when
+// there are no usable agent files. pluginId defaults to the directory
+// basename; callers may pass an explicit one.
 export async function loadDataOnlyAgentPlugin(
   pluginDir: string,
   options?: {
@@ -393,10 +379,9 @@ export async function loadDataOnlyAgentPlugin(
     onWarning?: (msg: string) => void;
   },
 ): Promise<DataOnlyAgentPlugin | null> {
-  // Support two layouts:
-  // 1. pluginDir/agents/*.md  (typical)
-  // 2. pluginDir/*.md directly (when the given path points at agents/ itself)
-  // Pick the skills root so skills/ is found sibling to the agents container.
+  // Two layouts: pluginDir/agents/*.md (typical) or pluginDir/*.md directly
+  // (the path can point at agents/ itself). pluginRoot is the parent of the
+  // agents container so skills/ is found sibling to it.
   let agentsContainer = join(pluginDir, "agents");
   let pluginRoot = pluginDir;
   let entries: string[];
@@ -476,10 +461,9 @@ export async function loadDataOnlyAgentPlugin(
       skillBlocks.length > 0
         ? `${skillBlocks.join("\n\n---\n\n")}\n\n---\n\n${body}`
         : body;
-    // The Corbits Code translation appendix is appended at prompt-build time by
-    // buildSubAgentSystemPrompt, so the systemPromptRole stays focused on the
-    // agent's own definition (skills + body) and the appendix applies uniformly
-    // to JS-plugin agents too.
+    // The translation appendix is appended at prompt-build time by
+    // buildSubAgentSystemPrompt, so systemPromptRole stays the agent's own
+    // definition (skills + body) and JS-plugin agents get the same appendix.
     const systemPromptRole = promptBody;
 
     const { inference } = normalizeInference(frontmatter);
@@ -489,14 +473,15 @@ export async function loadDataOnlyAgentPlugin(
     if (description !== undefined) profile.description = description;
     if (inference !== undefined) profile.inference = inference;
     if (capabilities !== undefined) profile.capabilities = capabilities;
-    // Preserve the declaration for schema/search visibility. Dispatch rejects
-    // profile orchestrators until profile-sourced tiers have authority semantics.
-    // Do not infer this from `mode: primary`; primary also means inherit tools.
+    // Preserve the declaration for schema/search visibility; dispatch rejects
+    // profile orchestrators until profile-sourced tiers get authority
+    // semantics. Not inferred from `mode: primary` — primary also means
+    // inherit tools.
     if (frontmatter.orchestrator === true) profile.orchestrator = true;
     profile.systemPromptRole = systemPromptRole;
 
-    // Schema-validate the synthesized profile. Same path as JS plugins, so a
-    // malformed entry is skipped instead of reaching the dispatcher.
+    // Same validation path as JS plugins: a malformed entry is skipped, not
+    // dispatched.
     const result = AgentProfileSchema(profile);
     if (result instanceof type.errors) {
       warning?.(

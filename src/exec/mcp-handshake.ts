@@ -1,7 +1,8 @@
 // Log threshold while MCP connect is still in flight. Workflow resume and first
 // inference wait for connecting to settle because capability gates skip MCP
 // tools that land after resume; the runner is sequential, so this also delays
-// first infer. Hung dials cannot wait forever: the abort cap below is the bound.
+// first infer. Hung dials cannot wait forever: the abort cap below is the
+// bound.
 export const EXEC_MCP_CONNECT_WAIT_MS = 1_000;
 // Cap on the handshake itself. Abort only reaches in-flight dials; a live
 // sibling detaches its forward on settle so this timer cannot tear it down.
@@ -26,9 +27,9 @@ export async function awaitExecMcpConnect(
 
 // Connect-only abort. The MCP client ties `signal` to the transport lifecycle,
 // so AbortSignal.timeout would kill a handshake that already succeeded. The
-// toolset forwards this signal per server and detaches on settle; abort only
-// reaches handshakes still in flight. Disarm only when the batch fulfills —
-// a rejected Promise.all still leaves sibling forwards armed.
+// toolset forwards this signal per server and detaches on settle, so abort
+// only reaches handshakes still in flight. Disarm only when the batch
+// fulfills — a rejected Promise.all still leaves sibling forwards armed.
 export function armExecMcpHandshakeAbort(timeoutMs: number): {
   signal: AbortSignal;
   disarm: () => void;

@@ -1,13 +1,12 @@
 /**
  * Pure read/edit bookkeeping for dispatched workers, consumed by
- * evaluateSubAgentStop's requireEvidence check (CritiqueDirector). Reads
- * performed through run_shell count as evidence too — the prompt
- * prohibits shell file work, but a prompt violation deserves a correction,
- * not a verdict that the work never happened. `editedPaths` (from typed write
- * tools only) is diagnostics for interventions.jsonl; no stop decision
- * depends on it. Cancel/incomplete salvage also lists these paths via
- * salvagePathsFromThrash so the parent keeps file evidence when the leaf
- * is force-stopped.
+ * evaluateSubAgentStop's requireEvidence check. Reads performed through
+ * run_shell count as evidence too — the prompt prohibits shell file work,
+ * but a prompt violation deserves a correction, not a verdict that the
+ * work never happened. `editedPaths` (from typed write tools only) is
+ * diagnostics for interventions.jsonl; no stop decision depends on it.
+ * Cancel/incomplete salvage lists these paths so the parent keeps file
+ * evidence on force-stop.
  */
 
 import {
@@ -45,8 +44,8 @@ export interface ThrashToolCallBlock {
 }
 
 // list_dir is deliberately excluded: a repeated identical listing of the same
-// directory is not the stuck read/search loop this bookkeeping watches for
-// the way a repeated read_file or grep is (see tool-classification.ts).
+// directory is not the stuck read/search loop this bookkeeping watches for the
+// way a repeated read_file or grep is (see tool-classification.ts).
 const READ_TOOLS = PATH_KEYED_READ_TOOLS;
 const SEARCH_TOOLS = SEARCH_QUERY_TOOLS;
 const SHELL_TOOL = "run_shell";
@@ -93,9 +92,9 @@ function readKey(path: string, args: Record<string, unknown>): string {
 }
 
 /**
- * Advance read/edit bookkeeping from one turn's content (or an explicit tool
- * list). Only `tool_call` blocks are counted; path strings are used as given
- * (no resolve).
+ * Advance read/edit bookkeeping from one turn's content (or an explicit
+ * tool list). Only `tool_call` blocks are counted; path strings are used
+ * as given (no resolve).
  */
 export function nextThrashState(
   prev: ThrashState,
@@ -124,9 +123,7 @@ export function nextThrashState(
       const key = searchKey(name, args);
       readCounts.set(key, (readCounts.get(key) ?? 0) + 1);
     } else if (name === SHELL_TOOL) {
-      // Shell reads are evidence too — the prompt prohibits shell
-      // file work, but a prompt violation deserves a correction, not a
-      // verdict that the work never happened.
+      // Shell reads are evidence too (see the module doc).
       const command = args.command;
       if (typeof command === "string" && command.length > 0) {
         const evidence = classifyShellFileEvidence(command);

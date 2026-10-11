@@ -1,5 +1,5 @@
 /**
- * CL-9704: Linear MCP discovery-to-invocation on the primary session.
+ * Linear MCP discovery-to-invocation on the primary session.
  *
  * Regression lock for "discoverable but not callable": tool_search finds
  * `mcp__linear__*`, loads the top ranked hits onto the next infer's tail,

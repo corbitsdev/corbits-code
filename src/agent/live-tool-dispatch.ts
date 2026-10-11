@@ -5,20 +5,19 @@ import {
   type BaseEnv,
 } from "@intx/agent";
 
-// XXX — @intx/agent resolveTools snapshots `byName` from each bundle's
-// definitions at createAgent and never consults a live getter. MCP tools
-// arrive later via DynamicToolRunner.addTools (servers connect after the TUI
-// is up; one OAuth-blocked server can also stall the post-connect reload
-// that would rebuild the snapshot). A miss then returns `unknown tool`
-// even though tool_search already listed the name from the live runner.
+// @intx/agent resolveTools snapshots `byName` from each bundle's definitions
+// at createAgent and never consults a live getter. MCP tools arrive later via
+// DynamicToolRunner.addTools (servers connect after the TUI is up; one
+// OAuth-blocked server can also stall the post-connect reload that would
+// rebuild the snapshot). A miss then returns `unknown tool` even though
+// tool_search already listed the name from the live runner.
 //
 // resolveTools is not exported. During its synchronous walk it does
-// `new Map()` for that snapshot; we install a Map whose get() falls back
-// to the single live tool bundle so late names reach DynamicToolRunner.run.
-// Restore Map before createAgent awaits so only that snapshot is live.
-// Drop this wrapper when @intx/agent dispatches through the bundle's
-// current definitions (the characterization test in
-// e2e/mcp-late-dispatch.test.ts will fail first).
+// `new Map()` for that snapshot; we install a Map whose get() falls back to
+// the single live tool bundle so late names reach DynamicToolRunner.run.
+// Restore Map before createAgent awaits so only that snapshot is live. Drop
+// this wrapper when @intx/agent dispatches through the bundle's current
+// definitions (e2e/mcp-late-dispatch.test.ts will fail first).
 
 const OriginalMap = globalThis.Map;
 

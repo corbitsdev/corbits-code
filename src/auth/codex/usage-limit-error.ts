@@ -5,12 +5,12 @@
  *   { detail: { error: { code, message, plan_type, resets_in_seconds } } }
  *
  * Harness extractErrorMessage only unwraps top-level `{ error: { message } }`,
- * so the nested detail is left on `InferenceError.raw` while the classified
- * message falls back to statusText. Retry and transcript paths re-read raw here.
+ * so the nested detail stays on `InferenceError.raw`; retry and transcript
+ * paths re-read raw here.
  *
- * Matchers stay Codex-narrow: exact `usage_limit_*` codes only. Generic OpenAI
- * codes (`insufficient_quota`, `rate_limit_exceeded`) and loose "limit reached"
- * copy must not rebrand other providers as Codex.
+ * Matchers stay Codex-narrow: exact `usage_limit_*` codes only, so generic
+ * OpenAI codes (`insufficient_quota`, `rate_limit_exceeded`) do not rebrand
+ * other providers as Codex.
  */
 
 export interface CodexUsageLimitError {

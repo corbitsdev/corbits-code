@@ -1,10 +1,8 @@
 /**
- * Bounded unified-diff formatting for product-mutation tool results.
- *
- * Surfaces the changed region computed by verify-plugin / delete-file-plugin
- * so a model can see its edit landed without issuing a follow-up read_file.
- * Kept intentionally small: a plain LCS diff over line arrays, with an escape
- * hatch for large files (skip the O(n*m) LCS, report a boundary-only summary)
+ * Bounded unified-diff formatting for product-mutation tool results: shows
+ * the changed region so a model can see its edit landed without a follow-up
+ * read_file. Intentionally small: a plain LCS diff over line arrays, with an
+ * escape hatch for large files (skip LCS, report a boundary-only summary)
  * and a hard char cap so a whole-file rewrite never dominates the result.
  */
 
@@ -193,12 +191,11 @@ function truncationNote(sliceLen: number, discarded: number): string {
 }
 
 /**
- * Truncates so the FINAL result (slice + note) never exceeds maxChars — the
- * note is reserved before slicing, not appended after. The note's own length
+ * Truncates so the final result (slice + note) never exceeds maxChars: the
+ * note is reserved before slicing, not appended after. The note's length
  * depends on the digit counts of sliceLen/discarded, which depend on
- * sliceLen, so shrink sliceLen until the assembled result fits (a handful of
- * iterations at most — the note only grows when a digit-count boundary is
- * crossed) and hard-clamp as a fallback.
+ * sliceLen, so shrink sliceLen until the assembled result fits, then
+ * hard-clamp as a fallback.
  */
 function truncate(diff: string, maxChars: number): string {
   if (diff.length <= maxChars) return diff;

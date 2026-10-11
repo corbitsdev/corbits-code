@@ -48,7 +48,7 @@ describe("assertTierMayMountFleetVerb", () => {
     ).not.toThrow();
   });
 
-  // CL-7051: fleet discovery is dispatch (Tier 1) only — nested directors keep
+  // Fleet discovery is dispatch (Tier 1) only — nested directors keep
   // spawn allowlists but must not discover the full fleet.
   test("Tier 2 nested orchestrator cannot mount search_agents but may list its own fleet", () => {
     expect(() =>

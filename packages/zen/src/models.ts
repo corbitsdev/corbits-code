@@ -100,9 +100,8 @@ const PROTOCOL_BY_ID = new Map<string, ZenProtocol>(
 );
 
 /**
- * Return the wire protocol for a known Zen model id. Unknown ids default to
- * chat completions — the status quo for an unmapped model, never inferred
- * from name prefixes.
+ * Wire protocol for a known Zen model id. Unknown ids default to chat
+ * completions — never inferred from name prefixes.
  */
 export function protocolForZenModel(modelId: string): ZenProtocol {
   return PROTOCOL_BY_ID.get(modelId) ?? "chat-completions";

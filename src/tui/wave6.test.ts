@@ -90,9 +90,8 @@ describe("Wave 6: long-log windowing", () => {
 
       expect(shell.streamLog.length).toBe(n);
       expect(shell.lineCount).toBe(n);
-      // Paint tree tracks the full retained log 1:1 (CL-5553) — capped at
-      // MAX_RETAINED_STREAM_ROWS by CL-5551, not a smaller paint window,
-      // so every retained row stays reachable by scrolling.
+      // Paint tree tracks the full retained log, so every retained row
+      // stays reachable by scrolling.
       const painted = shell.transcript.getChildren().length;
       expect(painted).toBeLessThanOrEqual(MAX_RETAINED_STREAM_ROWS + 1);
       expect(painted).toBe(n + 1); // +1: bottom-anchor spacer
@@ -119,9 +118,7 @@ describe("Wave 6: long-log windowing", () => {
 
       // Retention caps the backing array itself, not just the paint window.
       expect(shell.streamLog.length).toBe(MAX_RETAINED_STREAM_ROWS);
-      // But the append count the bridge relies on for bookkeeping stays
-      // absolute — it must never appear to shrink just because rows were
-      // evicted underneath it.
+      // The append count stays absolute; eviction must not shrink it.
       expect(streamRowCount(shell)).toBe(n);
       // The oldest surviving row is the one at the eviction boundary.
       expect(shell.streamLog[0]).toMatchObject({
@@ -152,8 +149,7 @@ describe("Wave 6: long-log windowing", () => {
           meta: "bash",
         });
       }
-      // The pinned row itself was evicted; a rewrite must be a safe no-op,
-      // not a write to whatever row now occupies that array slot.
+      // The pinned row was evicted; a rewrite must be a safe no-op.
       const survivorAtSameSlot = streamRowAt(shell, pinnedIndex);
       expect(survivorAtSameSlot).toBeUndefined();
 
@@ -184,8 +180,7 @@ describe("Wave 6: chrome zones", () => {
         agents: [{ label: "explore: map callers", tail: "", stalled: false }],
       });
 
-      // CL-5847: the panel is hidden by default — toggle to show before
-      // asserting it paints.
+      // Panel is hidden by default; toggle to show.
       toggleTasksPanel(shell);
 
       expect(shell.layout.heights.task).toBe(1);
@@ -211,9 +206,8 @@ describe("Wave 6: chrome zones", () => {
 
   test("agents panel rows are only rebuilt when the panel's lines actually change", async () => {
     await withAppShell(async (shell) => {
-      // Seed both zones so later retitles keep the row budget stable.
-      // A budget change re-clamps the board and must repaint; this test is
-      // about content-identity rebuilds, not clamp-on-resize.
+      // Seed both zones so later retitles keep the row budget stable; this
+      // tests content-identity rebuilds, not clamp-on-resize.
       setChromeZones(shell, {
         task: [{ label: "seed", status: "todo" }],
         agents: [{ label: "explore: map callers", tail: "", stalled: false }],
@@ -222,8 +216,8 @@ describe("Wave 6: chrome zones", () => {
       expect(shell.agentsBox.getChildren()).toHaveLength(1);
       expect(firstBefore).toBeDefined();
 
-      // Task retitle only (same row count) must not rebuild agents rows.
-      // Use reference identity — deep-equal on OpenTUI trees hangs on cycles.
+      // Task retitle only must not rebuild agents rows. Use reference
+      // identity — deep-equal on OpenTUI trees hangs on cycles.
       setChromeZones(shell, {
         task: [{ label: "unrelated", status: "todo" }],
       });
@@ -270,13 +264,12 @@ describe("Wave 6: chrome zones", () => {
         .split("\n")
         .find((line) => line.includes("· 0:42 · grep"));
       expect(agentLine).toBeDefined();
-      // The frame line includes the shell's left side margin ahead of
-      // the zone's own content width.
+      // The frame line includes the shell's left margin, so the bound
+      // adds it.
       expect(agentLine?.trimEnd().length).toBeLessThanOrEqual(
         shell.layout.sideMargin + shell.layout.contentWidth,
       );
-      // The tail (what an operator glances at the panel to see) survives
-      // whole; only the free-form label is ellipsized.
+      // The tail survives whole; only the label is ellipsized.
       expect(agentLine).toContain("…");
       expect(agentLine).not.toContain(longDescription);
     });
@@ -284,10 +277,9 @@ describe("Wave 6: chrome zones", () => {
 
   test("a wide-character (CJK/emoji) description fits the laid-out width in columns, not UTF-16 units", async () => {
     await withAppShell(async (shell, h) => {
-      // Each CJK character is one UTF-16 code unit but two terminal
-      // columns; .length would undercount this description's true width
-      // by roughly half, letting the row overflow the zone and wrap —
-      // exactly the bug width-clamping exists to prevent.
+      // CJK characters are two terminal columns but one UTF-16 unit, so
+      // .length undercounts the width by half and the row wraps — the bug
+      // this clamp prevents.
       const wideDescription =
         "调查代理循环中重复出现的工具调用事件问题 across every dispatched worker";
       setChromeZones(shell, {
@@ -318,9 +310,8 @@ describe("Wave 6: chrome zones", () => {
   });
 });
 
-// CL-5731: the task list and the agents panel are distinct concepts — a
-// task is a unit of work with a status, an agent is an executor — and must
-// render as distinct panels, never merged.
+// A task is work with a status, an agent is an executor; they render as
+// distinct panels, never merged.
 describe("CL-5731: task list panel", () => {
   test("each task entry renders with its own status, distinct from the agents panel", async () => {
     await withAppShell(async (shell, h) => {
@@ -333,7 +324,7 @@ describe("CL-5731: task list panel", () => {
         agents: [{ label: "explore: map callers", tail: "", stalled: false }],
       });
 
-      // CL-5847: hidden by default — opt in to see the checklist.
+      // Hidden by default — opt in to see the checklist.
       toggleTasksPanel(shell);
 
       expect(shell.layout.heights.task).toBe(3);
@@ -371,15 +362,14 @@ describe("CL-5731: task list panel", () => {
         task: [{ label: "first task", status: "done" }],
       });
 
-      // CL-5847: hidden by default — opt in to see the live update.
+      // Hidden by default — opt in to see the live update.
       toggleTasksPanel(shell);
 
       await h.renderOnce();
       const frame = h.captureCharFrame();
       expect(frame).toContain("[x] first task");
-      // The agents board content survives the task panel rebuild: the
-      // row is still painted (do not deep-compare renderable nodes —
-      // OpenTUI renderables carry circular refs that hang toEqual).
+      // The agents board survives the rebuild; the row is still painted.
+      // Do not deep-compare renderable nodes — circular refs hang toEqual.
       expect(shell.agentsBox.getChildren()).toHaveLength(1);
       expect(shell.layout.heights.agents).toBe(agentsHeightBefore);
       expect(frame).toContain("explore: map callers");
@@ -388,8 +378,8 @@ describe("CL-5731: task list panel", () => {
 
   test("default-hidden panel surfaces live task data on toggle without a stale snapshot", async () => {
     await withAppShell(async (shell, h) => {
-      // CL-5847: the panel is hidden by default, even after chrome
-      // carries task rows. The data still lands in tasksRaw underneath.
+      // Panel is hidden by default even with task rows; data still lands
+      // in tasksRaw.
       setChromeZones(shell, {
         task: [{ label: "wire toggle", status: "doing" }],
       });
@@ -430,8 +420,8 @@ describe("CL-5731: task list panel", () => {
       const before = streamRowCount(shell);
 
       toggleTasksPanel(shell);
-      // Which panels are showing is a property of the current screen, not
-      // an event in the conversation, so it costs no scrollback.
+      // Panel visibility is screen state, not a conversation event, so it
+      // costs no scrollback.
       expect(streamRowCount(shell)).toBe(before);
       const shownFlash = shell.statusFlash;
       expect(shownFlash).toBeTruthy();
@@ -462,7 +452,7 @@ describe("CL-5741: chrome zone rows re-fit on terminal resize", () => {
           task: [{ label: taskTitle, status: "todo" }],
           agents: [{ label: agentLabel, tail: agentTail, stalled: false }],
         });
-        // CL-5847: hidden by default — opt in once during setup.
+        // Hidden by default — opt in once during setup.
         toggleTasksPanel(shell);
 
         await h.renderOnce();

@@ -80,10 +80,9 @@ describe("deliverAgentMessage", () => {
 
 describe("runGenerationGuardedDeliver", () => {
   test("a reload between enqueue and execution drops the deliver without touching the agent", async () => {
-    // Pins the reload-vs-async-deliver verdict: the serial op queue is FIFO
-    // with no preemption, so a continuation answer queued ahead of a reload
-    // still executes — the generation re-check at execution time is what
-    // keeps the stale answer from reaching the replaced agent.
+    // The serial op queue is FIFO with no preemption, so a continuation
+    // answer queued ahead of a reload still executes; the generation re-check
+    // at execution time keeps the stale answer from the replaced agent.
     let generation = 1;
     const stillCurrent = () => generation === 1;
     // Enqueue captures the closure; the reload lands before it executes.

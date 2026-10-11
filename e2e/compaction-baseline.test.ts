@@ -85,10 +85,9 @@ async function snapshot(session: IntegrationSession) {
   return { hash: createHash("sha256").update(raw).digest("hex"), turns };
 }
 
-// CL-8744: folded-away evidence lives in the fat handoff file, not the live
-// prompt. Every fold overwrites the same stable latest key (a per-fold key
-// would make each spine novel, which the completeness gate must reject), so
-// one read behind the spine's pointer recovers the whole cumulative record.
+// Folded-away evidence lives in the handoff file behind the spine's pointer:
+// every fold overwrites the same latest key, so one read recovers the whole
+// cumulative record.
 async function readHandoffFile(
   session: IntegrationSession,
   key: string,
@@ -265,8 +264,7 @@ describe("integration — compaction mechanics baseline", () => {
           skipPermissions: true,
           reactorGated: false,
         }),
-        // CL-9007: pin a tiny tail budget so the calibrated growth volumes
-        // still fold instead of fitting the default live tail.
+        // Pin a tiny tail budget so the calibrated growth volumes still fold.
         compactionShape: { tailBudgetTokens: 10 },
         compactionCompletion: async (turns) => {
           const context = turns
@@ -384,14 +382,11 @@ describe("integration — compaction mechanics baseline", () => {
           folds.push(observation);
           expect(qualifyingFold(observation)).toBe(true);
           expect(summaryInputs.length).toBe(fold + 1);
-          // CL-8744: the live prompt carries only the thin spine plus its
-          // pointer — the spine's cumulative evidence echo keeps every
-          // required marker inference-visible, so the responder still
-          // recovers the full set from the reply itself.
+          // The live prompt carries only the thin spine plus its pointer; the
+          // cumulative evidence echo keeps markers recoverable from the reply.
           const recovered = recoverEvidence(reply);
           expect(recovered).toEqual([...REQUIRED_EVIDENCE]);
-          // The full structured record lives in the fat handoff file behind
-          // the spine's pointer: every section present, every marker verbatim.
+          // The full record lives in the handoff file behind the spine's pointer.
           const handoffKey = spineHandoffKey(after.turns);
           expect(handoffKey).toBe(HANDOFF_LATEST_KEY);
           const fileText = await readHandoffFile(session, handoffKey as string);
@@ -414,9 +409,8 @@ describe("integration — compaction mechanics baseline", () => {
               .map((fact) => fact.id)
               .sort(),
           ).toEqual(REQUIRED_EVIDENCE.map((fact) => fact.id).sort());
-          // The live spine may grow with newly discovered tokens; dropped prior
-          // spines are adopted into the evidence archive so the completeness
-          // gate still certifies the fold (qualifyingFold above).
+          // Dropped prior spines are adopted into the archive so the
+          // completeness gate still certifies the fold.
           spineTexts.push(spineText(after.turns));
           expect(spineTexts[fold]?.startsWith(COMPACTED_PREFIX)).toBe(true);
           expect(spineTexts[fold]).toContain("Handoff:");

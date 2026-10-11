@@ -21,7 +21,7 @@ import { toolResultSecretScrubPlugin } from "./tool-result-secret-scrub-plugin.j
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { CompactionArchive } from "../session/compaction-archive.js";
 
-/** In-memory stand-in for ContextStore's writeBlob/readBlob pair, for tests. */
+/** In-memory writeBlob/readBlob stand-in for tests. */
 function fakeBlobStore() {
   const blobs = new Map<string, { bytes: Uint8Array; contentType: string }>();
   return {
@@ -56,10 +56,9 @@ describe("truncateToolResultContent", () => {
 
     expect(truncated).toContain("[output truncated");
     expect(truncated).toContain("NOT retrievable");
-    // The pre-cap discard must never be described as recoverable elsewhere.
+    // The discard must never be described as recoverable.
     expect(truncated).not.toContain("see the rest");
     expect(truncated).not.toContain("Full output available");
-    // And it must never promise a lifetime it doesn't control either way.
     expect(truncated).not.toContain("removed");
     expect(truncated).not.toContain("session ends");
   });
@@ -77,7 +76,7 @@ describe("truncateToolResultContent", () => {
         },
       );
 
-      // Inline content is within the reactor cap and does not itself contain the discarded tail.
+      // Inline content stays within the cap and carries no tail.
       expect(truncated).not.toContain("TAIL-MARKER");
       expect(truncated.length).toBeLessThanOrEqual(MAX_RESULT_CHARS);
 
@@ -87,8 +86,7 @@ describe("truncateToolResultContent", () => {
       const uri = uriMatch?.[0].replace(/[.\]]+$/, "") ?? "";
       expect(uri).toBe(`tool-output:///${spillBlobKey("call-42")}`);
 
-      // Follow the notice's instructions literally: read_file with that URI,
-      // via the real BlobReader machinery read_file itself uses.
+      // Follow the notice: read_file with that URI via the real BlobReader.
       const blobReader = createBlobReader(store);
       const recoveredBytes = await blobReader.read(uri);
       const recovered = new TextDecoder().decode(recoveredBytes);
@@ -96,15 +94,14 @@ describe("truncateToolResultContent", () => {
       expect(recovered).toContain("TAIL-MARKER");
       expect(recovered.length).toBe(original.length);
 
-      // No false lifetime claim: the blob is part of the committed session
-      // history, not something with its own expiry.
+      // No false lifetime claim: the blob lives with the session history.
       expect(truncated).not.toContain("removed");
       expect(truncated).not.toContain("session ends");
     });
 
     test("minified JSON over the gate is pretty-spilled as application/json", async () => {
       const store = fakeBlobStore();
-      // Build a compact object whose minified form exceeds the 10k gate.
+      // Build a compact object over the 10k gate.
       const obj: Record<string, string> = {};
       for (let i = 0; i < 400; i++) {
         obj[`key_${i}`] = `value_${i}_${"x".repeat(20)}`;
@@ -223,7 +220,7 @@ describe("truncateToolResultContent", () => {
         expect(truncated).toContain(uri);
         expect(truncated).toContain(abs);
 
-        // Production pipeline: leisure middleware → reactor size-cap (always on, 10k).
+        // Pipeline: leisure middleware, then the reactor's always-on 10k cap.
         const reactorCap = createSizeCapTransform({
           maxChars: 10_000,
           contextStore: { writeBlob: store.writeBlob },
@@ -242,7 +239,7 @@ describe("truncateToolResultContent", () => {
         expect(modelFacing).toContain(uri);
         expect(modelFacing).toContain(abs);
         expect(modelFacing).toContain(":full");
-        // Within-cap → reactor must not replace the leisure notice with its own.
+        // Within-cap: the reactor keeps the leisure notice.
         expect(modelFacing).not.toContain("Tool output truncated");
         expect(store.blobs.has("call-1")).toBe(false);
 
@@ -261,7 +258,7 @@ describe("truncateToolResultContent", () => {
         writeBlob: store.writeBlob,
       });
 
-      // Simulate a lossy same-id write the reactor would do on an over-cap result.
+      // Simulate the reactor's lossy same-id spill on an over-cap result.
       await store.writeBlob(
         "call-1",
         new TextEncoder().encode("LOSSY"),
@@ -656,10 +653,9 @@ describe("archive then truncate", () => {
 describe("scrub-before-spill", () => {
   test("secret scrub runs on the full content before truncation spills", async () => {
     const store = fakeBlobStore();
-    // Compose the same order as buildCorePosixToolPlugins: truncation outer,
-    // scrub inner — so scrub sees the full payload and the spill is redacted.
-    // Put the credential near the start so the kept (≤10k) slice also proves scrub
-    // ran; a secret past the cut would only show up in the spill.
+    // Same order as buildCorePosixToolPlugins: truncation outer, scrub inner,
+    // so the spill is redacted. Put the secret near the start so the kept
+    // slice proves scrub ran.
     const secret = `prefix sk-live-${"a".repeat(24)} ${"x".repeat(MAX_RESULT_CHARS)} suffix`;
     const scrub: ToolPlugin = toolResultSecretScrubPlugin();
     const trunc: ToolPlugin = resultTruncationPlugin({

@@ -13,8 +13,8 @@ import type { AppShell } from "./shell/internals";
 
 /**
  * Render until `needle` appears in the character frame, or the deadline
- * elapses. Markdown bodies highlight asynchronously via the tree-sitter
- * worker, whose startup/IPC can exceed a fixed sleep under --parallel load.
+ * elapses — Markdown bodies highlight asynchronously, so a fixed sleep is
+ * not enough under --parallel load.
  */
 async function frameWith(
   h: Harness,

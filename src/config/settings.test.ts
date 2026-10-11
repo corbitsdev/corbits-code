@@ -93,8 +93,7 @@ afterEach(() => {
 
 // Rejects immediately instead of touching the network. loadConfig's pricing
 // refresh is fire-and-forget, so a resolved run proves only that the injected
-// impl was reached — which is exactly the regression this file guards against:
-// the default impl performs a real fetch of models.dev from inside the suite.
+// impl was reached — not the default impl's real models.dev fetch.
 function offlineFetch(): { impl: typeof fetch; calls: () => number } {
   let count = 0;
   const impl = (() => {
@@ -104,8 +103,8 @@ function offlineFetch(): { impl: typeof fetch; calls: () => number } {
   return { impl, calls: () => count };
 }
 
-// Writes a minimal valid global settings file with a single provider so that
-// provider resolution succeeds; these tests only exercise flag parsing.
+// Writes a minimal valid global settings file so provider resolution
+// succeeds; these tests only exercise flag parsing.
 async function withSettings(
   fn: (opts: {
     cwd: string;
@@ -155,10 +154,9 @@ async function writeXaiAuthProfile(home: string): Promise<void> {
   );
 }
 
-// loadConfig's OAuth profile merge reads the real os.homedir() with no
-// override parameter (Bun's homedir does not observe a post-startup HOME
-// change), so the only way to point it at a synthetic auth store is to stub
-// node:os for the duration of the call.
+// loadConfig's OAuth profile merge reads the real os.homedir() (Bun's
+// homedir ignores post-startup HOME changes), so the only way to point it at
+// a synthetic auth store is to stub node:os.
 async function loadConfigAtHome(
   home: string,
   args: string[],
@@ -581,18 +579,10 @@ test("loadConfig ignores a persisted OAuth entry whose auth profile is gone", as
   }
 });
 
-// Regression: OAuth credentials for an xai/<profile> provider are never read
-// from settings.json — home-level auth stores are the source of truth, and
+// Regression: OAuth credentials for an xai/<profile> provider never come from
+// settings.json — home-level auth stores are the source of truth, and
 // loadConfig merges them into the catalog it hands to resolveProvider (see
 // "OAuth profiles live in home-level auth stores" in src/config/index.ts).
-// --config only overrides where provider *definitions* come from (CL-6973);
-// it must still merge in the OAuth catalog, or every codex/xai OAuth run
-// through --config reaches the provider unauthenticated. Only the
-// programmatic `globalSettingsPath` test override (never exposed as a CLI
-// flag) opts out, for full test isolation. This proves loadConfig picks an
-// OAuth-ish catalog provider that exists in no settings file at all, using a
-// synthetic profile written straight to the home-level auth store loadConfig
-// actually reads.
 test("loadConfig resolves an OAuth-profile provider absent from any settings file", async () => {
   const fakeHome = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-home-"));
   const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-cwd-"));
@@ -615,14 +605,10 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
   }
 });
 
-// CL-6973: --config <path> passes a settings-file override for provider
-// *definitions*, but credentials for OAuth-profile providers (codex/<name>,
-// xai/<name>) live in separate home-level auth stores that --config never
-// touches. Before this fix, an explicit --config unconditionally suppressed
-// the OAuth catalog merge, so any codex/xai run through --config resolved to
-// an unauthenticated provider (HTTP 426/404 on the first turn). This proves
-// --config composes with auth: the OAuth profile still resolves even though
-// a --config file is also given, and the file's own settings still apply.
+// --config overrides provider *definitions* only; OAuth credentials live in
+// home-level auth stores --config never touches (same rule as the regression
+// test above). An explicit --config must still merge the OAuth catalog, or
+// any codex/xai run through --config resolves unauthenticated.
 test("--config composes with OAuth profile auth instead of suppressing it", async () => {
   const fakeHome = await mkdtemp(
     join(tmpdir(), "ic-unit-config-oauth-compose-home-"),

@@ -36,21 +36,17 @@ export async function mainWithRunners(
   argv: readonly string[],
   runners: Runners,
 ): Promise<number> {
-  // Must run before any other line: @intx/log installs a console sink as a
-  // side effect of import, and loadConfig itself can log (e.g. healed
-  // settings). Once installed, this replaces that default so nothing —
-  // including a vendored dependency's logger — reaches the terminal the
-  // TUI is about to own.
+  // Must run first: @intx/log installs a console sink on import, and
+  // loadConfig can log (e.g. healed settings). This replaces that default so
+  // nothing — including vendored loggers — reaches the terminal the TUI owns.
   installFileLogSink();
   const config = await loadConfig(argv, { allowUnconfigured: true });
-  // Resolve the crash-report directory once, up front, while the process is
-  // healthy. This is the only place project-key resolution (which shells
-  // out to git) may happen on the crash path — the handler itself must
-  // never call it, or a hung git would block the exit it exists to force.
+  // Resolve the crash-report directory up front, while healthy. This is the
+  // only crash-path place project-key resolution (git) may happen — the
+  // handler must never call it, or a hung git would block the exit it forces.
   primeCrashReporting(config.cwd);
-  // Exec has no Ink banner; unconfigured TUI goes to onboarding without the
-  // main-screen notice. Surface fail-open diagnostics on stderr for those
-  // paths so junk local files are never silent.
+  // Exec and unconfigured TUI have no banner; surface fail-open diagnostics
+  // on stderr so junk local files are never silent.
   const surfaceDiagnosticsOnStderr =
     config.command === "exec" || !config.configured;
   if (surfaceDiagnosticsOnStderr && config.settingsDiagnostics !== undefined) {
@@ -58,15 +54,11 @@ export async function mainWithRunners(
       process.stderr.write(`settings: ${d.message}\n  fix: ${d.fix}\n`);
     }
   }
-  // Always the TRUE global settings file, never config.globalSettingsPath —
-  // that's the --config override file when one was given, and splitting
-  // telemetry across two files means the installationId lands somewhere the
-  // toggle (which also uses the true global path) never looks, silently
-  // breaking re-enable. Never let telemetry setup delay or crash startup:
-  // settings persistence is awaited (it's local disk I/O), but the capture
-  // call itself is fire-and-forget per createTelemetry's contract.
-  // Env kills short-circuit before ensureTelemetrySettings so a disabled run
-  // never touches the settings file (no installationId generation).
+  // Always the true global settings file, never config.globalSettingsPath
+  // (the --config override): splitting telemetry across two files would drop
+  // installationId where the toggle never looks. Persistence is awaited (local
+  // disk I/O); capture is fire-and-forget per createTelemetry's contract. The
+  // env kill short-circuits first so a disabled run never touches the file.
   if (!telemetryDisabledByEnv()) {
     const settings = await ensureTelemetrySettings(globalSettingsPath()).catch(
       (err: unknown) => {
@@ -77,11 +69,9 @@ export async function mainWithRunners(
         return null;
       },
     );
-    // Consent by proceeding: until the disclosure has been shown, the
-    // default disabled no-op singleton stays in place so no event of any
-    // kind can leave the process. The disclosure surfaces activate telemetry
-    // (and fire the held cli_start) on the first affirmative user action —
-    // see telemetry/first-run.ts.
+    // Consent by proceeding: until the disclosure is shown, the disabled
+    // no-op singleton stays so no event leaves the process; the disclosure
+    // activates telemetry on the first affirmative action (first-run.ts).
     if (settings?.telemetry?.noticeShown === true) {
       const telemetry = createTelemetry({ settings });
       setTelemetry(telemetry);
@@ -101,14 +91,13 @@ export async function mainWithRunners(
   if (!config.configured) {
     if (config.command === "exec") {
       // Exec needs a provider; onboarding is TUI-only. Fail closed with a
-      // clear message rather than launching Ink.
+      // clear message.
       process.stderr.write(
         "No provider configured. Run `corbits` (interactive) once to complete setup, " +
           "or pass --provider / --model with credentials.\n",
       );
-      // cli_start (surface exec) already emitted above while runExec never
-      // runs on this branch — emit a minimal failed session_end so the
-      // funnel stays paired instead of orphaning the start.
+      // cli_start already emitted above; emit a minimal failed session_end
+      // so the funnel stays paired instead of orphaning the start.
       const { execSessionEndProperties } = await import("./exec/runner.js");
       getTelemetry().capture(
         "session_end",
@@ -124,13 +113,12 @@ export async function mainWithRunners(
     exitCode = await runners.runTUI(config);
   }
 
-  // Opt-in OTEL export of the PerfSpan tree (session/process boundary).
-  // No-op when OTEL is disabled — zero network on the export path.
+  // Opt-in OTEL export of the PerfSpan tree; no-op when OTEL is disabled.
   const otelSettings = config.configured ? config.settings : null;
   await flushPerfToOtel(otelSettings);
 
-  // Bound against process.exit dropping in-flight captures for short
-  // sessions; flush itself is deadline-capped so exit stays snappy.
+  // Keep process.exit from dropping in-flight captures; the flush itself is
+  // deadline-capped so exit stays snappy.
   await getTelemetry().flush();
   return exitCode;
 }

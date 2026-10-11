@@ -12,7 +12,7 @@ export function classifySubAgentInferenceAuthFailure(
   return null;
 }
 
-/** Actionable spawn_agent error when OAuth refresh or inference auth fails for a sub-agent. */
+/** Actionable spawn_agent error when inference auth fails for a sub-agent. */
 export function formatSubAgentSpawnAuthFailureMessage(
   description: string,
   err: unknown,

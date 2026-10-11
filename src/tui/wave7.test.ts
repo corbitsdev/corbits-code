@@ -1,5 +1,5 @@
 /**
- * Wave 7 — residual list surfaces + subagent observe + readiness smoke.
+ * Residual list surfaces + subagent observe + readiness smoke.
  */
 import { describe, expect, test } from "bun:test";
 import { focusOwner } from "./focus/index.js";

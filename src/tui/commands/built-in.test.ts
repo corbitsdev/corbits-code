@@ -395,8 +395,8 @@ describe("/cost command", () => {
         contextIsEstimate: false,
       });
     const result = defined(getCommand("cost"), "cost").handler("", ctx);
-    // The rendered shape is pinned in src/cost/cost-summary.test.ts; here only
-    // the pass-through matters — the supplied summary reaches the message.
+    // The rendered shape is pinned in src/cost/cost-summary.test.ts; here
+    // only the pass-through matters.
     expect(result.type).toBe("message");
     expect((result as { text: string }).text).toContain("claude-x");
   });

@@ -1,8 +1,8 @@
 /**
  * Primary createAgentToolset mounts six fleet verbs beside search_agents /
- * read_agent_trace when subAgent (with the shared TUI
- * sessions store) is wired; wait_agents is exec-primary opt-in via
- * mountWaitAgents (CL-7678). Leaves / no-subAgent toolsets stay without them.
+ * read_agent_trace when subAgent (with the shared TUI sessions store) is
+ * wired; wait_agents is exec-primary opt-in via mountWaitAgents. Leaves /
+ * no-subAgent toolsets stay without them.
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";

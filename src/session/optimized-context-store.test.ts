@@ -197,9 +197,8 @@ describe("createOptimizedContextStore load", () => {
     const store = await createOptimizedContextStore(dir);
 
     fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("kept")]));
-    // Corrupt metadata alone must not abort resume when turns are fine.
-    // Base load parses turns first then metadata — if metadata throws, recovery
-    // path soft-defaults and still returns turns.
+    // Corrupt metadata alone must not abort resume when turns are fine: base
+    // load parses turns first, then metadata soft-defaults on a throw.
     fs.writeFileSync(path.join(dir, "metadata.json"), "{not-json\x00");
 
     const loaded = await store.load();
@@ -215,7 +214,7 @@ describe("createOptimizedContextStore load", () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
 
-    // Mid-file garbage that is not null padding and not a torn tail (CL-7052).
+    // Mid-file garbage that is not null padding and not a torn tail.
     fs.writeFileSync(
       path.join(dir, TURNS_FILE),
       jsonl([turn("a")]) + "THIS IS NOT JSON\n" + jsonl([turn("b")]),
@@ -230,7 +229,7 @@ describe("createOptimizedContextStore load", () => {
     const store = await createOptimizedContextStore(dir);
 
     // Crash mid-write left a stub; the next append continued without a newline,
-    // so a truncated prefix is glued onto the following valid record (CL-7052).
+    // so a truncated prefix is glued onto the following valid record.
     const glued =
       '{"role":"user","content":[{"type":"te' + JSON.stringify(turn("b"));
     fs.writeFileSync(
@@ -242,9 +241,9 @@ describe("createOptimizedContextStore load", () => {
     expect(turnTexts(loaded.turns)).toEqual(["a", "b", "c"]);
   });
 
-  // Compacted head rewrites segment 0 while a prior multi-segment history's
-  // tails stay on disk. Concatenating them reintroduces tool_call ids that the
-  // compact head already kept — drop the orphan tails so the session can resume.
+  // A compacted head rewrites segment 0 while old tails stay on disk;
+  // concatenating them reintroduces tool_call ids the compact head already
+  // kept — drop the orphan tails so the session can resume.
   test("drops orphan segment tails that reintroduce a tool_call id", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
@@ -385,9 +384,9 @@ describe("loadRecentTurns", () => {
       jsonl([turn("d"), turn("e")]),
     );
 
-    // Segment 2 (2 turns) then segment 1 (1 turn) alone fall short of the
-    // window of 4, so the walk continues into segment 0 (2 turns) whole —
-    // reads are segment-granular, not turn-exact.
+    // Segment 2 (2 turns) then segment 1 (1 turn) fall short of the window
+    // of 4, so the walk continues into segment 0 (2 turns) whole — reads are
+    // segment-granular, not turn-exact.
     const loaded = await loadRecentTurns(dir, 4);
     expect(turnTexts(loaded.turns)).toEqual(["a", "b", "c", "d", "e"]);
     expect(loaded.truncated).toBe(false);
@@ -418,7 +417,7 @@ describe("loadRecentTurns", () => {
     const segmentName = segmentFileName(TURNS_FILE, 1);
 
     fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]));
-    // Mid-file garbage that is neither null padding nor a torn tail (CL-7052).
+    // Mid-file garbage that is neither null padding nor a torn tail.
     fs.writeFileSync(
       path.join(dir, segmentName),
       jsonl([turn("b")]) + "THIS IS NOT JSON\n" + jsonl([turn("c")]),

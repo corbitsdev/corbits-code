@@ -15,12 +15,10 @@ import type { AuthProfile, BaseTokens } from "@corbits/oauth-core";
 
 export type { AuthProfile, BaseTokens };
 
-// On-disk store for named OAuth profiles. A user may hold multiple subscriptions
-// for the same provider, so credentials are keyed by a user-chosen profile name
-// within a single file. Tokens are credentials, so the file is owner-only (0o600)
-// and the directory 0o700. Writes go through a temp file + rename so a concurrent
-// reader never observes a torn file. Same-process writers also queue per auth path
-// so each lock wait starts its own deadline.
+// On-disk store for named OAuth profiles. A user may hold multiple
+// subscriptions for one provider, so credentials are keyed by a user-chosen
+// profile name in a single file. File is owner-only (0o600), directory 0o700,
+// writes go temp-file + rename, and same-process writers queue per auth path.
 
 export interface AuthStore<TTokens extends BaseTokens> {
   authPath: (home?: string) => string;
@@ -36,8 +34,7 @@ export interface AuthStore<TTokens extends BaseTokens> {
     home?: string,
     expectedRefreshToken?: string,
   ) => Promise<AuthProfile<TTokens> | undefined>;
-  // Remove one profile, or all profiles when `name` is undefined. Returns the
-  // names removed.
+  // Remove one profile, or all when `name` is undefined; returns the names removed.
   removeProfile: (name: string | undefined, home?: string) => Promise<string[]>;
 }
 
@@ -46,11 +43,7 @@ export interface AuthStoreOptions<TTokens extends BaseTokens> {
   filename: string;
   settingsDirName: string;
   isTokens: (value: unknown) => value is TTokens;
-  /**
-   * Override the credential-lock wait. Tests pass a short window so they do
-   * not pay the production 1s in wall clock; production never sets it and
-   * keeps the default.
-   */
+  /** Override the credential-lock wait; tests pass a short window to skip the production 1s. */
   lockTimeoutMs?: number;
 }
 
@@ -61,24 +54,22 @@ interface AuthFile<TTokens extends BaseTokens> {
 const LOCK_RETRY_MS = 25;
 const LOCK_TIMEOUT_MS = 1_000;
 
-// Age at which a lock file carrying no holder PID (a foreign writer, or a
-// lock predating PID tagging) is presumed orphaned by a crashed holder and
-// taken over. Stays far above LOCK_TIMEOUT_MS so a waiter never declares a
-// live holder stale mid-wait; PID-tagged locks ignore this horizon.
+// Age at which a lock file with no holder PID (a foreign writer, or one
+// predating PID tagging) is presumed orphaned and taken over. Far above
+// LOCK_TIMEOUT_MS so a waiter never declares a live holder stale mid-wait.
 const LOCK_STALE_MS = 5_000;
 
-// Per-call unique temp (pid + counter). Matches mcp/auth-store — pid alone is not
-// unique per call if writeAuthFile ever overlaps in-process.
+// Per-call unique temp (pid + counter); pid alone is not unique if
+// writeAuthFile ever overlaps in-process.
 let tmpWriteCounter = 0;
 
-// Per-waiter unique lock claim (pid + counter). Two contenders never share a
-// claim, so a steal re-read that still matches names the same file, and the
-// post-create ownership check can tell our claim from a winner's.
+// Per-waiter unique lock claim (pid + counter): a matching steal re-read
+// names the same file, and the post-create check tells our claim from a winner's.
 let lockClaimCounter = 0;
 
 // Same-process ops on one auth file queue here so a caller's lock deadline
-// starts when it actually runs, not when it was invoked — otherwise one lock
-// held past LOCK_TIMEOUT_MS fails the whole burst, not just the first waiter.
+// starts when it runs, not when it was invoked — one held-past-timeout lock
+// then fails only its first waiter, not the whole burst.
 const updateChains = new Map<string, Promise<unknown>>();
 
 const AuthFileShape = type({
@@ -114,11 +105,9 @@ function holderPid(content: string): number | null {
   return Number.isInteger(pid) && pid > 0 ? pid : null;
 }
 
-// kill(pid, 0) liveness: success means the process exists (alive); EPERM
-// means it exists but belongs to another user (alive); ESRCH/EINVAL mean no
-// such process (dead). Any other failure reads as alive — never steal a live
-// holder's lock on a confused signal check; the waiter times out with a
-// recovery hint instead.
+// kill(pid, 0) liveness: success or EPERM means alive; ESRCH/EINVAL mean
+// dead. Any other failure reads as alive — never steal a live holder's lock
+// on a confused signal check; the waiter times out with a recovery hint.
 function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -130,8 +119,7 @@ function isPidAlive(pid: number): boolean {
 }
 
 // Null when the lock vanished under the waiter (a release raced the read);
-// anything but ENOENT propagates — permission and disk errors must surface,
-// not read as an empty lock.
+// anything but ENOENT propagates — permission and disk errors must surface.
 async function readLockContent(lockPath: string): Promise<string | null> {
   try {
     return await readFile(lockPath, "utf8");
@@ -141,10 +129,9 @@ async function readLockContent(lockPath: string): Promise<string | null> {
   }
 }
 
-// True when the observed lock is safe to take over: a tagged holder whose
-// PID is dead (crashed — reachable under any timeout), or a legacy untagged
-// lock older than the stale horizon. A vanished lock reads as not stale;
-// the acquire loop retries the exclusive create instead.
+// True when the lock is safe to take over: a tagged holder with a dead PID
+// (crashed), or a legacy untagged lock older than the stale horizon. A
+// vanished lock reads as not stale; the acquire loop retries the create.
 async function isLockStale(
   lockPath: string,
   content: string,
@@ -168,9 +155,8 @@ function lockTimeoutError(lockPath: string, cause: unknown): Error {
   );
 }
 
-// Pace one contention round: throw once the deadline passed, else sleep a
-// retry interval. Every wait path funnels here so steal contention never
-// hot-spins.
+// Pace one contention round: throw when the deadline passed, else sleep a
+// retry interval. All wait paths funnel here so steal contention never hot-spins.
 async function paceLockWait(
   deadline: number,
   lockPath: string,
@@ -197,17 +183,16 @@ export function createAuthStore<TTokens extends BaseTokens>(
     try {
       const parsed = AuthFileShape(JSON.parse(raw));
       if (parsed instanceof type.errors) return { profiles: {} };
-      // Drop any entry that fails validation rather than wedging the session
-      // on a single corrupt profile; a fresh login overwrites it.
+      // Drop invalid entries rather than wedge the session on one corrupt
+      // profile; a fresh login overwrites it.
       const valid: Record<string, AuthProfile<TTokens>> = {};
       for (const [name, entry] of Object.entries(parsed.profiles)) {
         if (isProfile(entry, options.isTokens)) valid[name] = entry;
       }
       return { profiles: valid };
     } catch (err) {
-      // A corrupt file should not be fatal; treat it as no state.
-      // Re-throw unexpected errors (TypeError from a bug in the validator
-      // etc.) that are not JSON parse failures.
+      // A corrupt file is not fatal; treat it as no state. Re-throw
+      // non-SyntaxError (validator bugs etc.).
       if (!(err instanceof SyntaxError)) throw err;
     }
     return { profiles: {} };
@@ -232,8 +217,7 @@ export function createAuthStore<TTokens extends BaseTokens>(
     const lockPath = `${path}.lock`;
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     const deadline = Date.now() + (options.lockTimeoutMs ?? LOCK_TIMEOUT_MS);
-    // holderPid reads the pid leg; the counter leg keeps every waiter's
-    // claim distinct.
+    // Counter leg keeps every waiter's claim distinct.
     const claim = `${process.pid}:${(lockClaimCounter += 1)}`;
     let lock;
 
@@ -246,8 +230,7 @@ export function createAuthStore<TTokens extends BaseTokens>(
           try {
             await handle.close();
           } catch {
-            // Ignore close errors on the cleanup path; the write error below
-            // is the one the caller must see.
+            // Ignore close errors on the cleanup path; the write error below is the one the caller must see.
           }
           try {
             await unlink(lockPath);
@@ -256,16 +239,13 @@ export function createAuthStore<TTokens extends BaseTokens>(
           }
           throw writeError;
         }
-        // A steal may have unlinked our fresh file and created its own
-        // between our create and write; the path then names a live
-        // winner. Never unlink here — close and re-contend so only the
-        // winner proceeds.
+        // A steal may have replaced our fresh file between create and write;
+        // the path then names a live winner. Close and re-contend — never unlink.
         if ((await readLockContent(lockPath)) !== claim) {
           try {
             await handle.close();
           } catch {
-            // The path already names a live winner; the close outcome
-            // must not mask the paced retry below.
+            // The path names a live winner; close outcome must not mask the paced retry below.
           }
           await paceLockWait(deadline, lockPath, undefined);
           continue;
@@ -275,17 +255,15 @@ export function createAuthStore<TTokens extends BaseTokens>(
       } catch (error) {
         if (!isErrnoCode(error, "EEXIST")) throw error;
         // A crashed holder never releases: take over a stale lock rather
-        // than brick the store. A lock that vanished under the read
-        // (a release raced us) is not stale — retry the exclusive create.
+        // than brick the store. A lock that vanished under the read is not
+        // stale — retry the exclusive create.
         const content = await readLockContent(lockPath);
         if (content !== null && (await isLockStale(lockPath, content))) {
-          // Re-check before unlinking so a concurrent takeover winner's
-          // fresh claim is never mistaken for the stale entry just
-          // observed — claims are unique per waiter, so a match still
-          // names the same file. A steal can still interleave between
-          // this re-read and the unlink; the post-create ownership
-          // check above then detects the loser and re-contends instead
-          // of running two holders.
+          // Re-check before unlinking so a concurrent winner's fresh claim
+          // is never mistaken for the stale entry just observed — claims
+          // are unique per waiter. A steal can still interleave between
+          // re-read and unlink; the post-create check then detects the
+          // loser and re-contends.
           if ((await readLockContent(lockPath)) === content) {
             try {
               await unlink(lockPath);
@@ -294,9 +272,8 @@ export function createAuthStore<TTokens extends BaseTokens>(
               if (!isErrnoCode(unlinkError, "ENOENT")) throw unlinkError;
             }
           }
-          // Fall through to the deadline/sleep path: a steal that just
-          // lost to a concurrent winner paces like any other
-          // contention instead of hot-spinning.
+          // Fall through to the deadline/sleep path: a steal that lost to
+          // a concurrent winner paces like any other contention.
         }
         await paceLockWait(deadline, lockPath, error);
       }
@@ -383,8 +360,8 @@ export function createAuthStore<TTokens extends BaseTokens>(
       });
     },
     // Persist refreshed tokens for an existing profile, preserving createdAt.
-    // The returned profile is the authoritative value observed under the lock:
-    // either this update, a concurrent winner, or undefined after removal.
+    // The return is the value observed under the lock: this update, a
+    // concurrent winner, or undefined after removal.
     async updateTokens(
       name: string,
       tokens: TTokens,

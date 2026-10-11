@@ -35,45 +35,38 @@ import {
 export type { PluginLoadDiagnostics } from "./diagnostics.js";
 
 export interface PluginModule {
-  // Self-description (id, name, kind, credential fields), when the module
-  // exports a valid `manifest`. Drives the /plugins UI and web-provider wiring.
+  // Module's own manifest; drives the /plugins UI and web-provider wiring.
   manifest?: PluginManifest;
-  // Absolute directory the module was loaded from. Used by resolvers that need
-  // to resolve relative paths declared by the plugin (e.g. systemPromptPath).
+  // Load directory; plugin-declared relative paths (e.g. systemPromptPath)
+  // resolve against it.
   dir?: string;
   workflowPlugin?: WorkflowPlugin;
   commandPlugin?: CommandPlugin;
-  // Agent profiles contributed by a kind:"agent" plugin. Validated by
-  // resolveAgentPluginProfiles before they reach the sub-agent dispatcher.
+  // Agent profiles from kind:"agent" plugins; validated by
+  // resolveAgentPluginProfiles.
   agentPlugin?: { agents: unknown[] };
-  // A web provider factory: (options: unknown) => WebProvider | Promise<WebProvider>.
-  // Typed as unknown here so this module doesn't pull in the full web type graph.
+  // Web provider factory; unknown to avoid pulling in the web type graph.
   createWebProvider?: unknown;
-  // A tool plugin factory: (options: unknown) => ToolPlugin | Promise<ToolPlugin>.
-  // Typed as unknown so this module doesn't pull in the tools-posix type graph.
+  // Tool plugin factory; unknown to avoid pulling in the tools-posix
+  // type graph.
   createToolPlugin?: unknown;
   /** Discovery origin; used for project-trust gating. */
   origin?: PluginOrigin;
   /** Absolute path used for path-bound trust (plugin directory or file). */
   pluginPath?: string;
   /**
-   * True when only manifest/metadata was read — no JS import, no markdown agent
-   * or command bodies. Untrusted project/path plugins stay in this state until
-   * the user records trust for that path.
+   * True when only manifest/metadata was read — no JS import, no markdown
+   * bodies. Untrusted plugins stay here until the user records path trust.
    */
   metadataOnly?: boolean;
   /**
-   * Optional provenance label stamped onto contributed agent profiles
-   * (e.g. "claude" for Claude Code marketplace installs). Distinct from
-   * `origin`, which drives trust gating.
+   * Provenance label on agent profiles (e.g. "claude" for Claude Code
+   * installs). Not `origin`, which drives trust gating.
    */
   source?: string;
   /**
-   * Set by dedupePluginModules when this module's id shadowed an earlier
-   * repo module that had manifest.defaultEnabled === true. Lets
-   * isPluginModuleEnabled keep the id default-on after a same-id later
-   * install replaces the bundled module, without requiring an explicit
-   * settings flag (CL-6716).
+   * Set when this id shadowed a repo defaultEnabled module; keeps the id
+   * default-on without an explicit settings flag.
    */
   shadowedRepoDefaultEnabled?: boolean;
 }
@@ -82,9 +75,7 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-// Flat candidate behind the tool-plugin and web-provider collectors: both
-// select modules by manifest kind + factory key and project the same shape,
-// so the per-kind entry points stay one-line typed wrappers.
+// Shared shape behind the tool-plugin and web-provider collectors.
 export interface CollectedPluginCandidate<TFactory> {
   id: string;
   name: string;
@@ -118,10 +109,8 @@ export function collectPluginCandidates<TFactory>(
   return out;
 }
 
-// Read and validate a manifest.json beside the module. Plugins may declare
-// their manifest as a JS export (mod.manifest) or a sibling manifest.json file;
-// this covers the JSON path so plugins that are pure data + commands work too.
-// Missing file stays silent; parse or schema failure warns and still skips.
+// Reads a sibling manifest.json (plugins may export the manifest in JS
+// instead). Missing file stays silent; parse/schema failure warns.
 async function readJsonFile(
   path: string,
   onWarning: (msg: string) => void,
@@ -157,10 +146,9 @@ async function readManifestJson(
   return result as PluginManifest;
 }
 
-// Claude marketplace `.claude-plugin/manifest.json` is `{name, description?}`,
-// not a corbits PluginManifest. Parse it without PluginManifestSchema so a
-// valid Claude layout does not warn about missing id/kind. Malformed JSON
-// still warns. Kind is filled in so the metadata-only module can list.
+// Claude format is `{name, description?}`, not a corbits PluginManifest;
+// parse without the schema so missing id/kind do not warn. Malformed JSON
+// still warns.
 async function readClaudeFormatManifestJson(
   dir: string,
   onWarning: (msg: string) => void,
@@ -190,7 +178,7 @@ async function readClaudeFormatManifestJson(
   return manifest;
 }
 
-// Safe metadata-only view: never import()s and never loads markdown agents/commands.
+// Metadata-only view: never import()s, never loads markdown agents/commands.
 async function readPluginMetadataOnly(
   entryPath: string,
   origin: PluginOrigin,
@@ -223,21 +211,17 @@ async function readPluginMetadataOnly(
   };
 }
 
-// JS entry filenames a plugin directory may carry. A directory with one of
-// these can export its manifest inline (no manifest.json), so presence alone
-// marks the entry as plugin-shaped — see loadPluginEntryMetadata.
+// JS entry filenames a plugin directory may carry; presence alone marks it
+// plugin-shaped (the manifest may be an inline export).
 const PLUGIN_JS_ENTRY_CANDIDATES = ["src/index.ts", "index.ts", "index.js"];
 
 /**
- * No-import metadata probe for explicit add-by-path: reports whether
- * `entryPath` resolves to something a post-consent `loadPluginEntry` could
- * load, without executing any plugin code. Returns a metadata-only stub when
- * plugin-shaped, null when bogus (missing/unreadable, or nothing loadable).
- * Manifest-backed and data-only layouts resolve their manifest now; a JS
- * entry with no manifest.json may still export an inline manifest, so its
- * presence alone counts — the full load after the trust grant re-derives the
- * manifest and reports the same user-facing errors. Exported so the /plugins
- * UI can grant path trust before the first import.
+ * No-import probe for add-by-path: reports whether `entryPath` is loadable
+ * without executing plugin code, returning a metadata-only stub when
+ * plugin-shaped. A JS entry with no manifest.json may still export an inline
+ * manifest, so presence alone counts — the full load re-derives it after the
+ * trust grant. Exported so the /plugins UI can grant path trust before first
+ * import.
  */
 export async function loadPluginEntryMetadata(
   entryPath: string,
@@ -249,7 +233,7 @@ export async function loadPluginEntryMetadata(
   },
 ): Promise<PluginModule | null> {
   const cwd = opts.cwd ?? process.cwd();
-  // Prefer diagnostics collector; else explicit onWarning; else stderrPluginWarning.
+  // Diagnostics collector, else explicit onWarning, else stderrPluginWarning.
   const onWarning = resolvePluginWarningHandler(
     opts.diagnostics !== undefined
       ? { diagnostics: opts.diagnostics }
@@ -281,8 +265,8 @@ export async function loadPluginEntryMetadata(
       metadataOnly: true,
     };
   }
-  // Manifest-less data-only layout (agents/commands/skills markdown): no JS
-  // to import, so resolving it now is safe.
+  // Manifest-less data-only layout (markdown agents/commands/skills): no JS
+  // to import, so resolving now is safe.
   const dataOnly = await loadDataOnlyPlugin(abs, {
     cwd,
     ...(opts.diagnostics !== undefined
@@ -298,8 +282,8 @@ export async function loadPluginEntryMetadata(
       metadataOnly: true,
     };
   }
-  // JS entry whose manifest may be an inline export — knowable only by
-  // importing, which happens after the trust grant.
+  // JS entry: manifest may be an inline export, knowable only by importing
+  // after the trust grant.
   for (const candidate of PLUGIN_JS_ENTRY_CANDIDATES) {
     try {
       await stat(join(abs, candidate));
@@ -316,16 +300,13 @@ export async function loadPluginEntryMetadata(
   return null;
 }
 
-// Attempt to load a single plugin directory entry (a file or a directory with
-// an index file). Returns null if the entry cannot be resolved to a module.
-// Exported so the /plugins UI can register a plugin from an arbitrary path.
+// Loads one plugin directory entry (a file or a directory with an index
+// file); null when not loadable. Exported so the /plugins UI can register a
+// plugin from an arbitrary path.
 //
-// `cwd` is the project root used for skill resolution inside data-only plugins
-// (corbitsdev-format agents declare skills by name; the resolver searches
-// project-local skill directories relative to cwd). Defaults to
-// process.cwd() for direct callers; internal discovery functions thread the
-// session cwd through so a non-default working directory (test harness,
-// future server-mode) resolves skills correctly.
+// `cwd` roots skill resolution in data-only plugins (corbitsdev-format agents
+// declare skills by name; resolved from project-local skill dirs under cwd).
+// Defaults to process.cwd(); discovery threads the session cwd through.
 export async function loadPluginEntry(
   entryPath: string,
   opts: {
@@ -338,8 +319,7 @@ export async function loadPluginEntry(
   } = {},
 ): Promise<PluginModule | null> {
   const cwd = opts.cwd ?? process.cwd();
-  // Prefer diagnostics collector so batch discovery can summarize; explicit
-  // onWarning for tests; else stderrPluginWarning.
+  // Diagnostics collector, else explicit onWarning (tests), else stderrPluginWarning.
   const onWarning = resolvePluginWarningHandler(
     opts.diagnostics !== undefined
       ? { diagnostics: opts.diagnostics }
@@ -357,7 +337,6 @@ export async function loadPluginEntry(
     const info = await stat(entryPath);
     if (info.isDirectory()) {
       pluginDir = entryPath;
-      // Prefer src/index.ts, then index.ts, then index.js.
       for (const candidate of PLUGIN_JS_ENTRY_CANDIDATES) {
         const candidatePath = join(entryPath, candidate);
         try {
@@ -368,11 +347,10 @@ export async function loadPluginEntry(
           // Candidate missing; try the next index filename.
         }
       }
-      // No JS entry — fall back to a data-only plugin (agents/*.md and/or
-      // commands/*.md). Lets a plugin be pure data + skills, no index.ts.
+      // No JS entry — fall back to a data-only plugin (markdown agents/commands).
       if (target === entryPath) {
-        // Pass diagnostics when present so loadDataOnlyPlugin prefers the
-        // collector over a pre-bound onWarning sink.
+        // Pass diagnostics so loadDataOnlyPlugin prefers the collector over
+        // the pre-bound onWarning sink.
         const dataOnly = await loadDataOnlyPlugin(entryPath, {
           cwd,
           ...(opts.diagnostics !== undefined
@@ -408,8 +386,8 @@ export async function loadPluginEntry(
   }
 
   try {
-    // Dynamic import resolves relative specifiers against this module, not cwd,
-    // so resolve to an absolute path first (callers may pass a relative path).
+    // Dynamic import resolves relative specifiers against this module, not
+    // cwd — resolve to an absolute path first.
     const importTarget = isAbsolute(target) ? target : resolve(target);
     const mod = (await import(importTarget)) as Record<string, unknown>;
     const result: PluginModule = { dir: dirname(importTarget) };
@@ -443,9 +421,8 @@ export async function loadPluginEntry(
       result.createWebProvider = mod.createWebProvider;
     if (typeof mod.createToolPlugin === "function")
       result.createToolPlugin = mod.createToolPlugin;
-    // A default-exported factory maps strictly to the factory for the manifest's
-    // kind, so web and tool plugins can both just `export default` — and a tool
-    // plugin's default never leaks into the web slot (or vice versa).
+    // A default export maps strictly to the manifest kind's factory; a tool
+    // default never leaks into the web slot (or vice versa).
     if (typeof mod.default === "function") {
       if (manifest?.kind === "web" && result.createWebProvider === undefined) {
         result.createWebProvider = mod.default;
@@ -465,26 +442,22 @@ export async function loadPluginEntry(
     }
     return result;
   } catch (err) {
-    // Route through the same sink as skill/load warnings so a diagnostics
-    // collector can summarize instead of writing mid-frame stderr.
+    // Same sink as skill/load warnings so a diagnostics collector can
+    // summarize instead of writing mid-frame stderr.
     onWarning(`failed to load "${target}": ${String(err)}`);
     return null;
   }
 }
 
-// A Claude Code marketplace is a directory that bundles several plugins under a
-// `plugins/` subtree and declares them in `.claude-plugin/marketplace.json`
-// (`{ plugins: [{ name, source: "./plugins/<name>" }] }`). When a path points at
-// a marketplace root, expand it to its member plugin directories so each loads
-// as its own plugin (one id, one enable toggle). A plain plugin directory is
-// returned unchanged as a single-element array.
+// A Claude marketplace bundles plugins under a `plugins/` subtree declared in
+// `.claude-plugin/marketplace.json`. A marketplace root expands to member
+// directories, each loaded as its own plugin; a plain plugin directory is
+// returned unchanged.
 //
-// Marketplace `source` entries must be relative. Absolute sources are rejected.
-// Resolved paths must stay under `containRoot` when set; when omitted, path
-// plugins default to the parent of the marketplace root (any relative under that
-// parent tree, e.g. `../agents/x` or deeper). Claude discovery passes
-// `~/.claude/plugins`. Existing paths are realpath-checked so a symlink under
-// the contain root that points outside is rejected (see list-dir.ts).
+// Marketplace `source` entries must be relative and resolve under
+// `containRoot`; when omitted, path plugins use the marketplace root's
+// parent (`../agents/x` allowed). Existing paths are realpath-checked so a
+// symlink pointing outside the root is rejected.
 async function pathExists(p: string): Promise<boolean> {
   try {
     await stat(p);
@@ -512,36 +485,28 @@ export interface ExpandPluginPathSkip {
 export interface ExpandPluginPathOptions {
   /**
    * Resolved member directories must stay under this root (or equal it).
-   * Claude installs: `~/.claude/plugins`. Path/pluginPaths marketplaces omit
-   * this and get the parent of the marketplace root (any path under that parent
-   * tree is allowed — multi-level relatives ok).
+   * Claude installs use `~/.claude/plugins`; path/pluginPaths marketplaces
+   * omit it and get the marketplace root's parent.
    */
   containRoot?: string;
   /**
-   * Called for each skipped marketplace source (never silent). Required —
-   * not optional with a stderr default — because an optional sink with a
-   * silent fallback is exactly the shape that let three review rounds each
-   * turn up one more call site writing raw stderr mid-frame in the
-   * interactive TUI (CL-5411). Making it required turns every call site
-   * into a compile error until it picks a handler on purpose:
-   * `expandSkipDiagnosticsHandler(diagnostics)` for a batching caller,
-   * an explicit stderr writer for a headless caller where that is correct
-   * and visible (see `src/exec/runner.ts`), or `() => undefined` to state on the
-   * record that a caller is deliberately ignoring skips.
+   * Called for each skipped marketplace source (never silent); required so
+   * call sites pick a handler: `expandSkipDiagnosticsHandler(diagnostics)`,
+   * an explicit stderr writer, or `() => undefined` to deliberately ignore
+   * skips.
    */
   onSkip: (skip: ExpandPluginPathSkip) => void;
 }
 
-/** One-line description of a skip, shared by every `onSkip` sink (diagnostics or stderr). */
+/** One-line skip description shared by every `onSkip` sink (diagnostics or stderr). */
 export function formatExpandSkip(skip: ExpandPluginPathSkip): string {
   const where = skip.resolved !== undefined ? ` → ${skip.resolved}` : "";
   return `marketplace source ${JSON.stringify(skip.source)} skipped (${skip.reason})${where}`;
 }
 
 /**
- * The ordinary `onSkip` handler: collect into `diagnostics` instead of
- * writing raw stderr, so a skipped marketplace member lands in the same
- * end-of-batch summary as every other plugin-load warning.
+ * Collects skips into `diagnostics` so they land in the same end-of-batch
+ * summary as other load warnings.
  */
 export function expandSkipDiagnosticsHandler(
   diagnostics: PluginLoadDiagnostics,
@@ -562,16 +527,11 @@ function resolveExpandSkip(
 }
 
 /**
- * Containment check with symlink safety. Lexical reject first; when both the
- * candidate and the contain root exist, realpath both and re-check so a symlink
- * under the root that points outside is refused.
- *
- * Soft-allow when one realpath fails: a missing candidate (create-later member)
- * still expands if it is lexically under the root — the existence filter later
- * drops absent paths. Fail-closed only when both realpaths succeed and the
- * resolved target escapes (symlink-out case). A realpath failure on an existing
- * candidate while the root resolves is treated as soft-allow too (permission /
- * race); tightening that would break create-later members that race with mkdir.
+ * Containment check with symlink safety: lexical reject first; when both
+ * paths exist, realpath both and re-check so a symlink pointing outside the
+ * root is refused. A missing candidate keeps its lexical allow (create-later
+ * member); fail-closed only when both realpaths succeed and the target
+ * escapes.
  */
 async function pathContainedUnder(abs: string, root: string): Promise<boolean> {
   if (!pathIsInsideOrEqual(abs, root)) return false;
@@ -594,10 +554,10 @@ async function pathContainedUnder(abs: string, root: string): Promise<boolean> {
 }
 
 /**
- * Default contain root for path/pluginPaths marketplaces: parent of the
- * marketplace directory (siblings like `../agents/x` stay allowed). Refuse the
- * parent when it is the filesystem root — that would make every absolute path
- * "inside" and defeat containment; fall back to the marketplace root itself.
+ * Default contain root for path/pluginPaths marketplaces: the marketplace
+ * directory's parent (`../agents/x` siblings allowed). Refuse the parent at
+ * the filesystem root (every absolute path would be "inside") and fall back
+ * to the marketplace root.
  */
 function defaultContainRoot(marketplaceRoot: string): string {
   const parent = dirname(marketplaceRoot);
@@ -614,8 +574,8 @@ export async function expandPluginPath(
     opts.onSkip(skip);
   };
 
-  // 1. Declared marketplace: relative `source` list, contained under containRoot
-  // (or parent of marketplace root for path plugins — any depth under that parent).
+  // 1. Declared marketplace: relative `source` list contained under
+  // containRoot (or the marketplace root's parent for path plugins).
   try {
     const raw = await readFile(
       join(marketplaceRoot, ".claude-plugin", "marketplace.json"),
@@ -670,18 +630,18 @@ export async function expandPluginPath(
           report({ source: c.source, reason: "missing", resolved: c.resolved });
         }
       }
-      // Declared marketplace with zero surviving members: return [] — do not
-      // fall through to the layout heuristic or [marketplaceRoot].
+      // Zero surviving members: return [] — do not fall through to the layout
+      // heuristic or [marketplaceRoot].
       return surviving;
     }
   } catch {
     // No marketplace.json (or unreadable) — fall through to the layout heuristic.
   }
 
-  // 2. Layout heuristic: a `plugins/` subdir whose root is not itself a plugin.
-  // Covers a marketplace checkout without a marketplace.json. We only expand
-  // when the root carries no single-plugin markers, so a normal plugin dir that
-  // happens to contain a `plugins/` folder is never mis-expanded.
+  // 2. Layout heuristic: a `plugins/` subdir whose root is not itself a
+  // plugin (marketplace checkout without marketplace.json). Expand only when
+  // the root has no single-plugin markers, so a normal plugin dir containing
+  // a `plugins/` folder is never mis-expanded.
   const hasPluginsSubdir = await pathExists(join(marketplaceRoot, "plugins"));
   const rootIsPlugin =
     (await pathExists(join(marketplaceRoot, "agents"))) ||
@@ -728,13 +688,11 @@ export async function expandPluginPath(
   return [marketplaceRoot];
 }
 
-// Resolve a registered pluginPaths entry to the member plugin directories that
-// exist on disk: relative entries resolve against cwd, marketplace roots expand
-// to their members. Missing paths are dropped so trust decisions made from this
-// list never pre-grant a directory that could appear later with other content
-// — that drop is deliberate, but a *skipped* member (bad source, escape) still
-// has a reason worth reaching the caller's diagnostics, so `onSkip` is
-// required rather than silently defaulted (see `ExpandPluginPathOptions`).
+// Resolves a registered pluginPaths entry to existing member plugin
+// directories: relative entries resolve against cwd, marketplace roots
+// expand to their members. Missing paths are dropped so trust never
+// pre-grants a directory that could appear later with other content; skipped
+// members still reach the caller via `onSkip`.
 export async function expandExistingPluginMembers(
   registeredPath: string,
   cwd: string,
@@ -748,11 +706,10 @@ export async function expandExistingPluginMembers(
   return members.filter((_, i) => existing[i]);
 }
 
-// Scan a plugins root directory and return all loaded plugin modules.
-// `cwd` is forwarded to loadPluginEntry for skill resolution in data-only plugins.
-// When `isTrusted` is set and origin requires trust, untrusted paths load
-// metadata-only (no import). Pass `diagnostics` to collect skill/load warnings
-// for a single end-of-batch summary instead of per-line stderr.
+// Scans a plugins root and returns all loaded plugin modules. `cwd` is
+// forwarded for skill resolution in data-only plugins. When the origin
+// requires trust, untrusted paths load metadata-only (no import) via
+// `isTrusted`. `diagnostics` collects warnings for one end-of-batch summary.
 async function scanPluginsDir(
   dir: string,
   cwd: string,
@@ -776,9 +733,8 @@ async function scanPluginsDir(
 
   const results: PluginModule[] = [];
   for (const entry of entries) {
-    // Each entry may itself be a marketplace, so expand before loading. A
-    // skipped member routes into `diagnostics` when the caller has one, same
-    // as loadPluginEntry below — otherwise it would bypass the collector.
+    // Each entry may itself be a marketplace — expand before loading; skipped
+    // members route into `diagnostics` when the caller has one.
     const dirs = await expandPluginPath(join(dir, entry), {
       onSkip: resolveExpandSkip(diagnostics),
     });
@@ -805,12 +761,9 @@ async function scanPluginsDir(
   return results;
 }
 
-// Discover user-installed plugins from:
-//   <cwd>/.corbits/plugins/   (project-local — requires project trust to execute)
-//   ~/.corbits/plugins/       (user-global — auto-trusted)
-//
-// Pass `isPluginTrusted` to gate project plugins. When omitted, project plugins
-// still load fully (backward compatible for tests/callers that do not pass trust).
+// Discovers user-installed plugins from <cwd>/.corbits/plugins/ (project —
+// trust required to execute) and ~/.corbits/plugins/ (user — auto-trusted).
+// Pass `isPluginTrusted` to gate project plugins; omitted, they load fully.
 export async function discoverUserPlugins(
   cwd: string,
   opts: {
@@ -842,18 +795,16 @@ export async function discoverUserPlugins(
   return [...project, ...user];
 }
 
-// Collapse modules sharing a manifest id, keeping the last occurrence. Callers
-// concatenate sources in precedence order (repo, then user, then explicit
-// paths), so "last wins" means an explicit path overrides a user plugin, which
-// overrides a bundled one. Modules without a manifest carry no id and are kept
-// as-is.
+// Collapses modules sharing a manifest id, keeping the last occurrence.
+// Callers concatenate sources in precedence order (repo, user, explicit
+// paths), so "last wins": explicit path overrides user, user overrides
+// bundled. Manifest-less modules are kept as-is.
 //
 // A later non-repo module with the same id as a repo defaultEnabled plugin
-// would otherwise silently turn the bundled default off — the survivor is
-// non-repo, so isPluginModuleEnabled's origin==="repo" check fails and
-// enablement then requires an explicit settings flag (CL-6716). Carry the
-// repo default-on forward via shadowedRepoDefaultEnabled so the id stays
-// enabled by default unless the user explicitly disables it in settings.
+// would silently turn the bundled default off (the survivor is non-repo, so
+// the origin==="repo" enablement check fails). Carry the repo default-on
+// via shadowedRepoDefaultEnabled so the id stays enabled unless the user
+// explicitly disables it.
 export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
   const indexById = new Map<string, number>();
   const result: PluginModule[] = [];
@@ -881,11 +832,11 @@ export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
   return result;
 }
 
-// Load plugins from explicit file/directory paths (from settings.pluginPaths).
-// Relative paths resolve against cwd. Unresolvable entries are skipped. A path
-// may point at a Claude Code marketplace, in which case it expands to its member
-// plugin directories before loading.
-// Untrusted path origins load metadata-only when isPluginTrusted is provided.
+// Loads plugins from settings.pluginPaths entries. Relative paths resolve
+// against cwd; unresolvable entries are skipped. A path may point at a
+// Claude marketplace, which expands to its members before loading.
+// Untrusted path origins load metadata-only when isPluginTrusted is
+// provided.
 export async function loadPluginsFromPaths(
   paths: string[],
   cwd: string,
@@ -909,10 +860,10 @@ export async function loadPluginsFromPaths(
       return expandPluginPath(abs, { onSkip });
     }),
   );
-  // Anything under <cwd>/.corbits/plugins/ is project origin no matter how it
-  // was registered: discoverUserPlugins already loads it behind per-cwd project
-  // trust, and loading it here as origin "path" would let enabling the stub
-  // record a machine-wide grant for a repo-controlled directory.
+  // Anything under <cwd>/.corbits/plugins/ stays project origin no matter how
+  // it was registered: discoverUserPlugins already loads it behind per-cwd
+  // trust, and loading it here as "path" would let enabling the stub record
+  // a machine-wide grant for a repo-controlled directory.
   const projectPluginsDir = resolve(cwd, SETTINGS_DIR_NAME, "plugins");
   const loaded = await Promise.all(
     resolved
@@ -938,10 +889,9 @@ export async function loadPluginsFromPaths(
   return loaded.filter((m): m is PluginModule => m !== null);
 }
 
-// Discover built-in repo plugins shipped next to the product, never session
-// cwd/plugins (that would stamp a foreign tree origin:repo). Locator matches
-// resolveChangelogPath: first existing directory wins. Missing dir is a
-// silent empty list.
+// Finds built-in repo plugins shipped next to the product, never session
+// cwd/plugins (that would stamp a foreign tree origin:repo). First existing
+// directory wins; a missing dir is a silent empty list.
 function isExistingDirectory(path: string): boolean {
   try {
     return existsSync(path) && statSync(path).isDirectory();
@@ -959,8 +909,8 @@ export function resolveRepoPluginsDir(opts?: {
   const moduleUrl = opts?.moduleUrl ?? import.meta.url;
   try {
     const here = dirname(fileURLToPath(moduleUrl));
-    // Source tree only: src/plugins/loader.ts → ../../plugins. From dist/index.js
-    // that walk is parent-of-repo, a foreign tree we must never stamp origin:repo.
+    // Source tree only: src/plugins/loader.ts → ../../plugins. From
+    // dist/index.js that walk is parent-of-repo, never origin:repo.
     if (basename(here) === "plugins" && basename(dirname(here)) === "src") {
       candidates.push(join(here, "..", "..", "plugins"));
     }
@@ -1004,17 +954,17 @@ export async function discoverRepoPlugins(
   );
 }
 
-// Claude Code records marketplace installs in
-// `~/.claude/plugins/installed_plugins.json` (versioned object keyed by
-// install id → array of { installPath, version, ... }). Only those paths are
-// loaded — never a full walk of the cache — so removed installs stay out.
-// Origin is `user` (home install, auto-trusted for import); modules still
-// need settings.plugins[id].enabled. Stamp source "claude" for search_agents.
+// Loads Claude Code marketplace installs recorded in
+// `~/.claude/plugins/installed_plugins.json` (install id → array of
+// { installPath, version, ... }). Only recorded paths are loaded — never a
+// full cache walk — so removed installs stay out. Origin is `user` (home
+// install, auto-trusted); modules still need settings.plugins[id].enabled.
+// Stamp source "claude" for search_agents.
 //
-// `home` is injectable for tests; defaults to the process home directory.
-// Marketplace member expansion uses containRoot=`~/.claude/plugins` so relative
-// sources like `../agents/<name>` resolve when still under that root; absolute
-// sources and escapes outside the root are rejected with skip reporting.
+// `home` is injectable for tests. Member expansion uses
+// containRoot=`~/.claude/plugins` so relative sources like
+// `../agents/<name>` resolve when still under that root; absolute sources
+// and escapes are rejected with skip reporting.
 export async function discoverClaudeInstalledPlugins(
   cwd: string,
   opts: {
@@ -1042,7 +992,7 @@ export async function discoverClaudeInstalledPlugins(
   try {
     parsed = JSON.parse(raw);
   } catch {
-    // Prefer collector when present; else stderrPluginWarning.
+    // Collector when present, else stderrPluginWarning.
     (opts.diagnostics !== undefined
       ? resolvePluginWarningHandler({ diagnostics: opts.diagnostics })
       : resolvePluginWarningHandler({ onWarning: stderrPluginWarning }))(
@@ -1063,8 +1013,8 @@ export async function discoverClaudeInstalledPlugins(
   }
 
   const pluginsRoot = resolve(home, ".claude", "plugins");
-  // Default expand-skip sink: diagnostics when provided, else
-  // stderrPluginWarning; explicit onExpandSkip (tests) still wins.
+  // Default expand-skip sink: diagnostics, else stderrPluginWarning; explicit
+  // onExpandSkip (tests) still wins.
   const warnExpand = resolvePluginWarningHandler(
     opts.diagnostics !== undefined
       ? { diagnostics: opts.diagnostics }
@@ -1088,13 +1038,12 @@ export async function discoverClaudeInstalledPlugins(
       if (typeof entry !== "object" || entry === null) continue;
       const installPath = (entry as { installPath?: unknown }).installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
-      // Relative installPath resolves against process cwd and would let a
-      // poisoned registry load project trees as origin:"user" (no project trust).
+      // Relative installPath resolves against process cwd — a poisoned
+      // registry could load project trees as origin:"user" (no project trust).
       if (!isAbsolute(installPath)) continue;
       const abs = resolve(installPath);
-      // Contain under ~/.claude/plugins only (registry is home-scoped).
-      // Same realpath both-sides check as expand so a symlink under the root
-      // that points outside is refused (not lexical-only).
+      // Contain under ~/.claude/plugins only (registry is home-scoped); same
+      // realpath both-sides check as expand so a symlink-out is refused.
       if (!(await pathContainedUnder(abs, pluginsRoot))) continue;
       if (seen.has(abs)) continue;
       seen.add(abs);
@@ -1105,17 +1054,17 @@ export async function discoverClaudeInstalledPlugins(
   const results: PluginModule[] = [];
   for (const { abs: installPath, registryKey } of installPaths) {
     if (!(await pathExists(installPath))) continue;
-    // Expand marketplace roots under ~/.claude/plugins (not install root alone)
-    // so sibling sources like ../agents/<name> load; absolute/escape still out.
+    // Expand marketplace roots under ~/.claude/plugins so sibling sources
+    // like ../agents/<name> load; absolute/escape still out.
     const dirs = await expandPluginPath(installPath, {
       containRoot: pluginsRoot,
       onSkip: onExpandSkip,
     });
     for (const d of dirs) {
-      // Data-only only: never import() JS at discovery. Enable-gate does not
-      // re-run loaders; importing here would execute untrusted JS before enable.
-      // Claude marketplace layouts are markdown agents/commands; JS plugins
-      // stay on explicit pluginPaths (user-opted load path).
+      // Data-only only: never import() JS at discovery — enable does not
+      // re-run loaders, so importing would execute untrusted JS. Claude
+      // layouts are markdown agents/commands; JS plugins stay on explicit
+      // pluginPaths.
       const dataOnly = await loadDataOnlyPlugin(d, {
         cwd,
         ...(opts.diagnostics !== undefined
@@ -1136,8 +1085,8 @@ export async function discoverClaudeInstalledPlugins(
         plugin.commandPlugin = dataOnly.commandPlugin;
       // Version-dir basenames (e.g. .../cmo/1.0.0 → "1.0.0") collide across
       // installs and break settings.plugins enable keys. Prefer a stable id
-      // from the registry key (name before @) when the resolved id looks like
-      // a version and the registry key is usable.
+      // from the registry key (name before @) when the resolved id looks
+      // version-like.
       const idFromKey = registryKey.includes("@")
         ? registryKey.slice(0, registryKey.indexOf("@"))
         : registryKey;

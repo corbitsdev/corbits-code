@@ -14,17 +14,13 @@ function processAlive(pid: number): boolean {
   }
 }
 
-// These probes are `bun -e` one-liners, so they never import project modules
-// and finish in seconds. The tick test keeps a ~0.5s stall window: under the
-// `--parallel` load this runner exists to enable, a delayed output tick can
-// look like a stall against a tighter window, so the window keeps several
-// ticks of scheduling headroom while a broken never-resetting timer still
-// fires mid-run (the tick test's total runtime exceeds the window). The
-// remaining tests drive children that never emit output, so their stall is
-// declared deterministically on the watchdog's first tick; they use a short
-// window so the suite does not pay the tick test's headroom in wall clock.
-// The silent-child window stays a few bun -e spawn times wide so a retried
-// child's first output cannot be mistaken for a stall under load.
+// Probes are `bun -e` one-liners that finish in seconds. The tick test keeps
+// a ~0.5s stall window: under parallel load a delayed output tick can look
+// like a stall against a tighter window, and a broken never-resetting timer
+// still fires mid-run. The remaining tests drive silent children, so their
+// stall is declared on the watchdog's first tick and uses a short window to
+// keep the suite fast; the window stays a few spawn times wide so a retried
+// child's first output cannot be mistaken for a stall.
 const TEST_STALL_MS = 500;
 const SILENT_CHILD_STALL_MS = 200;
 
@@ -99,9 +95,8 @@ describe("runWithWatchdog", () => {
   });
 
   test("a stall-declared run that exits on its own keeps its code and is not retried", async () => {
-    // Ignores SIGTERM so the watchdog's stall kill cannot take it out, then
-    // exits 3 on its own well after the stall window (so the stall is
-    // declared first). The real code must survive and the run must not retry.
+    // Ignores SIGTERM so the stall kill cannot take it out, then exits 3 on
+    // its own well after the stall window. Must survive, must not retry.
     const result = await runWithWatchdog({
       command: process.execPath,
       args: [
@@ -118,9 +113,8 @@ describe("runWithWatchdog", () => {
     expect(result.attempts).toBe(1);
   });
 
-  // Two stall windows (2 x 1.5s) plus kill/retry overhead exceed the
-  // default 5s timeout when a delayed first tick doubles one attempt
-  // (tickMs == stallMs with a strict `>` check fires on the second tick).
+  // Two stall windows plus kill/retry overhead exceed the default 5s
+  // timeout when a delayed first tick doubles one attempt.
   test("gives up after the final attempt with exit code 1", async () => {
     const stalls: [number, number][] = [];
     const result = await runWithWatchdog({

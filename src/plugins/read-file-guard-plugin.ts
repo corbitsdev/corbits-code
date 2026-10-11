@@ -16,26 +16,22 @@ import {
   PDF_EXTRACTOR_BIN,
 } from "./file-inspection-diagnosis.js";
 
-// Corbits Code-side guard for read_file. Stock @intx/tools-posix read-file loads the
-// whole file into memory (buffer -> string -> split) and, with no limit, returns
-// every line -- so a model told to "go deep" into a tree of large transcripts can
-// pull multi-MB files into context with no ceiling and OOM the host. This
-// middleware short-circuits read_file with an opencode-style streaming reader that
-// never buffers the whole file and caps output. We do not patch interchange.
+// Corbits Code-side guard for read_file. Stock @intx/tools-posix read-file
+// buffers the whole file and returns every line with no cap, so a deep read
+// can pull multi-MB files into context and OOM the host.
 
 export const READ_FILE_MAX_BYTES = 50 * 1024;
 export const READ_FILE_DEFAULT_MAX_LINES = 2000;
 export const READ_FILE_MAX_LINE_LENGTH = 2000;
-// Absolute ceiling on bytes scanned from disk past the requested offset, so an
-// emission window stays time-bounded even though memory is already bounded by
-// the streaming read. Bytes skipped to reach a nonzero offset do not count:
-// continuation past the ceiling must read through to the end, not dead-end
-// with a scan limit while unread content remains.
+// Absolute ceiling on bytes scanned from disk past the requested offset, so
+// an emission window stays time-bounded. Bytes skipped to reach a nonzero
+// offset do not count: continuation past the ceiling must read through to
+// the end, not dead-end at the limit.
 export const READ_FILE_MAX_SCAN_BYTES = 8 * 1024 * 1024;
 /** Refuse tool-output blobs larger than this before bounded paging. */
 export const READ_FILE_MAX_TOOL_OUTPUT_BYTES = READ_FILE_MAX_SCAN_BYTES;
-// Headroom reserved out of the byte budget for the continuation notice, so the
-// returned payload including the notice stays under READ_FILE_MAX_BYTES.
+// Headroom reserved out of the byte budget for the continuation notice, so
+// the payload plus notice stays under READ_FILE_MAX_BYTES.
 const NOTICE_RESERVE_BYTES = 256;
 
 const LINE_TRUNC_SUFFIX = ` ... [line truncated at ${READ_FILE_MAX_LINE_LENGTH} chars; full line remains in the file — use grep to match within the line]`;
@@ -60,24 +56,23 @@ export interface ReadFileGuardPluginOptions {
    * Workers flip this after the capability filter; omitted means yes.
    */
   canExecuteHostCommands?: () => boolean;
-  /** Model-facing path for diagnosis text (the call argument, not the absolute). */
+  /** Model-facing path for the diagnosis text (call argument, not absolute). */
   displayPath?: string;
   /**
    * Test-injectable scan ceiling in bytes. Production leaves this unset and
    * keeps READ_FILE_MAX_SCAN_BYTES, so the ceiling is a constant in shipped
-   * code; tests lower it to keep oversized fixtures small.
+   * code.
    */
   maxScanBytes?: number;
 }
 
 // A truncated read tells the model to continue with the same path and the
-// explicit next offset from the notice ("Use offset=N to continue"). There is
-// no continuation handle: every read is a stateless, idempotent ranged read,
-// so following a notice verbatim works on first use, on replay, and on a fresh
-// plugin instance after compaction or session resume — and re-reading any
-// earlier window behaves identically. Chunked same-path reads carry rising
-// offsets, so detectors that key on the full call (including arguments) see
-// one ranged read per window, not a same-path loop.
+// explicit next offset from the notice. There is no continuation handle:
+// every read is a stateless, idempotent ranged read, so following a notice
+// verbatim works on first use, replay, and a fresh plugin instance after
+// compaction or session resume. Chunked reads carry rising offsets, so
+// call-keying detectors see one ranged read per window, not a same-path
+// loop.
 
 function numArg(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
@@ -122,18 +117,12 @@ function resolveExtractorProbe(
 }
 
 /**
- * Streams UTF-8 from `stream`, emitting up to `limit` line-numbered lines after
- * skipping `offset` lines (zero-based). Never splits the full decoded text in one pass.
- * When `wrapLongLines` is set, overlong lines are split into successive numbered
- * windows instead of being truncated and dropped — so a giant JSON line can be
- * paged through with the same offset protocol as a multi-line file.
- * When `windowHugeLines` is set instead, only single lines that on their own
- * exceed the output budget are windowed; ordinary lines keep their numbers, so
+ * Streams UTF-8 from `stream`, emitting up to `limit` line-numbered lines
+ * after skipping `offset` lines (zero-based); never decodes the full text in
+ * one pass. With `wrapLongLines`, overlong lines split into numbered windows
+ * so a giant JSON line pages like a multi-line file. With `windowHugeLines`
+ * instead, only lines that alone exceed the output budget are windowed, so
  * plain path+offset pagination stays line-aligned.
- * The scan ceiling counts only bytes past the requested offset: bytes skipped
- * to reach a nonzero offset never trip it, so continuation on a large file
- * reads through to the end instead of dead-ending with a scan limit while
- * unread content remains.
  */
 function readStreamBounded(
   stream: Readable,
@@ -290,7 +279,7 @@ function readStreamBounded(
         }
         // Skip bytes are not scanned, so a dead offset on a file larger than
         // the ceiling still reaches EOF. Report the true range, not a scan
-        // limit that would hide a reachable end of file.
+        // limit that would hide a reachable EOF.
         if (endReached) {
           done({
             content: `[offset ${offset} is beyond end of file ${displayPath} (${lineNo} lines); valid offsets 0-${lineNo - 1}]`,
@@ -366,9 +355,9 @@ function readStreamBounded(
 }
 
 /**
- * Streams a file, emitting up to `limit` line-numbered lines starting at 1-indexed
- * `offset`, and never holding more than one chunk plus the capped output in memory.
- * Stops at the byte cap, the line cap, or the scan ceiling, whichever comes first.
+ * Streams a file, emitting up to `limit` line-numbered lines starting at
+ * 1-indexed `offset`, holding at most one chunk plus the capped output in
+ * memory. Stops at the byte cap, the line cap, or the scan ceiling.
  */
 export function readFileBounded(
   absolutePath: string,
@@ -410,10 +399,10 @@ export function readFileBounded(
 
 /**
  * Bounded read over an in-memory UTF-8 blob (tool-output spills). Feeds the
- * buffer in chunks so offset/limit never require a full-text split. Overlong
- * lines wrap into numbered windows instead of being truncated and dropped, and
- * callers should pass a high `limit` so the byte budget — not the source-file
- * 2000-line cap — pages the spill.
+ * buffer in chunks so offset/limit never require a full-text split; overlong
+ * lines wrap into numbered windows instead of being truncated. Callers pass
+ * a high `limit` so the byte budget, not the source-file 2000-line cap,
+ * pages the spill.
  */
 export function readBytesBounded(
   bytes: Uint8Array,
@@ -482,7 +471,7 @@ function resolveReadFilePaging(
 
 /**
  * Short-circuits read_file for filesystem paths (line-capped) and tool-output
- * URIs (byte-windowed, wrapping long lines). Does not modify interchange.
+ * URIs (byte-windowed). Does not modify interchange.
  */
 export function readFileGuardPlugin(
   cwd: string,

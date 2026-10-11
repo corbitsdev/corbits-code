@@ -1,8 +1,7 @@
 /**
  * Golden fixture: one multi-tool turn with nested inference and permission wait.
- *
- * Privacy-safe: only allowlisted tags (tool_id, model_id, provider_id, tokens).
- * Fixed nanosecond times — no live clock. Durations:
+ * Only allowlisted tags (tool_id, model_id, provider_id, tokens); fixed
+ * nanosecond times — no live clock. Durations:
  *
  *   turn t1                 0 → 5000
  *     inference i1        100 → 2100   (2000ns)
@@ -12,7 +11,7 @@
  *     tool k1             2500 → 3200  ( 700ns)  tool_id=read_file
  *     tool k2             3300 → 3800  ( 500ns)  tool_id=edit_file
  *
- * TTFT (400) < stream (1600). Two tools under the turn.
+ * TTFT (400) < stream (1600).
  */
 
 import type { PerfSpan } from "../index.js";
@@ -81,7 +80,7 @@ export function multiToolTurnFixture(): PerfSpan[] {
   ];
 }
 
-/** Expected turn rollup for multiToolTurnFixture (locked golden values). */
+/** Expected rollup for multiToolTurnFixture (locked golden values). */
 export const MULTI_TOOL_TURN_GOLDEN = {
   turnId: "t1",
   turnNs: 5000,

@@ -1,20 +1,18 @@
 // Approximate total context window (tokens) per model, used to render
-// context-window occupancy in the status bar and to size compaction. When
-// a provider settings override is applied at config load it takes priority;
-// otherwise models.dev metadata loaded at startup wins; otherwise we fall
-// back to conservative per-family floors, and finally a common 128k window.
+// context-window occupancy in the status bar and to size compaction. Priority:
+// provider settings override at config load, then models.dev metadata loaded
+// at startup, then conservative per-family floors, then a common 128k window.
 
 import type { TokenUsage } from "@intx/types/runtime";
 
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 
-// The one place "how much context is this turn occupying" gets computed from
-// a provider's reported usage. Cache reads and writes still ride on the
-// context window (a provider like Anthropic bills and counts them against
-// it) even though they are not `input` — omitting them understates occupancy
-// for any session using prompt caching. The status-bar meter and the
-// compaction governor must both call this rather than hand-picking fields,
-// or they silently diverge on what "context size" means.
+// The one place turn occupancy is computed from a provider's reported usage.
+// Cache reads and writes ride on the context window (Anthropic bills and
+// counts them against it) even though they are not `input` — omitting them
+// understates occupancy for prompt-caching sessions. The meter and compaction
+// governor must both call this so they cannot silently diverge on what
+// "context size" means.
 export function contextTokensFromUsage(usage: TokenUsage | undefined): number {
   if (usage === undefined) return 0;
   return usage.input + usage.cacheRead + usage.cacheWrite;
@@ -105,11 +103,11 @@ function heuristicWindow(model: string): number {
 }
 
 // Model identity is `provider:model` (model-catalog.ts), and `provider` may
-// itself be a custom account name (`xai/alice`) rather than the
-// canonical provider models.dev publishes under (`xai`). Try, in order: the
-// full identity as given, the bare model id, and `canonicalProvider/model` —
-// so a custom-named provider still exact-matches the registry instead of
-// silently missing and falling through to the heuristic.
+// be a custom account name (`xai/alice`) rather than the canonical provider
+// models.dev publishes under (`xai`). Try, in order: the full identity, the
+// bare model id, and `canonicalProvider/model` — so a custom-named provider
+// still exact-matches the registry instead of falling through to the
+// heuristic.
 function lookupCandidates(model: string): string[] {
   const colonIndex = model.indexOf(":");
   if (colonIndex === -1) return [model];
@@ -150,9 +148,9 @@ export function contextWindowFor(model: string): number {
   );
 }
 
-// Fraction of the window at which proactive compaction should fire. Kept well
-// below the hard limit so summarization happens while the model still reasons
-// well and before any provider rejects the request. Also the status-bar meter's
+// Fraction of the window at which proactive compaction fires. Kept well below
+// the hard limit so summarization happens while the model still reasons well
+// and before any provider rejects the request. Also the status-bar meter's
 // warning threshold so the color shift matches when compaction starts.
 export const COMPACTION_WINDOW_FRACTION = 0.6;
 
@@ -165,10 +163,8 @@ export const CONTEXT_METER_DANGER_FRACTION = 0.8;
 // alone until usage climbs this fraction of the window past the post-compact
 // measurement. Anchored to the meter bands — danger (0.8) minus threshold
 // (0.6) — so a session that folded only marginally under the high watermark
-// (or stayed over it) must climb a full warning band before another fold
-// instead of looping a compact on every small growth step. Under-threshold
-// usage restores consecutive/overflow/non-converged rails; it does not skip
-// this gap.
+// must climb a full warning band before another fold instead of looping a
+// compact on every small growth step.
 export const COMPACTION_WIDE_RESUME_FRACTION = 0.2;
 
 export type ContextMeterBand = "quiet" | "warning" | "danger";
@@ -184,8 +180,8 @@ export function contextMeterBand(percentUsed: number): ContextMeterBand {
 }
 
 // Token threshold at which the director should compact, sized to the model's
-// real window. `model` may be undefined early in a session (no cycle yet); we
-// fall back to the default window in that case.
+// real window. `model` may be undefined early in a session (no cycle yet);
+// fall back to the default window.
 export function compactionThresholdFor(model: string | undefined): number {
   const window =
     model !== undefined ? contextWindowFor(model) : DEFAULT_CONTEXT_WINDOW;
@@ -204,7 +200,7 @@ export function compactionWideResumeDeltaFor(
 
 /** Fold evidence for restoring consecutive/overflow/non-converged rails:
  * usage back at or under the compaction threshold means the summarizing fold
- * got under. It does not drop the growth latch — re-arming still requires
+ * got under. Does not drop the growth latch — re-arming still requires
  * hasWideResumeGap past the post-compact snapshot. */
 export function isAtOrUnderCompactThreshold(
   contextTokens: number,
@@ -214,10 +210,9 @@ export function isAtOrUnderCompactThreshold(
 }
 
 /** Shared re-arm rule for a session latched after a compact (automatic,
- * operator, or overflow recovery), whether the fold landed under or over
- * the threshold: growth alone never re-arms — only a wide resume gap past
- * the post-compact measurement does. The proactive threshold path routes
- * through this single predicate; the overflow path shares the reset rule
+ * operator, or overflow recovery): growth alone never re-arms — only a wide
+ * resume gap past the post-compact measurement does. The proactive threshold
+ * path routes through this predicate; the overflow path shares the reset rule
  * (under-threshold folds restore the recovery budget) but fires on overflow
  * errors regardless of this latch. */
 export function hasWideResumeGap(

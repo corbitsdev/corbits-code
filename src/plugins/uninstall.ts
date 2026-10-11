@@ -53,9 +53,8 @@ export function isOwnedDiskInstall(args: {
   readonly home: string;
   readonly cwd: string;
 }): boolean {
-  // Ownership is path containment under the user or project plugins root,
-  // never ~/.claude — origin is ignored so a path-origin plugin sitting in
-  // those trees is treated as a disk install (and gone after restart).
+  // Owned = path under the user/project plugins root, never ~/.claude. Origin
+  // is ignored so a path-origin plugin there is a disk install (gone after restart).
   if (args.pluginPath === undefined) return false;
   return (
     ownedDiskOriginRoot({
@@ -98,10 +97,10 @@ export type DeleteOwnedPluginDirResult =
   | { ok: false; message: string };
 
 /**
- * Delete a discovered plugin directory after realpath + containment under the
- * origin plugins root. Refuses the root itself and anything under ~/.claude.
- * A missing path or dangling symlink inside the origin root succeeds; a
- * missing path outside it is refused. No settings I/O.
+ * Delete a plugin directory after realpath + containment under the origin
+ * plugins root; refuse the root itself and anything under ~/.claude. A
+ * missing path or dangling symlink inside the root is a no-op; outside it
+ * is refused. No settings I/O.
  */
 export async function deleteOwnedPluginDir(
   args: DeleteOwnedPluginDirArgs,
@@ -229,9 +228,8 @@ function withToolsNote(hadTools: boolean, message: string): string {
 }
 
 /**
- * Shared Alt+X / pluginsAdmin.remove policy: classify, optional disk delete,
- * path-drop, and `enabled: false`. Session lists and settings persist stay
- * with the caller.
+ * Shared Alt+X / pluginsAdmin.remove policy: classify, disk delete, path-drop,
+ * disable. Persisting session lists and settings stays with the caller.
  */
 export async function executePluginRemove(
   args: PluginRemoveArgs,

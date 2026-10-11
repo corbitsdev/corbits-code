@@ -1,22 +1,16 @@
 /**
- * Pre-spawn capability preflight for `spawn_agent(requires_tools=...)` (CL-9476).
+ * Pre-spawn capability preflight for `spawn_agent(requires_tools=...)`.
  *
- * A `requires_tools` entry is a hard requirement: the named tool must be
- * mounted on the worker or the dispatch is rejected before any session,
- * telemetry, or worktree exists. Names are canonical engine ids on both sides
- * (wire/hidden aliases collapse via canonicalToolName), so `shell` and
- * `run_shell` are the same requirement. Fail-closed throughout: unknown names
- * and allowlist/denylist misses all reject.
+ * A `requires_tools` entry is a hard requirement: the tool must mount on
+ * the worker or the dispatch rejects before any session, telemetry, or
+ * worktree exists. Names are canonical engine ids on both sides (aliases
+ * collapse via canonicalToolName), so `shell` and `run_shell` are the
+ * same requirement. Fail-closed: unknown names and allowlist/denylist
+ * misses reject.
  *
- * `missing_binary` never fires in production: dispatch always passes the full
- * catalog as `knownEngines`, so every catalogued engine verifies. Narrowed
- * `knownEngines` sets are a test-only seam for simulating an incomplete
- * runtime — the branch exists so tests can prove the fail-closed shape, not
- * because production probes binaries per engine (most engines are in-process).
- *
- * The `stale_snapshot` code is never emitted by preflightCapabilities — it is
- * the mount-time echo in run.ts (a tool stamped at dispatch is missing from
- * the live mount). It lives in this union so both paths share one formatter.
+ * `stale_snapshot` is never emitted here — it is the mount-time echo in
+ * run.ts (a stamped tool missing from the live mount). It lives in this
+ * union so both paths share one formatter.
  */
 
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
@@ -40,19 +34,17 @@ export interface PreflightCapabilitiesInput {
   /** Resolved dispatch filter; undefined means full mount (everything passes). */
   resolvedFilter?: CapabilityFilter | undefined;
   /**
-   * Canonical engine ids verifiable in this dispatch. Production always
-   * passes the full catalog (DEFAULT_KNOWN_ENGINES); narrowed sets are a
-   * test-only seam for simulating an incomplete runtime.
+   * Canonical engine ids verifiable in this dispatch. Production passes the
+   * full catalog; narrowed sets are a test-only seam (see
+   * DEFAULT_KNOWN_ENGINES).
    */
   knownEngines: readonly string[];
   /**
-   * Canonical ids of the live inherited-MCP tools the parent session mounted
-   * (`mcp__<server>__<tool>`). An `mcp__*` requirement present here passes the
-   * known-engine and allowlist checks — the worker mount carries it on
-   * demand (run.ts retains only requested inherited MCP tools), so presence
-   * here proves the worker mounts it. An `mcp__*` name absent
-   * from this set still rejects as `unknown_tool`. Fail-closed: availability
-   * is never inferred from the name shape alone.
+   * Live inherited-MCP tools the parent session mounted
+   * (`mcp__<server>__<tool>`). Presence passes the known-engine and
+   * allowlist checks — run.ts retains only requested inherited MCP tools,
+   * so presence proves the worker mounts it on demand. Absence rejects as
+   * `unknown_tool`; availability is never inferred from name shape alone.
    */
   availableMcpTools?: readonly string[] | undefined;
   /** Worker label for messages (director id or profile id). */
@@ -84,8 +76,7 @@ export type CapabilityPreflightResult =
 /**
  * Canonical engine ids the fleet knows how to mount: the director tool
  * surfaces plus the worker/plumbing verbs mounted outside capability
- * filters. Dispatch passes this as `knownEngines`; tests inject narrower
- * sets to simulate an absent binary.
+ * filters. Dispatch passes this as `knownEngines`.
  */
 export const KNOWN_CAPABILITY_ENGINES: readonly string[] = [
   "read_file",
@@ -115,26 +106,23 @@ export const KNOWN_CAPABILITY_ENGINES: readonly string[] = [
 ];
 
 /**
- * Dispatch-time `knownEngines`: the full catalog. Dispatch always passes this,
- * so every catalogued engine verifies and `missing_binary` never fires in
- * production. Narrowed `knownEngines` sets are a test-only seam for
- * simulating an incomplete runtime — production probes no binaries per engine
- * (most engines are in-process).
+ * Dispatch-time `knownEngines`: the full catalog, so `missing_binary` never
+ * fires in production. Narrowed sets are a test-only seam for simulating an
+ * incomplete runtime — production probes no binaries (most engines are
+ * in-process).
  */
 export const DEFAULT_KNOWN_ENGINES: readonly string[] =
   KNOWN_CAPABILITY_ENGINES;
 
 /**
- * Engines mounted outside the capability filter (run.ts appends manage_tasks
- * after filtering, and mounts the Tier 3 leaf reporting channel
- * submit_result/ask_director whenever tier is "leaf"), so a requires_tools
- * entry for them passes preflight even when the dispatch filter is a narrow
- * allowlist. The update_plan alias canonicalizes here, so it rides the same
- * exemption — and the mount-time echo in run.ts runs after ALL appends, so
- * the stamped entry always matches the live mount. Fail-closed: the tier gate
- * in agent-fleet.ts still rejects submit_result/ask_director on non-leaf
- * tiers after this exemption, so the bypass never mounts them where run.ts
- * would not.
+ * Engines mounted outside the capability filter (run.ts appends
+ * manage_tasks after filtering, and mounts the Tier 3 leaf channel
+ * submit_result/ask_director when tier is "leaf"), so requires_tools
+ * entries for them pass even a narrow allowlist. update_plan
+ * canonicalizes here and rides the same exemption; the mount-time echo
+ * runs after all appends, so the stamped entry matches the live mount.
+ * Fail-closed: the tier gate in agent-fleet.ts still rejects these on
+ * non-leaf tiers.
  */
 const POST_FILTER_MOUNTED_ENGINES: readonly string[] = [
   "manage_tasks",
@@ -192,10 +180,9 @@ function nearestToolName(raw: string): string | undefined {
 
 /**
  * Spawnable directors (closed set minus primary dispatch) whose mounted
- * tool set includes `canonical` — derived from packageToCapabilities over
- * DIRECTOR_REGISTRY, so the hint tracks the envelopes. Sorted before the cap
- * so the three named are the first alphabetically, not the first in registry
- * insertion order.
+ * tool set includes `canonical`, derived from packageToCapabilities over
+ * DIRECTOR_REGISTRY so the hint tracks the envelopes. Sorted before the
+ * cap, so the three named come first alphabetically.
  */
 export function rerouteAlternatives(canonical: string): readonly string[] {
   const want = canonicalToolName(canonical);
@@ -219,9 +206,9 @@ export function rerouteAlternatives(canonical: string): readonly string[] {
 /**
  * Tier-3 leaf directors (closed set, dispatch excluded) for the tier-gate
  * hint when requires_tools names the leaf reporting channel on a non-leaf
- * tier. submit_result/ask_director mount post-filter, so no envelope mentions
- * them and rerouteAlternatives would report none — this names the directors
- * that actually mount them instead of the allowlist-miss fallback.
+ * tier. submit_result/ask_director mount post-filter, so no envelope
+ * mentions them and rerouteAlternatives would report none; this names the
+ * directors that actually mount them.
  */
 export function leafTierAlternatives(): readonly string[] {
   return Object.values(DIRECTOR_REGISTRY)
@@ -257,10 +244,9 @@ export function preflightCapabilities(
       return { ok: false, unavailable: { code: "unknown_tool", tool: raw } };
     }
     const engine = canonicalToolName(trimmed);
-    // A live inherited-MCP tool passes the catalog check: presence in the
-    // live set proves the worker mounts it on demand (run.ts retains only
-    // requested inherited MCP tools). Shape alone proves nothing — an
-    // `mcp__*` name outside the live set still rejects below.
+    // A live inherited-MCP tool passes the catalog check — presence proves
+    // the mount (see availableMcpTools); an `mcp__*` name outside the live
+    // set still rejects below.
     const isLiveMcp = isMcpToolName(engine) && liveMcp.has(engine);
     if (!catalog.has(engine) && !isLiveMcp) {
       const suggestion = nearestToolName(trimmed);
@@ -342,7 +328,7 @@ export function checkMountedRequiresTools(
 /**
  * One user message per code. Every message ends in exactly one next-action
  * sentence — the caller re-dispatches deliberately; there is no auto
- * re-dispatch, successor, or retry path.
+ * re-dispatch, successor, or retry.
  */
 export function formatCapabilityUnavailable(
   unavailable: CapabilityUnavailable,

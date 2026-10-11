@@ -2,8 +2,7 @@ import { type } from "arktype";
 import type { ToolDefinition } from "@intx/types/runtime";
 
 // A task is a unit of work the agent registered for itself. The agent owns the
-// list — it adds, renames, cancels, and status-updates items as the plan
-// evolves mid-run.
+// list — it adds, renames, cancels, and status-updates items mid-run.
 export const TaskStatusSchema = type("'todo' | 'doing' | 'done' | 'cancelled'");
 export type TaskStatus = typeof TaskStatusSchema.infer;
 
@@ -174,11 +173,9 @@ export type ManageTasksRunner = (rawArgs: Record<string, unknown>) => Promise<{
   isError?: boolean;
 }>;
 
-// Task state is owned by the director, which applies each manage_tasks call
-// when it observes the tool_call — so by the time this handler runs, the
-// authoritative list already includes the update and a diff against it would
-// always read as a no-op. The runner keeps its own copy so a repeat call that
-// changes nothing gets a distinct result instead of "Tasks updated."
+// The director already applied this call when it observed the tool_call, so
+// the runner keeps its own copy; a repeat call that changes nothing still
+// returns a distinct result instead of "Tasks updated."
 export function createManageTasksRunner(): ManageTasksRunner {
   let tasks: Task[] = [];
   return async (rawArgs) => {

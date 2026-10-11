@@ -1,11 +1,9 @@
-// OpenAI reasoning-effort is a provider-native request knob carried through
-// InferenceSource.defaults.providerOptions.reasoning_effort. It is not a
-// "variant" or a separate model — the same model accepts an effort level that
-// trades latency and cost against reasoning depth.
+// Provider-native request knob carried via
+// InferenceSource.defaults.providerOptions.reasoning_effort: same model,
+// different latency/cost vs reasoning depth, not a variant or separate model.
 
-// The canonical literal set lives in the agent profile contract so the
-// profile schema and the runtime cannot drift. Re-exported here for callers
-// that already import from this module.
+// Canonical literal set lives in the agent profile contract so schema and
+// runtime cannot drift; re-exported for existing callers.
 import { REASONING_EFFORTS as CANONICAL_EFFORTS } from "../agent/profile-types.js";
 import {
   DEEPSEEK_V4_EFFORTS,
@@ -23,9 +21,8 @@ export function isReasoningEffort(value: unknown): value is ReasoningEffort {
 }
 
 /**
- * Validate/dedupe a raw provider-declared effort set (from settings) against the
- * canonical ladder. Invalid entries are dropped, duplicates collapsed, preserving
- * canonical order. Returns [] for an empty/absent input.
+ * Validate/dedupe a provider-declared effort set against the canonical ladder.
+ * [] for empty/absent input.
  */
 export function normalizeProviderEfforts(
   raw: readonly string[] | undefined,
@@ -42,8 +39,8 @@ export function normalizeProviderEfforts(
   return out;
 }
 
-// The effort levels common OpenAI reasoning models (gpt-5, o-series) accept.
-// `none` and `xhigh` are not here — they are gpt-5.1-family-only (see below).
+// Levels OpenAI reasoning models (gpt-5, o-series) accept; none/xhigh
+// are gpt-5.1-family-only (see below).
 const DEFAULT_EFFORTS: readonly ReasoningEffort[] = [
   "minimal",
   "low",
@@ -51,9 +48,8 @@ const DEFAULT_EFFORTS: readonly ReasoningEffort[] = [
   "high",
 ];
 
-// The gpt-5.1 family additionally accepts `none` (disable reasoning) and `xhigh`.
-// Listed explicitly because neither is universally supported; an unknown model
-// must not be assumed to take them.
+// gpt-5.1 family adds `none` (disable reasoning) and `xhigh`; neither is
+// universal; unknown models are not assumed to take them.
 const FULL_EFFORT_MODELS: readonly string[] = [
   "gpt-5.1",
   "gpt-5.1-codex",
@@ -68,50 +64,40 @@ const CODEX_EFFORTS: readonly ReasoningEffort[] = [
   "xhigh",
 ];
 
-// The gpt-5.6 family additionally accepts `max` and `ultra`. Listed explicitly,
-// mirroring FULL_EFFORT_MODELS above, because older Codex models (gpt-5.5,
-// gpt-5.4, gpt-5.4-mini) are not known to support these levels.
+// gpt-5.6 family adds `max` and `ultra`; older Codex models do not support
+// them.
 const MAX_EFFORT_CODEX_MODELS: readonly string[] = [
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
 ];
 
-// The safe subset offered for models we do not recognize. Conservative on
-// purpose: these are the levels the broadest range of reasoning models accept.
+// Safe subset for unrecognized models: levels the broadest range of reasoning
+// models accept.
 const UNKNOWN_MODEL_EFFORTS: readonly ReasoningEffort[] = [
   "low",
   "medium",
   "high",
 ];
 
-// Muse Spark (Responses protocol) accepts minimal through high — the same
-// ladder as DEFAULT_EFFORTS above. Not `none` —
-// the gateway rejects it with HTTP 400 on `reasoning.effort`. Measured on
-// muse-spark-1.3-contributor and muse-spark-1.2-contributor via the Go
-// endpoint and muse-spark-1.3-contributor-free via Zen: `minimal` returns 200
-// and `none` returns 400 on all three. See CL-7867.
+// Muse Spark (Responses protocol) takes minimal–high — DEFAULT_EFFORTS without
+// `none` (the gateway 400s `reasoning.effort: none`).
 const MUSE_SPARK_EFFORTS: readonly ReasoningEffort[] = DEFAULT_EFFORTS;
 
-// Matched by prefix, not by an id list. The family ships under five ids across
-// two catalogs — `muse-spark-1.3-contributor` / `-1.2-contributor` in
-// packages/opencode-go, and `muse-spark-1.3` / `-1.2` /
-// `-1.3-contributor-free` in packages/zen — and nothing normalizes the model
-// string before it reaches here. An exact list silently missed three of them
-// and left the ladder at the unknown-model default. The `/^.../i` + `trim()`
-// shape mirrors the grok/kimi prefix checks in
-// src/subagent/provider-family.ts.
+// Prefix match, not an id list: the family ships under ids across two catalogs
+// and nothing normalizes the model string first. Mirrors the grok/kimi checks
+// in src/subagent/provider-family.ts.
 function isMuseSparkModel(model: string): boolean {
   return /^muse-spark/i.test(model.trim());
 }
 
-// grok-4.6 and grok-4.7 accept xhigh — the same ladder as CODEX_EFFORTS above;
-// grok-4.5 and composer stay on the unknown-model subset.
+// grok-4.6/4.7 accept xhigh (CODEX_EFFORTS); grok-4.5 and composer stay on
+// the unknown-model subset.
 const GROK_46_AND_47_EFFORTS: readonly ReasoningEffort[] = CODEX_EFFORTS;
 const GROK_46_AND_47_MODELS: readonly string[] = ["grok-4.6", "grok-4.7"];
 
-// GPT-6 Astra accepts low through max on both the OpenAI API and Codex surfaces.
-// Not ultra (gpt-5.6 Codex-only), not minimal, not none.
+// GPT-6 Astra accepts low–max on both surfaces; not ultra (gpt-5.6
+// Codex-only), minimal, or none.
 const GPT6_ASTRA_EFFORTS: readonly ReasoningEffort[] = [
   "low",
   "medium",
@@ -120,8 +106,8 @@ const GPT6_ASTRA_EFFORTS: readonly ReasoningEffort[] = [
   "max",
 ];
 
-// GLM-5.3 always reasons. Vendor ladder is low/high/max (no medium, no none);
-// vendor default is max. Flash shares the same text parameters.
+// GLM-5.3 always reasons: vendor ladder low/high/max (no medium, no none),
+// default max. Flash shares the same text parameters.
 const GLM_53_EFFORTS: readonly ReasoningEffort[] = ["low", "high", "max"];
 const GLM_53_MODELS: readonly string[] = ["glm-5.3", "glm-5.3-flash"];
 
@@ -135,10 +121,9 @@ function isKnownOpenAIReasoningModel(model: string): boolean {
   );
 }
 
-// Per-model reasoning capability sourced from models.dev (populated at startup,
-// see model-capabilities). The registry is the authority on "does this model
-// reason at all"; the rung sets above are the local authority on "which levels".
-// A model absent from the registry is unknown, not non-reasoning.
+// Per-model "does it reason" from the models.dev registry at startup (see
+// model-capabilities); the rung sets above decide which levels. Absent from
+// the registry = unknown, not non-reasoning.
 let reasoningCapableByModel: Record<string, boolean> = {};
 
 export function setModelReasoningCapabilities(
@@ -151,10 +136,8 @@ export function modelReasoningCapability(model: string): boolean | undefined {
   return reasoningCapableByModel[model];
 }
 
-// The effort levels to offer for a model. `reasoningCapable` defaults to the
-// models.dev-backed registry: when it positively reports a model does not
-// reason, no effort is offered; when it is unknown (offline, first run, or a
-// model models.dev does not list) the local heuristic decides.
+// Effort levels to offer. `reasoningCapable` defaults to the models.dev
+// registry; false → no effort; unknown (offline, unlisted) → local heuristic.
 export function supportedEfforts(
   model: string,
   reasoningCapable: boolean | undefined = modelReasoningCapability(model),
@@ -164,9 +147,8 @@ export function supportedEfforts(
   if (reasoningCapable === false) {
     return [];
   }
-  // An operator-declared effort set (custom provider) is the authoritative
-  // ladder — it overrides the family table entirely, so a custom endpoint whose
-  // models accept none/xhigh/max can expose them.
+  // Operator-declared ladder (custom provider) overrides the family table
+  // entirely.
   if (providerEfforts.length > 0) {
     return [...providerEfforts];
   }
@@ -227,13 +209,10 @@ export function validateEffort(
 }
 
 /**
- * Next effort on the model's supported ladder (wraps around). Returns undefined
- * when the model supports no reasoning effort — callers flash a status and leave
- * the session config alone.
- *
- * Walks from resolveSessionEffort: unset and leftover unsupported current sit
- * on the family default, then the next rung. When there is no family default
- * but the ladder is non-empty, start at supported[0].
+ * Next effort on the model's ladder (wraps around); undefined when the model
+ * supports none. Current effort resolves via resolveSessionEffort (configured
+ * when accepted, else family default), then advances one rung; unresolvable
+ * starts at supported[0].
  */
 export function cycleReasoningEffort(
   model: string,
@@ -264,13 +243,10 @@ export function cycleReasoningEffort(
 }
 
 /**
- * Product default effort for a live session model. Distinct from role defaults
- * (`defaultEffortForDirector`): this is what the prompt shows and what Shift+Tab
- * advances from when the operator has not picked a level.
+ * Product default effort for a live session model — what the prompt shows and
+ * Shift+Tab advances from. Distinct from role defaults.
  *
- * Family table: grok* → high; glm-5.3* → max; muse-spark* → low; Codex → medium; gpt-5.1 chat (`none` on the
- * ladder, not Codex) → none; gpt-5/gpt-6/o1/o3/o4 → medium. Unknown models with a
- * conservative rung set stay undefined so we do not invent a family default.
+ * Unknown models stay undefined so we do not invent a family default.
  */
 export function defaultEffortForModel(
   model: string,
@@ -287,8 +263,8 @@ export function defaultEffortForModel(
   if (supported.length === 0) return undefined;
   const pick = (desired: ReasoningEffort): ReasoningEffort | undefined =>
     supported.includes(desired) ? desired : undefined;
-  // The operator-declared default (custom provider) wins over the family
-  // default when the level is on the operator's ladder.
+  // Operator-declared default (custom provider) wins when on the operator's
+  // ladder.
   if (providerEfforts.length > 0 && providerDefault !== undefined) {
     return pick(providerDefault);
   }
@@ -302,9 +278,8 @@ export function defaultEffortForModel(
 }
 
 /**
- * Effort the session is currently on: a configured level when the model accepts
- * it, otherwise the family default. Empty ladders stay undefined. Does not
- * write back into session config — display and request wiring read this.
+ * Effort the session is on: the configured level when accepted, else the
+ * family default. Read-only; display and request wiring read it.
  */
 export function resolveSessionEffort(
   model: string,
@@ -331,12 +306,11 @@ export function resolveSessionEffort(
 }
 
 // ---------------------------------------------------------------------------
-// Role-based product defaults (CL-5162)
+// Role-based product defaults
 //
 // Orchestrators plan and fan out work — higher effort is worth the latency.
-// Task leaves should stay cheaper/faster so multi-agent fleets do not multiply
-// a sol+high cliff across every child. No operator UI: this is the silent
-// product default until a profile/task pin says otherwise.
+// Leaves stay cheaper so fleets do not multiply a high cliff across children.
+// Silent product default; a profile/task pin overrides it.
 // ---------------------------------------------------------------------------
 
 /** Product default effort by agent role (before model clamping). */
@@ -346,8 +320,8 @@ export const ROLE_DEFAULT_EFFORT = {
 } as const satisfies Record<"orchestrator" | "leaf", ReasoningEffort>;
 
 /**
- * Nearest supported effort to `desired` by position on the canonical ladder.
- * Returns undefined only when `supported` is empty.
+ * Nearest supported effort to `desired` by position on the canonical ladder;
+ * undefined when `supported` is empty.
  */
 export function clampEffort(
   desired: ReasoningEffort,
@@ -371,16 +345,15 @@ export function clampEffort(
 }
 
 export interface ResolveEffortForRoleOpts {
-  /** True when the spawn is a built-in orchestrator director (may call fleet tools). */
+  /** True for built-in orchestrator directors (may call fleet tools). */
   orchestrator: boolean;
   /** Explicit profile inference leg or task-tier pin — highest precedence. */
   pin?: ReasoningEffort;
   /**
-   * Package modelRole default (CL-5816). When set, replaces the binary
-   * orchestrator/leaf default so a light worker can run low while coder stays medium.
+   * Package modelRole default: replaces the binary orchestrator/leaf default.
    */
   roleDefault?: ReasoningEffort;
-  /** Parent session effort — used only when the role default is not supported. */
+  /** Parent session effort, used only when the role default is unsupported. */
   parentEffort?: ReasoningEffort;
   /** Marker when the parent effort was operator-chosen (see SubAgentProvider). */
   explicitParentEffort?: true;
@@ -390,8 +363,8 @@ export interface ResolveEffortForRoleOpts {
 }
 
 /**
- * Pure cascade used by `resolveEffortForRole`. Exported for unit tests of the
- * precedence table without depending on per-model supported sets.
+ * Pure cascade behind `resolveEffortForRole`; exported so tests can pin the
+ * precedence without per-model supported sets.
  *
  * Precedence (first match wins):
  * 1. Explicit pin (clamped onto supported when the pin is not in the set)

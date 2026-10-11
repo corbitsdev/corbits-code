@@ -110,7 +110,7 @@ async function gatherTopLevel(cwd: string): Promise<string | undefined> {
   }
 }
 
-/** CL-9010: how long a cached environment snapshot stays fresh. */
+/** How long a cached environment snapshot stays fresh. */
 export const ENVIRONMENT_CACHE_TTL_MS = 5_000;
 
 type EnvironmentCacheEntry = {
@@ -118,13 +118,12 @@ type EnvironmentCacheEntry = {
   value: EnvironmentInfo;
 };
 
-// CL-9010: short-TTL environment cache keyed by resolved cwd. Spawned
-// workers share the dispatcher's git/top-level snapshot: the first spawn
-// pays the git calls and same-cwd spawns within the TTL reuse it, so
-// spawn_agent waves do not re-run `git status` per lane. Concurrent spawns
-// share one in-flight gather instead of stampeding git. Hits return a fresh
-// top-level copy with a current date so one worker cannot mutate another's
-// snapshot and the prompt never shows a stale clock.
+// Short-TTL environment cache keyed by resolved cwd. Spawned workers share
+// the dispatcher's git/top-level snapshot: the first spawn pays the git
+// calls and same-cwd spawns within the TTL reuse it, so spawn_agent waves do
+// not re-run `git status` per lane. Concurrent spawns share one in-flight
+// gather instead of stampeding git. Hits return a fresh top-level copy with
+// a current date so one worker cannot mutate another's snapshot.
 const environmentCache = new Map<string, EnvironmentCacheEntry>();
 const environmentInflight = new Map<string, Promise<EnvironmentInfo>>();
 

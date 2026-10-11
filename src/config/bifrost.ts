@@ -2,8 +2,8 @@ import { requestModelsEndpoint } from "../provider/models-endpoint.js";
 
 /**
  * Fetch the model list from a Bifrost gateway for the given virtual key.
- * Uses both the x-bf-vk header (as recommended for scoping) and a
- * conventional Bearer Authorization so either auth style works.
+ * Sends both the x-bf-vk header and a conventional Bearer Authorization so
+ * either auth style works.
  *
  * Returns only the model id strings. Throws on HTTP or parse errors.
  */

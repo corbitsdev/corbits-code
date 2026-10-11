@@ -1,12 +1,9 @@
 /**
  * Provider/model catalog → model picker options for OpenTUI product host.
  *
- * Pure: maps config.providers (record or array) into `{ id, label }[]` for
- * openModelPickerOverlay / ProductHostConfig.models. Recent/favorites refs and
- * the Go-on-Zen billing predicate are also plain data — callers own settings
- * and config loading.
- *
- * Identity is opaque and collision-free across provider/model pairs.
+ * Pure: maps config.providers (record or array) into `{ id, label }[]`.
+ * Recent/favorites refs and the Go-on-Zen billing predicate are plain data —
+ * callers own settings and config loading.
  */
 
 import { type } from "arktype";
@@ -69,8 +66,8 @@ export type ModelCatalogProvidersInput =
  * - Array: each `{ name, models, label? }` expands one row per model.
  * - Record: keys are provider names; values supply `models` (+ optional label).
  *
- * Empty / missing model lists are skipped. Stable order: provider order then
- * model order within each provider. Dedupes by id.
+ * Empty or missing model lists are skipped. Stable order: provider order,
+ * then model order.
  */
 export function buildModelCatalog(
   providers: ModelCatalogProvidersInput,
@@ -322,8 +319,8 @@ function whatLine(model: string): string {
 
 /**
  * Description-zone content for a picker row. `pricing` defaults to the live
- * models.dev cache; override in tests. Rows with a billing warning override
- * the plain what/impact pair.
+ * models.dev cache; override in tests. A billing warning overrides the plain
+ * what/impact pair.
  */
 export function describeModelCatalogOption(
   option: ModelCatalogOption,

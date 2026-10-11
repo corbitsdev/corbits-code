@@ -38,9 +38,8 @@ function colored(
   };
 }
 
-// Render a leaf-ish node to a single inline StyledLine (for use inside row/grid cells).
-// If the node would produce multiple lines we take only the first (agent should use
-// simple text nodes inside aligned structures).
+// Render a node to a single inline StyledLine for row/grid cells. If the node
+// would produce multiple lines, only the first is taken.
 function renderCell(
   node: ViewNode,
   available: number,
@@ -168,7 +167,7 @@ export function viewToLines(
         natural.push(Math.min(40, Math.max(1, w))); // cap like before
       }
 
-      // Simple drop-right if too wide (port of allocate heuristic)
+      // Simple drop-right when too wide.
       const widths = [...natural];
       let cols = node.columns ?? [];
       const total = () =>

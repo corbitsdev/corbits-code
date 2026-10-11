@@ -1,22 +1,17 @@
 /**
- * Map reactor stream events onto the shared PerfTrace span tree.
+ * Map reactor stream events onto the shared PerfTrace span tree:
  *
- * Always-on, local-only. Nesting:
  *   turn
  *     inference
  *       inference.ttft   (start → first content-bearing delta)
  *       inference.stream (first delta → inference.done)
- *     tool (per invocation)
- *     permission.wait   (operator ask; diagnostic nested category — wall time
- *                        overlaps tool; exclusive attribution already excludes
- *                        nested categories, so double-count is intentional)
- *     subagent          (task fleet child wall)
+ *     tool               (per invocation)
+ *     permission.wait    (operator ask; wall overlaps tool)
+ *     subagent           (task fleet child wall)
  *
- * Single-primary assumption: the session run-sink owns one
- * `createPerfReactorObserver`. Process-wide `currentTurnId()` is published only
- * by that primary so permission.wait / subagent can nest outside the observer.
- * Do not create concurrent observers that also call ensureTurn — they would
- * overwrite the slot. Tests call `clear()` (and observer `reset()`) between cases.
+ * Single-primary: the session run-sink owns one observer; process-wide
+ * `currentTurnId()` lets permission.wait / subagent nest outside the observer.
+ * A second concurrent observer would overwrite the slot — unsupported.
  */
 
 import type { ReactorEmittedEvent } from "@intx/inference";
@@ -49,9 +44,8 @@ export interface PerfReactorObserver {
 }
 
 /**
- * Process-wide open-turn id from the most recently active reactor observer.
- * Permission-wait and subagent spans nest under this when present.
- * Owned by `active-turn.ts`; cleared on observer close/reset and PerfTrace clear().
+ * Process-wide open-turn id for nesting permission.wait/subagent spans outside
+ * the observer. Owned by `active-turn.ts`; cleared on reset/close/clear.
  */
 export function currentTurnId(): string | null {
   return getActiveTurnId();
@@ -95,8 +89,7 @@ function toolCallCount(event: ReactorEmittedEvent): number {
 
 /**
  * Call id for a tool event: `call.id` on tool.start, `result.callId` on
- * tool.done. The per-type payload shapes stay distinct — only the shared
- * non-empty-string guard is written once.
+ * tool.done.
  */
 function callIdFromToolEvent(event: ReactorEmittedEvent): string | undefined {
   if (event.type !== "tool.start" && event.type !== "tool.done") {
@@ -169,9 +162,9 @@ export function createPerfReactorObserver(): PerfReactorObserver {
   }
 
   /**
-   * Single exit for ending a turn: close orphan tool spans, then the turn.
-   * Inference tree must already be closed (or will be via abandonTurn).
-   * Clears the process-wide active turn when this observer owns it.
+   * Single exit for ending a turn: close orphan tool spans, then the turn;
+   * clears the active turn when owned. Inference tree must already be closed
+   * (abandonTurn does).
    */
   function closeTurn(): void {
     closeOpenTools();
@@ -209,9 +202,8 @@ export function createPerfReactorObserver(): PerfReactorObserver {
     const type = event.type;
 
     if (type === "inference.start") {
-      // Always abandon any prior turn before opening a new one. Interrupt mid-
-      // inference or mid-tool must not nest the next call under a stale turn or
-      // leave orphan tool spans in the process-wide open map.
+      // Abandon any prior turn first: an interrupt mid-inference/tool must not
+      // nest the next call under a stale turn or leave orphan spans open.
       abandonTurn();
       const turnId = ensureTurn();
       const tags = modelTags(event);
@@ -241,8 +233,7 @@ export function createPerfReactorObserver(): PerfReactorObserver {
 
     if (type === "inference.error") {
       closeInferenceTree();
-      // Drop the turn if nothing is waiting on tools; otherwise keep it open
-      // so in-flight tool spans can still close under it.
+      // Drop the turn unless in-flight tool spans still need to close under it.
       if (state.pendingTools === 0) {
         closeTurn();
       }

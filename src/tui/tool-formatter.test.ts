@@ -272,8 +272,8 @@ describe("isUserFacingJSON", () => {
     expect(isUserFacingJSON("[]")).toBe(false);
   });
 
-  // A huge API dump must not be treated as a document: the markdown renderer is
-  // roughly quadratic and would freeze the TUI on it. It falls back to plain text.
+  // A huge API dump must not be treated as a document — the markdown renderer
+  // is roughly quadratic and would freeze the TUI on it.
   test("oversized JSON is not treated as a document", () => {
     const huge = JSON.stringify({
       data: Array.from({ length: 4000 }, (_, i) => ({ id: i, name: "agent" })),

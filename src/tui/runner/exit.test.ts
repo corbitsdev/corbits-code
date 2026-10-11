@@ -570,9 +570,9 @@ function rebuildManageTasksEvent(): ReactorInboundEvent {
  * The services surface every rebuild path touches: holder swap, fleet store,
  * workflow reattach, recorder reset, and a buildAgent that mints a fresh
  * director from the static `allowIdleWithFleet: true` seed — the same seed
- * the TUI session assembly uses, since fleet lanes may appear mid-session.
- * The rotation-only stubs (buildSessionSources, hostHolder, the resetters)
- * are inert on interrupt/reload paths.
+ * the TUI session assembly uses (fleet lanes may appear mid-session). The
+ * rotation-only stubs (buildSessionSources, hostHolder, the resetters) are
+ * inert on interrupt/reload paths.
  */
 function wireRebuildServices(
   services: RunnerServices,
@@ -674,8 +674,8 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const { state, services } = stubSendLifecycle(agent);
     wireRebuildServices(services, directorHolder, agent);
     await createRunLifecycle(state, services);
-    // A fold is mid-flight on the reactor when the operator interrupts: the
-    // wrapped compact hangs on its summary call.
+    // A fold is mid-flight when the operator interrupts; the wrapped
+    // compact hangs on its summary call.
     const lifecycle = createCompactionLifecycle();
     state.compactionLifecycle = lifecycle;
     const notices: string[] = [];
@@ -684,8 +684,8 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     };
     const { pending } = hangCompact(lifecycle);
     expect(lifecycle.isCompacting()).toBe(true);
-    // CL-8220: the gate aborts the compact first instead of parking the
-    // interrupt behind the unobservable reactor, then rebuilds as usual.
+    // The gate aborts the compact first instead of parking the interrupt
+    // behind the unobservable reactor, then rebuilds as usual.
     defined(state.interrupt, "interrupt")();
     // The abort wins the apply race: the compact returns a no-op fold instead
     // of parking behind the hung summary call, and the flag clears.
@@ -717,8 +717,8 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const dirs = stubRotationDirs();
     try {
       await createRunLifecycle(state, services);
-      // A fold is mid-flight on the reactor when the operator rotates: the
-      // wrapped compact hangs on its summary call.
+      // A fold is mid-flight when the operator rotates; the wrapped compact
+      // hangs on its summary call.
       const lifecycle = createCompactionLifecycle();
       state.compactionLifecycle = lifecycle;
       const { pending } = hangCompact(lifecycle);
@@ -820,7 +820,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const agent = recordingAgent([]);
     const { state, services } = stubSendLifecycle(agent);
     // Every rebuild mints a fresh director from the static true seed (fleet
-    // lanes may appear mid-session), exactly like the TUI session assembly.
+    // lanes may appear mid-session).
     wireRebuildServices(services, directorHolder, agent, store);
     const fleetEvents: unknown[] = [];
     services.emitter.on("event", (event: { type: string }) => {
@@ -869,16 +869,10 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
   });
 });
 
-// CL-5753: an interrupt can hit close() while reactor.abort()/sendQueue.drain()
-// are mid-teardown, throwing before @intx/agent's close() ever reaches
-// lock.release(). Once that happens the agent is already marked closed, so a
-// retried close() is a silent no-op that can never free the lock either — the
-// workdir's lock is stuck held for the rest of the process. The next
-// buildAgent() for that same workdir is then guaranteed to throw
-// AgentContextLockError ("an agent is already open for workdir: ..."), which
-// is the crash from the ticket. These tests cover the two functions the
-// runner now routes every rebuild through so that failure is reported in
-// plain language rather than escaping as an unhandled rejection.
+// An interrupt can hit close() mid-teardown and leak the workdir lock (see
+// closeAgentForRebuild's doc in exit.ts). These tests cover the two helpers
+// the runner routes every rebuild failure through, so that failure is
+// reported in plain language rather than escaping as an unhandled rejection.
 describe("rebuild close helpers", () => {
   function stubAgent(closeImpl: () => Promise<void>): Agent {
     return { close: closeImpl } as unknown as Agent;
@@ -891,9 +885,9 @@ describe("rebuild close helpers", () => {
   });
 
   test("agentRebuildFailure translates stale-lock errors and passes others through", () => {
-    // Simulates the second acquisition throwing after a failed close left the
-    // lock held: buildAgent() surfaces AgentContextLockError, which must not
-    // reach the caller as a raw stack trace.
+    // Simulates the second acquisition throwing after a failed close left
+    // the lock held: buildAgent() surfaces AgentContextLockError, which must
+    // not reach the caller as a raw stack trace.
     const err = agentRebuildFailure(new AgentContextLockError("/tmp/workdir"));
     expect(err.message).not.toContain("already open");
     expect(err.message).toMatch(/restart/i);
@@ -904,7 +898,7 @@ describe("rebuild close helpers", () => {
   test("a failed close followed by a lock error never surfaces as a raw AgentContextLockError", async () => {
     // End-to-end shape of the fix: close() throws (lock leaked in-process),
     // the rebuild site short-circuits instead of calling buildAgent() again,
-    // and the resulting error is the plain-language one — never the raw
+    // and the result is the plain-language error, never the raw
     // AgentContextLockError a bare `throw` would have produced.
     const agent = stubAgent(() =>
       Promise.reject(new AgentContextLockError("/tmp/workdir")),
@@ -924,30 +918,18 @@ describe("rebuild close helpers", () => {
     expect(defined(rebuildError, "rebuild error").message).toMatch(/restart/i);
   });
 
-  // reloadIfIdle itself is a closure captured inside runTUI's single
-  // ~2500-line scope (currentAgent, buildAgent, streamPromise,
-  // workflowController, pendingReload/inFlight, fatalBuildError, etc. are all
-  // local variables of that function), with no seam to construct or call it
-  // in isolation short of standing up the full TUI runner — provider config,
-  // plugin discovery, MCP wiring, and a real OpenTUI host. What can be driven
-  // directly, and is exactly the failure this bug reports, is the real
-  // `delivery-queue.ts` queue exercised the same way every rebuild site uses
-  // it: `void enqueueOp(async () => { try { ... } catch (err) {
-  // fatalBuildError = ... } })`. `enqueue` is `tail = tail.then(op, op);
-  // return tail;` — if `op` rejects and nothing internally catches it, that
-  // returned promise is the only thing that ever observes the rejection, and
-  // `void` discards it, which is precisely how the unhandled rejection in the
-  // ticket escaped.
+  // reloadIfIdle is a closure with no seam to call in isolation, so the
+  // real delivery-queue is driven the way every rebuild site uses it:
+  // `void enqueueOp(op)`, where an uncaught rejection in `op` would escape
+  // through the returned promise — exactly how the reported unhandled
+  // rejection escaped.
   //
-  // A true negative control (reproducing reloadIfIdle's pre-fix shape — no
-  // try/catch around the queued op — and asserting the rejection escapes) was
-  // attempted here and deliberately removed: bun:test installs its own
-  // `unhandledRejection` listener that fails whichever test is running the
-  // instant one fires, regardless of what that test asserts, so a test
-  // designed to prove an unhandled rejection *does* escape cannot pass in
-  // this harness — it is intercepted before the assertion runs. The test
-  // below is the harness-compatible half of that pair: same real queue, same
-  // real helpers, proving the fixed shape produces no such failure.
+  // A true negative control cannot pass here: bun:test installs its own
+  // unhandledRejection listener that fails the running test before any
+  // assertion, so a test proving an unhandled rejection *does* escape is
+  // impossible. This test is the harness-compatible half of that pair:
+  // same real queue and helpers, proving the fixed shape produces no such
+  // failure.
   test("a rejecting reload op through the real delivery-queue never triggers an unhandled rejection", async () => {
     const { enqueue, awaitTail } = createSessionOperationQueue();
     const agent = stubAgent(() =>
@@ -962,11 +944,10 @@ describe("rebuild close helpers", () => {
 
     let fatalBuildError: Error | null = null;
     try {
-      // Mirrors reloadIfIdle's body verbatim: close the current agent through
-      // closeAgentForRebuild, skip buildAgent() and throw instead of
-      // re-acquiring on a failed close, and land any failure in
-      // fatalBuildError via agentRebuildFailure — all behind `void enqueueOp`,
-      // exactly as the runner calls it.
+      // Mirrors reloadIfIdle's body: close through closeAgentForRebuild,
+      // throw instead of re-acquiring on a failed close, and land any failure
+      // in fatalBuildError via agentRebuildFailure — all behind
+      // `void enqueueOp`, exactly as the runner calls it.
       void enqueue(async () => {
         try {
           const closedCleanly = await closeAgentForRebuild(agent, "reload");
@@ -979,9 +960,9 @@ describe("rebuild close helpers", () => {
       });
 
       await awaitTail();
-      // Give any unhandled rejection queued by the engine a chance to fire
-      // before asserting its absence — it lands on a later microtask/macrotask
-      // than the awaited queue settlement.
+      // Let any unhandled rejection queued by the engine fire before
+      // asserting its absence — it lands on a later microtask than the
+      // awaited queue settlement.
       await new Promise((resolve) => setTimeout(resolve, 0));
     } finally {
       process.off("unhandledRejection", onUnhandledRejection);

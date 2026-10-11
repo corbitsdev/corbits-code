@@ -43,8 +43,8 @@ export interface ApplyPatchGuard {
   extraDeniedPaths?: readonly string[];
 }
 
-// apply_patch is mounted outside the posix plugin stack, so it re-enforces the
-// secret-guard denylist and the realpath workspace bound itself. A lexical
+// apply_patch is mounted outside the posix plugin stack, so it re-enforces
+// the secret-guard denylist and realpath workspace bound itself; a lexical
 // check alone would let a symlink inside the workspace lead out of it.
 function guardedPath(
   cwd: string,
@@ -104,10 +104,8 @@ async function plan(
   ];
 }
 
-/**
- * Plans every op before touching disk so a bad hunk in the last file cannot
- * leave the earlier files half-patched.
- */
+/** Plan every op before touching disk so a bad hunk in the last file cannot
+ * leave earlier files half-patched. */
 export function createApplyPatchTool(
   cwd: string,
   guard: ApplyPatchGuard,

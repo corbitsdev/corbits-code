@@ -1,17 +1,15 @@
 /**
- * Pure helpers for the CL-7932 task-completion baseline harness.
- * No process I/O here: the runner (scripts/eval-completion.ts) owns the
- * filesystem, child processes, and the agent loop; this module owns the
- * shapes at the boundary (arktype) plus completion math and the summary.
+ * Pure helpers for the task-completion baseline harness. No process I/O:
+ * the runner (scripts/eval-completion.ts) owns the filesystem, child
+ * processes, and the agent loop; this module owns the boundary shapes
+ * (arktype), completion math, and the summary.
  *
- * TRUST BOUNDARY: the version-controlled task and grading files under
- * evals/completion/tasks/ (tasks.json, per-task script.json, verify.sh, and
- * fixture/ copies) plus evals/completion/lib.ts and
- * scripts/eval-completion.ts are the trusted grading boundary. Treat edits to
- * those paths as grading changes requiring owner review; custom --tasks JSON
- * passed on the CLI is untrusted input and its fixture/script/verify
- * references stay confined to evals/completion/ via
- * resolveTaskRelativePath (absolute paths and `..` escapes are rejected).
+ * TRUST BOUNDARY: everything under evals/completion/ (tasks/, lib.ts) plus
+ * scripts/eval-completion.ts is the trusted grading boundary; edits there
+ * are grading changes and need owner review. Custom --tasks JSON is
+ * untrusted: its fixture/script/verify references stay confined to
+ * evals/completion/ via resolveTaskRelativePath (absolute paths and `..`
+ * escapes rejected).
  */
 
 import { isAbsolute, relative, resolve } from "node:path";
@@ -166,11 +164,8 @@ export function assertTaskSetContained(
   }
 }
 
-/**
- * Completion predicate shared by the runner and tests: a run counts as
- * complete only when the agent loop finished cleanly, the grader passed,
- * and the run stayed within its turn budget.
- */
+/** A run counts as complete only when the loop finished cleanly, the
+ * grader passed, and the budget held. */
 export const isCompletedRun = (
   result: Pick<TaskResult, "runStatus" | "verifyExitCode" | "overBudget">,
 ): boolean =>
@@ -243,11 +238,10 @@ export function formatSummary(report: CompletionReport): string {
   return `${lines.join("\n")}\n`;
 }
 
-// Frozen v1 report shapes (baseline-2026-09-14.json): v1 stored failed
-// tool calls twice — as failedToolCalls and, mislabeled, as retryCount —
-// and never aggregated verify durations into totals. These readers exist
-// only so the frozen baseline stays byte-identical while remaining
-// machine-checkable; new reports must use the v2 shapes above.
+// Frozen v1 report shapes (baseline-2026-09-14.json): v1 stored failed tool
+// calls twice (failedToolCalls and the mislabeled retryCount) and never
+// aggregated verify durations. These readers keep the frozen baseline
+// byte-identical yet machine-checkable; new reports use the v2 shapes above.
 const LegacyTaskResult = type({
   taskId: "string",
   title: "string",
@@ -285,11 +279,10 @@ const LegacyCompletionReport = type({
 });
 
 /**
- * Migrate a frozen v1 report to the current schema without guessing: the
- * mislabeled retryCount is dropped only after proving it equals
- * failedToolCalls (a mismatch means hand-edited data and is rejected),
- * verify means are recomputed from the recorded per-run durations, and
- * turnsEstimated stays unset because v1 never tracked turns provenance.
+ * Migrate a frozen v1 report to the current schema without guessing: drop
+ * retryCount only after proving it equals failedToolCalls (a mismatch means
+ * hand-edited data and is rejected), recompute verify means from per-run
+ * durations, and leave turnsEstimated unset (v1 never tracked provenance).
  */
 export function migrateLegacyCompletionReport(
   payload: unknown,

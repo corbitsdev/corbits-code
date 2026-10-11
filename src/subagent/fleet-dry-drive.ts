@@ -41,7 +41,7 @@ export interface FleetDryMailboxRecord {
   readonly description?: string;
   readonly hint?: string;
   readonly providerFailure?: true;
-  /** CL-8978: transient provider failure — the parent may spawn one successor. */
+  /** Transient provider failure — the parent may spawn one successor. */
   readonly recoverableFailure?: true;
   readonly stopReason?: string;
 }
@@ -54,9 +54,9 @@ export interface FleetDryMailbox {
 
 /**
  * Ids occupancy has snapshotted and handed to send, but not yet taken.
- * Shared by mailbox mail and fleet-dry so one parent window cannot paste the
- * same agent twice. Failed send clears the set so a later flush can retry.
- * Weak-keyed so a mailbox object can go away without a leak.
+ * Shared by mailbox mail and fleet-dry so one parent window cannot paste
+ * the same agent twice. Failed send clears the set so a later flush can
+ * retry. Weak-keyed so a mailbox object can go away without a leak.
  */
 const occupancyDeliveringByMailbox = new WeakMap<
   FleetDryMailbox,
@@ -111,8 +111,8 @@ export interface CollectedWorkerReport {
   hint?: string;
   provider_failure?: true;
   /**
-   * CL-8978: failed entries from a transient provider failure carry this
-   * marker plus single-successor guidance in continue_with. Capped affordance:
+   * Failed entries from a transient provider failure carry this marker
+   * plus single-successor guidance in continue_with. Capped affordance:
    * at most one respawn with the same brief, never a retry loop.
    */
   continuable?: true;
@@ -219,8 +219,8 @@ function clipDigestSection(
 
 function mailboxSpillNotice(text: string, uri: string): string {
   // Digest inlines the notice only, so remaining is the omitted body — not
-  // length minus a 2048-char prefix that was never kept. A short spill that
-  // claimed "0 more chars omitted" looks complete and the parent skips read_file.
+  // length minus a prefix that was never kept. A short spill that claimed
+  // "0 more chars omitted" looks complete and the parent skips read_file.
   return truncationNotice({
     maxChars: MAILBOX_DIGEST_SECTION_CHARS,
     remaining: text.length,

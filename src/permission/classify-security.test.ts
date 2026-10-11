@@ -123,9 +123,7 @@ describe("nested interpreter secret reads", () => {
 });
 
 describe("clustered shell command options", () => {
-  // The full cluster matrix (reconstruction, hard-deny, lookalikes) is owned
-  // by run-shell-authz.test.ts at the peel layer; one case pins the wiring
-  // from that layer into classification.
+  // One wiring case; the full cluster matrix lives in run-shell-authz.test.ts.
   test("classifies a clustered payload like the canonical form", () => {
     expect(
       autoShellRuleForCall(shellCall(`bash -xec "echo x > .env"`)),
@@ -143,10 +141,9 @@ describe("isAutoAllowedShellCall — environment dump", () => {
 });
 
 describe("isAutoAllowedShellCall — workspace containment", () => {
-  // Pure directory listing is names/metadata only — outside-workspace targets
-  // still auto-allow. Content readers (cat, head, …) remain contained.
-  // tree requires an explicit depth bound (-L / --max-depth); unbounded tree
-  // walks are not pure listing (same OOM class as open-ended find/rg).
+  // Pure listing is metadata-only — outside targets still auto-allow, content
+  // readers stay contained. Unbounded tree walks (no -L/--max-depth) are
+  // OOM-class like open-ended find/rg and keep asking.
   test.each([
     ["cat /etc/passwd", false],
     ["strings /proc/self/environ", false],
@@ -157,8 +154,7 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
     ["wc -l README.md", true],
     ["ls -la", true],
     ["grep -n needle README.md", true],
-    // Outside paths glued to a flag value — and a separated flag value, which
-    // is a positional token and already caught.
+    // Outside paths in a flag value, or separated (already a positional token).
     ["grep --file=/etc/passwd .", false],
     ["grep -f/etc/passwd .", false],
     ["rg --file=/etc/passwd .", false],
@@ -199,8 +195,8 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
 });
 
 describe("pure directory listing — outside-workspace auto-shell policy", () => {
-  // Paths that resolve outside /repo are restricted; ~ is also treated as
-  // outside by commandTargetsRestricted. Pure ls/tree must not trip the ask rule.
+  // Paths outside /repo (and ~) are restricted; pure ls/tree must not trip
+  // the ask rule.
   const isRestricted = (path: string): boolean =>
     path.startsWith("~") || path.startsWith("/") || path.includes("..");
 
@@ -208,12 +204,11 @@ describe("pure directory listing — outside-workspace auto-shell policy", () =>
     ["ls /tmp", undefined],
     ["ls -la ~", undefined],
     ["tree -L 1 /var", undefined],
-    // Unbounded listing is the more specific OOM rule and wins over
-    // outside-workspace when both would apply.
+    // The unbounded-listing rule is more specific and wins over outside-workspace.
     ["ls -R /tmp", "unbounded-listing"],
     ["tree /var", "unbounded-listing"],
-    // Non-sensitive outside paths so this asserts containment, not the
-    // sensitive-path ask rule (which fires first for e.g. ~/.aws/config).
+    // Non-sensitive outside paths, so containment is what asserts; the
+    // sensitive-path rule would fire first (e.g. ~/.aws/config).
     ["cat /etc/passwd", "outside-workspace"],
     ["head /tmp/notes.txt", "outside-workspace"],
     // A chained safe listing does not hide the content-reading half.
@@ -327,10 +322,9 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
     }
   });
 
-  // Gate fixture for the table below: an interactive (or headless where the
-  // row says so) ask-tier gate whose prompt resolves allow; `asked` counts
-  // prompts. Secret-path commands must always reach the operator — a stored
-  // grant that covered them verbatim would silently launder secret reads.
+  // Ask-tier gate whose prompt resolves allow; `asked` counts prompts.
+  // Secret reads must always reach the operator — a verbatim stored grant
+  // would silently launder them.
   const secretGate = (options: {
     approvals?: readonly Approval[];
     auto?: boolean;
@@ -357,8 +351,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
   const catGrant = { tool: "run_shell", pattern: "cat *" };
 
   test.each([
-    // Operator approval lets a sensitive-path command through — the point is
-    // that a human decided, not that the gate blocked.
+    // Operator approval lets it through — a human decided, the gate did not block.
     {
       label: "operator approval lets it through",
       command: "bun --env-file=../../.env.staging run bin/publish.ts",
@@ -471,7 +464,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(true);
-    // One full-block prompt (secret segment forces ask); safe tail is not a separate subject.
+    // One prompt for the whole block; the safe tail is not a separate subject.
     expect(subjects).toEqual([full]);
   });
 
@@ -567,8 +560,7 @@ describe("content inside an env -S payload never receives a weaker tier than it 
     [`env -S "FOO=bar cat ~/.aws/credentials"`, "sensitive-path"],
     [`env -S "FOO=bar rm -rf /"`, "recursive-rm"],
     [`env -S "FOO=bar npm start"`, "env-assignment"],
-    // Double layer: env -S's quoted argument contains a `bash -c '...'` whose
-    // own single-quoted body is the real command.
+    // env -S wraps a `bash -c '...'` whose own body is the real command.
     [`env -S "FOO=bar bash -c 'rm -rf /'"`, "recursive-rm"],
     [`env -S "FOO=bar npm install left-pad"`, "dependency-install"],
     // Trailing env terminal flags remain arguments to split payloads.
@@ -601,8 +593,7 @@ describe("upload-shaped network shell commands force ask in auto mode", () => {
 });
 
 describe("pure directory listing exemption", () => {
-  // Output-writing and unbounded forms exit the exemption: no auto-allow, and
-  // the auto-mode rule still asks.
+  // Output-writing and unbounded forms exit the exemption (no auto-allow, still asks).
   test.each([
     "tree -L 2 -o /tmp/x /var",
     "tree -L 2 --output=/tmp/x /var",
@@ -625,14 +616,12 @@ describe("CL-6703 — quoted redirect targets still deny file-mutation", () => {
     [`echo hi 1>"file"`, "file-mutation"],
     [`bash -c 'echo hi > "out.txt"'`, "file-mutation"],
     [`git commit -m 'fix > bug'`, undefined],
-    // `\"` is a literal quote character in real bash, not a quote-open — the
-    // shell is never inside a quoted string here, so the `>` that follows is
-    // a genuine, unquoted redirect.
+    // In bash `\"` is a literal quote, not a quote-open — the `>` after it is
+    // a real unquoted redirect.
     ['echo hi \\"> file"', "file-mutation"],
-    // The escaped quote sits before an extra leading space, so it never
-    // touches the `\s-c` junction later in the string; a naive quote-pairing
-    // scanner (ignoring the backslash) would consume that junction as part
-    // of a fake quoted span and hide the -c flag entirely.
+    // A leading space keeps the escaped quote clear of the `\s-c` junction;
+    // a backslash-blind quote-pairing scanner would swallow that junction as
+    // a quoted span and hide -c.
     ['python3 \\" -c print(1)"', "file-mutation"],
   ])("%s", (command, expected) => {
     expect(autoShellRuleForCall(shellCall(command))?.name).toBe(expected);
@@ -683,10 +672,9 @@ describe("CL-6988 — nested / escaped interpreter peels do not auto-allow", () 
   });
 
   test("an escaped triple-nested bash -c redirect does not auto-allow", () => {
-    // tokenize() has no backslash-escape support, so peeling
-    // `bash -c "bash -c \"bash -c '…>…'\""` used to degrade to subjects like
-    // `bash -c \bash` / `\bash` and auto-allow. Misparsed nested-interpreter
-    // payloads must ask (opaque-wrapper) rather than accept the degraded leaf.
+    // tokenize() has no backslash escapes, so peeling this used to degrade to
+    // `bash -c \bash` and auto-allow; misparsed nested payloads must ask
+    // (opaque-wrapper), not accept the degraded leaf.
     const escaped = `bash -c "bash -c \\"bash -c 'echo hi > out.txt'\\""`;
     expect(isAutoAllowedShellCall(shellCall(escaped))).toBe(false);
     expect(autoShellRuleForCall(shellCall(escaped))?.name).toBe(
@@ -696,7 +684,7 @@ describe("CL-6988 — nested / escaped interpreter peels do not auto-allow", () 
   });
 
   test("quote-broken deep nesting that degrades to a bare interpreter asks", () => {
-    // Alternating quotes collide by depth 4 and peel used to land on bare `bash`.
+    // Quotes collide at depth 4; peeling used to land on bare `bash`.
     const deep = String.raw`bash -c "bash -c 'bash -c \"bash -c 'echo hi > out.txt'\"'"`;
     expect(isAutoAllowedShellCall(shellCall(deep))).toBe(false);
     const rule = autoShellRuleForCall(shellCall(deep));

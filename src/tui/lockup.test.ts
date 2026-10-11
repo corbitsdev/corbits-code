@@ -115,8 +115,7 @@ describe("the live phase slot's pulse cell", () => {
   });
 
   test("working and blocked differ in glyph, not only in colour", () => {
-    // Same word, same instant, colour stripped: the cell is the only thing
-    // that can tell them apart, and it must.
+    // Same word and instant, colour stripped: only the cell tells them apart.
     const distinct = new Set(
       [0, 300, 600, 900].map(
         (nowMs) =>
@@ -151,8 +150,8 @@ describe("the live phase slot's pulse cell", () => {
   });
 
   test("a stall already older than the burst never blinks at all", () => {
-    // A resumed session inherits stale activity; bursting at it would alarm
-    // the operator about silence they were not present for.
+    // A resumed session inherits stale activity; bursting would alarm about
+    // silence the operator missed.
     const resumed = STALL_BLINK_BURST_MS * 4;
     const at = (nowMs: number) =>
       lockupText(lockupCells(live(nowMs, "working", "stalled", resumed)));
@@ -184,8 +183,8 @@ describe("the live phase slot's pulse cell", () => {
   });
 
   test("the slot's width never changes across a blink", () => {
-    // A wide (CJK) and an astral label: the reservation is measured in columns
-    // and the blink must not move it, whatever the label is made of.
+    // Wide (CJK) and astral labels: the reservation is measured in columns,
+    // whatever the label is made of.
     for (const label of ["読み込み中", "a😀b", "working"]) {
       const on = lockupWidth(live(0, label, "stalled", 0));
       const off = lockupWidth(

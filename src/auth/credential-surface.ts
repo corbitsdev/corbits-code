@@ -1,11 +1,9 @@
 import { SETTINGS_DIR_NAME } from "../branding.js";
 
-// Auth-owned credential surface: every file under the settings directory whose
-// bytes are OAuth tokens or provider credentials. The secret-guard plugin owns
-// matching (lexical + realpath); mention-resolution consumes the resolved
-// check. This module stays data-only — branding plus literals, no store
-// factories or homedir calls — so the import direction stays plugins → auth →
-// branding with no cycle.
+// Auth-owned credential surface: every settings-directory file whose bytes
+// are OAuth tokens or provider credentials. The secret-guard plugin owns
+// matching (lexical + realpath). Data-only — branding plus literals — so the
+// import direction stays plugins → auth → branding with no cycle.
 export interface CredentialFileDescriptor {
   settingsDirName: string;
   filename: string;
@@ -23,14 +21,13 @@ export const credentialFileDescriptors: CredentialFileDescriptor[] = [
 
 export const credentialDirDescriptors: CredentialDirDescriptor[] = [
   // Per-server files embed a content sha in the name, so they cannot be
-  // enumerated — match the whole directory instead.
+  // enumerated — match the whole directory.
   { settingsDirName: SETTINGS_DIR_NAME, dirname: "mcp-auth" },
 ];
 
-// Every basename whose lock/temp sidecar carries full credential bytes
-// mid-write. settings.json and permissions.json keep their hand-written base
-// patterns in the plugin; their sidecars are still enumerated here so a torn
-// write's temp file denies the same as the file itself.
+// Basenames whose lock/temp sidecar carries full credential bytes mid-write.
+// settings.json and permissions.json keep their base patterns in the plugin;
+// their sidecars are enumerated here so a torn write's temp denies the same.
 const credentialSidecarBasenames: string[] = [
   ...credentialFileDescriptors.map((descriptor) => descriptor.filename),
   "settings.json",
@@ -41,8 +38,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Guard-only patterns: deny reads/writes of credential-adjacent files without
-// rotating, migrating, or encrypting them.
+// Deny reads/writes of credential-adjacent files without rotating, migrating, or encrypting them.
 export function buildCredentialPatterns(): RegExp[] {
   const dir = escapeRegExp(SETTINGS_DIR_NAME);
   const patterns: RegExp[] = [];
@@ -56,17 +52,15 @@ export function buildCredentialPatterns(): RegExp[] {
   }
   for (const basename of credentialSidecarBasenames) {
     const base = escapeRegExp(basename);
-    // Editor backup copies keep full credential bytes next to the live file.
-    // Scoped to the settings dir and anchored to known basenames, never a
-    // generic *.bak, *~, or *.swp.
+    // Editor backups keep full credential bytes next to the live file; scoped
+    // to the settings dir and known basenames, never a generic *.bak, *~, or *.swp.
     patterns.push(new RegExp(`(^|\\/)${dir}\\/${base}\\.bak[^/]*$`));
     patterns.push(new RegExp(`(^|\\/)${dir}\\/${base}~$`));
     patterns.push(new RegExp(`(^|\\/)${dir}\\/${base}\\.swp$`));
     patterns.push(new RegExp(`(^|\\/)${dir}\\/\\.${base}\\.swp$`));
     patterns.push(new RegExp(`(^|\\/)${dir}\\/${base}\\.lock$`));
-    // Writers emit a pid.counter middle segment (auth/store.ts,
-    // mcp/auth-store.ts), so the middle segment is required; a bare
-    // `<base>.tmp` has no known writer and stays unmatched.
+    // Writers emit a pid.counter middle segment (auth/store.ts, mcp/auth-store.ts),
+    // so the middle segment is required; a bare `<base>.tmp` has no known writer.
     patterns.push(new RegExp(`(^|\\/)${dir}\\/${base}\\.[^/]*\\.tmp$`));
   }
   return patterns;

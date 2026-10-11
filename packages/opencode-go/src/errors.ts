@@ -1,7 +1,7 @@
 /**
  * Classify OpenCode Go gateway HTTP failures.
  *
- * Upstream shapes observed in the wild (and in anomalyco/opencode):
+ * Observed payload shapes:
  * - 429 with `{ type:"error", error:{ type:"GoUsageLimitError"|"FreeUsageLimitError"|"RateLimitError", message } }`
  * - 429 with OpenAI-style `{ error:{ type:"rate_limit_error", code:"provider_rate_limit_exceeded", message } }`
  * - Occasional 400 with the same rate-limit / quota payload (mis-status from the gateway)
@@ -239,9 +239,8 @@ export function parseGoAPIError(args: {
   const quota = looksLikeQuota(typeName, code, message);
   const rateLimit = !quota && looksLikeRateLimit(typeName, code, message);
 
-  // Quota before auth: the gateway has returned 403 with usage-limit bodies.
-  // Clear quota markers must not be swallowed as unauthorized.
-  // 400 is intentional — the gateway has been observed returning 400 for limit hits.
+  // Quota before auth: the gateway returns 403/400 with usage-limit bodies;
+  // clear quota markers must not be swallowed as unauthorized.
   if (
     quota &&
     (statusCode === 429 ||

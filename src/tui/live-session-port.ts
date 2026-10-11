@@ -1,6 +1,6 @@
 /**
- * Live SessionPort — binds OpenTUI shell outbound actions to injectable
- * host hooks (runner agentProxy send / interrupt / deliver). No React/Ink.
+ * Live SessionPort: binds shell outbound actions to injectable host hooks
+ * (send / interrupt / deliver). No React/Ink.
  */
 
 import type { PendingImageAttachment } from "./image-attachments.js";
@@ -13,9 +13,9 @@ export interface LiveSessionPortDeps {
   /** Idle / immediate user text (plus pending images) → host send path. */
   send: (text: string, attachments?: readonly PendingImageAttachment[]) => void;
   /**
-   * Classify a submit without side effects so the bridge can keep local-only
-   * lines (slash commands, /feedback capture) off the busy/queue path.
-   * Defaults to "agent" when omitted.
+   * Classify a submit without side effects; local-only lines (slash
+   * commands, /feedback capture) stay off the busy/queue path. Defaults
+   * to "agent".
    */
   classifySubmit?: (
     text: string,
@@ -33,9 +33,8 @@ export interface LiveSessionPortDeps {
 }
 
 /**
- * SessionPort that forwards shell outbound actions to host deps.
- * Shell owns mid-run queue state; `enqueue` is a no-op here (kind lives on
- * `QueueItem` and is passed to `deliver` on drain).
+ * Forwards shell outbound actions to host deps. `enqueue` is a no-op: the
+ * shell already enqueued, and the kind lives on `QueueItem` for `deliver`.
  */
 export function createLiveSessionPort(deps: LiveSessionPortDeps): SessionPort {
   return {
@@ -52,7 +51,7 @@ export function createLiveSessionPort(deps: LiveSessionPortDeps): SessionPort {
       deps.send(text, attachments);
     },
     enqueue: (_text: string, _kind: QueueKind): void => {
-      // Shell already enqueued; kind is preserved on QueueItem for deliver.
+      // No-op; the shell already enqueued.
     },
     interrupt: (): void => {
       deps.interrupt();

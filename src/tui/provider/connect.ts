@@ -1,8 +1,7 @@
 /**
- * Inline connect flow for the model picker's Alt+A add-provider selector.
- * Extracted wiring around provider-setup's existing full-screen setup surface
- * (key entry + OAuth login, with its timeout/cancel/failure handling already
- * implemented there) — reused via `initialProviderId`, not reimplemented.
+ * Inline connect flow for the model picker's Alt+A add-provider selector:
+ * wiring around the full-screen setup surface, reused via
+ * `initialProviderId` instead of reimplemented.
  */
 
 import type { Settings } from "../../config/settings.js";
@@ -31,15 +30,16 @@ export interface ConnectProviderInput {
 
 export interface ConnectProviderResult {
   readonly connected: boolean;
-  /** Settings/catalog provider name to select once connected (may differ from `providerId` for OAuth). */
+  /** Settings/catalog provider name to select once connected (may differ
+   * from `providerId` for OAuth). */
   readonly providerName?: string;
   readonly model?: string;
 }
 
 /**
- * Runs the extracted setup surface pinned to one provider and persists the
- * result exactly the way first-run onboarding does. Resolves `connected:
- * false` on cancel (Ctrl+C/Ctrl+D) without writing anything.
+ * Run the setup surface pinned to one provider and persist the result the
+ * same way first-run onboarding does. Cancelling (Ctrl+C/Ctrl+D) resolves
+ * `connected: false` and writes nothing.
  */
 export async function connectProviderInline(
   input: ConnectProviderInput,
@@ -72,8 +72,7 @@ export async function connectProviderInline(
       : {}),
     onSubmit: async (values, setPhase, opts) => {
       // Persistence and validation (empty-key rejection, connection test,
-      // unverified marking) live in the one funnel every provider-setup exit
-      // path shares — see buildProviderSubmitHandler.
+      // unverified marking) live in the one shared exit funnel.
       await submitProvider(values, setPhase, opts);
       result =
         opts.oauth !== undefined

@@ -12,12 +12,11 @@ import { COMMAND_NAME_PATTERN, splitFrontmatter } from "./frontmatter.js";
 // `user-invocable: false` in frontmatter and are not emitted as slash commands.
 // Untagged skills still become slash commands (marketplace BC).
 // `disable-model-invocation` does not affect slash emission — that flag only
-// skips the skill from `discoverSkills` lazy listing. Explicit `use_skill` /
-// `resolveSkillBody` still loads the body by name.
+// skips the skill from `discoverSkills` lazy listing.
 
-// `$ARGUMENTS` (Claude Code convention) interpolates inline when the author used
-// it; otherwise args append after the body so the skill instructions run against
-// the user's target (e.g. an issue id).
+// `$ARGUMENTS` (Claude Code convention) interpolates inline when the author
+// used it; otherwise args append after the body so the skill instructions run
+// against the user's target (e.g. an issue id).
 function buildPrompt(body: string, args: string): string {
   if (body.includes("$ARGUMENTS")) {
     return args.length > 0

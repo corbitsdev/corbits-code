@@ -1,9 +1,7 @@
 /**
- * authority.test.ts proves the assert functions throw when called directly,
- * which is necessary but not sufficient — it does not prove runSubAgent
- * itself cannot be talked into mounting a fleet verb for a caller whose tier
- * cannot be established. These tests drive runSubAgent (the real mount
- * point) end to end.
+ * The direct authority tests prove the assert functions throw, but not that
+ * runSubAgent cannot be talked into mounting a fleet verb for an unknown
+ * tier. These drive runSubAgent, the real mount point, end to end.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -24,17 +22,10 @@ async function tmpCwd(): Promise<string> {
   return tmpSubAgentCwd("cl6941-run-authority-");
 }
 
-// Each mount-gate probe awaits a full runSubAgent cycle whose inference send
-// fails after the mount decisions have run. The send used to target an
-// unreachable host, whose connection-refused failure classifies as retryable
-// — the client burned its full backoff schedule (three attempts with 500ms +
-// 1000ms of fixed sleep) per test, enough to cross bun:test's 5s timeout
-// whenever the randomized suite loaded the machine. A local server answering
-// 401 fails the send as credential_failure, which is never retried, so the
-// cycle costs one local round trip and no timing-sensitive waiting. The 15s
-// per-test timeouts below only absorb machine-load spikes during the
-// full-runtime construction these probes perform; assertions are
-// timing-independent.
+// Each probe runs a full runSubAgent cycle whose inference send fails after
+// the mount decisions have run. A local 401 fails as credential_failure,
+// never retried: one local round trip, no timing-sensitive waiting. The 15s
+// timeouts only absorb machine-load spikes.
 function baseParams(
   cwd: string,
   baseURL = "http://localhost",
@@ -115,10 +106,9 @@ describe("runSubAgent fleet-verb mount gate (CL-6941, fails closed)", () => {
       runSubAgent({
         ...baseParams(cwd),
         orchestrator: true,
-        // No directorId, no orchestratorTier — this is exactly the shape a
-        // project/plugin AgentProfile with orchestrator: true produces.
-        // nestedDispatch is deliberately omitted: the tier gate must reject
-        // before that later "requires nestedDispatch" check is even reached.
+        // No directorId, no orchestratorTier — the shape a project/plugin
+        // AgentProfile with orchestrator: true produces. nestedDispatch is
+        // omitted so the tier gate rejects before the later check runs.
       }),
     ).rejects.toBeInstanceOf(FleetAuthorityError);
   });
@@ -141,9 +131,8 @@ describe("runSubAgent fleet-verb mount gate (CL-6941, fails closed)", () => {
         ...baseParams(cwd),
         orchestrator: true,
         orchestratorTier: "nested-orchestrator",
-        // Deliberately still omit nestedDispatch: a tier that passes the gate
-        // must reach the *next* check (nestedDispatch required) instead of
-        // being denied by assertTierMayMountFleetVerb.
+        // Still omit nestedDispatch: a tier that passes the gate must reach
+        // the next check (nestedDispatch required), not be denied here.
       });
       throw new Error(
         "expected runSubAgent to reject (missing nestedDispatch)",

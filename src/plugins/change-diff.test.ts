@@ -36,9 +36,8 @@ describe("formatChangeDiff", () => {
   });
 
   test("truncation note never pushes the result past the cap at a small boundary", () => {
-    // A tiny maxChars stresses the fixed-point loop in truncate(): the note's
-    // own length (which depends on the digit counts it reports) must still
-    // fit within the cap it is describing.
+    // Tiny maxChars stresses truncate()'s fixed-point loop: the note's own
+    // length (its digit counts) must fit within the cap it describes.
     const before = "a\n".repeat(50);
     const after = "b\n".repeat(50);
 

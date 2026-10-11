@@ -86,8 +86,7 @@ function parseModelPricing(value: unknown): ModelPricing | null {
 /**
  * Recurses through an untyped models.dev JSON tree and yields every node that
  * resolves to a model id, alongside that node. Each `parseModelsDev*` walker
- * below shares this single traversal and only differs in which field it
- * extracts from the yielded node.
+ * below differs only in which field it extracts.
  */
 function* walkModelNodes(
   value: unknown,
@@ -113,8 +112,7 @@ function* walkModelNodes(
 
 /**
  * All per-model fields extracted from one models.dev node in a single pass.
- * The `parseModelsDev*` collectors below share one traversal through
- * `collectModelsDevFields` and only differ in which field they keep.
+ * The `parseModelsDev*` collectors differ only in which field they keep.
  */
 interface ModelsDevModelFields {
   pricing: ModelPricing | null;
@@ -188,7 +186,7 @@ function isPositiveFiniteNumber(value: unknown): value is number {
 /**
  * Validated string-keyed record reader for cache sections: keeps entries
  * whose values pass the guard, drops the rest. Shared by the reasoning and
- * context-window sections of the pricing cache.
+ * context-window cache sections.
  */
 function collectValidatedRecord<T>(
   section: unknown,

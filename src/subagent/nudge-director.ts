@@ -97,10 +97,9 @@ function inferWithSubAgentNudge(
 }
 
 /**
- * Attach the wrap-up nudge to an existing infer action's options rather than
- * building a fresh infer — a tool_use turn must be followed by tool_result,
- * never a bare user turn, so the nudge can only ride the infer that follows
- * once the pending tool calls have actually executed.
+ * Attach the armed nudge to an existing infer instead of building a fresh
+ * one — a tool_use turn must be followed by tool_result, never a bare user
+ * turn, so the nudge rides the infer that follows the pending tool calls.
  */
 function withEphemeralNudge(
   options: ExtendedInferenceOptions | undefined,
@@ -137,79 +136,60 @@ export class SubAgentDirector extends DefaultDirector {
   private readonly requirePlanSubstance: boolean;
   private turnsCompleted = 0;
   private thrashState: ThrashState = EMPTY_THRASH_STATE;
-  // Armed for failed-tool recovery so the
-  // follow-up infer (after pending tool calls from THIS turn have executed)
-  // carries the nudge. Cannot attach the nudge to this turn's own infer: the
-  // model just emitted tool_use blocks, and every provider requires tool_result
-  // before the next turn — a bare nudge here would send an invalid conversation.
-  // Survives both proactive compact (interceptActions leaves pending armed) and
-  // overflow compact (interceptOverflow re-arms from lastConsumedNudgeText if
-  // the infer that consumed pending never completed).
+  // Armed for failed-tool recovery; rides the follow-up infer after this
+  // turn's tool calls execute. A bare nudge turn is invalid while tool_use
+  // blocks await tool_result. Survives compact: interceptActions leaves it
+  // armed, interceptOverflow re-arms from lastConsumedNudgeText.
   private pendingNudgeText: string | null = null;
-  // How many consecutive failed tool.done audits are waiting to be flushed as
-  // one tool-failure-recovery intervention when applyPendingNudge consumes the
-  // pending recovery nudge. Coalesces the audit trail without changing nudge text.
+  // Consecutive failed-tool audits coalesced into one tool-failure-recovery
+  // intervention, flushed when applyPendingNudge consumes the nudge.
   private pendingToolFailureRecoveryCount = 0;
-  // The text applyPendingNudge last attached to a returned infer. Overflow of
-  // that infer means the model never saw it, so interceptOverflow re-arms
-  // pending from this when pending is still null. Cleared on a successful
-  // turn boundary so a later overflow cannot resurrect a nudge the model
-  // already completed.
+  // Text applyPendingNudge last attached to an infer. If that infer
+  // overflowed, the model never saw the nudge, so interceptOverflow re-arms
+  // pending from this. Cleared on a turn boundary so a late overflow cannot
+  // resurrect it.
   private lastConsumedNudgeText: string | null = null;
   // Soft incomplete-report wrap-up is one-shot per run; a second tool-less
   // narration without the envelope salvages as incomplete-report
   // (MAX_TOOLLESS_NARRATION_CYCLES = 2).
   private toolLessNarrationCycles = 0;
-  // One corrective nudge per no-real-tool epoch when the assistant prints
-  // explicit tool-call markup as text instead of issuing a real tool_call.
-  // Cleared only by genuine tool activity or a non-empty parent follow-up.
+  // One nudge per epoch when the assistant prints tool-call markup as text
+  // instead of issuing a real tool_call. Cleared by tool activity or a
+  // non-empty parent follow-up.
   private verbatimToolCallNudgeFired = false;
 
-  // Once this leaf has replied with a terminal report (complete envelope or
-  // salvage), empty continuations from idle-compact / stall must not fall
-  // through to DefaultDirector.infer — that re-opens the brief without a new
-  // parent message (CL-7068). Cleared only by a non-empty parent message
-  // (resume_agent / send_input).
+  // After a terminal report (complete or salvage), empty idle-compact / stall
+  // continuations must not reach DefaultDirector.infer, which re-opens the
+  // brief. Cleared only by a non-empty parent message (resume_agent /
+  // send_input).
   private reportReplied = false;
 
-  // Live getter from run.ts over askDirectorState.pending. Empty stall pings
-  // and compact-continue hops must wait while the ask is parked — same idea as
-  // ChatDirector's unsolicited-empty wait. Optional: tests and non-leaf runs
-  // leave it unset.
+  // Live getter from run.ts over askDirectorState.pending: empty stall pings
+  // and compact hops wait while the ask is parked, like ChatDirector's
+  // unsolicited-empty wait. Unset in tests and non-leaf runs.
   private isAskPending: () => boolean = () => false;
 
-  // Stall management: a leaf that goes quiet (e.g. parked on a long-running
-  // background command with nothing else to do) produces no inbound events
-  // for the director to react to. The reactor has no proactive "idle" event
-  // (directors are pure decide(event, ...) functions — see requestContinuation
-  // above), so the run loop periodically pings this same continuation channel
-  // and the director only acts on a ping if genuinely nothing happened since
-  // the last one. In-flight tool calls are activity, not silence: a ping can
-  // arrive while execute_tools is still running, so pending call ids are
-  // tracked explicitly. Precedence: this check sits below the turn-boundary
-  // stop checks above (evaluateSubAgentStop) — those fire from real
-  // inference.done turns and always take priority; stall pings only ever fire
-  // on a continuation message that inference.done/tool.done handling did not
-  // already consume this cycle.
+  // A quiet leaf (e.g. parked on a long-running background command) emits
+  // no inbound events; directors are pure decide() functions, so the run
+  // loop pings this continuation channel periodically. Only a ping with no
+  // real activity since the last one is silence. Sits below the
+  // turn-boundary stop checks (evaluateSubAgentStop), which take priority.
   private readonly stallTimeoutMs: number | undefined;
   private readonly now: () => number;
   private lastActivityAt: number;
-  // Call ids from the last inference.done that have not yet seen tool.done.
-  // A stall ping mid-execute is not silence.
+  // tool_call ids from the last inference.done that have not yet seen
+  // tool.done; a stall ping mid-execute is not silence.
   private readonly inFlightToolCallIds = new Set<string>();
-  // Wall clock when the first stall nudge was issued. Later empty pings inside
-  // stallTimeoutMs of this instant wait without stopping or restarting grace;
-  // stop only after the grace elapses with no activity. Cleared on real
-  // tool.done / turn-boundary activity.
+  // Time of the first stall nudge. Pings inside stallTimeoutMs of it wait
+  // without restarting grace; stop only after grace elapses with no activity.
+  // Cleared on tool.done / turn-boundary activity.
   private stallNudgeAt: number | undefined;
   private lastAssistantText = "";
-  // Every stop and nudge is recorded with its measured value beside its
-  // threshold, so a later threshold change can cite data instead of judgment
-  //. Defaults to a no-op: logging is diagnostic, never required.
+  // Records every stop/nudge with measured values beside thresholds, so later
+  // threshold changes cite data. No-op by default: logging is diagnostic.
   private interventions: InterventionSink = NOOP_INTERVENTION_SINK;
-  // Structured stop-reason side channel: fired synchronously whenever this
-  // director force-stops, so the caller learns the reason as a typed value
-  // rather than re-parsing the forcedStopReport prose it returns.
+  // Fired synchronously on force-stop so the caller gets the reason as a
+  // typed value instead of re-parsing forcedStopReport prose.
   private onForcedStop: (reason: ForcedStopReason) => void = () => undefined;
 
   /** Route this leaf's stop/nudge decisions to an intervention log. */
@@ -258,9 +238,8 @@ export class SubAgentDirector extends DefaultDirector {
     retryPolicy: RetryPolicy = createCorbitsRetryPolicy(),
     toolDisciplineRules?: string,
   ) {
-    // Composed before super() for the same reason as ChatDirectorImpl: the base
-    // director keeps its own copy and sends that, so anything appended after
-    // super() is never on the wire.
+    // Composed before super() like ChatDirectorImpl: the base director sends
+    // its own copy, so anything appended after super() never reaches the wire.
     const composedPrompt =
       toolDisciplineRules !== undefined && toolDisciplineRules.length > 0
         ? `${systemPrompt}\n\n${toolDisciplineRules}`
@@ -304,9 +283,9 @@ export class SubAgentDirector extends DefaultDirector {
       this.verbatimToolCallNudgeFired = false;
     }
 
-    // Parked ask_director is waiting on the parent, not silent. Wait before
-    // compact resume / stall-nudge so a long park cannot burn a billable
-    // infer, and so an outstanding compact continue is not consumed.
+    // A parked ask waits on the parent, not silence: wait before compact
+    // resume / stall-nudge so a long park cannot burn a billable infer or
+    // consume an outstanding compact continue.
     if (isEmptyContinuation(event) && this.isAskPending()) {
       this.lastActivityAt = this.now();
       this.stallNudgeAt = undefined;
@@ -315,12 +294,12 @@ export class SubAgentDirector extends DefaultDirector {
 
     const afterCompact = this.compaction.resumeAfterCompact(event);
     if (afterCompact !== null) {
-      // Compacted history is the live occupancy until the next provider-
-      // reported inference.done; paint from the estimate in the meantime.
+      // Compacted history is live occupancy until the next inference.done;
+      // paint from the estimate in the meantime.
       this.compaction.notePostCompact(state.turns ?? []);
-      // Idle empty compact only needed the decide re-entry to sync the meter;
-      // stay idle rather than starting an unprompted inference. Same for any
-      // post-compact resume after this leaf already replied its report.
+      // An idle empty compact only needed decide re-entry to sync the meter;
+      // stay idle rather than starting an unprompted inference. Same after a
+      // post-compact resume once this leaf already replied.
       if (afterCompact === "meter" || this.reportReplied)
         return capabilities.wait();
       return this.applyPendingNudge([capabilities.infer()], capabilities);
@@ -332,9 +311,8 @@ export class SubAgentDirector extends DefaultDirector {
     if (idleCompact !== null) return idleCompact;
     const recovery = this.compaction.interceptOverflow(event, capabilities);
     if (recovery !== null) {
-      // The infer that consumed pending never completed, so the model did not
-      // see the nudge. Re-arm it for resumeAfterCompact unless a newer wrap-up
-      // (or other pending) is already waiting.
+      // The consuming infer never completed, so the model never saw the nudge.
+      // Re-arm for resumeAfterCompact unless newer pending is waiting.
       if (
         this.pendingNudgeText === null &&
         this.lastConsumedNudgeText !== null
@@ -344,22 +322,21 @@ export class SubAgentDirector extends DefaultDirector {
       return recovery;
     }
 
-    // After a terminal report reply, empty idle-compact / stall pings must
-    // not reach DefaultDirector (which always infers on message.received).
+    // After a terminal reply, empty idle-compact / stall pings must not reach
+    // DefaultDirector, which always infers on message.received.
     if (this.reportReplied && isEmptyContinuation(event)) {
       return capabilities.wait();
     }
 
     const stallOutcome = this.checkStallPing(event, capabilities);
     if (stallOutcome !== null) return stallOutcome;
-    // Inside the stall window, or with no stall timeout, an empty
-    // continuation is not a model turn. Leave lastActivityAt and
-    // stallNudgeAt alone so the next real silence can still nudge.
+    // Inside the stall window, or with no timeout, an empty continuation is
+    // not a model turn. Leave the silence clock alone so real silence can
+    // still nudge.
     if (isEmptyContinuation(event)) return capabilities.wait();
 
-    // Keep the running local estimate current on every cycle (tool results and
-    // rewrites included). Arming still happens inside noteInferenceDone, which
-    // prefers provider usage when present.
+    // Keep the local estimate current every cycle (tool results and rewrites
+    // included); arming stays in noteInferenceDone, which prefers provider usage.
     this.compaction.syncFromTurns(state.turns);
     if (onTurnBoundary(event)) {
       this.lastConsumedNudgeText = null;
@@ -387,9 +364,8 @@ export class SubAgentDirector extends DefaultDirector {
         }
       }
 
-      // A terminal report (complete or salvage) must not re-enter the
-      // tool-less spiral. Consecutive inference.done turns would otherwise
-      // re-fire incomplete-report-stop. Parent follow-up clears reportReplied.
+      // A terminal report must not re-enter the tool-less spiral: consecutive
+      // inference.done turns would otherwise re-fire incomplete-report-stop.
       if (this.reportReplied && !hasToolCalls) {
         return capabilities.wait();
       }
@@ -420,9 +396,9 @@ export class SubAgentDirector extends DefaultDirector {
         return terminal;
       }
 
-      // Below the stop policy so a finished report that merely quotes
-      // tool-call markup still completes; a markup turn with no envelope
-      // gets the corrective nudge instead of the generic wrap-up one.
+      // Below the stop policy: a finished report that merely quotes markup
+      // still completes; a markup turn with no envelope gets the corrective
+      // nudge instead of the generic wrap-up one.
       if (
         !hasToolCalls &&
         !this.verbatimToolCallNudgeFired &&
@@ -441,8 +417,8 @@ export class SubAgentDirector extends DefaultDirector {
         ];
       }
       if (stop === "incomplete-report") {
-        // Tool-less turn after tools, no report envelope. Must not fall through
-        // to super.decide — DefaultDirector completes any tool-less turn.
+        // Tool-less turn after tools with no envelope; DefaultDirector would
+        // complete it, so handle it here.
         this.toolLessNarrationCycles += 1;
         const stubPlan =
           this.requirePlanSubstance &&
@@ -507,8 +483,8 @@ export class SubAgentDirector extends DefaultDirector {
       this.stallNudgeAt = undefined;
       this.inFlightToolCallIds.delete(event.result.callId);
       if (event.result.isError === true) {
-        // Failed-tool recovery guidance. Arm once; coalesce consecutive failure
-        // audits until applyPendingNudge flushes a single counted record.
+        // Failed-tool recovery: arm the nudge, count the audit. applyPendingNudge
+        // flushes one coalesced record.
         this.pendingNudgeText = TOOL_FAILURE_RECOVERY_NUDGE;
         this.pendingToolFailureRecoveryCount += 1;
       }
@@ -525,19 +501,16 @@ export class SubAgentDirector extends DefaultDirector {
   }
 
   /**
-   * Reacts to the periodic stall-check ping (an empty-content continuation,
-   * same channel compaction uses to re-enter an idle reactor) started by the
-   * run loop when stallTimeoutMs is configured. A ping can arrive while a
-   * tool call is still executing; those in-flight calls reset the silence
-   * clock and wait instead of nudging.
+   * Handle the periodic stall-check ping: an empty-content continuation on
+   * the same channel compaction uses to re-enter an idle reactor, started
+   * when stallTimeoutMs is configured. In-flight tool calls reset the
+   * silence clock and wait instead of nudging.
    *
-   * First silence past the timeout: one continuation nudge, and record
-   * stallNudgeAt. Queued pings that arrive inside the stallTimeoutMs grace
-   * after that nudge neither stop nor restart the grace (and do not count as
-   * activity). Stop only when a ping arrives after the grace with still no
-   * activity. Returns null when this ping is not yet silence, or when stall
-   * timing is unconfigured. decide then waits on an empty continuation
-   * without stamping the silence clock, instead of inferring.
+   * First silence past the timeout: one continuation nudge, record
+   * stallNudgeAt. Pings inside the grace wait; stop only after grace
+   * with still no activity. Returns null when not yet silence or stall
+   * timing is unconfigured, so decide waits without stamping the silence
+   * clock.
    */
   private checkStallPing(
     event: ReactorInboundEvent,
@@ -575,8 +548,7 @@ export class SubAgentDirector extends DefaultDirector {
 
     const sinceNudge = this.now() - this.stallNudgeAt;
     if (sinceNudge < this.stallTimeoutMs) {
-      // Still inside the post-nudge grace. Wait without faking activity or
-      // restarting the grace clock.
+      // Post-nudge grace: wait without faking activity or restarting it.
       return [capabilities.wait()];
     }
 
@@ -607,11 +579,10 @@ export class SubAgentDirector extends DefaultDirector {
   }
 
   /**
-   * Write the coalesced tool-failure-recovery audit once the burst ends —
-   * when the armed nudge lands on an infer, or when the run goes terminal
-   * (complete / forced stop / stalled) with the nudge still undelivered.
-   * Without the terminal-path flush a burst that is never followed by an
-   * infer would vanish from the audit trail entirely.
+   * Write the coalesced tool-failure-recovery audit when the burst ends —
+   * the armed nudge lands on an infer, or the run goes terminal with the
+   * nudge undelivered. Without the terminal flush a burst never followed
+   * by an infer would vanish from the audit trail.
    */
   private flushToolFailureRecoveryAudit(): void {
     if (this.pendingToolFailureRecoveryCount === 0) return;
@@ -626,9 +597,9 @@ export class SubAgentDirector extends DefaultDirector {
   }
 
   /**
-   * Rewrite the infer action in a fall-through actions batch to carry the
-   * armed nudge, once — this matches the infer after report-forced or
-   * failed-tool recovery once pending tool results reach zero.
+   * Attach the armed nudge to the infer in a fall-through actions batch —
+   * the infer after report-forced or failed-tool recovery, once pending
+   * tool results reach zero.
    */
   private applyPendingNudge(
     actions: ReactorAction[],

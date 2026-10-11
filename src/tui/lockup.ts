@@ -1,37 +1,16 @@
 /**
  * The bottom-left status slot: whatever the session is currently doing.
  *
- * It rides the prompt box's bottom border, at the left end, opposite the
- * working directory and branch. There is no status row left to share — the
- * permanent hint strip is gone — and a row is the scarcest thing in a terminal,
- * so the slot buys one of zero. Sitting in the border also means it inherits
- * the box's gutter and its narrow-terminal behaviour for free, and when the
- * rule cannot seat both labels the slot is what goes: the workspace is
- * information, the mark is not.
+ * It rides the prompt box's bottom border. Idle it reads `corbits code`;
+ * while a turn runs it reads the live phase — `thinking`, `responding`,
+ * the running tool's name — led by a single density cell (`rampPulse` in
+ * `ramp.ts`): the word alone printed the same static `working` for a
+ * live run and a hung one. The cell cycles while the turn moves, holds a
+ * static half block on an operator gate, and blinks a bang when stalled
+ * (glyph and motion carry the states — see ramp.ts).
  *
- * Idle it reads `corbits code`; while a turn runs it reads the live phase —
- * `thinking`, `responding`, the running tool's name — led by a single density
- * cell (`rampPulse` in `ramp.ts`) that carries the state the word cannot.
- *
- * The word alone was the original failure: a live run and a hung one printed
- * the same static `working`, so the only way to tell them apart was to wait and
- * see whether anything ever changed. The cell fixes that in one column, which
- * is all the border row can spare. It cycles through the density glyphs while
- * the turn moves, holds one static half block while the turn is blocked on an
- * operator gate, and blinks a bang while the run has gone stalled-silent. Every
- * distinction is a glyph or a motion before it is a color, so the three states
- * separate on a monochrome terminal and at a glance, without reading the word.
- *
- * The cell and the word share `rampFor`'s phase and color rather than
- * re-deriving them, so this slot can never disagree with the phase itself.
- *
- * There is no glyph beyond that cell. Earlier versions carried the mountain
- * here, first as a wide ridgeline and then reduced to three cells; one row has
- * too little vertical range for a silhouette, so the wide form read as a lump
- * and the short form as an anonymous tall-between-two-short. The mark gets its
- * full expression on the landing, where it has the rows to earn it.
- *
- * Pure and clock-injected: `nowMs` in, cells out, no timer.
+ * Cell and word share the phase's color, so the slot never disagrees
+ * with it. Pure and clock-injected: `nowMs` in, cells out.
  */
 
 import { type MarkCell } from "./mark-anim.js";
@@ -72,22 +51,19 @@ export function lockupLabel(phase: string | null): string {
 }
 
 /**
- * Columns the slot paints. Measured off the cells it will actually draw rather
- * than off the label, so the reservation cannot drift from the paint when the
- * pulse is present or the label is wide (CJK) or astral.
+ * Columns the slot paints. Measured off the cells it draws, not the label,
+ * so the reservation cannot drift when the pulse is present or the label
+ * is wide (CJK) or astral.
  */
 export function lockupWidth(input: LockupInput): number {
   return stringWidth(lockupText(lockupCells(input)));
 }
 
 /**
- * The slot as coloured cells, left to right. `still` is the settled state: the
- * idle wordmark at its resting tones, with nothing left to animate.
- *
- * A live turn is led by the phase's single density cell and tinted by the
- * phase's colour; the cell is what makes the state readable without colour.
- * The idle wordmark keeps the neutral crossfade — nothing is running, so there
- * is no phase to draw from.
+ * The slot as coloured cells, left to right. `still` is the settled state:
+ * the idle wordmark at its resting tones, nothing left to animate. A live
+ * turn leads with the phase's density cell and tint; idle keeps the
+ * neutral crossfade because nothing is running to draw a phase from.
  */
 export function lockupCells(input: LockupInput): readonly MarkCell[] {
   const live = (input.phase?.trim().length ?? 0) > 0;
@@ -113,9 +89,9 @@ export function lockupCells(input: LockupInput): readonly MarkCell[] {
 }
 
 /**
- * 0 the moment the text changes, 1 once the fade has run. A settled slot skips
- * it entirely: idle is genuinely still, and the monitor tick that would carry
- * the remaining frames has already stopped by then.
+ * 0 the moment the text changes, 1 once the fade has run. A settled slot
+ * skips it: idle is genuinely still and the monitor tick that would carry
+ * the frames has stopped.
  */
 function fadeProgress(input: LockupInput): number {
   if (input.still) return 1;

@@ -40,10 +40,8 @@ const mockPosixTools = {
   dispose: mockDispose,
 };
 
-// withMockedModule captures each real module and registers its own afterAll
-// restore, so none of these mocks can outlive this file (Bun runs every test
-// file in one process, and an un-restored mock.module silently replaces the
-// real module for every file that runs after this one).
+// withMockedModule restores each mock in afterAll, so none can outlive this
+// file (see testkit/mock-module.ts).
 const mockConnectMCPServer = mock(
   async (
     config: { name: string },
@@ -60,8 +58,8 @@ interface ModuleStub {
   impl: (real: never) => object;
 }
 
-// The sequential stub registrations, table-driven: one entry per mocked
-// module, installed in order through withMockedModule.
+// Table-driven stub registrations: one entry per mocked module, installed in
+// order.
 const MODULE_STUBS: readonly ModuleStub[] = [
   {
     path: import.meta.resolve("@intx/tools-posix"),
@@ -471,8 +469,8 @@ test("default session registers split fleet tools and search_agents", async () =
   const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
   expect(names).not.toContain("task");
   expect(names).toContain("spawn_agent");
-  // CL-7678: default (TUI) session leaves wait_agents unmounted — mailbox mail
-  // is the collect path. Exec primary opts in via mountWaitAgents.
+  // Default (TUI) session leaves wait_agents unmounted — mailbox mail is the
+  // collect path. Exec primary opts in via mountWaitAgents.
   expect(names).not.toContain("wait_agents");
   expect(names).toContain("search_agents");
 });

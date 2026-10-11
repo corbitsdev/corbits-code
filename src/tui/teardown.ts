@@ -3,7 +3,7 @@
  *
  * OpenTUI's `Renderable.destroy()` frees only the node it is called on: it
  * detaches children without destroying them, so every descendant's native
- * TextBuffer stays allocated. Any code that drops a subtree must recurse.
+ * TextBuffer stays allocated. Dropping a subtree must recurse.
  */
 
 interface Destroyable {

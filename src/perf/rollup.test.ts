@@ -27,8 +27,7 @@ import {
 } from "./rollup.js";
 import { span, useCleanSpanStore } from "./fixtures/spans.js";
 
-// The span store is process-wide, so a perf test cannot assume the tests that
-// ran before it in this process left it empty. Reset on both edges.
+// Span store is process-wide: earlier tests may leave it non-empty. Reset both edges.
 useCleanSpanStore();
 
 const ALLOWED_TAG_KEY_SET: ReadonlySet<string> = new Set(ALLOWED_TAG_KEYS);
@@ -404,8 +403,8 @@ describe("privacy fixture", () => {
     end(toolId, { count: 1 });
     end(turnId);
 
-    // Also inject a hand-built span that pretends to carry free text, to prove
-    // serializeSpan re-sanitizes even when the in-memory shape is dirty.
+    // Also inject a hand-built span with free text, to prove serializeSpan
+    // re-sanitizes a dirty in-memory shape.
     const dirty = {
       id: "dirty",
       name: "adapter.transport" as const,

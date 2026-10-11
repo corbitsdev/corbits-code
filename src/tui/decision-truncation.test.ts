@@ -1,8 +1,8 @@
 /**
- * Decision overlays paint bare, single-line choice rows. Labels carry no
- * consequence text — scope hints paint in the body above the list and ride
- * the expand dump — so nothing ever ellipsizes inside a choice, and the fixed
- * two-row budget (label row + row of air) always matches what the list paints.
+ * Decision overlays paint bare, single-line choice rows: labels carry no
+ * consequence text (scope hints paint in the body above and ride the expand
+ * dump), so nothing ellipsizes inside a choice and the fixed two-row budget
+ * always matches what the list paints.
  */
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";

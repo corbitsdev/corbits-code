@@ -1,11 +1,10 @@
 /**
- * CL-5540: the onboarding provider picker and the satellite list modals
- * (session resume, session mode) mount their own renderer and must disable
- * DEC mouse reporting, unlike the main shell, or the terminal never gets
- * button-1 drags to run its own text selection in these pickers. These
- * tests mock `@opentui/core` so the real (non-test-injected)
- * `createCliRenderer` branch runs, and assert on the options it was
- * actually called with.
+ * The onboarding provider picker and the satellite list modals (session
+ * resume, session mode) mount their own renderer and must disable DEC mouse
+ * reporting, unlike the main shell, or the terminal never gets button-1
+ * drags to run its own text selection in these pickers. These tests mock
+ * `@opentui/core` so the real `createCliRenderer` branch runs, and assert on
+ * the options it was actually called with.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { Harness } from "./harness.js";
@@ -21,8 +20,8 @@ const mountedHarnesses: Harness[] = [];
 
 // The mock must be registered before anything (including this file's own
 // helpers) does a real `@opentui/core` import, or that import wins the module
-// cache and the mock never takes effect. Every dependency below is loaded
-// with a dynamic `import()` after the mock is installed for that reason.
+// cache and the mock never takes effect. Every dependency below loads via a
+// dynamic `import()` after the mock for that reason.
 await withMockedModule(
   import.meta.resolve("@opentui/core"),
   (real: typeof import("@opentui/core")) => ({

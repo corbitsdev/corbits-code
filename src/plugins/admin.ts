@@ -63,7 +63,6 @@ export interface PluginsAdmin {
   // enabled:false (never deletes settings.plugins[id]) so in-session command
   // gating holds. Owned disk installs delete the directory; path also drops
   // unique pluginPaths; bundled stays listed; Claude-unowned never deletes
-  // ~/.claude. Disk/path entries are still removed so the plugin is gone after
-  // restart.
+  // ~/.claude.
   remove: (id: string) => Promise<VerifyResult>;
 }

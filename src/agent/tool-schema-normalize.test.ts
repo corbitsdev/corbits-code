@@ -83,9 +83,9 @@ describe("normalizeToolDefinitionsForProvider", () => {
   });
 
   test("kimi advertise payload is the exact Moonshot wire shape (pinned fixture, no live Moonshot)", () => {
-    // This is the advertise payload Moonshot receives for tools.function.parameters
-    // on `present` after normalizeToolDefinitionsForProvider — recorded so the
-    // contract cannot drift without a deliberate fixture update.
+    // The advertise payload Moonshot receives for tools.function.parameters
+    // on `present` after normalizeToolDefinitionsForProvider — recorded so
+    // the contract cannot drift without a deliberate fixture update.
     const out = normalizeToolDefinitionsForProvider(defs, {
       providerName: "moonshot",
       model: "kimi-k2",

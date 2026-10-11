@@ -53,7 +53,8 @@ describe("createApprovalLog", () => {
     now += 100; // operator decides
     ask.settle("allow-with-scope");
 
-    // Appends are fire-and-forget; await the log's tail so the read sees them.
+    // Appends are fire-and-forget; await the log's tail so the read sees
+    // them.
     await log.flush();
 
     const [record] = readRecords(dir);
@@ -169,13 +170,10 @@ describe("approval-log wiring through the permission gate", () => {
     expect(defined(record).rule).toBe("non-interactive");
   });
 
-  // A sub-agent's `spawn_agent` dispatch `description` is model-authored free text
-  // — it is only ever trimmed, never constrained to a
-  // closed set. A prior version of this log carried it verbatim as
-  // `agentLabel`. It must never reach the record: unlike `rule` (a fixed
-  // taxonomy) and `segments` (a count), nothing stops a model from quoting a
-  // path, a token, or secret content it just read into its own summary of the
-  // sub-task.
+  // A sub-agent's `spawn_agent` dispatch `description` is model-authored
+  // free text — only trimmed, never constrained to a closed set. A prior
+  // version logged it verbatim as `agentLabel`; it must never reach the
+  // record: a model can quote a path, token, or secret into its own summary.
   test("never logs a sub-agent's free-text dispatch description, even with a secret embedded", async () => {
     const { runWithSubAgentIdentity } =
       await import("../subagent/identity-context.js");
@@ -218,7 +216,7 @@ describe("approval-log record size cap", () => {
   test("drops a record that would exceed the hard size cap rather than truncate it", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-cap-"));
     const log = createApprovalLog(dir);
-    // `rule` is a real, typed field — simulate a future regression where some
+    // `rule` is a real, typed field — simulate a future regression where a
     // caller stuffs unbounded text into it instead of the closed taxonomy.
     // The cap must catch that even though the type system would not.
     const ask = log.ask({

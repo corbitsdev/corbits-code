@@ -71,8 +71,8 @@ const emberShadow: ColorValue = { hex: "#3d2a28", ansi256: 52 };
 const coolGray: ColorValue = { hex: "#45454a", ansi256: 238 };
 // Status-card washes for tool rows: a bare tint over bedrockCharcoal, one step
 // up in lightness so the row reads as "tinted" rather than a lit panel. Kept
-// close in luminance to the surface color deliberately — a state change
-// should be noticeable at a glance, not compete with foreground text.
+// close to the surface luminance on purpose — a state change should be
+// noticeable at a glance, not compete with foreground text.
 const pendingWash: ColorValue = { hex: "#21303a", ansi256: 24 };
 const successWash: ColorValue = { hex: "#20291f", ansi256: 22 };
 const errorWash: ColorValue = { hex: "#2e2020", ansi256: 52 };

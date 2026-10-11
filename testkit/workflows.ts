@@ -5,11 +5,10 @@ import {
   registerWorkflowPlugin,
 } from "../src/workflows/index.js";
 
-// Sample workflows for runtime unit tests. The `Workflow` shape is plain data,
-// so these live inline rather than depending on any bundled plugin. They
-// exercise the paths the runtime tests assert on: an optional capability-gated
-// step, a sub-workflow chain (build -> review), parallel agent steps, and a
-// terminal gate.
+// Sample workflows for runtime unit tests. `Workflow` is plain data, so these
+// live inline rather than depending on any bundled plugin, and they exercise
+// the paths the runtime tests assert on: an optional capability-gated step, a
+// sub-workflow chain (build -> review), parallel agent steps, a terminal gate.
 
 const scope: Workflow = {
   name: "scope",

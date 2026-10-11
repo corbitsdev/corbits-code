@@ -167,9 +167,8 @@ export function createBoundedModelCatalog(args: {
 
   async function runPrefetch(): Promise<readonly string[]> {
     const state = await discoverModels();
-    // Empty/unavailable/malformed leave a successful snapshot in place:
-    // stale-but-live beats empty, and a cold failure still falls through
-    // to the packaged seed.
+    // Empty/unavailable/malformed leave the successful snapshot in place:
+    // stale-but-live beats empty; a cold failure falls back to the seed.
     if (state.status === "models") {
       snapshot = state.models;
     }
@@ -182,10 +181,9 @@ export function createBoundedModelCatalog(args: {
     const pending = runPrefetch();
     inflight = pending;
     // Clear inflight on settle so a later prefetch can recover instead of
-    // replaying the first settlement forever. .then(cleanup, cleanup)
-    // instead of .finally() avoids an abandoned promise chain whose
-    // pass-through rejection could become an unhandled rejection — callers
-    // await the original pending promise.
+    // replaying the first settlement forever. .then(cleanup, cleanup) rather
+    // than .finally() avoids an abandoned chain whose pass-through rejection
+    // could become unhandled — callers await the original pending promise.
     const cleanup = (): void => {
       if (inflight === pending) {
         inflight = undefined;

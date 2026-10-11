@@ -6,9 +6,6 @@
  * Priority (high → low): overlay (incl. palette) > entered observe > shell.
  * Esc pops exactly one level and restores the recorded prior frame's focus
  * and scroll lease.
- *
- * Opening palette while an overlay is already open: **stack** (not replace).
- * Single Esc path — one pop closes palette, next pop closes the prior overlay.
  */
 
 import type {
@@ -74,10 +71,9 @@ export function openOverlay(
 }
 
 /**
- * Enter subagent observe. Child transcript takes the scroll lease.
- * Parent prompt does not receive typing while observe is top.
- * If overlays sit above shell, observe is inserted above shell and below
- * any overlays so overlay priority is preserved.
+ * Enter subagent observe. Child transcript takes the scroll lease; the parent
+ * prompt does not receive typing while observe is top. If overlays sit above
+ * shell, observe is inserted below them so overlay priority is preserved.
  */
 export function openObserve(state: FocusState, id: string): FocusState {
   const observeFrame: FocusFrame = {

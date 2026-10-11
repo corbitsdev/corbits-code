@@ -1,18 +1,13 @@
-// CL-8220: abort-aware compaction lifecycle.
+// Abort-aware compaction lifecycle. The post-compaction TUI wedge parks
+// inside the vendored reactor's `await compactor.apply(...)`, where the
+// abort hop queues behind it, unreachable. The reactor offers no abort seam
+// there, so the bound lives here instead of a vendor fork: `wrapCompactor`
+// races the inner apply against the session compact signal, and the summary
+// call is cancellable via the summarizer's existing `getSignal` seam.
 //
-// Diagnosis: the post-compaction TUI wedge parks inside the vendored reactor's
-// `await compactor.apply(...)` (vendor/intx-inference/src/reactor.ts
-// executeCompact) — the abort hop queues behind it, unreachable. The reactor
-// offers no abort seam there, but the host owns the injected `Compactor`, so
-// the bound lives here instead of a vendor fork: `wrapCompactor` races the
-// inner apply against the session compact signal, and the summary call itself
-// is cancellable through the summarizer's existing `getSignal` seam
-// (see summarizer.ts `ModelSummarizerOptions.getSignal`).
-//
-// On abort the wrapper returns a no-op result (input turns unchanged, no
-// blobs) so executeCompact still runs its local write/commit path and the
-// reactor returns to dequeue — no continuation hop is dropped, the loop just
-// resumes from the pre-compact context.
+// On abort the wrapper returns a no-op result (turns unchanged, no blobs),
+// so executeCompact still runs its local write/commit path and the reactor
+// returns to dequeue — no continuation hop is dropped.
 
 import type {
   Compactor,
@@ -35,9 +30,9 @@ export interface CompactionLifecycleEvents {
 }
 
 /**
- * CL-8220 checkbox 3: the visible in-progress indicator. Maps lifecycle
- * events onto operator-facing notices so a long summarize never looks like a
- * stall; a cut-short pass says so instead of going silent.
+ * The visible in-progress indicator. Maps lifecycle events onto
+ * operator-facing notices so a long summarize never looks like a stall; a
+ * cut-short pass says so instead of going silent.
  */
 export function createCompactionEventNotices(
   notify: (text: string) => void,
@@ -95,7 +90,6 @@ export function createCompactionLifecycle(
   // compact started) would clear the newer compact's in-flight flag and emit
   // a duplicate end event for a compact that is already over.
   let generation = 0;
-
   return {
     getSignal: () => controller.signal,
     isCompacting: () => compacting,
@@ -114,7 +108,7 @@ export function createCompactionLifecycle(
         const signal = controller.signal;
         // Aborted before start (e.g. interrupt landed ahead of a threshold
         // compact): skip the inner run entirely, without lifecycle events —
-        // the interrupting path already told the operator what happened.
+        // the interrupting path already told the operator.
         if (signal.aborted) return abortedResult(inner, turns);
         generation += 1;
         const settledGeneration = generation;
@@ -149,9 +143,8 @@ export function createCompactionLifecycle(
               signal.removeEventListener("abort", onAbort);
           }
         } finally {
-          // A stale settle (abort + reset + a newer compact started while
-          // this one was still in flight) must not clear the newer compact's
-          // flag or emit an end event for a compact that is already over.
+          // Guard against the stale settle described above: only a current
+          // generation clears the flag or emits the end event.
           if (settledGeneration === generation) {
             compacting = false;
             events.onCompactionEnd?.({ aborted });

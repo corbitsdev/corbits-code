@@ -74,7 +74,6 @@ describe("path-trust (global)", () => {
     try {
       const pluginPath = "/opt/shared/plugin";
       await trustPathPlugin(pluginPath, home);
-      // Same home store is visible regardless of which repo cwd we pretend to use.
       const store = await loadPathTrust(home);
       expect(isPathPluginTrusted(store, pluginPath)).toBe(true);
     } finally {
@@ -96,7 +95,7 @@ describe("path-trust (global)", () => {
       expect(isPathPluginTrusted(first, plugin)).toBe(true);
       expect((await readPathTrustStore(home)).state).toBe("valid");
 
-      // Second boot with extra path must NOT auto-grant the newcomer.
+      // Second boot with an extra path must not auto-grant the newcomer.
       const extra = join(home, "shared", "newcomer");
       const second = await migratePathTrustFromPluginPaths(
         [plugin, extra],
@@ -204,8 +203,8 @@ describe("path-trust (global)", () => {
       expect(isPathPluginTrusted(afterRevoke, a)).toBe(false);
       expect(isPathPluginTrusted(afterRevoke, b)).toBe(true);
 
-      // Revoking the last grant must leave a valid empty store behind:
-      // deleting the file would re-trigger migration and re-seed the grants.
+      // Revoking the last grant leaves an empty store: deleting the file would
+      // re-trigger migration and re-seed.
       const emptied = await revokePathPlugin(b, home);
       expect(emptied.trustedPluginPaths).toEqual([]);
       expect((await readPathTrustStore(home)).state).toBe("valid");
@@ -343,9 +342,8 @@ describe("path-trust (global)", () => {
       const hostileCwd = join(home, "..", "hostile-repo");
       const plugin = join(hostileCwd, "vendor-plugins", "p");
 
-      // A relative entry must never mint a grant, regardless of what
-      // resolveMembers would hand back for it — the migration itself is the
-      // layer responsible for dropping relative entries.
+      // A relative entry must never mint a grant, whatever resolveMembers
+      // would hand back — the migration drops them itself.
       const store = await migratePathTrustFromPluginPaths(
         ["vendor-plugins/p"],
         async () => [plugin],

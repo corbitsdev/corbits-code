@@ -83,7 +83,7 @@ describe("DISPATCH_TOOLS / ORCHESTRATOR_TOOLS", () => {
     }
   });
 
-  // CL-7051: fleet discovery is Tier-1 only.
+  // Fleet discovery is Tier-1 only.
   test("search_agents is on Dispatch only, not the nested orchestrator surface", () => {
     expect(DISPATCH_TOOLS as readonly string[]).toContain("search_agents");
     expect(DISPATCH_TOOLS as readonly string[]).toContain("search_agents");

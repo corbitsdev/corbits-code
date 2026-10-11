@@ -1,13 +1,7 @@
-/**
- * Advertised tool names are a projection of registry engine ids that depends
- * on the model family: each family sees exactly one name per tool, the one it
- * was trained on. Incoming calls accept every name any profile advertises, so
- * dispatch, grants, and history replay never depend on the active profile.
- *
- * default (industry-common): read write edit delete bash glob todowrite skill
- *   webfetch websearch question
- * gpt (Codex): default, except shell, update_plan, wait
- */
+// Advertised tool names are a projection of registry engine ids by model
+// family: each family sees exactly one name per tool, the one it was trained
+// on. Incoming calls accept every name any profile advertises, so dispatch,
+// grants, and history replay never depend on the active profile.
 
 import { type } from "arktype";
 import type { ToolCall, ToolDefinition } from "@intx/types/runtime";
@@ -55,11 +49,8 @@ const PATCH_FOLDED_ENGINES: ReadonlySet<string> = new Set([
   "delete_file",
 ]);
 
-/**
- * gpt models are trained on apply_patch, not write/edit/delete. Replace the
- * first folded name with apply_patch and drop the rest; other profiles and
- * lists with no file-mutation tool pass through unchanged.
- */
+/** gpt models are trained on apply_patch, not write/edit/delete. Other
+ * profiles and lists without a file-mutation tool pass through unchanged. */
 export function foldFileToolNames(
   names: readonly string[],
   profile: ToolProfile,
@@ -136,10 +127,8 @@ export function advertisedToolName(
   return table[engine] ?? engine;
 }
 
-/**
- * True when `name` (wire, engine, or hidden alias) is covered by an advertised
- * or activated listing that may itself be stored as either wire or engine ids.
- */
+/** True when `name` (wire, engine, or hidden alias) is covered by an
+ * advertised or activated listing (which may store wire or engine ids). */
 export function nameMatchesAdvertisedListing(
   name: string,
   isListed: (candidate: string) => boolean,
@@ -151,9 +140,9 @@ export function nameMatchesAdvertisedListing(
   return wire !== name && isListed(wire);
 }
 
-// update_plan dispatches through translateUpdatePlanArgs, which only accepts
-// the Codex { plan: [{ step, status }] } shape. Advertising manage_tasks's
-// schema under that name sends the model into a rejected-call loop.
+// update_plan dispatches through translateUpdatePlanArgs, so advertising
+// manage_tasks's schema under that name sends the model into a rejected-call
+// loop.
 const UPDATE_PLAN_DEFINITION = {
   description:
     "Your work checklist for multi-step jobs. Send the full plan each call; keep at most one step in_progress. Skip for one-step work.",
@@ -199,17 +188,11 @@ export function projectToolDefinitions(
   return defs.map((def) => projectToolDefinition(def, profile));
 }
 
-/**
- * Authz parity definitions: every def unchanged, plus one `{...def, name:
- * alias}` copy for each alias in ALIAS_TO_ENGINE whose engine equals the
- * def's canonical name. The reactor authz snapshot is keyed by parked wire
- * name, so without these copies an ask-tier `bash`/`shell` call throws a
- * wiring-defect error instead of suspending.
- *
- * `update_plan` is never snapshotted: its grant is create-only narrow, so no
- * `update_plan`-named copy is emitted. Non-aliased defs (MCP, leaf-only)
- * pass through unchanged. Output is deduplicated by name.
- */
+/** Authz parity: the reactor authz snapshot is keyed by parked wire name,
+ * so without per-alias copies an ask-tier `bash`/`shell` call throws a
+ * wiring-defect error instead of suspending. `update_plan` is never
+ * snapshotted (its grant is create-only narrow); non-aliased defs (MCP,
+ * leaf-only) pass through. */
 export function authzParityDefinitions(
   defs: readonly ToolDefinition[],
 ): ToolDefinition[] {
@@ -232,13 +215,8 @@ export function authzParityDefinitions(
   return out;
 }
 
-/**
- * Thin wrapper over a tool bundle (e.g. DynamicToolRunner): identical except
- * the `definitions` getter returns `authzParityDefinitions` over the live
- * set. Run/dispatch and mutation entry points delegate verbatim — only the
- * authz-facing definition set gains parity copies. The advertised wire set
- * is untouched (advertise still projects through computeAdvertised).
- */
+/** Tool bundle wrapper (e.g. DynamicToolRunner): identical except the
+ * `definitions` getter returns `authzParityDefinitions` over the live set. */
 export function withAuthzParityDefinitions<
   T extends { readonly definitions: readonly ToolDefinition[] },
 >(bundle: T): T {
@@ -267,10 +245,8 @@ export function shellQuote(arg: string): string {
   return `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
-/**
- * Codex `shell` sends `command` as a string or argv array. `run_shell` takes a
- * single shell string. Unwrap `[shell, "-lc"|"-c", script]` to the script.
- */
+/** Codex `shell` sends `command` as a string or argv array, while
+ * `run_shell` takes a single shell string. */
 export function normalizeShellCommand(command: string | string[]): string {
   if (typeof command === "string") return command;
   const wrapper = command[0];
@@ -364,10 +340,8 @@ function incomingAlias(requested: string): string {
   return name;
 }
 
-/**
- * Coerce hidden Codex-shaped arguments onto the engine tool, and rewrite the
- * dispatched name to the engine id. Callers pass the already-resolved engine.
- */
+/** Coerce hidden Codex-shaped arguments onto the engine tool. Callers pass
+ * the already-resolved engine. */
 export function prepareDispatchedToolCall(
   call: ToolCall,
   engine: string,

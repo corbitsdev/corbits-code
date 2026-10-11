@@ -1,13 +1,12 @@
 /**
  * runSubAgent mounts skill_search + use_skill on every worker, scoped to the
  * dispatch's allowedSkillNames (union of attachedSkills and optionalSkills).
- * The scope cannot widen: use_skill refuses names outside the allowlist
- * (CL-6803 stays closed) and skill_search hides them. Plugin skillDirs are
- * threaded through so bundled corbits-skills resolve.
+ * The scope cannot widen: use_skill refuses names outside the allowlist and
+ * skill_search hides them. Plugin skillDirs thread through so bundled
+ * corbits-skills resolve.
  *
  * Pattern follows run-authority.test.ts: drive the real runSubAgent with
- * failing inference (mount decisions run before the send) while wrapping the
- * real skill factories to capture the mounted tools.
+ * failing inference while wrapping the skill factories to capture mounts.
  */
 import { describe, expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -162,7 +161,7 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
     const found = await searchTool?.handler({ query: "style" }, signal);
     expect(found).toContain("- style: Code style rules.");
 
-    // Out-of-scope names refuse — CL-6803 stays closed.
+    // Out-of-scope names refuse.
     expect(await useSkillTool?.handler({ name: "off-lane" }, signal)).toBe(
       'No skill named "off-lane" is available.',
     );

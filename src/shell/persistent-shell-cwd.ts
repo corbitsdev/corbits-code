@@ -74,8 +74,8 @@ export function shellCwdEscapesSessionMessage(cwd: string): string {
 }
 
 export interface ResolvePerCallShellCwdOptions {
-  // When true (--dangerously-skip-permissions), accept a cwd outside the session
-  // root. Default false keeps the hard session fence.
+  // When true (--dangerously-skip-permissions), accept a cwd outside the
+  // session root; default false keeps the hard session fence.
   allowOutsideSession?: boolean;
 }
 

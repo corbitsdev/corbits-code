@@ -1,11 +1,9 @@
-// Verify pass for compaction folds.
-//
-// After the compactor writes a summary handoff, this module scores the new
-// spine against the continuation facts the dropped turns carried (goal,
-// next action, constraints, verification, blockers, exact names).
-// A fold that drops or contradicts those facts would leave the next agent
-// without steam, so the pass repairs the handoff deterministically or aborts
-// the fold. Fail closed: never ship a lying spine.
+// Verify pass for compaction folds: score the new spine against the
+// continuation facts the dropped turns carried (goal, next action,
+// constraints, verification, blockers, exact names). A fold that drops or
+// contradicts those facts leaves the next agent without steam, so the pass
+// repairs the handoff deterministically or aborts the fold. Fail closed:
+// never ship a lying spine.
 
 import { type } from "arktype";
 import type { ConversationTurn } from "@intx/types/runtime";
@@ -54,8 +52,8 @@ export interface VerifyOutcome {
 
 export const VERIFY_REPAIR_HEADING = "## Carry-forward (verify repair)";
 
-// Words that carry no identifying signal. Kept small on purpose: the scorer
-// compares content words, and every extra stopword is a false mismatch.
+// Words with no identifying signal. Kept small: every extra stopword is a
+// false mismatch.
 const STOPWORDS = new Set([
   "the",
   "a",
@@ -128,10 +126,9 @@ function significantTokens(text: string, cap = 24): string[] {
 }
 
 // A strict majority of the fact's content words must appear in the summary.
-// Short facts need all of their words: one shared word proves nothing.
-// Match on token boundaries so "auth" does not score against "authored",
-// hyphenated "pre-auth", or dotted "foo.auth". An interior `.` joins a
-// dotted name; a sentence period does not.
+// Short facts need all of their words: one shared word proves nothing. Match
+// on token boundaries so "auth" does not score against "authored",
+// "pre-auth", or "foo.auth".
 function isNameChar(ch: string | undefined): boolean {
   if (ch === undefined) return false;
   const code = ch.charCodeAt(0);
@@ -257,8 +254,8 @@ function hostnameOf(url: string): string | undefined {
 }
 
 // User-text URLs sit next to sentence punct (`Call HTTP://API.COM.`).
-// `new URL` keeps a trailing `.` in the hostname, so a summary that
-// names `api.com` would miss the exactName.
+// `new URL` keeps a trailing `.` in the hostname, so a summary naming
+// `api.com` would miss the exactName.
 function stripUrlGlue(match: string): string {
   return match.replace(/[.,;:!]+$/, "");
 }
@@ -323,12 +320,10 @@ export function extractContinuationFacts(
   return parsed;
 }
 
-// Basename for paths (a summary that moves `src/auth.ts` to "auth.ts" still
-// names it); hostname for URLs (query strings get reworded freely).
-// Match on token/path boundaries so "oauth.ts" does not cover "auth.ts",
-// "vite.config.ts" does not cover "config.ts", and "www.api.com" does not
-// cover hostname "api.com". `/` stays a non-token so a path still covers
-// its basename.
+// Basename for paths (a summary moving `src/auth.ts` to "auth.ts" still
+// names it); hostname for URLs (query strings get reworded freely). Match
+// on token/path boundaries so "oauth.ts" does not cover "auth.ts" and
+// "www.api.com" does not cover hostname "api.com".
 function exactNameSupported(name: string, summary: string): boolean {
   const lowered = summary.toLowerCase();
   const loweredName = name.toLowerCase();
@@ -397,7 +392,7 @@ export function verifyCompactionSummary(
 }
 
 /**
- * Deterministic rewrite: append the missing facts verbatim under a repair
+ * Deterministic rewrite: append missing facts verbatim under a repair
  * heading so the next agent resumes with names and wording intact.
  */
 export function repairSummary(
@@ -441,8 +436,8 @@ export function repairSummary(
 }
 
 /**
- * Verify a candidate handoff, repairing once or aborting the fold.
- * A contradiction aborts outright: an appended correction cannot retract the
+ * Verify a candidate handoff, repairing once or aborting the fold. A
+ * contradiction aborts outright: an appended correction cannot retract the
  * handoff's false denial. A truncating repair that still misses any fact
  * aborts too — never ship a lying spine.
  */

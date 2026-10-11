@@ -69,8 +69,7 @@ describe("thrash pure module", () => {
   test("nextThrashState is pure and accumulates across turns", () => {
     let state = EMPTY_THRASH_STATE;
     state = nextThrashState(state, [read("a.ts")]);
-    // An edit no longer erases read evidence: readCounts is the requireEvidence
-    // record, not a thrash counter.
+    // Edits keep read evidence: readCounts is the requireEvidence record, not a thrash counter.
     state = nextThrashState(state, [edit("a.ts")]);
     expect(state.readCounts.get("a.ts")).toBe(1);
     state = nextThrashState(state, [read("a.ts"), read("a.ts")]);
@@ -124,8 +123,7 @@ describe("thrash pure module", () => {
       read("src/big.ts", { offset: i * 50, limit: 50 }),
     );
     const state = applyAll(chain);
-    // Rising offsets key every window distinctly: no single key accumulates
-    // the chain, so an offset chain never reads as "same path, many calls".
+    // Rising offsets key windows distinctly, so a chain never reads as one path repeated.
     expect(state.readCounts.size).toBe(12);
     for (let i = 0; i < 12; i++) {
       expect(state.readCounts.get(`src/big.ts::${i * 50}:50`)).toBe(1);
@@ -140,9 +138,7 @@ describe("thrash pure module", () => {
   });
 
   test("wire names classify onto the same evidence as engine names", () => {
-    // Persisted blocks keep the name the model emitted on the wire; the
-    // evidence sets are engine-keyed, so wire names must canonicalize or
-    // every advertised call slips past read/search/mutation tracking.
+    // Wire names must canonicalize onto engine keys or calls slip past tracking.
     const state = applyAll([
       {
         type: "tool_call",

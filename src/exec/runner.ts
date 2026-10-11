@@ -190,8 +190,7 @@ function execTerminalProviderFailureMessage(
   return terminalProviderFailureMessage(providerId, diagnostic, displayLabel);
 }
 
-// Unwraps a Codex refresh-lock failure whether it arrives raw or as the
-// cause of a SELECTED_PROVIDER_FAILURE wrapper.
+// Codex refresh-lock failure, raw or wrapped in SELECTED_PROVIDER_FAILURE.
 function codexRefreshLockFailure(err: unknown): CodexRefreshLockError | null {
   if (err instanceof CodexRefreshLockError) return err;
   if (
@@ -209,18 +208,14 @@ export function execUserFailureMessage(
   providerFailureObserved: boolean,
   providerError?: InferenceErrorLike,
 ): string {
-  // A Codex refresh blocked on the inter-process lock arrives raw (pre-send,
-  // no SELECTED wrapper) or as the cause of a SELECTED_PROVIDER_FAILURE (the
-  // first-inference refresh at exec start). Either way it keeps its own lock
-  // message: mapping it to the generic re-login hint would send the operator
-  // into a futile loop that never removes the lock file.
+  // A locked Codex refresh keeps its own lock message: the generic re-login
+  // hint would loop forever on the lock file.
   const lockFailure = codexRefreshLockFailure(err);
   if (lockFailure !== null) return lockFailure.message;
   if (err instanceof Error && err.name === SELECTED_PROVIDER_FAILURE) {
     return CREDENTIAL_FAILURE_USER_MESSAGE;
   }
-  // A pre-send Codex refresh throws the raw auth error (no SELECTED wrapper):
-  // a failed refresh is still a credential failure with a re-login hint.
+  // A failed pre-send refresh is still a credential failure with a re-login hint.
   if (codexAuthFailureDiagnostic(err) !== null) {
     return CREDENTIAL_FAILURE_USER_MESSAGE;
   }
@@ -237,9 +232,9 @@ export function execUserFailureMessage(
 }
 
 /**
- * Exec-primary director overlay. Omit / dispatch keep the product default
- * (`loadSessionChatPrompt` + advertised session tools). Any other closed-fleet
- * id uses the package prompt and allowlist. Worker effort/nudge are not applied.
+ * Exec director overlay. `dispatch`/omit keeps the product default; any
+ * other director id uses the package prompt and allowlist. Worker
+ * effort/nudge are not applied.
  */
 export interface ExecDirectorOverlay {
   /** Package system prompt; omitted on the dispatch default path. */
@@ -259,10 +254,8 @@ export function resolveExecDirectorOverlay(
 }
 
 /**
- * Single enforcement point for the exec allowlist. Everything the overlay
- * permits — tool_search results, promoter activation, onToolsActivate, the
- * call gate — flows through here, so a tool outside the allow can never
- * become callable.
+ * Single gate for the exec allowlist: tool_search, promoter activation,
+ * onToolsActivate, and the call gate; outside-allow tools stay uncallable.
  */
 export function isExecOverlayToolAllowed(
   overlay: ExecDirectorOverlay,
@@ -302,9 +295,8 @@ export function resolveExecDirectorOverlayForPackage(
       ? pkg.spawn.maySpawn
         ? [
             ...allowed,
-            // Exec mounts wait_agents beside the fleet verbs (mountWaitAgents),
-            // so it stays advertised here even though the package allow omits
-            // it for TUI/nested mailbox-mail collection.
+            // Exec mounts wait_agents (mountWaitAgents) even though the
+            // package allow omits it for TUI/nested mailbox-mail collection.
             ...(!allowed.includes("wait_agents") ? ["wait_agents"] : []),
           ]
         : allowed.filter(
@@ -330,10 +322,8 @@ export function resolveExecDirectorOverlayForPackage(
 }
 
 /**
- * Build the inbound message for exec's one genuine operator input: the
- * initial task supplied on the command line. Carries
- * OPERATOR_ORIGINATED_FLAG so director.ts's loop-protection backstop can
- * tell this apart from system-originated sends.
+ * Inbound message for the task. Carries OPERATOR_ORIGINATED_FLAG so the
+ * director's loop-protection backstop can tell it from system-originated sends.
  */
 function operatorTaskMessage(task: string): InboundMessage {
   return {
@@ -375,9 +365,9 @@ export interface ExecResult {
 }
 
 /**
- * Builds the `session_end` payload for exec runs, mirroring the TUI exit
- * reporter's status/exit_reason contract. Falls back to the live turn count
- * and wall clock when the run never produced a result.
+ * `session_end` payload for exec runs, mirroring the TUI exit reporter's
+ * status/exit_reason contract; falls back to live turn count and wall clock
+ * when the run produced no result.
  */
 export function execSessionEndProperties(
   result: ExecResult | undefined,
@@ -425,16 +415,13 @@ export function createExecToolPromoter(args: {
 }
 
 /**
- * Product non-TUI agent path (`corbits exec "prompt"`).
- *
- * Shares the same ChatDirector, toolset, permission gate, session mode, and
- * sub-agent surface as the TUI — without Ink. Bootstrap consumes the shared
- * session assembly in src/session/assemble-runtime.ts; see
+ * Non-TUI agent path (`corbits exec "prompt"`): the same director, toolset,
+ * permission gate, session mode, and sub-agent surface as the TUI, without
+ * Ink. Assembly lives in src/session/assemble-runtime.ts; see
  * docs/ARCHITECTURE.md "Exec Runner" for the intentional deltas.
  *
- * Operator/permission prompts use stdin when a TTY is available; otherwise
- * they deny (fail closed) unless `--dangerously-skip-permissions` / auto
- * grants cover the action.
+ * Prompts read stdin when a TTY is available; otherwise asks fail closed
+ * unless `--dangerously-skip-permissions` / auto grants cover them.
  */
 export async function runExec(config: Config): Promise<ExecResult> {
   const task = config.task.trim();
@@ -459,10 +446,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
       provider: config.providerName,
       model: config.model,
     };
-    // Deliberate funnel gap: a missing prompt is a usage error (exit 2) and
-    // no run ever started, so there is no session to close. Emitting a
-    // failed session_end here would pollute failed counts with invocations
-    // that never ran.
+    // A missing prompt starts no run: no session to close, and a failed
+    // session_end would pollute failed counts.
     return result;
   }
 
@@ -470,10 +455,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
     config.sessionId.length > 0 ? config.sessionId : generateSessionId();
   const startedAt = Date.now();
   const workdir = sessionContextDir(config.cwd, sessionId);
-  // Setup runs before the main try below: initSessionDir/loadState hit disk
-  // before any session_end coverage exists, so an EACCES/EROFS here would
-  // reject with zero session_end and orphan the cli_start funnel. Emit a
-  // minimal failed session_end on this window instead of letting it throw.
+  // Setup hits disk before session_end coverage; emit a minimal failed
+  // session_end so an EACCES/EROFS here does not orphan the cli_start funnel.
   let priorState: RunState | undefined;
   try {
     await initSessionDir(config.cwd, sessionId);
@@ -529,8 +512,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
         ? undefined
         : peekSourceCredentialSecret(liveCredentialId),
     ]);
-  // Assigned once the advertised toolset exists (below); persist reads it live
-  // so a snapshot taken before that point still writes, just without the field.
+  // Assigned once the advertised toolset exists; persist reads it live.
   const activatedToolsRef: { current?: ActivatedToolTracker } = {};
   const activeRunHandle: RunStateHandle = {
     sessionId,
@@ -594,8 +576,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
           })
         : finalizeRunState(config.cwd, sessionId, snapshot);
     await write.catch((err: unknown) => {
-      // Persistence failure must not fail the run, but dropping it silently
-      // hides disk/permission problems that leave run.json stale.
+      // A persistence failure must not fail the run, but silent drops hide
+      // disk/permission problems that leave run.json stale.
       logger.warn(
         "saveState failed for session {sessionId} status={status}: {error}",
         {
@@ -614,17 +596,15 @@ export async function runExec(config: Config): Promise<ExecResult> {
   });
 
   try {
-    // Pricing seed is optional for exec; continue without rates rather than fail the run.
+    // Pricing seed is optional for exec; continue without rates.
     const inferenceDeps = await assembleInferenceBase((err: unknown) => {
       logger.debug("seedPricingMetadataFromCache failed: {error}", {
         error: sanitizeExecDiagnostic(formatCaughtError(err)),
       });
     });
 
-    // One-shot migration only when the path-trust file does not exist yet.
-    // Headless exec has no frame to corrupt, so a skipped marketplace member
-    // writes straight to stderr here — an explicit choice at this call site,
-    // not `expandPluginPath` falling back to it on its own.
+    // One-shot migration only when the path-trust file is absent. Headless
+    // exec has no frame to corrupt, so skipped members write straight to stderr.
     const sessionTrust = await assembleSessionTrust({
       cwd: config.cwd,
       pluginPaths: config.settings?.pluginPaths,
@@ -697,19 +677,17 @@ export async function runExec(config: Config): Promise<ExecResult> {
         stderr.write(`${text}\n`);
       },
       interactive,
-      // Headless operator surface: the gate denies without an operator before
-      // ever reaching requestApproval, so the explicit denial lives here —
-      // naming the action and the remedy on stderr (never stdout: piped stdout
-      // may feed JSON consumers). The reason already omits the bypass remedy
-      // on sensitive-path denials; emit it verbatim.
+      // Headless surface: the gate denies before requestApproval, so the
+      // denial lands here — action and remedy on stderr (never stdout:
+      // piped stdout may feed JSON consumers). The reason already omits the
+      // bypass remedy on sensitive paths; emit it verbatim.
       onHeadlessDeny: (reason) => {
         stderr.write(`Permission denied: ${reason}\n`);
       },
       skipPermissions: config.dangerouslySkipPermissions,
       auto: config.auto,
       // Main session: gating rides the reactor's approval-suspend seam. In
-      // exec (headless) an ask resolves to a deny effect, so the hook blocks
-      // — the same policy the middleware path applied.
+      // headless exec an ask resolves to a deny effect, so the hook blocks.
       reactorGated: true,
     });
 
@@ -749,8 +727,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
       skillDirs,
       telemetry: liveTelemetry,
       isCodex: isCodexProviderName(config.providerName),
-      // CL-9386: the active settings source (including a --config override)
-      // is model-unreadable/unwritable, like the default settings file.
+      // The active settings source (including a --config override) is
+      // model-unreadable/unwritable, like the default settings file.
       secretGuardExtraDeniedPaths: [config.globalSettingsPath],
       ...(shellTimeout !== undefined ? { shellTimeout } : {}),
       ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
@@ -789,9 +767,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
       ...(overlay.advertisedAllow !== undefined
         ? { toolSearchAllow: overlay.advertisedAllow }
         : {}),
-      // Exec-primary keeps wait_agents mounted (with an advertised allow):
-      // headless runs have no mailbox-mail flush, so wait_agents stays the
-      // collection path here. TUI primary and nested orchestrators omit it.
+      // Headless runs have no mailbox-mail flush, so wait_agents stays the
+      // collection path here; TUI primary and nested orchestrators omit it.
       mountWaitAgents: true,
       ...(config.mcpServers !== undefined
         ? { mcpServers: config.mcpServers }
@@ -888,7 +865,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       timeoutMs: config.summarizerTimeoutMs,
       telemetry: liveTelemetry,
       // A 401 here usually means the shared OAuth file rotated under another
-      // process; re-read it so the retry runs on the fresh token.
+      // process; re-read so the retry runs on a fresh token.
       refreshAuth: async () => {
         const before = peekSourceCredentialSecret(liveSource.credentialId);
         const fresh = await ensureFreshInferenceSource(
@@ -922,8 +899,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     // shown errors toward tool_search instead of dispatching blind.
     agentToolset.dynamicRunner.setCallGate(
       createExecToolCallGate(isAdvertised),
-      // Same promoted-but-unmounted contract as the TUI gate: an activated
-      // name missing from the registry errors toward retry (see run() in
+      // Promoted-but-unmounted names error toward retry (see run() in
       // DynamicToolRunner).
       { isActivated: (name) => activatedToolNames.has(name) },
     );
@@ -945,8 +921,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       getSources: () => {
         const sources = liveSources.length > 0 ? liveSources : [liveSource];
         // OAuth refreshes land in the shared credential cell (keyed by source
-        // id), so every source already resolves the live secret — no per-send
-        // credential copy is needed.
+        // id), so every source already resolves the live secret.
         return sources;
       },
       getDefaultSource: () =>
@@ -969,9 +944,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
             stderr.write(`${text}\n`);
           },
           onFolded: () => {
-            // Fold restarts the cached prefix — drop idle execute-promoted
-            // schemas rather than carrying them forever, and persist so a
-            // crash resume cannot re-flush the pruned names.
+            // Fold restarts the cached prefix: drop idle execute-promoted
+            // schemas and persist, so a crash resume cannot re-flush them.
             commitIdlePromotionPrune({
               pruneIdlePromotions,
               refreshAdvertised: () => {
@@ -1126,10 +1100,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
         peekSourceCredentialSecret(liveSource.credentialId),
       ]) as ReactorEmittedEvent;
       // Chat-director reactor events (replacing the former onTasksChange /
-      // onActivateTools closures). Exec mode has no live task panel or task
-      // stdout output today (unlike the TUI's chrome zone) — debug logging
-      // is the closest match to how this mode already surfaces other
-      // in-session state changes.
+      // onActivateTools closures). Exec has no live task panel or stdout, so
+      // debug logging matches how this mode surfaces other state changes.
       handleChatDirectorEvent(
         sanitizedEvent,
         {
@@ -1165,9 +1137,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
             : {}),
         };
       } else if (sanitizedEvent.type === COMPACTION_CONTINUATION_EVENT) {
-        // Compaction governor self-delivers after compact so the loop re-enters.
-        // Each emission is answered once: a replayed duplicate of an
-        // already-answered emission is ignored instead of re-delivered.
+        // Compaction governor self-delivers after compact so the loop
+        // re-enters; a replayed duplicate of an answered emission is ignored.
         if (continuationGate.shouldDeliver(sanitizedEvent.seq)) {
           currentAgent?.deliver(buildCompactionContinuationMessage());
         }
@@ -1185,12 +1156,11 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     const streamPromise = consumeStream(activeAgent.stream(), sink);
 
-    // send() resolves on connector.reply when the reactor finishes the cycle.
-    // Chat sessions never emit reactor.done until close, so runSink status after
-    // an intentional post-send close is "cancelled" even on success. Treat a
-    // completed send as success unless the sink recorded a real run error.
-    // Snapshot sink state BEFORE close: close emits reactor.done which clears
-    // sticky inference.error and would hide a real failure.
+    // send() resolves on connector.reply; chat sessions never emit
+    // reactor.done until close, so sink status after a post-send close is
+    // "cancelled" even on success. Treat a completed send as success unless
+    // the sink recorded a real error. Snapshot sink state BEFORE close:
+    // close emits reactor.done, which clears sticky inference.error.
     let sendCompleted = false;
     let runError: string | undefined;
     let sinkStatus: ReturnType<typeof liveSink.getStatus> = "cancelled";
@@ -1207,8 +1177,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
       // Stream stays open for multi-turn chat until close() — close first, then
       // drain, or streamPromise never settles.
       const sendResult = await activeAgent.send(operatorTaskMessage(task));
-      // A suspension must not park silently in exec: the approval resume owns
-      // the terminal prompt flow and delivers the decision to the reactor.
+      // A suspension must not park silently in exec: the approval resume
+      // owns the terminal prompt flow and delivers the decision.
       await createApprovalResume({
         getAgent: () => activeAgent,
         resolveParkedCallId: (correlationId) =>
@@ -1226,12 +1196,11 @@ export async function runExec(config: Config): Promise<ExecResult> {
       sinkStatus = runSink.getStatus();
     } finally {
       if (sendCompleted && runSink.getRunError() === undefined) {
-        // Successful send: the final cycle's inference.done is queued on the
-        // stream but may not have reached the sink yet (send resolves on the
-        // connector reply). Drain BEFORE disposing so the done event resets
-        // the buffer — dispose snapshots at entry and would otherwise write
-        // the entire successful reply as a spurious partial. After the drain,
-        // dispose is a no-op on success and a real record only if a cycle
+        // Successful send: the final inference.done is queued on the stream
+        // but may not have reached the sink (send resolves on the connector
+        // reply). Drain BEFORE disposing: dispose snapshots the buffer at
+        // entry and would write the whole reply as a spurious partial.
+        // Dispose is a no-op on success and a real record only if a cycle
         // died without a terminal event.
         await activeAgent.close().catch((err: unknown) => {
           logger.debug(
@@ -1252,9 +1221,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
         await cycleRecorder.dispose("cancelled");
       } else {
         // Failed or aborted send: close() tears down stream consumers before
-        // the dead cycle's inference.error is delivered, so dispose (which
-        // snapshots the buffer at entry) runs before closing or the text is
-        // lost.
+        // the dead cycle's inference.error is delivered, so dispose runs
+        // before closing or the text is lost.
         await cycleRecorder.dispose(
           sendCompleted ? "cancelled" : "send-failed",
         );
@@ -1429,14 +1397,12 @@ export async function runExec(config: Config): Promise<ExecResult> {
 }
 
 /**
- * Whether exec may prompt the operator. Permission and operator prompts read
- * stdin and write stderr, so a piped stdout must not disable them: stdin TTY
- * alone means an operator can answer. Fully headless (stdin not a TTY) fails
- * closed — denials name the action and the remedy on stderr instead of
- * prompting (gate onHeadlessDeny wiring above, not the prompt seam: the gate
- * denies headless asks before requestApproval is ever reached). stdoutTTY
- * rides along so the call site stays explicit that a
- * piped stdout is a supported prompting configuration, not an oversight.
+ * Whether exec may prompt the operator. Prompts read stdin and write stderr,
+ * so a piped stdout must not disable them: stdin TTY alone means an operator
+ * can answer. Fully headless (stdin not a TTY) fails closed — the gate denies
+ * headless asks before requestApproval (onHeadlessDeny wiring above, not the
+ * prompt seam). stdoutTTY rides along so the call site is explicit that a
+ * piped stdout is supported, not an oversight.
  */
 export function resolveExecInteractive(stdio: {
   stdinTTY: boolean | undefined;
@@ -1506,10 +1472,9 @@ async function promptPermission(
     });
     const line = await Promise.race([answer, expired]);
     if (line === undefined) {
-      // The deadline won: rl.close() in the finally below does not settle a
-      // pending question, so abandon the loser explicitly. It can never
-      // resolve after close; the attached settlement keeps it contained (no
-      // floating promise) if a future runtime ever settles it.
+      // The deadline won: rl.close() does not settle a pending question, so
+      // abandon the loser explicitly; the attached settlement keeps it
+      // contained (no floating promise).
       void answer.then(
         () => undefined,
         () => undefined,

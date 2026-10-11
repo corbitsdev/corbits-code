@@ -10,8 +10,8 @@ export function replaceMutableTokens<TTokens extends object>(
   Object.assign(target, replacement);
 }
 
-// Sibling provider packages may still ship a distinct @corbits/oauth-core
-// copy, so `instanceof` against this host's class identity is not reliable.
+// Sibling provider packages may ship a distinct @corbits/oauth-core copy, so
+// `instanceof` against this host's class identity is unreliable.
 export type OAuthTokenEndpointFailure = Error & {
   status: number;
   detail: string;

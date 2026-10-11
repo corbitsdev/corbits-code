@@ -1,17 +1,13 @@
 /**
  * Startup check that our column arithmetic and OpenTUI's width table agree.
  *
- * Every wrap, pad and truncation budget in the shell is computed with
- * `stringWidth` (see `./view/height.ts`), but the cells are actually
- * allocated by OpenTUI's native table, negotiated with the terminal at boot.
- * The two only have to disagree on East Asian Ambiguous characters — which is
- * most of what the chrome is drawn from — for every border to come out short.
+ * The shell budgets every wrap/pad/truncation with `stringWidth`, but cells
+ * come from OpenTUI's native table, negotiated with the terminal at boot. A
+ * disagreement on East Asian Ambiguous characters — most of the chrome —
+ * shortens every border.
  *
- * A mismatch is reported, never fatal. A user whose terminal genuinely reports
- * a different table should still get a usable shell, and killing the process
- * over a column of border is a worse outcome than a warning. But it is also
- * never silent: a silently wrong paint is the failure mode this check exists
- * to remove.
+ * A mismatch is reported, never fatal, never silent: a silently wrong paint
+ * is the failure mode this check removes.
  */
 
 import { resolveRenderLib, type WidthMethod } from "@opentui/core";
@@ -42,9 +38,9 @@ export function measureRendererWidth(
 }
 
 /**
- * Compare the probe's width under both tables. An unmeasurable probe counts as
- * agreement: the check exists to catch a divergence it can see, not to fail the
- * shell because the native measurement was unavailable.
+ * Compare the probe's width under both tables. An unmeasurable probe counts
+ * as agreement: the check catches a divergence it can see, not a native
+ * measurement that was unavailable.
  */
 export function checkWidthContract(
   widthMethod: WidthMethod,

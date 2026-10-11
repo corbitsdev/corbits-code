@@ -40,8 +40,8 @@ describe("stableRequestId", () => {
     );
   });
 
-  // URL paths and queries are case-sensitive (RFC 3986): /Docs and /docs are
-  // distinct resources and must fingerprint distinctly.
+  // URL paths and queries are case-sensitive (RFC 3986): /Docs and /docs
+  // must fingerprint distinctly.
   test("case-distinct paths and queries have independent fingerprints", () => {
     expect(
       stableRequestId(fetchCall("call_0", "https://example.com/Docs"), "/work"),

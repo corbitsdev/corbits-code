@@ -11,8 +11,8 @@ export interface TempDirs {
 
 /**
  * Creates a paired cwd/home temp dir set for tests that need an isolated
- * working directory plus an isolated `HOME`. `cleanup` removes both dirs --
- * call it from a `finally` block so the pair never leaks on failure.
+ * working directory plus `HOME`. `cleanup` removes both dirs -- call it
+ * from a `finally` block so the pair never leaks on failure.
  */
 export function createTempDirs(
   cwdPrefix: string,

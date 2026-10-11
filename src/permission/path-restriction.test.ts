@@ -50,9 +50,9 @@ test("workspace-relative paths are unrestricted", () => {
 });
 
 test("an empty-string root does not turn containment into allow-all", () => {
-  // Regression for CL-6700: root + sep === sep when root is "", which every
-  // absolute path starts with. A sensitive absolute path resolved against
-  // a provider that yields "" roots must still be denied.
+  // Regression: root + sep === sep when root is "", which every absolute path
+  // starts with. A sensitive absolute path resolved against a provider that
+  // yields "" roots must still be denied.
   const r = createPathRestriction(cwd, () => [""], home);
   expect(r.isRestricted("/etc/passwd", false)).toBe(true);
   expect(r.isRestricted("/etc/passwd", true)).toBe(true);

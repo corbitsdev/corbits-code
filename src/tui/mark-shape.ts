@@ -1,25 +1,18 @@
 /**
  * The Corbits mark, rasterized once into terminal cell grids.
  *
- * The brand mark is an SVG path (viewBox 32 115 437 270). Parsing and
- * scan-converting it at runtime would cost startup time to reproduce a value
- * that can never change, so the coverage grids are baked in here: each entry is
- * the fraction of the cell covered by the filled path, sampled 6x6 per cell
- * with the same centered 92% fit the web boot screen uses
- * (`computeMapTransform`).
+ * The mark is an immutable SVG path, so the coverage grids are baked in:
+ * each entry is the fraction of the cell the filled path covers. Cells
+ * are twice as tall as wide, so a W x H grid fits W x 2H square units
+ * and the 1.62 aspect holds.
  *
- * Cells are assumed twice as tall as they are wide, so a grid of W x H cells is
- * fitted into W x 2H square units and the mark's 1.62 aspect ratio survives.
- *
- * Three grids are baked, because one size cannot serve every job. The landing
- * picks the largest that fits its zone; below the largest, the ridgeline's
- * crossings start to collapse into each other and the silhouette drifts from
- * mark toward noise, so the smaller grids are fallbacks, not preferences.
+ * Three sizes are baked — below the largest, the ridgeline crossings
+ * collapse and the silhouette drifts toward noise:
  *
  *   `MARK_LARGE`  40x12 — the landing hero.
- *   `MARK_MID`    30x9  — a tall-enough terminal that still cannot seat 12 rows.
- *   `MARK_SMALL`  16x5  — the compact fallback, and the source the bottom-left
- *                 lockup downsamples into its one-row ridgeline.
+ *   `MARK_MID`    30x9  — when the terminal cannot seat the hero.
+ *   `MARK_SMALL`  16x5  — the compact fallback; the lockup downsamples it
+ *                 into its one-row ridgeline.
  */
 
 export interface MarkGrid {

@@ -1,5 +1,5 @@
 /**
- * runSubAgent mount echo for requires_tools (CL-9476).
+ * runSubAgent mount echo for requires_tools.
  *
  * Dispatch verifies requires_tools pre-spawn, but the filter or mount may
  * shift between dispatch and mount. A stamped tool missing after

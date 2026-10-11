@@ -45,11 +45,7 @@ import {
 
 import { type AppShell } from "./internals.js";
 
-/**
- * Surface every row is laid out against: the transcript's own column budget
- * (rows right-align and wrap themselves) and whether writers need naming.
- * The scroll bars are hidden, so the transcript owns the whole content zone.
- */
+/** Per-row layout: the transcript column budget and whether writers need naming. */
 export function transcriptRowLayout(shell: AppShell): RowLayout {
   return {
     width: Math.max(1, shell.layout.contentWidth),
@@ -57,10 +53,8 @@ export function transcriptRowLayout(shell: AppShell): RowLayout {
   };
 }
 
-/**
- * Record a row's writer. Returns true when the transcript has just gained a
- * second voice — every earlier row now needs the label it was painted without.
- */
+/** Record a row's writer: true when the transcript gains a second voice,
+ * so earlier rows need labels. */
 export function noteAgentVoice(shell: AppShell, row: StreamRow): boolean {
   if (row.role === "user") return false;
   const before = shell.agentVoices.size;
@@ -80,11 +74,8 @@ export function gapBefore(shell: AppShell, index: number): number {
   return rowGroupGap(rowBefore(shell, index), row);
 }
 
-/**
- * Writer label the row at `index` carries above it, or null mid-block.
- * A block is exactly a gap-free run from one writer, so this tracks
- * `gapBefore` rather than keeping its own notion of block boundaries.
- */
+/** Writer label above the row at `index`, or null mid-block. A block is a
+ * gap-free run from one writer, so this reads `gapBefore`. */
 export function labelBefore(shell: AppShell, index: number): string | null {
   const row = shell.streamLog[index];
   if (row === undefined) return null;
@@ -99,12 +90,9 @@ export function streamRowCount(shell: AppShell): number {
 }
 
 /**
- * Row at absolute `index` on the log `appendStreamRow` currently targets. A
- * tool result rewrites the call row it answers rather than appending its
- * own, and needs to read that row back to fold into it.
- *
- * `index` is absolute (see `streamLogBase`); a row already evicted by the
- * retention cap reads back as undefined, same as one past the end.
+ * Row at absolute `index` on the log `appendStreamRow` targets, so a tool
+ * result can fold into the call row it answers. Evicted rows read as
+ * undefined.
  */
 export function streamRowAt(
   shell: AppShell,
@@ -123,22 +111,14 @@ export function streamRowAt(
 }
 
 /**
- * Identifies a transcript child as the eviction notice rather than a row.
- * Identity, not position or state, is the source of truth: `streamLogBase`
- * flips to nonzero the instant a trim happens, one step before the notice
- * node itself exists in the paint tree, so deriving "is there a marker"
- * from state would misalign row indices for exactly that transitional call.
+ * Marks a transcript child as the eviction notice. Identity, not state, is
+ * the source of truth: the log base flips one step before the notice node
+ * exists, so deriving the marker from state would misalign row indices.
  */
 export const evictionMarkers = new WeakSet<BaseRenderable>();
 
-/**
- * Row-index code paths (below, and the two windowed-rebuild callers) treat
- * `getChildren()` as a 1:1 array with `streamLog`. The leading bottom-anchor
- * spacer (see `transcriptSpacers`) and, once retention has evicted anything,
- * the eviction notice above the oldest retained row both break that — every
- * consumer that needs the row-only view goes through here rather than the
- * raw call.
- */
+/** `getChildren()` is not 1:1 with `streamLog` (bottom-anchor spacer,
+ * eviction notice), so row-only consumers go through here. */
 export function transcriptRowChildren(
   shell: AppShell,
 ): readonly BaseRenderable[] {
@@ -162,13 +142,9 @@ export function transcriptRowOffset(shell: AppShell): number {
 }
 
 /**
- * Rewrite a row's body on its existing paint node.
- *
- * Every row kind retextes in place — streaming markdown keeps the parser's
- * block state, and the styled kinds (diff, tool sentence, expansion,
- * structured) rewrite their line and table content. Returns false when the
- * node shape does not match the row (a label or arrow appearing, a line-count
- * change) and the caller must rebuild it.
+ * Rewrite a row's body on its existing paint node, keeping parser block state
+ * and styled line/table content. False when the node shape no longer matches
+ * the row (a label or arrow appearing, a line-count change).
  */
 export function retextStreamRow(
   shell: AppShell,
@@ -189,9 +165,8 @@ export function retextStreamRow(
   return retextStreamRowBody(node, row, layout);
 }
 
-/** Last painted state per split markdown body, keyed by its column node. A
- * rebuilt row gets a fresh node, so stale entries collect with the old row;
- * a retext that finds no entry treats the paint as first and repaints. */
+/** Last painted state per split markdown body, keyed by its column node;
+ * stale entries die with the old row. */
 const splitBodyMemory = new WeakMap<BaseRenderable, StreamMarkdownSnapshot>();
 
 /** The shape-matching rewrite shared by labelled and unlabelled rows. */
@@ -229,8 +204,7 @@ function retextStreamRowBody(
   const split = splitAtSettledBlock(content);
 
   // No settled block behind the tail: a lone renderer, same as an unsplit
-  // body. A shape change (a block just settled, or one just left the window
-  // a full rebuild trimmed) falls through to the caller's rebuild.
+  // body. A shape change falls through to the caller's rebuild.
   if (split === null) {
     if (!(bodyNode instanceof MarkdownRenderable)) return false;
     bodyNode.width = width;
@@ -248,7 +222,7 @@ function retextStreamRowBody(
     return false;
   }
   // Tail-only growth repaints just the live renderer: the frozen text is
-  // already on screen at this width, still settled, behind a pure append.
+  // already on screen at this width.
   const streaming = row.streaming === true;
   const transition = nextStreamMarkdownState(
     splitBodyMemory.get(bodyNode) ?? null,
@@ -270,11 +244,8 @@ function retextStreamRowBody(
   return true;
 }
 
-/**
- * Prefix column beside a body the renderer owns. Width is pinned to the painted
- * columns so an empty gutter — a lone agent's own prose — costs none, and the
- * answer starts on the transcript's first column.
- */
+/** Prefix column beside a body the renderer owns, pinned to the painted
+ * columns so an empty gutter costs none. */
 function gutterNode(
   ctx: CliRenderer,
   gutter: PaintedStreamLine,
@@ -287,11 +258,9 @@ function gutterNode(
   });
 }
 
-/**
- * Columns a markdown body may paint into: the transcript budget less the
- * row's own prefix. Pinned rather than left to `flexGrow`, which reports the
- * body's intrinsic width to yoga and lets a wide table paint past the edge.
- */
+/** Columns a markdown body may paint into: the transcript budget less the
+ * row's prefix. Pinned, because `flexGrow` reports intrinsic width and lets
+ * a wide table paint past the edge. */
 function markdownBodyColumns(
   gutter: PaintedStreamLine,
   layout: RowLayout,
@@ -299,12 +268,8 @@ function markdownBodyColumns(
   return Math.max(1, layout.width - stringWidth(gutter.content));
 }
 
-/**
- * Markdown tables shrink to the row's column budget rather than overflowing:
- * columns are fitted proportionally and cells wrap on word boundaries. A table
- * still too wide for its narrowest fit is clipped by the body's pinned width,
- * which keeps it inside the transcript instead of painting over the chrome.
- */
+/** Markdown tables shrink to the row's column budget: proportional columns,
+ * word-boundary wraps, and the body's pinned width clips the rest. */
 const TRANSCRIPT_TABLE_OPTIONS = {
   wrapMode: "word",
   columnFitter: "proportional",
@@ -315,12 +280,7 @@ function markdownContent(row: StreamRow): string {
   return withholdIncompleteHeading(row.text);
 }
 
-/**
- * Build the row-shaped paint node: a MarkdownRenderable body next to a plain
- * gutter for markdown-bearing rows (assistant replies), a TextTableRenderable
- * for structured rows (MCP results), a coloured diff body for edit-tool rows,
- * and literal text for everything else.
- */
+/** Build the row-shaped paint node. */
 export function buildRowNode(
   ctx: CliRenderer,
   row: StreamRow,
@@ -328,8 +288,8 @@ export function buildRowNode(
   onToggle?: () => void,
 ): TextRenderable | BoxRenderable {
   if (isSentenceRow(row)) {
-    // The sentence is one line: it is cut to the columns beside the marker
-    // rather than wrapped, so a long URL or query cannot double the row.
+    // One line cut to the columns beside the marker, so a long URL or query
+    // cannot double the row.
     const columns = Math.max(
       1,
       layout.width - stringWidth(streamRowGutter(row, layout).content),
@@ -405,11 +365,8 @@ function markdownBodyOptions(gutter: PaintedStreamLine, width: number) {
   } as const;
 }
 
-/**
- * A literal-text row's paint node: always a single text node, as before. Rows
- * holding URLs paint styled text (URL spans carry OSC-8 metadata) and arm as
- * Ctrl+click targets; URL-free rows paint the plain string they always have.
- */
+/** A literal-text row's paint node: a single text node, styled and
+ * click-armed when it holds URLs. */
 function buildPlainRowNode(
   ctx: CliRenderer,
   row: StreamRow,
@@ -424,20 +381,14 @@ function buildPlainRowNode(
   return node;
 }
 
-/**
- * Links a plain row's pre-wrap text holds: wrapped fragments reassemble to
- * one of these, which is what tells a real wrap across a short fragment line
- * apart from a natural line break after the fact.
- */
+/** Links a plain row's pre-wrap text holds, so a wrap across a short
+ * fragment line is told apart from a natural line break. */
 function plainRowSourceUrls(row: StreamRow): string[] {
   return findLinks(`${row.text}\n${row.summary ?? ""}`).map((hit) => hit.url);
 }
 
-/**
- * Rewrite a plain row's text on its existing node. The node never changes
- * shape, so a URL appearing or disappearing repaints in place instead of
- * forcing a rebuild.
- */
+/** Rewrite a plain row's text on its existing node. The node never changes
+ * shape, so URL changes repaint in place. */
 function paintPlainRowNode(
   node: TextRenderable,
   row: StreamRow,
@@ -448,8 +399,8 @@ function paintPlainRowNode(
   if (!lines.some((line) => findLinks(line).length > 0)) {
     node.content = painted.content;
     node.fg = painted.fg;
-    // Route through the armer so a retext that drops the last URL disarms
-    // the handlers a previous arming installed (armLinkLine clears them).
+    // Route through the armer so dropping the last URL disarms handlers a
+    // previous arming installed (armLinkLine clears them).
     armLinkLine(node, []);
     return;
   }
@@ -464,16 +415,8 @@ function paintPlainRowNode(
 }
 
 /**
- * A markdown row's body. Most rows have no settled block yet (no heading at
- * all, or the only boundary is still the open tail), and paint through a
- * single renderer, same as before this fix existed. Once a block settles —
- * a heading with content behind it, a closed fence, a complete table — the
- * body becomes a settled `frozen` renderer — everything through that
- * boundary, never streaming, never handed new content while the tail keeps
- * growing, so it is never asked to re-highlight once written — stacked above
- * the still `live` one, which carries the row's own streaming flag. Both
- * halves use the library's default block mode, so paragraphs, lists and
- * tables inside either one lay out exactly as a single unsplit body would.
+ * Markdown body: one renderer until a block settles, then a `frozen`
+ * renderer (never streamed or re-highlighted) above the still-`live` one.
  */
 function createMarkdownBody(
   ctx: CliRenderer,
@@ -517,12 +460,8 @@ function createMarkdownBody(
   return column;
 }
 
-/**
- * Gutter + one text line per body row, for bodies that arrive already coloured
- * and already laid out (a diff, an expanded tool call's structured arguments).
- * Each line paints inside the body column, so a wrapped line lands under the
- * body rather than in the shell's gutter.
- */
+/** Gutter + one pre-coloured text line per body row (a diff, expanded tool
+ * arguments); wraps land under the body. */
 function createStyledLinesRowRenderable(
   ctx: CliRenderer,
   row: StreamRow,
@@ -547,12 +486,8 @@ function createStyledLinesRowRenderable(
   return wrapper;
 }
 
-/**
- * One painted body line. A line ending in an expand arrow is split so the
- * arrow is its own renderable and can answer a click; a line holding URLs
- * paints styled text and arms as a Ctrl+click target (see url-links.ts);
- * every other line is a single text node, as before.
- */
+/** One painted body line: an expand arrow splits into its own clickable
+ * renderable; URL lines arm as Ctrl+click targets. */
 function bodyLineNode(
   ctx: CliRenderer,
   line: StyledBodyLine,
@@ -582,11 +517,8 @@ function bodyLineNode(
   return wrapper;
 }
 
-/**
- * Gutter + native table body for a structured (MCP result) row, under the head
- * lines the row collapses to. The head and the table share one body column so
- * the table stays inside the shell's gutter.
- */
+/** Gutter + native table body for a structured (MCP result) row; one body
+ * column keeps the table in the gutter. */
 function createStructuredRowRenderable(
   ctx: CliRenderer,
   row: StreamRow,
@@ -619,9 +551,7 @@ function createStructuredRowRenderable(
   return wrapper;
 }
 
-/**
- * Bare key the modal overlay claims for its expand/collapse hook. Deliberately
- * not in SHELL_SHORTCUTS: it is live only while an overlay that supplied
- * `onToggleExpand` is open, so it never shadows a prompt binding.
- */
+/** Bare key the modal overlay claims for its expand/collapse hook. Not in
+ * SHELL_SHORTCUTS: live only while an overlay with `onToggleExpand` is
+ * open. */
 export const OVERLAY_EXPAND_KEY = EXPAND_KEY;

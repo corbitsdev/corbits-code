@@ -60,10 +60,8 @@ function isAbortError(err: unknown): boolean {
   );
 }
 
-// Dynamic client registration bakes in the loopback redirect_uri (ephemeral port).
-// A later session that binds a new port cannot reuse that client_id for authorize
-// / token exchange — drop the stale registration when we have no refreshable
-// tokens and must run the browser flow again.
+// DCR bakes in the loopback redirect_uri (ephemeral port); a new-port session
+// cannot reuse that client_id, so drop the stale registration when no tokens remain.
 function dropStaleClientRegistration(
   state: MCPAuthState,
   redirectUrl: string,
@@ -80,7 +78,7 @@ function shouldAdoptClient(
 ): boolean {
   if (next.clientInformation === undefined) return false;
   if (redirectUrisInclude(next.clientInformation, redirectUrl)) return true;
-  // Other-port DCR is a sibling's in-progress registration unless they also
+  // Other-port DCR is a sibling's in-progress registration unless it
   // published new tokens (completed re-auth).
   return (
     next.tokens !== undefined &&
@@ -127,11 +125,9 @@ export async function createOAuthProvider(
     serverURL: opts.serverURL,
   };
   const home = opts.home ?? homedir();
-  // Load + scrub stale DCR under the per-file chain so concurrent providers see
-  // the same cleaned state. Mutations always re-read disk; tokens and matching
-  // DCR are observed from disk so a sibling session's completed auth is picked
-  // up. PKCE stays instance-local after this snapshot — a different-port sibling
-  // must not clobber an in-progress verifier.
+  // Scrub stale DCR under the per-file chain; tokens and matching DCR are read
+  // from disk so a sibling's completed auth is picked up, while PKCE stays
+  // instance-local so a sibling cannot clobber an in-progress verifier.
   const stored: MCPAuthState = await updateAuthState(
     identity,
     (state) => {
@@ -157,15 +153,13 @@ export async function createOAuthProvider(
     }
   };
 
-  // Cheap staleness guard: statSync per getter, sync read only when the file's
-  // mtime or size changed. Stamp commits only after a successful read so a
-  // failed/unreadable file is retried on the next getter call.
+  // Staleness guard: statSync per getter, sync read only on mtime/size change.
+  // Stamp only after a successful read so a failed read is retried next call.
   const authPath = authFilePath(identity, home);
   let seenStamp: string | undefined;
-  // True once this provider has committed a disk observation. A transient stat
-  // failure resets the stamp so the next getter retries, but must not erase
-  // the fact that durable state was seen — otherwise a later real deletion
-  // (ENOENT) would look like "never saw the file" and orphan live tokens.
+  // True once durable state was seen. A transient stat failure resets the stamp
+  // but not this flag, so a real deletion (ENOENT) still clears tokens instead
+  // of looking like "never saw the file".
   let observedDurable = false;
   const refreshDurableFromDisk = (): void => {
     let stamp: string | undefined;
@@ -176,9 +170,8 @@ export async function createOAuthProvider(
       if (!observedDurable) return;
       seenStamp = undefined;
       if (!isEnoent(err)) return;
-      // The auth file is gone (server removed, logged out elsewhere). Hold no
-      // orphaned credentials: drop the in-memory tokens too. A later sibling
-      // save is adopted on the next read via the stamp check above.
+      // Auth file gone (removed elsewhere): drop in-memory tokens too; a later
+      // sibling save is adopted on the next read via the stamp check.
       observedDurable = false;
       delete stored.tokens;
       return;
@@ -194,10 +187,9 @@ export async function createOAuthProvider(
   };
 
   let oauthState: string | undefined;
-  // PKCE verifier: instance-local transient memory only, never persisted. The
-  // browser flow starts and finishes inside this provider episode, so the
-  // secret binding them must not be shared through the auth file — a
-  // different-port sibling must neither see nor clobber it.
+  // PKCE verifier: instance-local only, never persisted. The browser flow
+  // starts and ends in one provider episode, so a sibling must neither see
+  // nor clobber it.
   let pkceVerifier: string | undefined;
   let authorizationServerMetadata: AuthorizationServerMetadata | undefined;
   let authorizationServerUrl: string | undefined;
@@ -256,15 +248,15 @@ export async function createOAuthProvider(
     async resetAuthorization(): Promise<void> {
       oauthState = undefined;
       pkceVerifier = undefined;
-      // Snapshot before the disk refresh so a session that never held tokens
-      // cannot adopt a sibling's credentials and then delete them.
+      // Snapshot before the disk refresh so a token-less session cannot adopt
+      // a sibling's credentials and then delete them.
       const previous = stored.tokens?.access_token;
       refreshDurableFromDisk();
       await apply((state) => {
         if (state.tokens?.access_token === previous) {
           delete state.tokens;
         }
-        // Next browser flow needs a client registered for *this* loopback port.
+        // Next browser flow needs a client registered for this loopback port.
         if (!redirectUrisInclude(state.clientInformation, opts.redirectUrl)) {
           delete state.clientInformation;
         }

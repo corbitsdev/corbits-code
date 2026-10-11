@@ -1,7 +1,5 @@
-/**
- * One row per tool use: a call and its answer share a row, and a repeated call
- * collapses onto the row it repeats.
- */
+/** One row per tool use: a call and its answer share a row; repeats collapse
+ * onto it. */
 import { describe, expect, test } from "bun:test";
 
 import { defined } from "../../testkit/defined.js";
@@ -263,8 +261,8 @@ describe("a run of identical calls", () => {
     pushCallRun(rows, 33);
     expect(rows.length).toBe(1);
     expect(rows[0]?.callCount).toBe(33);
-    // The lane's memory is bounded alongside the detail cap, oldest-first
-    // like the answers — and both arrays together, never one alone.
+    // Lane memory is bounded with the detail cap, oldest-first, both arrays
+    // together — never one alone.
     expect(rows[0]?.memberIds?.length).toBe(30);
     expect(rows[0]?.memberLabels?.length).toBe(30);
     expect(rows[0]?.memberIds?.[0]).toBe("c1");
@@ -281,8 +279,8 @@ describe("a run of identical calls", () => {
     expect(rows.length).toBe(1);
     expect(rows[0]?.pending).toBe(true);
     expect(rows[0]?.outstanding).toBe(32);
-    // Members past the run cap kept no id on the lane, so their answers
-    // cannot pair back to it — except the newest, found by the lane's own id.
+    // Members past the run cap kept no id, so their answers cannot pair back
+    // except the newest, found by the lane's own id.
     for (let i = 2; i <= 30; i++) {
       pushToolResult(rows, {
         name: "grep",
@@ -340,8 +338,8 @@ describe("a run of identical calls", () => {
       callId: "B",
     });
     expect(rows.length).toBe(1);
-    // The lane's own callId moved to the newest call; the older member is
-    // still resolvable for its result.
+    // The lane's callId moved to the newest call; the older member is still
+    // resolvable.
     expect(pendingCallIndex(rows, "grep", "A")).toBe(0);
     pushToolResult(rows, { name: "grep", content: "a", callId: "A" });
     expect(rows.length).toBe(1);
@@ -376,8 +374,8 @@ describe("a run of identical calls", () => {
       content: "",
       callId: "m2",
     });
-    // An MCP call's painted summary is empty — the verb is the sentence — so
-    // the lane reads the identifying argument (the issue, not the body).
+    // MCP summaries are empty — the verb is the sentence — so the lane
+    // reads the identifying argument.
     expect(rows[0]?.memberLabels).toEqual(["CL-7386", "CL-7390"]);
     expect(runLines(rows[0])).toEqual([
       "CL-7386 — answered",
@@ -398,7 +396,7 @@ describe("a run of identical calls", () => {
       callId: "m2",
     });
     // Lanes persisted before per-call labels carry memberIds without
-    // memberLabels; only the tail's own label is still recoverable.
+    // memberLabels; only the tail's label is recoverable.
     const { memberLabels: _dropped, ...legacy } = defined(rows[0]);
     rows[0] = legacy;
     pushToolCall(rows, {
@@ -413,8 +411,8 @@ describe("a run of identical calls", () => {
       content: "",
       callId: "m2",
     });
-    // Without the placeholder backfill the second result would read the
-    // third member's label.
+    // Without the backfill the second result would read the third member's
+    // label.
     expect(runLines(rows[0])).toEqual(["CL-7390 — answered"]);
     pushToolResult(rows, {
       name: "mcp__linear__save_comment",
@@ -440,7 +438,7 @@ describe("a run of identical calls", () => {
       callId: "m1",
     });
     // The merge replaced the row's args with the answer payload; the label
-    // must still name what the call acted on.
+    // must still name the call's target.
     pushToolCall(rows, {
       name: "mcp__linear__save_comment",
       arguments: JSON.stringify({ issueId: "CL-7390", body: "second" }),
@@ -503,11 +501,9 @@ describe("a run of identical calls", () => {
 });
 
 describe("parallel calls to the same tool", () => {
-  // CL-5562: three `spawn_agent` calls dispatched in one turn all carry
-  // meta === "spawn_agent" — name alone cannot tell them apart, so a result must
-  // find its own row by call id or it resolves whichever pending "spawn_agent" row
-  // happens to be newest, leaving the others stranded pending forever and
-  // turning any later same-name result into an orphaned extra row.
+  // Three `spawn_agent` calls in one turn carry the same meta — name alone
+  // cannot tell them apart, so a result must find its row by call id or it
+  // resolves the newest pending one, stranding the rest.
   test("each result resolves its own call by id, not the newest pending call of that name", () => {
     const rows: StreamRow[] = [];
     pushToolCall(rows, {
@@ -564,11 +560,9 @@ describe("parallel calls to the same tool", () => {
     expect(rows[2]?.text).toBe("done c3");
   });
 
-  // A miss must not fall back to "the newest pending row of that name" — that
-  // fallback is exactly the LIFO misattribution this test file exists to rule
-  // out, and every live caller (the bridge's own call map, subagent session
-  // entries, resumed history with ids) always carries a real id, so a miss
-  // here means the id genuinely does not belong to anything on the log.
+  // A miss must not fall back to the newest pending row of that name —
+  // every live caller carries a real id, so a miss means the id belongs to
+  // nothing on the log.
   test("an id that matches nothing on the log answers nothing, not the newest pending call", () => {
     const rows: StreamRow[] = [
       {
@@ -595,15 +589,15 @@ describe("parallel calls to the same tool", () => {
       content: "orphan",
       callId: "zzz-does-not-exist",
     });
-    // Answers nothing on the log — appended as its own row rather than
-    // resolving (and thereby corrupting) an unrelated in-flight call.
+    // Answers nothing on the log — appended as its own row, not resolving
+    // an unrelated in-flight call.
     expect(rows.length).toBe(3);
     expect(rows[0]?.pending).toBe(true);
     expect(rows[1]?.pending).toBe(true);
   });
 
-  // A failed call must show its error on the collapsed line, not only behind
-  // the expand arrow.
+  // A failed call must show its error on the collapsed line, not only
+  // behind the arrow.
   test("a failed call shows its error text on the collapsed line", () => {
     const rows: StreamRow[] = [];
     pushToolCall(rows, {
@@ -972,7 +966,8 @@ describe("lane paint", () => {
     });
     pushToolResult(rows, { name: "run_shell", content: "exit code 1\nboom" });
     expect(rows[0]?.stat).toBe("exit 1");
-    // The exit envelope line is the stat; the preview repeats only the output.
+    // The exit envelope line is the stat; the preview repeats only the
+    // output.
     expect(rows[0]?.previewLines).toEqual(["boom"]);
 
     const ok: StreamRow[] = [];

@@ -14,8 +14,8 @@ export interface SentHistoryBrowse {
   /** Unsent draft saved when the user first presses Up from live editing. */
   draft: string | null;
   /**
-   * null = live (show draft or free edit).
-   * 0 = newest sent, higher = older (`sent[sent.length - 1 - browseIndex]`).
+   * null = live (draft or free edit); 0 = newest sent, higher = older
+   * (`sent[sent.length - 1 - browseIndex]`).
    */
   browseIndex: number | null;
 }

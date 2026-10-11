@@ -97,7 +97,7 @@ describe("Codex tool proxy mount", () => {
     // Unstubbed createPosixTools (real temp dir): update_plan used to call
     // runTool("manage_tasks", ...), which forwards onto posixTools.run and
     // fails with "unknown tool: manage_tasks" — posixTools has no
-    // manage_tasks handler. This exercises the real createAgentToolset mount
+    // manage_tasks handler. Exercises the real createAgentToolset mount
     // (src/agent/tools.ts) end to end, not a mock recorder, so it would have
     // caught that dead dispatch.
     const cwd = mkdtempSync(join(tmpdir(), "corbits-codex-mount-"));

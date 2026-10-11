@@ -1,13 +1,10 @@
 /**
- * Versioned model-family prompt variance (CL-8269). One row per tuned
- * family: the tail residual text directors append to the assembled prompt.
+ * Versioned model-family prompt variance. One row per tuned family: the
+ * tail residual text directors append to the assembled prompt.
  * Residuals-only: the package owns residual TEXT, never tool mounting —
  * advertisedToolDeny stays on ModelFamilyPolicy
  * (src/agent/model-family-policy.ts) and is empty on every family today.
  * Keeping deny out of this package removes the duplicate-deny footgun.
- *
- * Families ship here as their lanes characterize them: default/muse/grok
- * first, claude (CL-8309) and gpt (CL-8310) folded in on the P5 rebase.
  * Render position is always the tail so residuals cannot disturb the
  * cached prompt prefix.
  */
@@ -39,10 +36,9 @@ export const defaultRow: PromptVarianceRow = {
   residual: "",
 };
 
-// Muse Spark does not reliably stop a tool loop at medium reasoning effort:
-// the same run with these three rules appended finished in 3 turns on 4.3x
-// fewer input tokens (CL-7869). Byte-identical to the shipped text so the
-// size table and the constructor append cannot drift apart.
+// Muse Spark does not reliably stop a tool loop at medium reasoning
+// effort; these three rules fix it. Byte-identical to the shipped text so
+// the size table and the constructor append cannot drift apart.
 export const museRow: PromptVarianceRow = {
   id: "muse",
   residual:
@@ -52,11 +48,10 @@ export const museRow: PromptVarianceRow = {
     "- Do not narrate; act.",
 };
 
-// Single grok finish-bias + ceremony residual (CL-8296): the finish-bias
-// bullets plus the three ceremony lines from the CL-7768 design (no git, no
-// pre-plan, verify once), merged into one block with no line twice. The
-// don't re-read idea appears exactly once (the "re-open paths" bullet).
-// Grok-only: detectModelFamily has no glm family, so no GLM row ships here.
+// Single grok finish-bias + ceremony residual (no git, no pre-plan, verify
+// once), merged into one block with no line twice. The don't re-read idea
+// appears exactly once (the "re-open paths" bullet). Grok-only: no glm
+// family exists, so no GLM row ships here.
 export const grokRow: PromptVarianceRow = {
   id: "grok",
   residual: [
@@ -71,23 +66,21 @@ export const grokRow: PromptVarianceRow = {
   ].join("\n"),
 };
 
-// Grok tool-budget hook (CL-8297): pure tool-loop budget, deliberately free
-// of ceremony lines and family-specific routing. Grok leaves carry this via
-// the ModelFamilyPolicy.promptResidual field alongside the grokRow block
-// above (the finish-bias note) — each once. A named export rather than a
-// family row because it travels a different seam (promptResidual field,
-// not the finish-bias note).
+// Grok tool-budget hook: pure tool-loop budget, deliberately free of
+// ceremony lines and family-specific routing. A named export rather than a
+// family row because it travels a different seam (the
+// ModelFamilyPolicy.promptResidual field, not a row).
 export const grokToolBudgetResidual: string =
   "Tool budget:\n" +
   "- Batch independent tool calls into a single turn.\n" +
   "- Never re-issue a tool call whose result you already have.\n" +
   "- When the next call would only repeat prior work, write the report instead.";
 
-// Single XML residual for Claude-family workers (CL-8309): a prose residual
-// did nothing, but one <task_guidance> block cut Sonnet tokens. The block is
+// Single XML residual for Claude-family workers: a prose residual did
+// nothing, but one <task_guidance> block cut Sonnet tokens. The block is
 // the whole residual — never a full-prompt XML renderer, never applied
-// outside the claude family. Rebuilt end to end from Anthropic's prompting
-// docs: rationale first, numbered approach, named output contract.
+// outside the claude family. Follows Anthropic's prompting docs: rationale
+// first, numbered approach, named output contract.
 export const claudeRow: PromptVarianceRow = {
   id: "claude",
   residual: [
@@ -100,10 +93,10 @@ export const claudeRow: PromptVarianceRow = {
   ].join("\n"),
 };
 
-// Tiny narrate-before-tools residual for GPT workers (CL-8310): GPT-5.5 runs
-// showed 6–13 silent tool-only turns. Shared thrash harness + spawn contracts
-// do the structural work; this is only a narrate-before-tools nudge.
-// Deliberately not manage_tasks ceremony — that is CL-7769, not this text.
+// Tiny narrate-before-tools residual for GPT workers: runs showed silent
+// tool-only turns. Shared thrash harness + spawn contracts do the structural
+// work; this is only a narrate-before-tools nudge, not manage_tasks
+// ceremony.
 export const gptRow: PromptVarianceRow = {
   id: "gpt",
   residual: [

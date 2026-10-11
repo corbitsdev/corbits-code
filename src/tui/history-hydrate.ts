@@ -2,7 +2,7 @@
  * Pure history hydrate — content blocks / turns → StreamRow[].
  *
  * Mirrors product-host `rowFromHistoryBlock` so resume / history.hydrate can
- * paint without a renderer. No OpenTUI or Ink deps.
+ * paint without a renderer.
  */
 
 import { validateView } from "./view/validate.js";
@@ -27,10 +27,9 @@ export interface HistoryBlock {
   /** tool_call argument payload when `content` is absent (ContentBlockData). */
   readonly arguments?: string;
   /**
-   * Call id carried by a `tool_call` / `tool_result` block. Two saved calls to
-   * the same tool are indistinguishable by name alone — a resumed transcript
-   * with parallel sub-agent dispatches needs this to pair each result with
-   * its own call rather than the newest pending call of that name.
+   * Call id carried by a `tool_call` / `tool_result` block: two calls to
+   * the same tool are indistinguishable by name alone, so the id pairs each
+   * result with its own call.
    */
   readonly callId?: string;
   /** view block payload — validated before it reaches the layout pass. */
@@ -39,10 +38,7 @@ export interface HistoryBlock {
   readonly steps?: unknown;
   /**
    * Persisted origin for user blocks (turns-to-blocks): "system" marks an
-   * occupancy wake, the only user-type block the resume path ever drops.
-   * Anything else paints at this layer — but the mark itself derives from
-   * content, so a verbatim wake-shaped operator turn arrives marked and
-   * drops here (deliberate-paste-only trigger; one scrollback row).
+   * occupancy wake, the only user block the resume path drops.
    */
   readonly origin?: string;
 }
@@ -84,9 +80,8 @@ function asHistoryBlock(raw: unknown): HistoryBlock | null {
 }
 
 /**
- * A view tree as plain transcript text. Full view rendering (borders, grid
- * alignment, tone) is not part of hydration; the layout pass is reused only to
- * recover the words, because a resumed reply that was a view must not vanish.
+ * A view tree as plain transcript text. Hydration recovers only the words,
+ * so a resumed view reply does not vanish.
  */
 function viewText(node: unknown): string {
   const result = validateView(node);
@@ -122,21 +117,16 @@ function planText(steps: unknown): string {
  * Map one content block to a transcript row, or null when the block type is
  * unknown.
  *
- * view / plan get a degraded text row rather than being dropped: a
- * resumed session that answered through a view would otherwise paint the
- * question and nothing else, with no marker that anything was lost.
- *
- * tool_call also accepts `arguments` when `content` is missing (live
- * ContentBlockData shape).
+ * view / plan degrade to a text row rather than being dropped, so a
+ * view-only reply does not vanish.
  */
 export function rowFromHistoryBlock(block: HistoryBlock): StreamRow | null {
   switch (block.type) {
     case "user": {
       const content = block.content ?? "";
-      // Origin-keyed suppression: only a block marked as a system wake
-      // drops. Unmarked or operator-marked wake-shaped text paints at this
-      // layer — but the pipeline marks by content, so a verbatim
-      // wake-shaped operator turn never arrives here unmarked.
+      // Origin-keyed suppression: only a system-wake block drops. The
+      // pipeline marks wake-shaped text by content, so none arrives here
+      // unmarked.
       if (block.origin === "system" && isPersistedOccupancyWakeText(content)) {
         return null;
       }
@@ -237,9 +227,9 @@ function callArguments(block: HistoryBlock): string | undefined {
 }
 
 /**
- * Fold one block onto a row list. Tool blocks are not one row each: a call and
- * the result answering it share a row, and a repeated call collapses onto the
- * row it repeats — the same shape a live turn paints.
+ * Fold one block onto a row list. Tool blocks are not one row each: a call
+ * and the result answering it share a row, and a repeated call collapses
+ * onto the row it repeats.
  */
 function pushHistoryBlock(rows: StreamRow[], block: HistoryBlock): void {
   if (block.type === "tool_call") {

@@ -2,8 +2,9 @@
 //
 // The reactor retries a denied ask-tier call with a fresh tool_call.id; the
 // fingerprint must be stable across those retries (same tool + same normalized
-// arguments) so the second decide() returns the identical cached reason instead
-// of re-evaluating and re-logging. call.id and correlationId never participate.
+// arguments) so the second decide() returns the identical cached reason
+// instead of re-evaluating and re-logging. call.id and correlationId never
+// participate.
 
 import type { ToolCall } from "@intx/types/runtime";
 
@@ -14,8 +15,7 @@ import type { RootsProvider } from "./worktree-roots.js";
 const NULL_SEPARATOR = "\0";
 
 // URL paths and queries are case-sensitive (RFC 3986): only the scheme and
-// host normalize. The path, query, and fragment keep their case so distinct
-// resources fingerprint distinctly.
+// host normalize, so distinct resources fingerprint distinctly.
 function normalizeUrl(value: unknown): unknown {
   if (typeof value !== "string") return value;
   const trimmed = value.trim();

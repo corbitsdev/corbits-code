@@ -12,28 +12,18 @@ import {
 } from "./link-spans.js";
 
 /**
- * Split pre-wrapped plain-row lines so a URL broken across continuation lines
- * resolves to one target: every fragment highlights and opens the full URL.
+ * Rejoin URL fragments split across continuation lines so every fragment
+ * highlights and opens the full URL.
  *
- * `wrapWidth` is the painted width the row was wrapped at. Only a full line
- * ending in a URL run can start a chain, and only a full line the run
- * reaches the end of continues one — a short line ends the chain unless
- * nothing textual follows it (end of text, bubble padding), because a short
- * line with text after it is a natural break, not a wrap. A chain is accepted
- * when its fragments reassemble to one of `sourceUrls`, the links the row's
- * pre-wrap text actually holds: word wrap can orphan a short fragment line
- * with wrapped text after it (indistinguishable from a natural break by
- * geometry alone), and the source is what tells the two apart. Without known
- * source URLs the joined candidate still has to scan as exactly one clean
- * http(s) URL, which keeps an unfortunate line break (a full line that
- * happens to end in a URL, followed by a word) from fusing two unrelated
- * runs. That coincidence is indistinguishable from a real wrap after the
- * fact, so it stays a documented approximation: it needs a URL ending
- * exactly at the wrap edge. A seed with no detectable hit on its own line
- * (a hard split inside the scheme or host) only continues through a full
- * first line: the full line broke at a wrap edge, while a short next line
- * behind a bare scheme reads as prose that happens to scan, not a wrap —
- * unless the fragments reassemble to a known source URL, which settles it.
+ * `wrapWidth` is the painted width the row was wrapped at. A chain starts
+ * on a full line ending in a URL run and continues through full lines; a
+ * short line ends it unless no text follows (then a natural break, not a
+ * wrap). A chain is accepted when its fragments reassemble to one of
+ * `sourceUrls`, the row's real links: wrap can orphan a short fragment
+ * with text after it, indistinguishable from a natural break by geometry.
+ * Without known source URLs the joined candidate must still scan as
+ * exactly one clean http(s) URL, so a break cannot fuse two unrelated
+ * runs.
  */
 export function splitWrappedLinkSpans(
   lines: readonly { text: string; fg: string }[],
@@ -103,9 +93,9 @@ function wrapSeed(
   if (stringWidth(text) !== wrapWidth) return null;
   const run = text.match(/[^\s]+$/)?.[0] ?? "";
   // The :// marks the run as URL-shaped even when a hard split inside the
-  // scheme or host leaves no detectable hit; the joined candidate still has
-  // to scan as one clean URL before anything merges. Prose punctuation the
-  // wrap left at the edge is not part of the seed, same as for a hit.
+  // scheme or host leaves no detectable hit; the joined candidate still
+  // has to scan as one clean URL before anything merges. Prose punctuation
+  // at the wrap edge is not part of the seed.
   if (!run.includes("://")) return null;
   const start = text.length - run.length;
   const end = trimUrlEnd(text, start, text.length);
@@ -126,16 +116,9 @@ interface WrapChain {
 
 /**
  * Walk continuation lines past their indent, fusing leading runs onto the
- * seed. A run ending mid-line ends the chain; a run reaching its line's end
- * continues it only through a full line, and a short line ends the chain
- * unless nothing textual follows it (end of text, bubble padding) — a short
- * line with text after it is a natural break, not a wrap. A hitless seed
- * only continues through a full first line, because a short next line behind
- * a bare scheme reads as prose that happens to scan. Against known source
- * URLs the chain also ends the moment its fragments reassemble to one of
- * them, which is what resolves a wrap the geometry alone cannot see: a
- * short fragment line with wrapped text after it. Without source URLs the
- * joined candidate has to scan as one clean URL instead.
+ * seed under the module's chain rules. A hitless seed continues only
+ * through a full first line — a short line behind a bare scheme reads as
+ * prose.
  */
 function followWrapChain(
   lines: readonly { text: string; fg: string }[],
@@ -182,9 +165,8 @@ function followWrapChain(
 
 /**
  * A line nothing textual follows on: the end of the text, or a user-bubble
- * pad row (the bare bar with no body). A blank source line is not one — it
- * is a natural break. Paint trims each line's trailing space, so the pad
- * compares exactly.
+ * pad row (a bare `▍`). A blank source line is a natural break, not one.
+ * Paint trims trailing space, so the pad compares exactly.
  */
 function isWrapEndLine(text: string | undefined): boolean {
   if (text === undefined) return true;

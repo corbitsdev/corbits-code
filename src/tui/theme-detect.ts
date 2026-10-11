@@ -1,19 +1,12 @@
 /**
- * Terminal/OS theme detection (CL-8993).
+ * Terminal/OS theme detection. Precedence, highest first: explicit `theme`
+ * setting (`light` | `dark`; `auto` defers), a sync COLORFGBG sniff,
+ * OS appearance (best-effort per platform), then default dark. TERM_PROGRAM
+ * carries no theme signal on its own — consulted so the step owns both vars.
  *
- * Precedence, highest first:
- *
- * 1. Explicit `theme` setting (`light` | `dark`; `auto` defers).
- * 2. Sync sniff of COLORFGBG (and TERM_PROGRAM, which currently carries no
- *    theme signal on its own — consulted so the step owns both vars).
- * 3. OS appearance (best-effort per platform; unknown platforms abstain).
- * 4. Default dark.
- *
- * Everything here is pure over injected inputs: no direct `process.env`,
- * `process.platform`, or stdin access. Callers read the environment once and
- * pass it in, which keeps the precedence matrix unit-testable and leaves OS
- * appearance lookup at the startup wiring edge. Nothing is cached across
- * restarts — every launch re-detects.
+ * Pure over injected inputs: no direct `process.env`, `process.platform`,
+ * or stdin access, so the precedence matrix stays unit-testable. Nothing is
+ * cached across restarts; every launch re-detects.
  */
 
 import type { ThemeName } from "./theme.js";
@@ -41,14 +34,11 @@ export interface SyncThemeEnv {
 }
 
 /**
- * Step 2: synchronous terminal sniff.
- *
- * COLORFGBG is `fg;bg` (xterm appends a third cursor field whose middle `bg`
- * still applies). A `default` background means "ask the terminal" — unknown,
- * never a guess. Numeric backgrounds follow the ANSI table: 0-6 and 8 are
- * dark grounds, 7 and 9-15 are light ones. TERM_PROGRAM names the terminal
- * but no current terminal encodes its light/dark state there, so it never
- * decides alone.
+ * Step 2: synchronous terminal sniff. COLORFGBG is `fg;bg` (xterm appends
+ * a third cursor field whose middle `bg` still applies). A `default`
+ * background means "ask the terminal" — unknown, never a guess. Numeric
+ * backgrounds follow the ANSI table: 0-6 and 8 dark grounds, 7 and 9-15
+ * light. TERM_PROGRAM alone never decides.
  */
 export function sniffSyncTheme(env: SyncThemeEnv): ThemeName | null {
   const parts = (env.COLORFGBG ?? "").split(";");

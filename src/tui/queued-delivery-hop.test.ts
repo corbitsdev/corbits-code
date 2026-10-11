@@ -391,8 +391,9 @@ describe("closed-target recovery", () => {
         // the notice says the operator's draft survived untouched
         expect(notices[0]).toContain("draft");
 
-        // Sending the draft returns the failed message to the prompt. The
-        // Enter handler clears the composer before submit; model that here.
+        // Sending the draft returns the failed message to the prompt; the
+        // Enter handler clears the composer before submit, so model that
+        // here.
         shell.prompt.value = "";
         bridge.submit("draft in progress", "immediate");
         expect(sentImmediate).toEqual(["draft in progress"]);
@@ -434,8 +435,7 @@ describe("closed-target recovery", () => {
 
         expect(shell.prompt.value).toBe("");
         // The pending column carried the item until delivery, so the
-        // transcript row is a plain operator message — no [steering]
-        // label on purpose.
+        // transcript row is a plain operator message — no [steering] label.
         const row = drainedUserRow(shell);
         expect(row.meta).toBeUndefined();
         expect(shell.streamLog.map((r) => r.text).join("\n")).toContain(

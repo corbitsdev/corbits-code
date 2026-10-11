@@ -46,10 +46,9 @@ function catalogEntry(
 // First-party OpenAI reasoning models reject `max_tokens` and require
 // `max_completion_tokens`. The requirement is declared per model on the
 // first-class OpenAI API-key path's `maxCompletionTokensModels` field — never
-// inferred from name prefixes — and read here through that entry, so the
-// entry stays the single source of truth. The quirk attaches to the source
-// actually in use: it follows the first-party endpoint, so relays serving
-// the same model names through the same adapter keep `max_tokens`.
+// inferred from name prefixes — and read here through that entry. The quirk
+// follows the first-party endpoint, so relays serving the same model names
+// through the same adapter keep `max_tokens`.
 function openAIAPIPathMaxCompletionTokensModels(): readonly string[] {
   return (
     firstClassProviderById("openai")?.paths?.find((p) => p.id === "api")
@@ -84,10 +83,9 @@ export function buildInferenceSourceForRef(
   const configured = ref.reasoningEffort ?? ctx.reasoningEffort;
   // The provider-declared effort ladder is honored ONLY on the plain
   // openai-compatible fall-through at the bottom (where a custom provider
-  // lands). First-class/OAuth/Go/Zen/Anthropic/Bifrost builders resolve the
-  // configured level against the family table, never an operator ladder — a
-  // hand-edited settings.json row on those providers must not leak the
-  // custom-form fields into them.
+  // lands). The special builders above resolve against the family table,
+  // never an operator ladder, so a hand-edited settings.json row on those
+  // providers cannot leak custom-form fields into them.
   const effort =
     configured !== undefined
       ? resolveSessionEffort(

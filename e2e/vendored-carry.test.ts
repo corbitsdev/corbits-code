@@ -87,9 +87,8 @@ describe("integration — vendored feature carry", () => {
 
         const requests = session.harness.scenario.matchedRequests();
         expect(requests.length).toBeGreaterThan(0);
-        // HarnessRequest resolves to a body-less fallback shape under this project's
-        // DOM-less lib config, even though it carries a real body at runtime; cast
-        // through the Fetch Request shape to read it.
+        // HarnessRequest reads as body-less under the DOM-less lib config;
+        // cast to the Fetch Request shape to read the body.
         const bodies = await Promise.all(
           requests.map((r) => (r.clone() as unknown as Request).text()),
         );
@@ -181,9 +180,8 @@ describe("integration — vendored feature carry", () => {
 
         const requests = harness.scenario.matchedRequests();
         expect(requests.length).toBeGreaterThan(0);
-        // HarnessRequest resolves to a body-less fallback shape under this project's
-        // DOM-less lib config, even though it carries a real body at runtime; cast
-        // through the Fetch Request shape to read it.
+        // HarnessRequest reads as body-less under the DOM-less lib config;
+        // cast to the Fetch Request shape to read the body.
         const bodies = await Promise.all(
           requests.map((r) => (r.clone() as unknown as Request).text()),
         );

@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-// Authorization and tool dispatch share this async-local identity so concurrent
-// workers resolve relative permission subjects against their own cwd.
+// Shared async-local identity so concurrent workers resolve permission
+// subjects against their own cwd.
 export interface SubAgentIdentity {
   description: string;
   cwd: string;

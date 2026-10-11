@@ -20,17 +20,14 @@ export interface ToolWatchdogConfig {
   defaultMs?: number;
   maxMs?: number;
   /**
-   * When true (default), freeze this budget while a permission prompt is open
-   * so a late approve still runs the tool. When false, the budget keeps ticking
-   * during the prompt; if it expires first the tool is skipped and the prompt
-   * is dismissed via the budget AbortSignal.
+   * Freeze the budget while a permission prompt is open (default true) so a
+   * late approve still runs the tool. When false, the budget keeps ticking.
    */
   waitForApproval?: boolean;
   /**
-   * Override for mcp__* tool calls (settings.mcp.timeoutMs). Unlike the
-   * generic defaultMs/maxMs pair, MCP tools are always bounded — a wedged MCP
-   * server otherwise hangs a tool call forever (CL-6895) — so this only
-   * changes the bound, it never leaves it unarmed.
+   * Override for mcp__* tool calls (settings.mcp.timeoutMs). MCP tools stay
+   * bounded (a wedged server would hang a call forever), so this only
+   * changes the bound, never disarms it.
    */
   mcpTimeoutMs?: number;
   /**
@@ -44,19 +41,15 @@ export interface ToolWatchdogConfig {
    */
   shellMaxMs?: number;
   /**
-   * Override the post-abort salvage grace for runs dispatched through a
-   * runner built from this config. Production never sets it, keeping the
-   * 5s default; tests set it short so never-settling tool cases don't pay
-   * the full grace in wall clock.
+   * Post-abort salvage grace. Tests set it short so never-settling cases
+   * don't pay the 5s default.
    */
   salvageGraceMs?: number;
 }
 
-// Default wall-clock budget for a single MCP tool call when settings.mcp.timeoutMs
-// is unset. Live forensics (CL-6895) showed multi-minute MCP calls that were
-// merely slow and later completed successfully, not deadlocked — so this stays
-// generous (5 minutes) rather than the shorter default used for other tools,
-// while still bounding a genuinely wedged server.
+// Default MCP budget when settings.mcp.timeoutMs is unset. Multi-minute
+// calls are often merely slow and later complete, so stay generous
+// (5 minutes) while still bounding a wedged server.
 export const DEFAULT_MCP_TOOL_TIMEOUT_MS = 300_000;
 
 // Cap applied when Settings set tools.timeoutMs without tools.maxTimeoutMs.
@@ -64,50 +57,38 @@ export const DEFAULT_MCP_TOOL_TIMEOUT_MS = 300_000;
 export const MAX_TOOL_EXECUTION_TIMEOUT_MS = 1_800_000;
 
 /**
- * Watchdog arms before shell-guard, so the outer budget must outlast a matching
- * requested run_shell timeout or this layer wins the race and aborts first.
+ * Arms before shell-guard, so the budget must outlast a matching requested
+ * run_shell timeout or it aborts first.
  */
 export const RUN_SHELL_WATCHDOG_SLACK_MS = 1_000;
 
 /**
- * After budget/parent abort wins the race, wait this long for the in-flight
- * execute to settle with a usable (non-error) body — e.g. wait_agents salvage —
- * before returning the synthetic abort/timeout message.
+ * After budget/parent abort wins, wait this long for the in-flight execute
+ * to settle with a usable body (wait_agents salvage) before returning the
+ * synthetic abort/timeout result.
  */
 export const TOOL_EXECUTION_SALVAGE_GRACE_MS = 5_000;
 
 /**
- * Upper bound on how long a paused budget may stay frozen. A permission prompt
- * that never becomes visible (overlay open, gate listener gone) never resumes
- * the budget; after this ceiling the clock resumes on its own so a frozen
- * budget cannot hang a tool run indefinitely.
+ * Ceiling on a frozen (paused) budget. A prompt that never becomes visible
+ * never resumes; past this ceiling the clock resumes on its own so a frozen
+ * budget cannot hang a run.
  */
 export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
 
 /**
- * Wall-clock budget for one tool `run()`, or undefined to leave the timer unarmed.
- * Parent cancel and eval `--agent-timeout-ms` still bound the run.
+ * Wall-clock budget for one tool `run()`; undefined leaves the timer unarmed
+ * (parent cancel and eval `--agent-timeout-ms` still bound the run).
  *
- * Arms only when Settings pass tools.timeoutMs / tools.maxTimeoutMs, when
- * foreground run_shell has an effective timeout (120s default or per-call,
- * plus slack so this layer cannot beat shell-guard), or for mcp__* calls.
- * A requested run_shell timeout is not clamped to MAX_TOOL_EXECUTION_TIMEOUT_MS
- * or tools.maxTimeoutMs.
+ * Arms for Settings tools.timeoutMs / tools.maxTimeoutMs, the foreground
+ * run_shell timeout (120s default or per-call, plus slack to stay behind
+ * shell-guard), or mcp__* calls; requested run_shell timeouts are not
+ * clamped to the max constants.
  *
- * spawn_agent returns immediately; wait_agents and ask_director are the long
- * blocks. All three are exempt: wait_agents can outlast settings.tools.timeoutMs
- * while workers still run, and aborting collect would not stop those workers.
- * spawn_agent stays exempt so the generic per-tool budget cannot abort a
- * dispatch that should return at once (or a worker that carries its own bound).
- * ask_director is a long block awaiting the director; aborting it cancels the
- * pending ask so later send_input steers instead of answering.
- * run_shell background:true stays exempt: start returns at once and the
- * process outlives the turn.
- *
- * mcp__* tool calls are the opposite of exempt: they arm unconditionally (see
- * resolveMcpToolTimeoutMs) even when no Settings are configured, because an
- * MCP server can wedge a call forever with no other watchdog to bound it
- * (CL-6895).
+ * Exempt: spawn_agent (returns immediately), wait_agents / ask_director
+ * (aborting would not stop what they wait on), and run_shell background:true
+ * (the process outlives the turn). mcp__* calls arm unconditionally: a
+ * server could otherwise wedge a call forever.
  */
 export function resolveToolExecutionTimeoutMs(
   config?: ToolWatchdogConfig,
@@ -122,9 +103,9 @@ export function resolveToolExecutionTimeoutMs(
     return undefined;
   }
   if (call !== undefined && isSameTool(call.name, "run_shell")) {
-    // A background run returns at once and finishes after tool.boundary; the
-    // watchdog must not arm requested+slack against the START call or it would
-    // abort mid-run. The process's own timeout still bounds it.
+    // Background runs return at once and finish after tool.boundary; arming
+    // requested+slack on the START call would abort mid-run; the process's
+    // own timeout still bounds it.
     if (call.arguments.background === true) return undefined;
     const requested = requestedRunShellTimeoutMs(call);
     const effective = resolveShellTimeoutMs({
@@ -150,9 +131,8 @@ function resolveMcpToolTimeoutMs(
 ): number {
   const max = config?.maxMs ?? MAX_TOOL_EXECUTION_TIMEOUT_MS;
   const configured = config?.mcpTimeoutMs;
-  // A non-positive or non-finite configured value is not a valid budget (it
-  // would floor to a ~0ms timeout and instantly fail every MCP call, which is
-  // unconditionally armed) — fall back to the default instead of clamping to 1ms.
+  // Non-positive or non-finite values would floor to ~0ms and fail every MCP
+  // call; fall back to the default instead of clamping to 1ms.
   const raw =
     configured !== undefined && Number.isFinite(configured) && configured > 0
       ? configured
@@ -191,12 +171,8 @@ export function resolveWaitForApproval(config?: ToolWatchdogConfig): boolean {
   return config?.waitForApproval !== false;
 }
 
-/**
- * Identifies the pause generation a `pause()` call belonged to. A forced
- * ceiling resume bumps the generation, so a `resume(token)` call made after
- * the ceiling already fired for that pause can recognize itself as stale
- * instead of decrementing a newer, unrelated pause's depth.
- */
+/** Generation of a pause()/resume() pair; a forced ceiling resume bumps it so
+ * a late resume() reads stale (see resume()). */
 export type PauseToken = number;
 
 export interface PauseableTimeout {
@@ -223,8 +199,8 @@ function withParentAbort(signal: AbortSignal): PauseableTimeout {
 }
 
 /**
- * Like withTimeout, but the remaining budget freezes while paused (e.g. while
- * a permission prompt is open). Pause/resume are refcounted so nested pauses
+ * Like withTimeout, but the remaining budget freezes while paused (e.g. a
+ * permission prompt is open). Pause/resume refcount so nested pauses
  * (multi-segment shell approvals) stay correct.
  */
 export function withPauseableTimeout(
@@ -239,9 +215,8 @@ export function withPauseableTimeout(
   let ceilingTimer: ReturnType<typeof setTimeout> | null = null;
   let pauseDepth = 0;
   let disposed = false;
-  // Bumped on every forced ceiling resume. Lets a pause()/resume() pair from
-  // before the forced resume recognize itself as stale (see resume() below)
-  // instead of decrementing a newer, unrelated pause's depth.
+  // Bumped on every forced ceiling resume so an older pause()/resume() pair
+  // reads stale (see resume()) instead of decrementing a newer pause's depth.
   let pauseGeneration = 0;
 
   const clearTimer = (): void => {
@@ -285,11 +260,9 @@ export function withPauseableTimeout(
       startedAt = null;
     }
     clearTimer();
-    // Ceiling on the freeze: an invisible or orphaned prompt never calls
-    // resume, so force the clock back on after pauseCeilingMs. That bumps the
-    // generation, so a resume() for this pause arriving afterward is stale
-    // and recognized as such by its token (see resume() below) rather than
-    // decrementing whatever pause is active by then.
+    // Ceiling on the freeze: an invisible or orphaned prompt never resumes,
+    // so force the clock back on after pauseCeilingMs; bumping the generation
+    // makes a late resume() stale.
     ceilingTimer = setTimeout(() => {
       ceilingTimer = null;
       pauseDepth = 0;
@@ -330,8 +303,7 @@ export function withPauseableTimeout(
 
 /**
  * Composite pause token for a chained budget (wait_agents → child tool call):
- * one entry per budget in the enclosing chain, each keyed to that budget's
- * own generation.
+ * one entry per budget in the chain, keyed to that budget's own generation.
  */
 export interface ChainedPauseToken {
   own: PauseToken;
@@ -393,9 +365,9 @@ export async function settleWithGrace<T>(
 }
 
 /**
- * After budget abort, prefer a late non-error execute body (wait_agents salvage) when
- * it settles within grace. Errors / empty bodies / grace expiry → undefined so
- * the caller can emit the synthetic abort/timeout result.
+ * After budget abort, prefer a late non-error execute body (wait_agents
+ * salvage) settling within grace; otherwise undefined so the caller emits
+ * the synthetic abort/timeout result.
  */
 export async function preferExecuteSalvageAfterAbort(
   executePromise: Promise<ToolResult>,
@@ -415,22 +387,21 @@ export interface ToolExecutionWatchdogOptions {
   /** Override the post-abort salvage grace (tests); defaults to TOOL_EXECUTION_SALVAGE_GRACE_MS. */
   salvageGraceMs?: number;
   /**
-   * When true, the budget freezes during permission prompts. Callers resolve
-   * the setting (resolveWaitForApproval); there is no default here.
+   * When true, the budget freezes during permission prompts; callers resolve
+   * the setting (resolveWaitForApproval), no default here.
    */
   waitForApproval: boolean;
 }
 
 /**
- * Runs `execute` under a race against `parentSignal` and, when `timeoutMs` is
- * set, a wall-clock budget. `undefined` timeout does not arm a timer — parent
- * cancel and the approval-budget ALS still apply. Permission pause ceiling
- * (`MAX_TOOL_APPROVAL_PAUSE_MS`) stays a stuck-prompt guard, not a run cap.
+ * Runs `execute` against `parentSignal` and, when `timeoutMs` is set, a
+ * wall-clock budget. `undefined` timeout arms no timer — parent cancel and
+ * the approval-budget ALS still apply, and the permission pause ceiling
+ * stays a stuck-prompt guard, not a run cap.
  *
- * When budget/parent abort wins the race, the signal is still aborted, but we
- * give the in-flight execute a short grace to return a usable non-error body
- * (e.g. wait_agents structured salvage) before synthesizing "aborted"/timeout.
- * This closes the CL-4611 race where salvage was discarded wholesale.
+ * On budget/parent abort, the in-flight execute gets a short grace to return
+ * a usable body (wait_agents salvage) before the caller synthesizes
+ * "aborted"/timeout.
  */
 export async function runWithToolExecutionWatchdog(
   call: ToolCall,
@@ -452,9 +423,9 @@ export async function runWithToolExecutionWatchdog(
             pause: (): PauseToken => 0,
             resume: (_token: PauseToken) => undefined,
           };
-  // Nested runs (wait_agents → child tool call) shadow the parent store: the
-  // gate captures the innermost budget, so pause/resume must chain outward or
-  // the parent `wait_agents` budget keeps ticking under the permission modal.
+  // Nested runs (wait_agents → child tool call) shadow the parent store;
+  // pause/resume must chain outward or the parent budget keeps ticking under
+  // the permission modal.
   const enclosing = toolApprovalBudgetAls.getStore();
   const approvalBudget: ToolApprovalBudget = {
     signal: budget.signal,

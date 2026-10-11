@@ -1,11 +1,11 @@
 /**
  * Narrowing for the `@` path popup (pure).
  *
- * The suggestion source lists one directory at a time, so the token the
- * operator has typed is split into the directory to list and the fragment used
- * to narrow that listing. Narrowing happens here rather than in the source so
- * it can be case-insensitive and match anywhere in the entry name — typing
- * `@ses` is a search for `session.ts`, not a claim that the name begins `ses`.
+ * The suggestion source lists one directory at a time, so the typed token is
+ * split into the directory to list and the fragment to narrow that listing.
+ * Narrowing happens here rather than in the source so it can be
+ * case-insensitive and match anywhere in the entry name — typing `@ses` is a
+ * search for `session.ts`, not a claim the name begins `ses`.
  */
 
 export interface MentionToken {

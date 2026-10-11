@@ -1,10 +1,7 @@
 import type { ReactorAction, ReactorCapabilities } from "@intx/types/runtime";
 
-/**
- * Shared ReactorCapabilities stub for director tests. The action builders
- * return protocol-shaped objects; tests only assert on the resulting
- * decide() actions, never on inference behavior.
- */
+/** Shared ReactorCapabilities stub: builders return protocol-shaped actions;
+ * tests assert on decide() results only. */
 export function createTestCapabilities(): ReactorCapabilities {
   return {
     infer: (options) =>

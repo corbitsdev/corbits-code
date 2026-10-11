@@ -1,9 +1,8 @@
 /**
- * Single ownership set for product file-mutation tools.
- *
- * Primary deny, auto-allow, classify, thrash, and tool-preview all consume this
- * list so write_file / edit_file / delete_file / apply_patch cannot drift apart.
- * Proxy mounting is out of scope for this module.
+ * Single ownership set for product file-mutation tools. Primary deny,
+ * auto-allow, classify, thrash, and tool-preview all consume it so
+ * write_file / edit_file / delete_file / apply_patch cannot drift apart.
+ * Proxy mounting is out of scope.
  */
 
 import {
@@ -29,9 +28,9 @@ export function isProductMutationTool(name: string): boolean {
 }
 
 /**
- * Paths a product-mutation tool call would touch.
- * Path-arg tools use `path`; apply_patch parses envelope `input` when present.
- * Malformed / missing apply_patch input yields [] (subjects refine when a proxy mounts).
+ * Paths a product-mutation tool call touches. Path-arg tools use `path`;
+ * apply_patch parses envelope `input` when present. Malformed/missing input
+ * yields [] (subjects refine when a proxy mounts).
  */
 export function productMutationPaths(name: string, args: unknown): string[] {
   const engine = canonicalToolName(name);

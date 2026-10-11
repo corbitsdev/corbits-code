@@ -100,8 +100,8 @@ export function createAppShell(
   const promptContentRows = options?.promptContentRows ?? PROMPT_IDLE_ROWS;
   const wireKeys = options?.wireKeys !== false;
   const mount = options?.mount !== false;
-  // A freshly mounted shell has nothing in flight; the runner sets busy when a
-  // turn starts. Defaulting to busy made the landing screen offer "^C stop".
+  // Idle until the runner marks busy; defaulting to busy made the landing
+  // screen offer "^C stop".
   const run = options?.run ?? "idle";
   const overlayItems = options?.overlayItems ?? [...DEFAULT_OVERLAY_ITEMS];
   const paletteCatalogOpt = options?.paletteCatalog ?? null;
@@ -148,15 +148,11 @@ export function createAppShell(
     backgroundColor: UI.ground,
   });
 
-  // Persistent chrome, not part of the landing composition (`landing.ts`
-  // never renders it, unlike the old in-hero version line): its own row at
-  // the very foot of root's column, after everything else, right-aligned.
-  // Every other zone here already toggles a reserved row on/off by terminal
-  // size (taskBox, agentsBox, bottomPad) rather than floating over content,
-  // so this follows the same pattern — the row only exists (and can only
-  // move the prompt box up by exactly one line) at the size threshold where
-  // `versionBadgeVisible` already says the badge itself should degrade away,
-  // well before anything else in the shell would need to.
+  // Persistent chrome outside the landing composition (landing.ts never
+  // renders it): a right-aligned row at the foot of root's column. It is
+  // shown only while `versionBadgeVisible` still wants the badge, so the
+  // row it reserves never squeezes the transcript or prompt before the
+  // badge itself would degrade away.
   const versionRow = new BoxRenderable(ctx, {
     id: "shell-version-row",
     width: "100%",
@@ -208,13 +204,12 @@ export function createAppShell(
     contentOptions: { backgroundColor: UI.ground },
     viewportOptions: { backgroundColor: UI.ground },
   });
-  // The transcript scrolls with the keyboard, and the bar spent a column on
-  // every row to say so. Position is legible from the content itself.
+  // Scroll position reads from the content; the bar spent a column on every
+  // row restating it.
   transcript.verticalScrollBar.visible = false;
   transcript.horizontalScrollBar.visible = false;
-  // Markdown blocks have no node of ours to arm; this bubbling handler is
-  // what makes their links Ctrl+click-to-open (armed rows stop propagation
-  // after opening, so a click opens exactly once either way).
+  // Markdown links live on nodes we do not own; this bubbling handler arms
+  // them (armed rows stop propagation, so a click opens exactly once).
   armMarkdownLinks(transcript, ctx);
 
   // Leading filler that bottom-anchors a short transcript; see
@@ -272,10 +267,8 @@ export function createAppShell(
     flexDirection: "column",
     backgroundColor: UI.ground,
   });
-  // The box is drawn in three pieces rather than as one bordered Box because
-  // both horizontal rules carry content the frame's own border cannot: a
-  // right-aligned label that the rule breaks around, and an animated lockup
-  // whose cells are individually coloured.
+  // Three pieces, not one bordered Box: both rules carry content a frame
+  // border cannot — a right-aligned label and an animated lockup.
   const promptTopRule = new TextRenderable(ctx, {
     id: "shell-prompt-top-rule",
     height: 1,
@@ -344,28 +337,26 @@ export function createAppShell(
   const onEnter = (): void => {
     if (disposed || shell.overlayList) return;
     if (shellInternals(shell)?.inputSuspended === true) return;
-    // Mid-run Enter soft-steers (deliver at next tool.boundary); the bridge
-    // upgrades it to an immediate new turn while the parent is idle with a
-    // live fleet (idle-with-fleet, CL-7057). Alt+Enter is follow-up (quiet
-    // wait until idle). Idle sends ignore "kind".
+    // "steer": Enter mid-run soft-steers (delivers at the next
+    // tool.boundary; the bridge upgrades it to a new turn while the parent
+    // idles with a live fleet). Alt+Enter sends follow-up; idle sends
+    // "ignore".
     submitPrompt(shell, "steer");
   };
 
-  // Per frame rather than per keystroke: the editor view's wrapped-line table is
-  // rebuilt during layout, so on the content-changed callback it still describes
-  // the text before the edit and the box would size itself one keystroke behind.
+  // Per frame, not per keystroke: the editor's wrapped-line table is rebuilt
+  // during layout, so the content-changed callback still sees the pre-edit
+  // text and the box would size a keystroke behind.
   const onFrame = (): void => {
     if (disposed) return;
-    // Streaming row retexts coalesce here: deltas only mark the open row
-    // dirty, and this frame hook applies the accumulated text once — the
-    // row's markdown body is reparsed whole per retext, so per-delta
-    // replacement is quadratic across a message.
+    // Streaming row retexts coalesce: deltas only mark the open row dirty,
+    // this frame hook applies them once — per-delta replacement is
+    // quadratic because the body is reparsed whole per retext.
     flushStreamRowUpdates(shell);
     syncPromptRows(shell);
     syncPromptHighlights(shell);
-    // Applied after a natural render, not at mutation time: a row's own box
-    // needs a layout pass to size itself, and claiming the padding first
-    // starves that pass of room to lay the row out in.
+    // After a natural render, not at mutation time: the row's box needs a
+    // layout pass to size itself, and claiming the padding first starves it.
     syncTranscriptSpacer(shell);
     syncNoticeAfterLayout(shell);
   };
@@ -373,9 +364,9 @@ export function createAppShell(
   const onResize = (width: number, height: number): void => {
     if (disposed) return;
     const bag = shellInternals(shell);
-    // A decision overlay's body was shaped against the old height's context
-    // budget; a shorter terminal can no longer afford as much of it without
-    // crowding out the choices, so it is re-shaped before asking for rows.
+    // A decision overlay's body was shaped for the old height; on a shorter
+    // terminal it is re-shaped before asking for rows so it cannot crowd the
+    // choices.
     if (shell.overlayList && isDecisionOverlay(shell.overlayKind) && bag) {
       applyOverlayBodyText(shell, bag.overlayRawBodyText, 0, height);
       relayoutOverlayHost(shell, shell.overlayItems.length);
@@ -393,8 +384,8 @@ export function createAppShell(
   renderer.on(CliRenderEvents.FRAME, onFrame);
   renderer.on(CliRenderEvents.RESIZE, onResize);
 
-  // Declared before shell so dispose can off() the same function reference;
-  // body closes over shell after createAppShell finishes assigning it.
+  // Declared before shell so dispose off()s the same reference; the body
+  // closes over shell once createAppShell assigns it.
   const onSelection = (selection: Selection): void => {
     if (disposed) return;
     copyFinishedSelection(
@@ -541,37 +532,20 @@ export function createAppShell(
     reducedMotion,
     landingIdleTimerCancel: null,
     chrome: { task: [], tasksRaw: [], agents: [] },
-    // CL-5847: the manage_tasks checklist panel is hidden by default. The
-    // panel owns too much of the screen for the operator to want it forced
-    // into view on a fresh shell; Alt+T (toggleTasksPanel) opts in for the
-    // shell's lifetime. Live task data still lands in tasksRaw while hidden,
-    // so the first toggle shows current data rather than a stale snapshot.
+    // The manage_tasks panel starts hidden — it owns too much of the screen
+    // for a fresh shell; Alt+T (toggleTasksPanel) opts in for the shell's
+    // lifetime. Live data still lands in tasksRaw, so the first toggle shows
+    // current state rather than a stale snapshot.
     tasksPanelHidden: true,
     pendingSelId: null,
   });
-  // The landing's snow needs a frame source that keeps running while the
-  // turn monitor is deliberately quiet (idle, no session yet). A plain timer
-  // armed at mount is that source: it does not depend on the renderer
-  // scheduling further frames, so it cannot stall the way riding the
-  // renderer's FRAME event does: FRAME follows dirty rows, not a clock.
-  //
-  // Only repaints while idle (`landingAnimating` false): while a turn is
-  // processing, `paintPhaseAt` in runtime-bridge.ts drives the mountain's
-  // own draw/fill/fade loop off the turn monitor's clock, and this timer
-  // must not stomp that with an unrelated real-clock value.
-  //
-  // Cleared on whichever teardown happens first: the landing going away
-  // (`clearLandingMark`, first transcript row) or the whole shell disposing
-  // (`dispose` below, e.g. tests that never grow a transcript).
-  //
-  // Also self-cancels on `renderer.isDestroyed`: a real terminal session
-  // always disposes the shell, but headless test harnesses commonly destroy
-  // the renderer directly (`withTestRenderer`'s cleanup) without ever
-  // calling `shell.dispose()`. Without this check the timer would keep
-  // firing against renderables the harness already tore down.
-  //
-  // Reduced motion never starts the timer: there is no snow to advance
-  // and the mountain stays on its filled frame.
+  // The landing's snow needs a clock that runs while the turn monitor is
+  // deliberately quiet; a timer armed at mount provides it (FRAME follows
+  // dirty rows, not time). It repaints only while idle — a live turn drives
+  // the mountain off the turn monitor's clock, which this timer must not
+  // stomp — and is cleared on the first teardown (landing gone, shell
+  // disposed, or the renderer destroyed by a headless harness). Reduced
+  // motion never starts it: no snow to advance, the mountain stays filled.
   if (!reducedMotion) {
     const landingIdleHandle = setInterval(() => {
       if (renderer.isDestroyed) {

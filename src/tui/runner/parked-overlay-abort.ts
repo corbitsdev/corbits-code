@@ -1,8 +1,7 @@
 /**
- * TUI session overlay abort slot. Approval resume registers the parked
- * overlay controller here; the permission gate's identity signal merges it
- * so a reactor approval timeout dismisses the overlay instead of leaving it
- * parked after the call is gone.
+ * Session overlay abort slot. Approval resume registers the parked overlay
+ * controller; the permission gate's identity signal merges it so a reactor
+ * approval timeout dismisses the overlay instead of leaving it parked.
  */
 
 interface ParkedOverlayAbortBinding {

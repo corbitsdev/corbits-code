@@ -1,5 +1,5 @@
 /**
- * CL-5593: a raw structured log line from a vendored logger
+ * A raw structured log line from a vendored logger
  * (`interchange.inference.default-director`) painted itself over the prompt
  * box mid-frame, because nothing had ever pointed LogTape away from its
  * default console sink. This drives the real shell in a live session and

@@ -8,10 +8,8 @@ import { sessionDir } from "./index.js";
 /** Max user messages recallable with Up/Down in the prompt (newest retained). */
 export const SENT_MESSAGE_HISTORY_LIMIT = 20;
 
-// Only the last SENT_MESSAGE_HISTORY_LIMIT entries are ever returned, so we read
-// just the file's tail rather than loading an unbounded history into memory.
-// Generously sized for that many short prompts; a sliced-mid-line fragment at the
-// head simply fails to parse and is skipped.
+// Only the last SENT_MESSAGE_HISTORY_LIMIT entries are returned, so read the file
+// tail instead of all of it; a sliced head fragment just fails to parse.
 const TAIL_BYTES = 64_000;
 
 function sentMessagesPath(

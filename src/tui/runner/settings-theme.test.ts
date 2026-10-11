@@ -1,12 +1,12 @@
 /**
- * Settings-pin live-apply (CL-8993): cycling the theme pin repaints the shell
- * at once — it never records-and-waits-for-relaunch. Pins resolve exactly as
- * startup does; explicit pins are deterministic regardless of terminal state,
- * so these tests never touch `process.env` or spawn an OS probe.
+ * Settings-pin live-apply: cycling the theme pin repaints the shell at once
+ * — never records-and-waits-for-relaunch. Pins resolve exactly as startup
+ * does; explicit pins are deterministic regardless of terminal state, so
+ * these tests never touch `process.env` or spawn an OS probe.
  *
- * Every assertion below reads painted content or the live style registry —
- * never a repaint counter. The pin cycle runs with no cost movement at all,
- * so a meter-gated repaint (or a stale cached SyntaxStyle) leaves the old
+ * Assertions read painted content or the live style registry — never a
+ * repaint counter. The pin cycle runs with no cost movement, so a
+ * meter-gated repaint (or a stale cached SyntaxStyle) leaves the old
  * palette on screen and fails.
  */
 

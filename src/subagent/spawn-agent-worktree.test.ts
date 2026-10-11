@@ -346,7 +346,7 @@ describe("spawn_agent worktree isolation", () => {
     const { sessions, fleetRecords: mailbox } = deps;
     const agentId = await spawnWorkerId(deps, "interrupted setup");
 
-    // CL-7787: the fleet admitted the spawn and marked a run in flight, then
+    // The fleet admitted the spawn and marked a run in flight, then
     // suspended on worktree creation — the interrupt lands in exactly that
     // window, before any run handle exists.
     expect(sessions.isRunInFlight(agentId)).toBe(true);

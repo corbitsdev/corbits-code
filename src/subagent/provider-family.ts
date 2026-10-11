@@ -3,10 +3,8 @@ import { isXaiProviderName } from "../config/xai-providers.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { isDeepSeekModel } from "../provider/deepseek-v4-effort.js";
 
-/**
- * True when the leaf inference path is xAI / Grok family.
- * Used only for tiny provider-specific prompt residuals — not for routing.
- */
+/** True when the leaf inference path is xAI / Grok. For small prompt
+ * residuals only. */
 export function isXaiGrokLeafProvider(input: {
   providerName: string;
   model?: string;
@@ -52,10 +50,9 @@ export function isClaudeLeafProvider(input: {
 }
 
 /**
- * True when the model id is the served gpt-6-astra cell. Forensics (CL-9027)
- * showed that cell doom-looping via trivial argument deltas, so it resolves
- * to its own family with an evasion-specific residual; other served cells
- * (sol/terra/luna) keep riding the generic gpt match below.
+ * True when the model id is the served gpt-6-astra cell. Forensics showed it
+ * doom-looping on trivial argument deltas, so it gets its own family with an
+ * evasion-specific residual; other served cells keep the generic gpt match.
  */
 export function isAstraLeafProvider(input: {
   providerName: string;
@@ -79,10 +76,8 @@ export function isDeepSeekLeafProvider(input: {
 /**
  * True when the inference path is the GPT family: a Codex provider name
  * (codex/ OAuth profiles, the codex-responses adapter, bare codex) or a
- * gpt-* model id on any provider. Served codex cells (sol/terra/luna)
- * all match the generic gpt-* model shape — never name them here; CL-8265
- * characterizes cells later. Astra is the one exception: it branches to its
- * own family in detectModelFamily below (CL-9027).
+ * gpt-* model id on any provider. Served codex cells (sol/terra/luna) match
+ * the generic gpt-* shape — never name them here.
  */
 export function isGptProvider(input: {
   providerName: string;
@@ -108,10 +103,8 @@ export type ModelFamily =
   | "default";
 
 /**
- * Resolves a provider/model to a ModelFamily. Generalizes
- * isXaiGrokLeafProvider / isKimiLeafProvider into one lookup for
- * ModelFamilyPolicy — directors consume the resolved family/policy, never
- * these provider checks directly.
+ * Resolve a provider/model to a ModelFamily for ModelFamilyPolicy. Directors
+ * consume the resolved family/policy, never these provider checks directly.
  */
 export function detectModelFamily(input: {
   providerName: string;
@@ -128,9 +121,8 @@ export function detectModelFamily(input: {
 }
 
 /**
- * The finish-bias residual only makes sense on leaf workers: orchestrators
- * dispatch other agents rather than doing the work directly, so telling one
- * to "stop calling tools and write the report" would cut off dispatching.
+ * The finish-bias residual only fits leaf workers: telling an orchestrator to
+ * "stop calling tools and write the report" would cut off dispatching.
  */
 export function shouldApplyGrokAntiThrash(input: {
   providerName: string;

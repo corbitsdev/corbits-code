@@ -1,9 +1,5 @@
-/**
- * Persist close_agent must surface a leftover-child posix dispose, not treat
- * it as a successful bounded close. A persist run without run_shell must
- * still disposeAll leftover registry children even though the session stays
- * retained.
- */
+/** Persist close_agent must surface a leftover-child posix dispose, not
+ * treat it as a bounded close. */
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -185,9 +181,7 @@ describe("worker persist reaps leftover registry children", () => {
             send: async () => {
               const captured = defined(registry);
               const started = captured.start({
-                // Token must be argv/process-title, not a shell comment:
-                // pgrep -f only sees the exec'd sleep, so a comment leak
-                // would make waitUntilGone succeed even if kill failed.
+                // pgrep -f sees only the exec'd sleep; a comment-only token would let waitUntilGone pass.
                 command: `bash -c 'exec -a ${token} sleep 600'`,
                 cwd,
               });

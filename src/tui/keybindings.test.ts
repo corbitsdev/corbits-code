@@ -1,16 +1,14 @@
 /**
  * The help catalog, checked against real behavior.
  *
- * Every row in `SHELL_SHORTCUTS` is looked up here by its own `keys` string and
- * driven as the bytes that string denotes: rename a chord and the lookup fails,
- * change a chord and the probe presses the new one against the old assertion.
- * A catalog row with no probe fails the coverage test outright, so a new row
- * cannot be added without someone proving it works.
+ * Every row in `SHELL_SHORTCUTS` is looked up by its own `keys` string and
+ * driven as the bytes that string denotes: rename a chord and the lookup
+ * fails; change a chord and the probe presses the new one against the old
+ * assertion. A catalog row with no probe fails coverage outright.
  *
- * What this does not check: which description sits on which row. Swapping two
- * descriptions between rows would pass. Everything else — the chord, its
- * modifiers, the stated condition, and whether the host shadows the prompt's
- * own binding — is asserted against a live shell.
+ * Descriptions are not checked (swapping two descriptions between rows
+ * would pass); the chord, its modifiers, the stated condition, and host
+ * shadowing are asserted against a live shell.
  */
 
 import { EventEmitter } from "node:events";
@@ -70,7 +68,7 @@ const NAMED_SEQUENCES: Readonly<Record<string, string>> = {
 
 /**
  * Bytes for one chord, or null when no terminal can encode it without the
- * kitty keyboard protocol (Ctrl+Enter is the only such chord in the catalog).
+ * kitty keyboard protocol.
  */
 function chordBytes(token: string): string | null {
   const named = NAMED_SEQUENCES[token];
@@ -283,10 +281,9 @@ const PROBES: Readonly<
         expect(shell.prompt.value).toBe("line\n");
       }
       // The parenthetical in the row's description, held to the same
-      // standard. Plain terminals can't report Shift on Enter (bare \r
-      // either way — confirmed live, not just assumed), but a terminal that
-      // negotiates the kitty keyboard protocol — which this app requests —
-      // can, and the widget is built to honor it when it does.
+      // standard: plain terminals can't report Shift on Enter, but a
+      // kitty-keyboard terminal (which this app requests) can, and the
+      // widget honors it.
       expect(PROMPT_KEY_BINDINGS).toContainEqual({
         name: "return",
         shift: true,
@@ -326,7 +323,7 @@ const PROBES: Readonly<
     group: "surfaces",
     probe: ({ h, shell, chords }) => {
       setChromeZones(shell, { task: [{ label: "a", status: "todo" }] });
-      // CL-5847: hidden by default — first press shows, second hides.
+      // Hidden by default — first press shows, second hides.
       expect(shell.taskBox.visible).toBe(false);
       press(h, chords[0]);
       expect(shell.taskBox.visible).toBe(true);
@@ -355,8 +352,8 @@ const PROBES: Readonly<
       }));
       press(h, chords[0]);
       expect(shell.observe?.sessionId).toBe("live-1");
-      // Leave the way Esc would, so later probes in this shared-shell
-      // sequence see the same prompt-focused state they'd get otherwise.
+      // Leave the way Esc would, so later probes in this shared shell see
+      // the same prompt-focused state.
       leaveSubagentObserve(shell);
       setPaletteOnObserveRequest(shell, undefined);
     },
@@ -406,8 +403,8 @@ const PROBES: Readonly<
       });
       shellFocusPrompt(shell);
       const before = focusOwner(shell.focus);
-      // Classic terminals often emit CSI Z for Shift+Tab; the harness can also
-      // inject name:"tab" with shift:true, which is what the shell handler reads.
+      // Classic terminals often emit CSI Z for Shift+Tab; the harness can
+      // also inject `tab` with shift:true, which the shell handler reads.
       h.pressKey("Tab", { shift: true });
       expect(cycles).toBe(1);
       expect(focusOwner(shell.focus)).toBe(before);
@@ -582,9 +579,8 @@ const PROBES: Readonly<
       expect(exited).toBe(1);
       setShellRunState(shell, "idle");
 
-      // Bridge-less local interrupt: what an operator sees when a message
-      // was queued and they lose patience — it must report the message
-      // will still steer, never that it was discarded.
+      // Bridge-less local interrupt: with a queued message it must report
+      // the message will still steer, never that it was discarded.
       clearShellBridgeHooks(shell);
       setShellRunState(shell, "busy");
       const rowsBefore = streamRowCount(shell);
@@ -596,8 +592,8 @@ const PROBES: Readonly<
       const notice = shell.streamLog[shell.streamLog.length - 1];
       expect(notice?.text).toBe("1 pending kept");
       expect(notice?.text).not.toContain("discarded");
-      // Other probes in this group share one shell — leave both the queue
-      // and the transcript as this probe found them.
+      // Other probes in this group share one shell — leave the queue and
+      // transcript as found.
       shell.session = { ...shell.session, items: [], paused: false };
       truncateStreamRows(shell, rowsBefore);
       setShellRunState(shell, "idle");
@@ -634,8 +630,8 @@ const PROBES: Readonly<
       expect(shell.streamLog).toHaveLength(0);
       expect(shell.prompt.value).toBe("drop me");
 
-      // The chord's whole job is what lands on screen, not the model alone —
-      // assert on the rendered frame, not just streamLog.
+      // The chord's whole job is what lands on screen — assert on the
+      // rendered frame, not just streamLog.
       await h.renderOnce();
       const frame = h.captureCharFrame();
       expect(frame).toContain("drop me");
@@ -689,8 +685,8 @@ function press(h: Harness, bytes: string | null | undefined): void {
 }
 
 /**
- * A lone ESC byte is ambiguous until the terminal proves nothing follows it, so
- * the parser holds it briefly before emitting the key.
+ * A lone ESC byte is ambiguous until the terminal proves nothing follows it,
+ * so the parser holds it briefly before emitting the key.
  */
 function escapeSettles(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 80));
@@ -745,7 +741,7 @@ function rowsIn(group: Group): readonly { keys: string; probe: Probe }[] {
   });
 }
 
-/** Run every probe in a group against one shell, so one renderer covers many rows. */
+/** Run a group's probes against one shell, so one renderer covers many rows. */
 async function runGroup(group: Group): Promise<void> {
   await withAppShell(
     async (shell, h) => {
@@ -789,9 +785,9 @@ describe("every catalog row is driven against real behavior", () => {
 });
 
 /**
- * The Ctrl+D failure in general form: a row describing a prompt default is only
- * true while the runner host leaves that byte alone. Driven on a real mount,
- * not a bare shell, so a host listener that shadows the prompt fails here.
+ * The Ctrl+D failure in general form: a row describing a prompt default is
+ * only true while the runner host leaves that byte alone. Driven on a real
+ * mount, so a host listener that shadows the prompt fails here.
  */
 describe("the runner host does not shadow the prompt bindings the catalog claims", () => {
   const PROMPT_DEFAULT_ROWS = [
@@ -860,7 +856,7 @@ describe("? no longer opens help", () => {
         shellFocusTranscript(shell);
         h.pressKey("?");
         // No binding claims it with the transcript focused either — help has
-        // no chord left at all, only the /help command.
+        // no chord left, only the /help command.
         expect(shell.overlayKind).toBeNull();
       },
       { shell: { wireKeys: true, run: "idle" } },

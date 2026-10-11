@@ -1,7 +1,5 @@
-/**
- * End-to-end: a leading `/command` or `@mention` typed into the real prompt
- * widget paints orange; bare skill/agent words and mid-prose slashes do not.
- */
+// End-to-end: a leading `/command` or `@mention` in the real prompt widget
+// paints orange; bare skill/agent words and mid-prose slashes do not.
 import { describe, expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { withTestRenderer, type Harness } from "./harness";

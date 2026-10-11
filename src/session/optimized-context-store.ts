@@ -85,25 +85,13 @@ function sanitizeCallId(callId: string): string {
 }
 
 /**
- * Parse conversation turns out of one JSONL segment. A crash can tear the final
- * line of the active (last) segment mid-write; when `tolerateTornTail` is set a
- * final line that fails to parse is dropped rather than aborting the resume.
- *
- * Null bytes (truncate-past-EOF padding from a stale keepBytes write) are stripped
- * so a poisoned segment can still yield its usable turns on resume. Errors name
- * `fileName` when provided so diagnostics point at the on-disk file, not a bare
- * Bun JSON token.
- *
- * `skipMalformed` drops (or partially recovers) a bad line anywhere in the
- * segment and keeps surrounding history. Used by display-only reads
- * (`loadRecentTurns`) and by the reactor's own `load()` recovery path so a
- * mid-file garbage/interleaved record does not kill resume (CL-7052). Earlier
- * CL-5935 kept reactor load strict; killing the session on one bad line was
- * worse than a hole in history.
- *
- * When a crash left a truncated stub glued to the next append (no newline),
- * the line fails as a whole; `recoverTurnFromGluedLine` still salvages a
- * trailing complete turn from that line when one is present.
+ * Parse conversation turns out of one JSONL segment. A crash can tear the
+ * final line of the active segment mid-write; `tolerateTornTail` drops it.
+ * Null padding from a stale keepBytes write is stripped. `skipMalformed`
+ * drops (or partially recovers) a bad line anywhere and keeps surrounding
+ * history — used by `loadRecentTurns` and the reactor's `load()` recovery
+ * path. A truncated stub glued to the next append still yields a trailing
+ * complete turn via `recoverTurnFromGluedLine`.
  */
 function recoverTurnFromGluedLine(line: string): ConversationTurn | null {
   // Walk every `{` start: a truncated prefix glued onto a complete record
@@ -205,9 +193,9 @@ function emptyMetadata(): SessionMetadata {
 }
 
 /**
- * Prefer real metadata via the base store schema on recovery. Soft-default only
- * when metadata.json is missing, corrupt, or otherwise unreadable so poisoned
- * turns still resume without wiping pendingOperations / tokenUsage / connectorState.
+ * Soft-default metadata only when metadata.json is unreadable, so poisoned
+ * turns still resume without wiping pendingOperations / tokenUsage /
+ * connectorState.
  */
 async function loadMetadataSoft(
   loadMetadata: () => Promise<SessionMetadata>,
@@ -225,9 +213,9 @@ async function loadMetadataSoft(
   }
 }
 
-// Mirrors assertWellFormedToolSequence without throwing. Used to choose the
-// longest segment prefix the reactor will accept after a load. Unpaired
-// trailing tool_calls are allowed; dups and orphan results fail.
+// Non-throwing mirror of assertWellFormedToolSequence for picking the
+// longest loadable segment prefix. Unpaired trailing tool_calls pass; dups
+// and orphan results fail.
 function toolSequenceIsWellFormed(turns: readonly ConversationTurn[]): boolean {
   const calledIds = new Set<string>();
   const answeredIds = new Set<string>();
@@ -247,10 +235,10 @@ function toolSequenceIsWellFormed(turns: readonly ConversationTurn[]): boolean {
 }
 
 /**
- * Longest prefix of `[base, ...extras]` whose tool sequence is well-formed.
- * Returns how many extras to keep (0 = base only). Orphan tails left by a
- * compaction rewrite through a fresh writer reintroduce pre-compact tool turns
- * after the compact head; dropping them is how a poisoned session resumes.
+ * Longest well-formed prefix of `[base, ...extras]`, as how many extras to
+ * keep (0 = base only). Orphan tails from a fresh-writer compaction rewrite
+ * reintroduce pre-compact tool turns; dropping them resumes a poisoned
+ * session.
  */
 function longestWellFormedExtraCount(
   baseTurns: ConversationTurn[],
@@ -271,7 +259,7 @@ async function unlinkExtraSegmentsFrom(
   fromSegmentIndex: number,
   pendingSegmentPaths: Set<string>,
 ): Promise<number> {
-  // fromSegmentIndex is the first segment file index to drop (1 = turns-0001).
+  // First segment file index to drop (1 = turns-0001).
   let removed = 0;
   const highest = await highestSegmentIndex(dir, TURNS_FILE);
   for (let s = fromSegmentIndex; s <= highest; s++) {
@@ -288,10 +276,9 @@ async function unlinkExtraSegmentsFrom(
 }
 
 /**
- * Display-only tail of the turn history. Older segments are unread when
- * `truncated` is set — callers that paint a bounded transcript can still
- * notice that more history exists even if the loaded window hydrates to
- * exactly the retention cap.
+ * Display-only tail of the turn history. `truncated` means older segments
+ * were unread, so a bounded transcript can still signal that more history
+ * exists.
  */
 export type RecentTurns = {
   readonly turns: ConversationTurn[];
@@ -299,16 +286,10 @@ export type RecentTurns = {
 };
 
 /**
- * Read only the tail of the turn history needed to satisfy `minTurns`, walking
- * segments from newest to oldest and stopping as soon as enough turns have
- * accumulated. Older segments are never read. This is for display-only resume
- * paths (e.g. TUI transcript hydration) that only need a recent window; the
- * canonical full-history read stays on `ContextStore.load()` — the reactor's
- * own initialization contract requires the complete turn history, since that
- * is the actual live conversation state, not a bounded view of it.
- *
- * Orphan-tail recovery lives on `load()`, not here: this path must stay
- * O(window) so resume does not re-pay full-history I/O on healthy sessions.
+ * Read only the newest segments needed to satisfy `minTurns`. Display-only
+ * paths (TUI transcript hydration) need a recent window; full history stays
+ * on `ContextStore.load()`. Orphan-tail recovery lives on `load()`, not
+ * here, so this path stays O(window).
  */
 export async function loadRecentTurns(
   dir: string,
@@ -324,11 +305,8 @@ export async function loadRecentTurns(
     const name = segments[i];
     if (name === undefined) continue;
     const text = await fs.promises.readFile(path.join(dir, name), "utf-8");
-    // Only the active (last) segment can be mid-write; sealed ones are complete.
-    // Display-only: skip lines that will not parse rather than losing the whole
-    // transcript to one bad line, and name the segment in any error that does
-    // escape (CL-5935). Reactor load uses the same skip path for mid-file
-    // garbage so resume does not die (CL-7052).
+    // Only the active segment can be mid-write; skip bad lines rather than
+    // losing the transcript to one, the same as reactor load.
     const turns = parseSegmentTurns(
       text,
       i === segments.length - 1,
@@ -352,10 +330,9 @@ export async function loadRecentTurns(
 }
 
 /**
- * Resilient parse of the base turn segment alone (`turns.jsonl`); extra
- * segments are merged by the caller. Mirrors the recovery `load()` applies
- * when the isogit base store hard-fails, so a torn or poisoned base cannot
- * block the write that heals it.
+ * Resilient parse of `turns.jsonl` alone (extras merged by the caller).
+ * Mirrors `load()`'s recovery when the isogit base hard-fails, so a torn or
+ * poisoned base cannot block the healing write.
  */
 async function readBaseTurnsFromDisk(dir: string): Promise<ConversationTurn[]> {
   const basePath = path.join(dir, TURNS_FILE);
@@ -414,9 +391,8 @@ async function headOid(dir: string): Promise<string | null> {
 }
 
 /**
- * Contents of every turn segment on disk (`turns.jsonl` plus numbered tails,
- * gapped strays included), keyed by relative name. Captured before a staged
- * rewrite lands so a failed commit can put the working tree back on the
+ * Every on-disk turn segment (gapped strays included), keyed by name.
+ * Captured before a staged rewrite lands so a failed commit can restore the
  * published generation.
  */
 async function snapshotTurnSegments(dir: string): Promise<Map<string, string>> {
@@ -440,7 +416,7 @@ async function snapshotTurnSegments(dir: string): Promise<Map<string, string>> {
 
 /**
  * Inverse of snapshotTurnSegments: write every snapshotted segment back and
- * unlink any segment the landed rewrite created.
+ * unlink any the landed rewrite created.
  */
 async function restoreTurnSegments(
   dir: string,
@@ -463,10 +439,10 @@ async function restoreTurnSegments(
 }
 
 /**
- * Stage every contiguous on-disk segment for `baseName` and unstage any
- * higher-numbered or gapped segment still on disk or tracked after a rewrite
- * deleted it — even when the in-memory pending set was lost (process died
- * between heal unlink and commit). Gapped strays are unlinked, not re-added.
+ * Stage contiguous on-disk segments for `baseName`; unstage any
+ * higher-numbered or gapped segment a rewrite deleted, even when the pending
+ * set was lost (crash between heal unlink and commit). Gapped strays are
+ * unlinked, not re-added.
  */
 async function reconcileSegmentStaging(
   dir: string,
@@ -477,8 +453,8 @@ async function reconcileSegmentStaging(
   const contiguous = await listSegmentFiles(dir, baseName);
   for (const name of contiguous) toAdd.push(name);
 
-  // Start past the last contiguous segment. Index 0 is the base name; numbered
-  // tails begin at 1. Empty contiguous (no base) still sweeps numbered files.
+  // Index 0 is the base name; numbered tails begin at 1. No base still
+  // sweeps numbered files.
   const startIndex = Math.max(contiguous.length, 1);
   const highestDisk = await highestSegmentIndex(dir, baseName);
   const tracked = await listIndexPaths(dir);
@@ -505,9 +481,9 @@ function extraCommitPaths(paths: readonly string[]): string[] {
 }
 
 /**
- * True when any allowlisted managed path differs between HEAD and the
- * worktree. Callers must pass only managed paths — never "." and never
- * session junk such as partial.jsonl.
+ * True when any managed path differs between HEAD and the worktree. Callers
+ * must pass only managed paths — never "." or session junk like
+ * partial.jsonl.
  */
 async function managedPathsDiffer(
   dir: string,
@@ -528,10 +504,10 @@ export interface SessionStores {
 }
 
 /**
- * Local wrapper around the Interchange git store that avoids O(session length)
- * work per reactor checkpoint. Turns and prompt snapshots are written as rolling
- * segment files so only the small active extra segment is re-hashed, then
- * `base.commit()` takes the vendor lock, durable commit, signing, and GC.
+ * Interchange git-store wrapper that avoids O(session length) work per
+ * checkpoint: turns and prompts write as rolling segments so only the active
+ * one re-hashes; `base.commit()` keeps the vendor lock, durable commit,
+ * signing, and GC.
  */
 export async function createSessionStores(
   dir: string,
@@ -600,9 +576,9 @@ export async function createSessionStores(
     try {
       baseTurns = (await base.load()).turns;
     } catch (cause) {
-      // A torn or poisoned base tail must not block the write that heals it;
-      // recover the usable base turns the same way load() does. This also lets
-      // a corrupt metadata.json slide — writeTurns only needs the turns.
+      // A torn or poisoned base must not block the healing write; recover the
+      // usable turns the same way load() does. Corrupt metadata.json also
+      // slides — writeTurns only needs the turns.
       log.warn(
         "base context store load failed during writeTurns; recovering base segment from disk",
         { cause: cause instanceof Error ? cause.message : String(cause) },
@@ -634,12 +610,10 @@ export async function createSessionStores(
     return true;
   }
 
-  // The reactor checkpoints the materialized prompt every cycle, but most
-  // cycles run no transform that changes it — writing an identical snapshot
-  // next to turns.jsonl doubles disk and re-hash cost for zero information.
-  // load() never reads prompt.jsonl (base turns + TURNS_FILE extras only),
-  // so skipping the write leaves resume behavior unchanged; prompts that
-  // actually differ still write exactly as before.
+  // The reactor checkpoints the prompt every cycle; identical snapshots
+  // double disk and re-hash cost for nothing. load() never reads
+  // prompt.jsonl, so skipping leaves resume unchanged; differing prompts
+  // still write.
   async function writePromptIfDiffered(
     turns: readonly ConversationTurn[],
   ): Promise<void> {
@@ -647,9 +621,9 @@ export async function createSessionStores(
     if (unpublishedRewrite !== null) live = unpublishedRewrite;
     else if (liveTurnRefs !== null) live = liveTurnRefs;
     else {
-      // Fresh instance with no writeTurns yet: recover live turns from disk
-      // the same way writeTurnsLiveOrStage does. Any failure falls through
-      // to a normal write — an unreadable baseline must not drop the snapshot.
+      // Fresh instance: recover live turns from disk like
+      // writeTurnsLiveOrStage; failure falls through to a normal write so an
+      // unreadable baseline cannot drop the snapshot.
       try {
         const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
         let baseTurns: ConversationTurn[];
@@ -673,9 +647,8 @@ export async function createSessionStores(
       await writeSegmented(writePromptSegmented, turns);
       return;
     }
-    // Identical to live turns: converge disk to no prompt segment so a stale
-    // snapshot from an earlier differing write cannot linger. Removals join
-    // pendingSegmentPaths so commit stages them out of the tree.
+    // Identical: converge disk to no prompt segment so a stale snapshot
+    // cannot linger; removals join pendingSegmentPaths for commit staging.
     const highest = await highestSegmentIndex(dir, PROMPT_FILE);
     let removed = false;
     for (let index = 0; index <= highest; index++) {
@@ -690,9 +663,9 @@ export async function createSessionStores(
     }
   }
 
-  // Prefer the longest prefix of base + extras whose tool sequence the reactor
-  // will accept. Orphan tails left by a fresh-writer compaction rewrite are
-  // dropped and unlinked so the next load does not re-poison the session.
+  // Prefer the longest loadable prefix of base + extras; orphan tails from a
+  // fresh-writer compaction rewrite are dropped and unlinked so the next load
+  // does not re-poison the session.
   async function loadTurnsWithoutMalformedToolSequence(
     baseTurns: ConversationTurn[],
     extraTexts: string[],
@@ -727,15 +700,11 @@ export async function createSessionStores(
   }
 
   const store: ContextStore & AuditStore = {
-    // Full-history read. Called by the reactor during initialization, where
-    // the complete turn history is the actual live conversation state, not an
-    // optional convenience — callers that only need a recent tail (e.g. TUI
-    // resume hydration) should use `loadRecentTurns` instead.
-    //
-    // When the base isogit store hard-fails (e.g. null-padded or mid-file
-    // garbage turns.jsonl), recover usable turns via resilient segment parse
-    // and re-read metadata via the base schema (soft-empty only if that fails
-    // too) so resume does not die on a bare Bun JSON token or wipe pending ops.
+    // Full-history read: the reactor's initialization contract. When the base
+    // isogit store hard-fails (null-padded or mid-file garbage), recover
+    // usable turns via resilient segment parse and re-read metadata via the
+    // base schema (soft-empty only if that fails too), so resume does not die
+    // or wipe pending ops.
     async load(signal) {
       try {
         const baseResult = await base.load(signal);
@@ -755,9 +724,8 @@ export async function createSessionStores(
         );
         let baseTurns: ConversationTurn[];
         try {
-          // Prefer resilient parse of segment 0 alone so orphan-tail heal still runs.
-          // skipMalformed: mid-file garbage/interleaved records must not kill resume
-          // (CL-7052); null-pad stripping and torn-tail drop still apply.
+          // Parse segment 0 resiliently so orphan-tail heal still runs;
+          // mid-file garbage must not kill resume.
           baseTurns = await readBaseTurnsFromDisk(dir);
         } catch (parseCause) {
           // Unrecoverable: rethrow with the file name in the message.
@@ -790,8 +758,8 @@ export async function createSessionStores(
       const extraNames = await extraSegmentNamesAtCommit(dir, hash);
       if (extraNames.length === 0) return baseTurns;
 
-      // Historical commits made while orphans remained in the tree may still be
-      // malformed. Prefer the longest well-formed prefix; no on-disk side effects.
+      // Historical commits with orphans still in the tree may be malformed;
+      // prefer the longest well-formed prefix, with no on-disk effects.
       const parsedExtras: ConversationTurn[][] = [];
       for (const name of extraNames) {
         const text = await blobTextAtCommit(dir, hash, name);
@@ -802,8 +770,8 @@ export async function createSessionStores(
       return [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
     },
     readBlob: (key, signal) => base.readBlob(key, signal),
-    // Skipped identical snapshots fall back to live turns in load(), which
-    // never reads prompt.jsonl.
+    // Skipped identical snapshots fall back to live turns; load() never reads
+    // prompt.jsonl.
     writePrompt: (turns) => writePromptIfDiffered(turns),
     writeResponse: (turn, signal) => base.writeResponse(turn, signal),
     writeManifest: (records, signal) => base.writeManifest(records, signal),
@@ -820,9 +788,9 @@ export async function createSessionStores(
       return withResolvedDirLock(dir, async () => {
         const stagedRewrite = unpublishedRewrite;
         // The staged rewrite lands on the working-tree segments before the git
-        // operations below; snapshot them so a failed commit can put the files
-        // back on the published generation. `unpublishedRewrite` stays staged
-        // so a retried commit can still publish it.
+        // operations below; snapshot them so a failed commit can restore the
+        // published generation. The rewrite stays staged so a retry can still
+        // publish it.
         const segmentSnapshot =
           stagedRewrite === null ? null : await snapshotTurnSegments(dir);
         const headBefore = stagedRewrite === null ? null : await headOid(dir);
@@ -844,8 +812,8 @@ export async function createSessionStores(
             else toRemove.push(filepath);
           }
 
-          // Disk is source of truth for which turn/prompt segments should remain
-          // tracked after a rewrite or heal, even if pendingSegmentPaths was lost.
+          // Disk is the source of truth for which segments stay tracked after a
+          // rewrite or heal, even when pendingSegmentPaths was lost.
           await reconcileSegmentStaging(dir, TURNS_FILE, toAdd, toRemove);
           await reconcileSegmentStaging(dir, PROMPT_FILE, toAdd, toRemove);
 
@@ -853,11 +821,10 @@ export async function createSessionStores(
             toAdd.push(EVIDENCE_ARCHIVE_DIR);
           }
 
-          // Empty managed checkpoints must not create a new commit or stage
-          // session junk such as partial.jsonl. Discover extra turn/prompt
-          // segments first so a crash that left them untracked cannot skip.
-          // A staged unpublished rewrite is still unpublished on disk — skip
-          // would swallow the compact without writing it.
+          // Empty managed checkpoints must not commit or stage session junk
+          // (partial.jsonl). Discover extra segments first so a crash that
+          // left them untracked cannot skip. A staged unpublished rewrite is
+          // still unpublished on disk — skipping would swallow the compact.
           if (stagedRewrite === null) {
             const managedFilepaths = [
               ...VENDOR_COMMIT_ROOT_FILES,
@@ -879,9 +846,9 @@ export async function createSessionStores(
           }
 
           const add = extraCommitPaths([...new Set(toAdd)]);
-          // extraCommitPaths strips vendor roots because base.commit() git.adds
-          // those that still exist. It does not git.remove missing ones, so an
-          // unlinked prompt.jsonl must stay in `remove`.
+          // extraCommitPaths strips vendor roots: base.commit() adds those
+          // that still exist but never removes missing ones, so an unlinked
+          // prompt.jsonl must stay in `remove`.
           const remove = [...new Set(toRemove)].filter((p) => !add.includes(p));
           extraPaths = [...new Set([...add, ...remove])];
 
@@ -906,11 +873,10 @@ export async function createSessionStores(
         } catch (cause) {
           await resetIndexPaths(dir, extraPaths);
           if (segmentSnapshot !== null) {
-            // The rewrite already landed on the working-tree segments; restore
-            // them so load() keeps serving the published generation — unless
-            // the commit actually landed despite throwing (a ref write or
-            // post-commit check can fail after HEAD moved), in which case the
-            // on-disk rewrite already matches the new HEAD.
+            // Restore the published generation unless the commit actually
+            // landed despite throwing (a ref write or post-commit check can
+            // fail after HEAD moved), in which case the on-disk rewrite
+            // already matches HEAD.
             const headNow = await headOid(dir);
             const landed =
               headBefore !== null && headNow !== null && headNow !== headBefore;
@@ -921,8 +887,8 @@ export async function createSessionStores(
                 // A partial restore must not mask the real commit error.
               }
             }
-            // Drop the writer's stale in-memory state so a retry rewrites the
-            // staged segments from scratch.
+            // Drop the writer's stale in-memory state so a retry rewrites from
+            // scratch.
             writeTurnsSegmented = createSegmentedJSONLWriter(dir, TURNS_FILE);
             liveTurnRefs = null;
           }

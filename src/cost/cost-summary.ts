@@ -20,9 +20,8 @@ export interface CostSummaryInput {
   cacheReadTokens: number;
   contextTokens: number;
   // True when contextTokens came from the local character-count estimate
-  // because the provider omitted or zeroed usage on the latest turn, rather
-  // than from provider-reported usage. Lets the display flag the number as
-  // approximate instead of implying provider-grade precision. The caller
+  // because the provider omitted or zeroed usage, not from provider-reported
+  // usage — lets the display flag the number as approximate. The caller
   // building this input owns the decision; nothing downstream re-derives it.
   contextIsEstimate: boolean;
   // Session mix from the per-turn accumulator. Absent or "none" falls back to

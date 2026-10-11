@@ -140,9 +140,8 @@ describe("createTurnContextCollector tool result truncation", () => {
 
 describe("lifecycle hook payload delivery", () => {
   test("a hook that exits without reading a large payload is a hook outcome, not a crash", async () => {
-    // A shell hook that handles only postTurn exits at once on postRun; the
-    // run summary of a long session is megabytes, far past what the pipe
-    // buffers, so the write lands on a closed pipe.
+    // A postTurn-only shell hook exits at once on postRun; the long-session
+    // run summary exceeds the pipe buffer, so the write lands on a closed pipe.
     const directory = await mkdtemp(join(tmpdir(), "corbits-hook-"));
     const path = join(directory, "post-turn-only.sh");
     await writeFile(path, 'case "$1" in postTurn) cat > /dev/null ;; esac\n');
@@ -179,8 +178,7 @@ describe("lifecycle hook payload delivery", () => {
     } finally {
       process.off("unhandledRejection", onUnhandled);
     }
-    // Whether the pipe breaks before the payload is buffered varies run to
-    // run; what must not vary is that neither outcome takes the process down.
+    // Whether the pipe breaks before buffering varies; neither outcome may take the process down.
     expect(unhandled).toBeNull();
     expect(errors).toEqual([]);
     const [status] = manager.getStatuses();

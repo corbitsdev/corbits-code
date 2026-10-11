@@ -1,7 +1,8 @@
 /**
- * Breathing room: one optical gutter shared by every surface, a blank row above
- * the first transcript row, a blank row below the prompt box, and a
- * narrow-terminal floor where each pad yields to content rather than squeezing it.
+ * Breathing room: one optical gutter shared by every surface, a blank row
+ * above the first transcript row, a blank row below the prompt box, and a
+ * narrow-terminal floor where each pad yields to content rather than
+ * squeezing it.
  */
 import { describe, expect, test } from "bun:test";
 import {
@@ -94,8 +95,7 @@ describe("top padding", () => {
           await settle(h);
           const rows = h.captureCharFrame().split("\n");
           // Row 0 is still the top pad's own blank row: a single short row
-          // sits at the bottom of the transcript zone, against the prompt
-          // box, not immediately after the pad.
+          // sits at the bottom of the transcript zone, against the prompt box.
           expect(rows[0]?.trim()).toBe("");
           const contentIndex = rows.findIndex((r) =>
             r.includes("first prompt"),

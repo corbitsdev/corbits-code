@@ -162,7 +162,7 @@ describe("isGptProvider (CL-8310)", () => {
   });
 
   test("astra branches to its own family; other cells ride the generic gpt match", () => {
-    // CL-9027 reverses the no-special-casing rule for astra only: the
+    // Astra reverses the no-special-casing rule only: the
     // gpt-6-astra cell doom-loops, so it resolves to the astra family while
     // sol/terra/luna and generic gpt ids keep the generic gpt match.
     for (const model of CODEX_DEFAULT_MODELS) {

@@ -505,10 +505,9 @@ describe("resize mid-overlay", () => {
 
 describe("accept echo reads the chosen value structurally", () => {
   test("a label containing its own ‹ › text does not corrupt the echo", async () => {
-    // A row whose display label happens to contain marker glyphs for reasons
-    // that have nothing to do with the cycled-field convention — the echo
-    // must still report the caller-supplied value, not something scraped
-    // back out of the label.
+    // A display label that happens to contain marker glyphs for unrelated
+    // reasons must not corrupt the echo: it reports the caller-supplied
+    // value, not something scraped back out of the label.
     await withAppShell(async (shell) => {
       openListOverlay(shell, {
         kind: "settings",

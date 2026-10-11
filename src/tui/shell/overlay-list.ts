@@ -97,15 +97,14 @@ export function dispatchOverlayAccept(
 
 /**
  * Recompute the overlay host's row budget from the current item count and
- * relayout into it. Callers that refresh an already-open overlay's items in
- * place (rather than reopening) must call this themselves — a filter that
- * narrows a list and then widens it again would otherwise stay pinned at
- * whatever size it first opened at.
+ * relayout into it. In-place item refreshes must call this themselves: a
+ * filter that narrows then widens would stay pinned at its first-opened
+ * size.
  */
 export function relayoutOverlayHost(shell: AppShell, itemCount: number): void {
   const perItem = overlayRowsPerItem(shell.overlayKind);
   // An empty list reserves zero rows but still paints its one-line empty
-  // state, so the chrome budget carries that row as a body line (CL-6720).
+  // state, so the chrome budget carries that row as a body line.
   const chrome = overlayChromeRows(
     shell.overlayKind,
     shell.overlayBodyLines.length + (itemCount === 0 ? 1 : 0),
@@ -134,10 +133,9 @@ function placeholderOptions(count: number): SelectOption[] {
 }
 
 /**
- * SelectRenderable keeps its scroll offset and visible-item capacity private
- * in its type surface (@opentui/core 0.5.10 exposes no accessors for either),
- * so the wrapper reads them reflectively and narrows the values instead of
- * asserting a shape.
+ * SelectRenderable keeps scroll offset and visible-item capacity private
+ * (@opentui/core 0.5.10 exposes no accessors), so read them reflectively
+ * and narrow instead of asserting a shape.
  */
 function selectScrollState(select: SelectRenderable): {
   offset: number;
@@ -275,8 +273,8 @@ export function moveOverlaySelection(shell: AppShell, delta: number): void {
 
 /**
  * Cycle the focused row's value in place, for overlays that opted in via
- * `onCycle` (settings inline cycling). No-op when the open overlay did not
- * supply a cycle hook, so Left/Right stay unclaimed everywhere else.
+ * `onCycle` (settings inline cycling). No-op without a hook, so Left/Right
+ * stay unclaimed elsewhere.
  */
 export function cycleOverlaySelection(
   shell: AppShell,
@@ -292,8 +290,7 @@ export function cycleOverlaySelection(
 
 /**
  * Run the open overlay's bare-key claim, for overlays that opted in via
- * `onAction`. No-op when the open overlay did not supply one, so the key
- * falls through unclaimed everywhere else.
+ * `onAction`. No-op without one, so the key falls through unclaimed.
  */
 export function runOverlayAction(shell: AppShell, key: KeyEvent): boolean {
   const list = shell.overlayList;

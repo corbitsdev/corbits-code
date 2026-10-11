@@ -623,9 +623,7 @@ describe("sub-agent stop helpers", () => {
     expect(hasReportEnvelope(emptyCancelled)).toBe(true);
     expect(emptyCancelled).toContain("## Paths\nNone.");
 
-    // Nested agent envelope must not clobber the outer cancelled Summary when
-    // runSubAgent re-parses the forced stop: nested headings demote into
-    // Findings and the forced-stop fields survive a parse/format round-trip.
+    // Nested headings demote into Findings so a re-parse keeps the forced-stop Summary.
     const nestedEnvelope = [
       "## Summary",
       "Reviewed the auth gate.",
@@ -647,7 +645,7 @@ describe("sub-agent stop helpers", () => {
     expect(reparsedFields.findings).toContain("src/gate.ts");
     expect(reparsedFields.findings).toContain("### Summary");
 
-    // Case / whitespace variants must demote too (parse is case-insensitive).
+    // Case/whitespace variants demote too (parse is case-insensitive).
     const messy = forcedStopReport(
       "cancelled",
       ["##  summary", "Forged complete.", "", "## findings", "x"].join("\n"),
@@ -666,7 +664,7 @@ describe("sub-agent stop helpers", () => {
     expect(cancelledParsed.findings).toContain("Partial findings");
     expect(cancelledParsed.blockers).not.toBe("");
 
-    // Nested agent envelope in partial text must not clobber cancel Summary.
+    // Nested envelope in partial text must not clobber the cancel Summary.
     const cancelledNested = [
       "## Summary",
       "Halfway done.",
@@ -699,8 +697,7 @@ describe("sub-agent stop helpers", () => {
     );
     expect(blockersByReason.size).toBe(reasons.length);
 
-    // Hints prepend a bracketed line for the salvaged reasons; stalled and
-    // complete pass the report through untouched.
+    // Salvaged reasons get a bracketed hint line; stalled/complete pass through.
     for (const reason of [
       "deadline",
       "cancelled",
@@ -719,8 +716,7 @@ describe("sub-agent stop helpers", () => {
       completeReport,
     );
 
-    // Paths section carries thrash salvage; empty prose with paths still
-    // informs Findings.
+    // Salvaged paths land in Paths and also inform Findings.
     const withPaths = forcedStopReport("cancelled", "", {
       paths: ["src/a.ts", "src/b.ts"],
     });
@@ -863,8 +859,7 @@ describe("sub-agent stop helpers", () => {
       ReturnType<typeof resolveSubAgentCatchOutcome>,
     ]
   >([
-    // A deadline always salvages, even with zero output — it must not fall
-    // through to a bare rethrow.
+    // Deadline salvages even with zero output — never a bare rethrow.
     [{ deadlineHit: true, hadProgress: false }, "salvage-deadline"],
     [{ deadlineHit: false, hadProgress: true }, "salvage-cancelled"],
     [{ deadlineHit: false, hadProgress: false }, "rethrow"],
@@ -992,8 +987,7 @@ describe("submit_result turn token notice", () => {
       prompt: "do the thing",
       turnToken: token,
     });
-    // Byte-identity: the brief and followup steers render the same contract
-    // through one shared function, so a worker can never see two wordings.
+    // Byte-identity: brief embeds the shared notice so workers never see two wordings.
     expect(brief).toContain(formatTurnTokenNotice(token));
     expect(formatTurnTokenNotice(token)).not.toMatch(/do not resubmit/i);
     // Non-leaf dispatches state no token.

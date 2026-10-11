@@ -1,7 +1,7 @@
 /**
- * Catalog projection: turns the shared first-class provider catalog (plus the
- * subscription surfaces and the manual Custom row) into pick-list choices, so
- * onboarding and `/model` connect never drift.
+ * Catalog projection: the first-class provider catalog (plus subscription
+ * surfaces and the manual Custom row) as pick-list choices, so onboarding
+ * and `/model` connect share one source.
  */
 
 import {
@@ -43,15 +43,12 @@ export const PROVIDER_LIST_ROWS_MAX = 10;
 export const PROVIDER_LIST_ROWS_MIN = 3;
 
 /**
- * List height budget. This budget is a guess, not a derivation: it runs
- * before layout, so there has been no layout pass yet and nothing in OpenTUI
- * to measure — Renderable.height and scrollHeight only reflect the last
- * completed layout, populated post-mount. -14 is a hand count of the chrome
- * rows above and below the list (header, intro, step, instruction, summary,
- * statusLine, guidance, footer, and padding) with slack for a wrapped label;
- * it goes stale if that chrome changes and nothing here will catch it. A
- * shared, derived chrome budget for this and shell.ts's picker is tracked
- * separately.
+ * List height budget: a guess, not a derivation. Runs before layout, so
+ * nothing is measurable — height/scrollHeight reflect only the last
+ * completed layout. -14 is a hand count of the chrome rows around the list
+ * (header, intro, step, instruction, summary, statusLine, guidance, footer,
+ * padding) plus label-wrap slack; it goes stale if that chrome changes and
+ * nothing here catches it.
  */
 export function providerListHeight(renderer: CliRenderer): number {
   const rows = renderer.height || 24;
@@ -76,11 +73,11 @@ export const CUSTOM_REASONING_EFFORTS: readonly ReasoningEffort[] = [
 export const TYPE_MODEL_ID = "__type_model__";
 
 /**
- * What a signed-in subscription provider resolves to. The endpoint and model
- * list are the same constants the auth stack projects into the catalog, so a
- * first run and a later `/model` connect land on the same provider entry.
- * These are views over the Codex/xAI live-fetch fallbacks, not a separate
- * list — identity-divergence.test.ts pins them to the fallback constants.
+ * What a signed-in subscription provider resolves to: the endpoint and
+ * model constants the auth stack projects into the catalog, so onboarding
+ * and a later `/model` connect land on the same entry. Views over the
+ * Codex/xAI live-fetch fallbacks, not a separate list —
+ * identity-divergence.test.ts pins them to those constants.
  */
 export const OAUTH_SURFACES: Record<
   OAuthKind,
@@ -166,10 +163,9 @@ function choiceFromDef(def: FirstClassProviderDef): ProviderChoice | null {
 }
 
 /**
- * The pick-list, derived from the shared first-class catalog so onboarding and
- * `/model` connect never drift. Subscription providers are listed alongside the
- * key-based ones: their step is a browser sign-in rather than a paste, but a
- * first run must be able to start there.
+ * The pick-list from the shared first-class catalog. Subscription providers
+ * sit beside key-based ones: their step is a browser sign-in, but first run
+ * must be able to start there.
  */
 export function providerChoices(): readonly ProviderChoice[] {
   const out: ProviderChoice[] = [];
@@ -212,10 +208,9 @@ export function providerChoiceById(id: string): ProviderChoice | undefined {
 }
 
 /**
- * How many connected accounts `choice` has in `providers`. Both OAuth and
- * first-class API-key kinds store instances as `kind/<slug>` (plus a legacy
- * bare `kind` key for the original single-instance connect), so prefix
- * matching is required. Custom is free-form and never counted here.
+ * Connected accounts for `choice` in `providers`. OAuth and first-class
+ * API-key kinds store instances as `kind/<slug>` (plus a legacy bare `kind`
+ * key), so match by prefix. Custom is free-form and uncounted.
  */
 export function connectedAccountCount(
   choice: ProviderChoice,
@@ -250,9 +245,9 @@ export function instanceSlugsForKind(
 }
 
 /**
- * Catalog key an API-key instance of `kind`/`slug` is stored under. Reuses a
- * legacy bare `kind` key when the slug is `"default"` and that bare key still
- * exists; otherwise always writes the compound form so siblings coexist.
+ * Catalog key for an API-key instance of `kind`/`slug`. Reuses a legacy bare
+ * `kind` key only when the slug is `"default"` and that key still exists;
+ * otherwise writes the compound form so siblings coexist.
  */
 export function resolveApiKeyInstanceName(
   kind: string,
@@ -266,10 +261,9 @@ export function resolveApiKeyInstanceName(
 }
 
 /**
- * Rows for the model picker's Alt+A add-provider selector. Every first-class
- * kind is included, including Custom — filtering Custom out made free-form
- * endpoints unreachable from Alt+A even though onboarding still offered them.
- * Account counts use the same rules as the onboarding list.
+ * Rows for the model picker's Alt+A selector. Custom stays — filtering it
+ * out made free-form endpoints unreachable. Account counts follow the
+ * onboarding list's rules.
  */
 export function addProviderSelectorChoices(
   choices: readonly ProviderChoice[],
@@ -282,10 +276,9 @@ export function addProviderSelectorChoices(
 }[] {
   return choices.map((choice) => {
     const accountCount = connectedAccountCount(choice, providers);
-    // Once an OAuth kind has a connected account the browser-login CTA in its
-    // label ("ChatGPT — Login via Browser") reads as if still unconnected, so
-    // render the connected state plainly instead. The row stays listed so a
-    // second account remains reachable.
+    // With an account connected, the browser-login CTA in the label reads as
+    // unconnected; render the connected state plainly. The row stays so a
+    // second account stays reachable.
     const connected =
       choice.oauth !== null && !choice.custom && accountCount > 0;
     return {
@@ -310,10 +303,9 @@ export function providerChoiceRows(
 }
 
 /**
- * Pick-list rows for the model step, built from the shared models-first
- * catalog so the labels match the `/model` picker (including its cross-product
- * billing warnings). A trailing row escapes to free text for a model id the
- * seeded list does not carry yet.
+ * Rows for the model step, from the shared models-first catalog so labels
+ * match the `/model` picker (billing warnings included). A trailing row
+ * escapes to free text for a model id the seeded list lacks.
  */
 export function modelChoiceRows(
   choice: ProviderChoice,

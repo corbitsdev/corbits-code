@@ -16,8 +16,8 @@ export function createLazyBlobReader(
 }
 
 /**
- * True when a blob read failed because the key is absent (not a bad URI or
- * other hard error). Used so a composite reader can try the next store.
+ * True when a read failed because the key is absent (not a bad URI or other
+ * hard error); lets a composite reader try the next store.
  */
 export function isBlobNotFoundError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -29,8 +29,8 @@ export function isBlobNotFoundError(err: unknown): boolean {
 
 /**
  * Resolve tool-output:// URIs against a primary store, then a fallback
- * (typically child session then parent). Malformed URIs and non-missing
- * failures from the primary are not retried on the fallback.
+ * (child session then parent). Malformed URIs and non-missing primary
+ * failures are not retried on the fallback.
  */
 export function createCompositeBlobReader(
   getPrimary: () => BlobReader | undefined,
@@ -54,8 +54,8 @@ export function createCompositeBlobReader(
         if (primary === undefined) {
           throw new Error("blob reader is not configured");
         }
-        // Primary was configured but missed; re-read so the error message
-        // matches a direct miss rather than inventing a composite-only one.
+        // Primary missed; re-read so the error matches a direct miss, not a
+        // composite-only one.
         return primary.read(uri);
       }
       return fallback.read(uri);

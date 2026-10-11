@@ -1,7 +1,7 @@
 /**
- * MCP surface for the TUI runner: late-connect callbacks, the persisted
- * server catalog updates, and the /mcp host surface (list, add, retry,
- * enable/disable, remove).
+ * MCP surface for the TUI runner: late-connect callbacks, persisted catalog
+ * updates, and the /mcp host surface (list, add, retry, enable/disable,
+ * remove).
  */
 
 import { openInBrowser } from "@corbits/oauth-core";
@@ -238,9 +238,7 @@ function createMcpSurface(
           message: `No persisted MCP server named "${name}" to retry.`,
         };
       }
-      // Single-dial manual retry: retryMCPServer cancels any backoff loop
-      // first so exactly one dial runs, then resets backoff state. A failed
-      // retry leaves the row failed with no backoff until the next retry.
+      // Manual retry: cancel any backoff loop first so exactly one dial runs.
       void services.toolset
         .retryMCPServer(
           server,

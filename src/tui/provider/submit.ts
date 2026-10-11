@@ -57,9 +57,8 @@ function parseCustomInferenceOptions(
 
 /**
  * Persist the project-local provider/model selection after a successful
- * connect. Shared by OAuth and API-key paths so both leave the same two
- * files `/model` would write on a switch: global credentials/catalog and
- * local selection only (never secrets).
+ * connect. Both paths leave the same files `/model` would write: global
+ * credentials/catalog and local selection only (never secrets).
  */
 export async function persistConnectedSelection(
   localSettingsFile: string | null,
@@ -75,13 +74,12 @@ export async function persistConnectedSelection(
 
 /**
  * The single write path every provider-setup exit takes, shared by first-run
- * onboarding and mid-session "connect a new provider" so a credential is
- * validated (or explicitly marked unverified) the same way regardless of
- * where the form was opened from.
+ * onboarding and mid-session connect, so a credential is validated (or
+ * explicitly marked unverified) the same way everywhere.
  *
- * `localSettingsFile` is the project-local selection path (wired through from
- * callers that already own it — never re-derived here so tests and the
- * mid-session connect path can pass an explicit file).
+ * `localSettingsFile` is the project-local selection path, wired through from
+ * callers that already own it — never re-derived, so tests and the
+ * mid-session path can pass an explicit file.
  */
 export type PersistProviderSettings = (
   apply: (base: Settings) => Settings,
@@ -138,11 +136,11 @@ export function buildProviderSubmitHandler(
       }
     }
 
-    // OAuth credentials stay staged until setup validation authorizes durable
-    // persistence. Definitive API-scope or credential failures block the save;
-    // inconclusive probe failures do not. Once committed to the home-level auth
-    // store, config load projects it into the provider catalog, so only
-    // non-secret provider/model metadata is persisted globally.
+    // OAuth credentials stay staged until validation authorizes durable
+    // persistence. Definitive scope/credential failures block the save;
+    // inconclusive probe failures do not. After commit, config load projects
+    // the auth-store entry into the catalog, so only non-secret
+    // provider/model metadata is persisted globally.
     if (oauth !== undefined) {
       if (!skipValidation) {
         const scopeCheck = await checkOAuthProviderScope(
@@ -177,21 +175,18 @@ export function buildProviderSubmitHandler(
       return;
     }
 
-    // A known preset (anything but the custom/manual endpoint) always speaks
-    // to a real provider that requires a key; only the manual path is
-    // genuinely keyless-capable (e.g. a local OpenAI-compatible runtime).
-    // Reject an empty key here rather than silently downgrading it to
-    // `keyless: true` and letting resolveProvider skip the missing-key check
-    // entirely.
+    // Presets always speak to a key-required provider; only the manual path
+    // is keyless-capable (e.g. a local OpenAI-compatible runtime). Reject an
+    // empty key rather than silently writing `keyless: true` and skipping the
+    // missing-key check.
     if (preset !== undefined && !isOllama && trimmedKey.length === 0) {
       throw new Error(`${providerName || preset.id} requires an API key.`);
     }
 
-    // Fail fast on a bad base URL/key here rather than mid-conversation
-    // during the first real stream request. The operator can bypass the
-    // check (Ctrl+S) for providers that don't expose /models. Anthropic
-    // Messages endpoints are exempt: the probe is an OpenAI-compatible GET
-    // /models with a bearer token, which that surface always rejects.
+    // Fail fast on a bad base URL/key rather than on the first real stream
+    // request. The operator can bypass the check (Ctrl+S) for providers that
+    // don't expose /models. Anthropic Messages endpoints are exempt: the
+    // probe is an OpenAI-compatible GET /models, which that surface rejects.
     if (!skipValidation && preset?.anthropic !== true) {
       const check = await validateProviderConnection({
         baseURL: isOllama
@@ -206,16 +201,13 @@ export function buildProviderSubmitHandler(
 
     setPhase("saving");
     // A picked provider seeds its whole catalog so /model has more than the
-    // one model chosen here; the protocol flags cannot be expressed by the
-    // four form values and come from the catalog entry.
+    // chosen model; protocol flags come from the catalog entry.
     const models =
       preset !== undefined && preset.models.includes(selectedModel)
         ? [...preset.models]
         : [selectedModel];
-    // Custom provider effort declaration: the operator's enabled levels and
-    // picked default flow through to the catalog so /model cycling and
-    // session resolution use the operator set. Only the custom path carries
-    // these values (presets/OAuth never set them on the form).
+    // Enabled levels and the picked default flow to the catalog so /model
+    // cycling uses the operator set; only the custom path carries them.
     const newProvider: ProviderSettings = {
       baseURL: persistedBaseURL,
       models,
@@ -232,21 +224,18 @@ export function buildProviderSubmitHandler(
         ? { defaultReasoningEffort: trimmedDefaultEffort }
         : {}),
       ...inferenceOptions,
-      // "Save anyway" (Ctrl+S) persists a credential the connection test
-      // never passed. Mark it so the running session can warn on first use
-      // instead of surfacing a bare adapter error.
+      // "Save anyway" (Ctrl+S) persists an untested credential; mark it so
+      // the session can warn on first use instead of a bare adapter error.
       ...(skipValidation ? { verified: false } : {}),
     };
-    // Merge new provider with any pre-existing ones. Single write — the form
-    // stays open (phase label) until saveGlobalSettings resolves, so the user
-    // sees confirmation before the screen is cleared. Full-spread merge so
-    // plugins/pluginPaths/sessionMode/shell/tools survive re-onboarding.
+    // Merge in one write — the form stays open until the save resolves, so
+    // the user sees confirmation. Full-spread merge keeps
+    // plugins/pluginPaths/sessionMode/shell/tools across re-onboarding.
     await persistSettings((base) =>
       mergeProviderIntoSettings(base, providerName, newProvider),
     );
-    // Same project-local selection contract as OAuth: credentials stay in
-    // global storage; the local file is selection only so a restart in this
-    // repo resolves to the provider just connected.
+    // Same project-local selection contract as OAuth: credentials stay global;
+    // the local file is selection only, so a restart resolves here.
     await persistConnectedSelection(
       localSettingsFile,
       providerName,

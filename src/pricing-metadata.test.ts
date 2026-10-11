@@ -15,10 +15,9 @@ import { contextWindowFor } from "./provider/context-window.js";
 import { writePricingCache } from "./cost/pricing-fetcher.js";
 
 describe("pricing-metadata", () => {
-  // refreshScheduled is a module-level one-shot latch shared with every other
-  // file in this process; another file's real loadConfig() call can leave it
-  // set before this file's first test ever runs. Reset on both sides so this
-  // suite's outcome does not depend on what ran before it.
+  // refreshScheduled is a module-level one-shot latch shared process-wide;
+  // another file's loadConfig() can leave it set before this suite runs.
+  // Reset on both sides so the outcome does not depend on what ran before.
   beforeEach(() => {
     resetPricingMetadataRefreshForTests();
   });

@@ -1,12 +1,11 @@
 /**
- * Admission in front of worker `run()`. Spawn never refuses for count;
- * excess jobs report `queued` until a burst slot is free.
+ * Admission in front of worker `run()`. Spawn never refuses for count; excess
+ * jobs report `queued` until a burst slot is free.
  *
- * `DEFAULT_ADMISSION_IN_FLIGHT` is a race-avoidance burst window so a 429 freeze
- * can fire before a herd — not provider truth and not a declared-spawn cap.
- *
- * Drain is FIFO among currently admissible jobs. A paused provider is skipped
- * so it cannot block another provider; it does not freeze bypass of capacity.
+ * `DEFAULT_ADMISSION_IN_FLIGHT` is a race-avoidance burst window so a 429
+ * freeze can fire before a herd — not provider truth, not a declared-spawn
+ * cap. Drain is FIFO among currently admissible jobs; a paused provider is
+ * skipped so it cannot block another provider, and bypass is never frozen.
  */
 
 export const DEFAULT_ADMISSION_IN_FLIGHT = 8;

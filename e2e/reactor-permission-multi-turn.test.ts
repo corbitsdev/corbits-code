@@ -86,8 +86,8 @@ describe("integration — reactor permission + multi-turn", () => {
       });
 
       try {
-        // Primary dispatch does not mount write_file; permission multi-turn
-        // still covers a consequential tool that remains on the primary surface.
+        // write_file is not mounted on primary dispatch; multi-turn covers a
+        // consequential tool that remains on the primary surface.
         session.harness.scenario.replyOnce("anthropic", {
           toolCalls: [
             {

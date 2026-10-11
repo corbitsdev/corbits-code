@@ -167,9 +167,9 @@ describe("decision overlay paints at narrow widths", () => {
         if (!trimmed.startsWith("┌") && !trimmed.startsWith("└")) continue;
         expect(/^[┌└├┬┐┘─┤┴]+$/.test(trimmed)).toBe(true);
       }
-      // Every row the host paints starts with a leading space; a row butting
-      // straight against the border is the signature of a wrapped title or a
-      // body line that outgrew the box.
+      // Every row the host paints starts with a leading space; a row
+      // butting straight against the border means a wrapped title or body
+      // line outgrew the box.
       const bottom = lines.findIndex(
         (l, i) => i > top && l.trimStart().startsWith("└"),
       );
@@ -183,8 +183,8 @@ describe("decision overlay paints at narrow widths", () => {
         .replace(/[│┌┐└┘─]/g, " ")
         .replace(/\s+/g, " ");
       // The first choice is always on screen; how many of the rest fit is a
-      // height question (the fraction cap + this deliberately tall body), not
-      // a width one — reachability under clipping is overlay-overflow's file.
+      // height question (the fraction cap + this deliberately tall body),
+      // not a width one.
       expect(interior).toContain("Reject");
       const choiceLines = lines.filter(
         (l) =>

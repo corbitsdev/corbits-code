@@ -44,9 +44,9 @@ function resolveAgentProfileWarningHandler(
 // explicit enabled+consented in settings even for repo plugins, because a
 // tool plugin runs in-process code rather than declaring configuration data.
 //
-// Closed DIRECTOR_IDS are reserved (CL-7015): a plugin profile whose id
-// collides with a shipped director is skipped with a warning — plugins cannot
-// override or alias the closed fleet.
+// Closed DIRECTOR_IDS are reserved: a plugin profile whose id collides with a
+// shipped director is skipped with a warning — plugins cannot override or
+// alias the closed fleet.
 //
 // Warnings fire whenever a profile is rejected so JS-plugin authors get the
 // same feedback loop data-only plugin authors already enjoy. Pass `diagnostics`

@@ -1,9 +1,7 @@
 // Shared runtime assembly used by the exec and TUI runners.
 //
-// Only near-verbatim blocks live here. The composed entry-point wiring built
-// from them (trust → gate → agent → lifecycle) lives in
-// `./assemble-runtime.ts`, which both runners consume; this module stays the
-// home of the individual blocks.
+// Only near-verbatim blocks live here; the composed wiring built from them
+// lives in `./assemble-runtime.ts`, which both runners consume.
 
 import { getLogger } from "@intx/log";
 import type {
@@ -118,12 +116,10 @@ export interface LiveSubAgentSources {
 }
 
 /**
- * The single owner of every session fact a sub-agent spawn reads. A runner's
- * session config is reassigned by each switch path (model picker, /agent,
- * post-connect refresh, favorite toggle), so all three derive from a config
- * getter per spawn. Snapshot copies kept in sync by hand went stale whenever
- * a new switch path forgot to update them, which is what stranded workers on
- * a provider the operator had already switched away from.
+ * Single owner of every session fact a sub-agent spawn reads. Each switch
+ * path (model picker, /agent, post-connect refresh, favorite toggle)
+ * reassigns the runner's config, so all three read a config getter per
+ * spawn; hand-synced snapshots went stale when a switch path missed one.
  */
 export function createLiveSubAgentSources(
   getConfig: () => SubAgentSourcesConfig,
@@ -146,11 +142,9 @@ export async function loadSeededApprovals(
   home?: string,
   opts?: { onPendingProjectGrants?: ((text: string) => void) | undefined },
 ): Promise<Approval[]> {
-  // One-time migration: purge persisted update_plan keys (dropped at load by
-  // normalizeSeededApprovals but never rewritten) so removing the normalizer
-  // later cannot resurrect them. Best-effort and idempotent — a clean tree is
-  // a no-op, and the normalizer stays as defense-in-depth regardless. Guarded
-  // so a future throw can never break session start.
+  // One-time migration: purge persisted update_plan keys (dropped at load but
+  // never rewritten) so removing the normalizer later cannot resurrect them.
+  // Best-effort and guarded so a throw cannot break session start.
   try {
     await migratePersistedApprovalStores(cwd, sessionId, home);
   } catch (err) {
@@ -170,9 +164,8 @@ export async function loadSeededApprovals(
     loadProviderModelApprovals(),
     loadPendingProjectApprovals(cwd, home),
   ]);
-  // First encounter with an unconfirmed project approvals file: show the
-  // operator what it would grant. The entries stay out of the seeded set
-  // (loadProjectApprovals gates them) — this notice is the only trace.
+  // First encounter with an unconfirmed project approvals file: show what it
+  // would grant. The entries stay gated; the notice is the only trace.
   const pendingNotice = formatPendingProjectApprovals(pendingProjectApprovals);
   if (pendingNotice !== "") {
     persistLogger.warn("Unconfirmed project approvals in {cwd}", { cwd });
@@ -196,9 +189,8 @@ const persistLogger = getLogger([LOG_NAMESPACE_ROOT, "session", "approvals"]);
 export const APPROVAL_PERSIST_FAILURE_NOTICE =
   "Allow Always applies this session, but remember did not stick.";
 
-// The persist callback is fire-and-forget from the gate. A rejected write must
-// not become an unhandledRejection (that path is fatal at process level); the
-// in-memory grant already applies, so the approved call still completes.
+// Fire-and-forget: a rejected write must not become an unhandledRejection;
+// the in-memory grant already applies, so the call still completes.
 function persistBestEffort(
   scope: GrantScope,
   write: Promise<void>,
@@ -218,12 +210,10 @@ function persistBestEffort(
 }
 
 /**
- * Route a gate-persisted grant to the store its scope selects.
- * Session grants never reach here — the gate keeps those in memory only.
+ * Route a gate-persisted grant to the store its scope selects. Session
+ * grants never reach here — the gate keeps those in memory only.
  * `getActiveProviderModel` is read at persist time so a live model switch
- * stores new provider-model grants under the pair now in use.
- * Disk failures are logged, surfaced to the operator when a notice hook is
- * provided, and swallowed so they cannot crash the session.
+ * stores under the pair in use.
  */
 export function createApprovalPersist(
   cwd: string,
@@ -292,7 +282,8 @@ export async function discoverSessionPlugins(
   ]);
 }
 
-/** Skill directories from plugins that are executable and enabled (settings or repo defaultEnabled). */
+/** Skill directories from plugins that are executable and enabled (settings
+ * or repo defaultEnabled). */
 export function skillDirsFromEnabledPlugins(
   modules: readonly PluginModule[],
   pluginConfig: Record<string, PluginConfig | undefined>,
@@ -318,14 +309,14 @@ export interface SessionChatPromptArgs {
   // Omitted = full guidelines.
   promptSectionOmit?: readonly GuidelineSubBlockId[];
   // Active session provider/model, for family residuals on the primary
-  // prompt (CL-8310: GPT narrate-before-tools). Omitted = no family residual.
+  // prompt (GPT narrate-before-tools). Omitted = no family residual.
   providerName?: string;
   model?: string;
   // Session-start snapshot from createAgentToolset. When provided, skip
   // rediscovery so the prompt listing and skill_search share one catalog.
   skills?: readonly SkillSummary[];
-  // Configured MCP server names to list in the env block so the model
-  // knows to tool_search for them. Omitted or empty = no MCP line.
+  // Configured MCP server names for the env block so the model knows to
+  // tool_search for them. Omitted or empty = no MCP line.
   mcpServerNames?: readonly string[];
 }
 
@@ -368,11 +359,9 @@ export async function loadSessionChatPrompt(
     mcpServerNames.length > 0
       ? { ...environment, mcpServers: mcpServerNames }
       : environment;
-  // Family residual on the primary prompt (CL-8310): resolved from the model
-  // family policy as an orchestrator — primaries dispatch rather than doing
-  // the work directly, so grok/claude primaries stay untouched (their rows
-  // withhold the residual from orchestrators) while the gpt row carries its
-  // narrate-before-tools note primary and leaf alike.
+  // Primary-prompt family residual, resolved as an orchestrator: primaries
+  // dispatch rather than doing the work, so grok/claude stay untouched while
+  // gpt carries its narrate-before-tools note.
   const { promptResidual } =
     args.providerName !== undefined
       ? resolveModelFamilyPolicy({
@@ -441,8 +430,8 @@ export interface SessionPruningCompactorArgs {
   ) => Promise<string>;
   summaryContext?: () => SummaryContext | undefined;
   /**
-   * Previous fat handoff file, so iterative folds union files/commands and
-   * full constraint/goal text instead of storing spine-truncated cuts.
+   * Previous fat handoff file: the next fold unions its files/commands and
+   * full goal text instead of spine-truncated cuts.
    */
   readPriorHandoff?: () => Promise<string | undefined>;
   telemetry?: Telemetry;
@@ -455,21 +444,18 @@ export interface SessionPruningCompactorArgs {
   }) => void;
   /**
    * Operator-visible notice for a statistics-only stub that actually replaced
-   * turns. Verify abort and completeness-gate discard (keeping prior context)
-   * do not fire this.
+   * turns. Verify abort and completeness-gate discard do not fire this.
    */
   onFailure?: (text: string) => void;
   /**
    * True when the lifecycle has discarded (or will discard) the in-flight
-   * compact — e.g. bound to the session compaction lifecycle's signal. A
-   * fold the outer abort race threw away must report nothing: no telemetry,
-   * no onFolded side effects for work that never landed.
+   * compact — e.g. bound to the lifecycle's signal.
    */
   isAborted?: () => boolean;
   /**
-   * Captured at apply start. Prefer this over a live `isAborted` that
-   * re-reads getSignal(): onBuilt reset() replaces the controller, and a
-   * discarded in-flight fold must still look aborted.
+   * Captured at apply start. Prefer this over a live `isAborted` re-reading
+   * getSignal(): onBuilt reset() replaces the controller, and a discarded
+   * in-flight fold must still look aborted.
    */
   getSignal?: () => AbortSignal;
   /**
@@ -480,9 +466,9 @@ export interface SessionPruningCompactorArgs {
   wrapPruning?: (pruning: Compactor) => Compactor;
 
   /**
-   * CL-9489 budgeted-tail shape override. Absent means the shared production
-   * default (DEFAULT_TAIL_COMPACTION_SHAPE); tests pin a tiny budget so small
-   * fixtures still fold the same region a keep-window used to cut.
+   * Budgeted-tail shape override. Absent = the shared production default
+   * (DEFAULT_TAIL_COMPACTION_SHAPE); tests pin a tiny budget so small
+   * fixtures still fold the region a keep-window used to cut.
    */
   compactionShape?: Partial<CompactionShape>;
 }
@@ -522,9 +508,9 @@ export function createSessionPruningCompactor(
         };
   const pruning = createPruningCompactor({
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
-    // CL-9489 budgeted-tail shape: explicit defaults (same object the record
-    // carries under parameters.compactionShape). Zero recent turns stay whole
-    // because they are recent — the token budget is the only tail cap.
+    // Budgeted-tail shape: the explicit defaults the record also carries
+    // under parameters.compactionShape. Recent turns stay whole — the token
+    // budget is the only tail cap.
     compactionShape: {
       ...DEFAULT_TAIL_COMPACTION_SHAPE,
       ...args.compactionShape,
@@ -548,23 +534,22 @@ export function createSessionPruningCompactor(
       const isAborted = () =>
         abortSignal?.aborted === true || args.isAborted?.() === true;
       const result = await compactor.apply(turns, ctx);
-      // A discarded compact reports nothing. When the lifecycle abort wins
-      // the outer race, this inner run may still complete with a genuine
-      // fold — but the reactor threw that output away, so emitting telemetry
-      // or onFolded would describe work that never landed (phantom fold).
+      // A discarded compact reports nothing: when the lifecycle abort wins the
+      // outer race, this inner run may still fold — but the reactor threw the
+      // output away, so telemetry or onFolded would describe work that never
+      // landed.
       if (isAborted() || result.record.reason === COMPACTION_ABORTED_REASON) {
         return result;
       }
-      // summarizedTurnCount is only set on the branch that actually folded
-      // turns away. The other branch is a no-op (or image aging alone), and
-      // reporting it as compaction would drag the duration and turn-count
-      // averages toward the runs where nothing happened.
+      // summarizedTurnCount is set only when turns were folded; the no-op
+      // branch must not report compaction (it would skew duration and
+      // turn-count averages).
       if (result.record.decisions.summarizedTurnCount === undefined) {
         return result;
       }
       const stub = result.record.decisions.summarizeFailed === 1;
-      // Stub folds still break the cached prefix, so prune still runs.
-      // Success telemetry and the TUI fold flash must not relabel a stub.
+      // Stub folds still break the cached prefix, so prune still runs;
+      // success telemetry and the TUI fold flash must not relabel a stub.
       args.onFolded?.({
         turnsBefore,
         turnsAfter: result.output.length,
@@ -597,9 +582,9 @@ export function createSessionPruningCompactor(
 
 /**
  * Content-less inbound the compaction governor self-delivers after a compact
- * cycle so the reactor re-enters instead of idling (the reactor emits no
- * event after compact). Single owner for the TUI, exec, and sub-agent loops —
- * the three copies were byte-identical, so a new field is a one-site change.
+ * so the reactor re-enters (it emits nothing after). One owner for the TUI,
+ * exec, and sub-agent loops — the copies were byte-identical, so a new
+ * field is a one-site change.
  */
 export function buildCompactionContinuationMessage(): InboundMessage {
   return {
@@ -618,15 +603,11 @@ export function buildCompactionContinuationMessage(): InboundMessage {
 
 /**
  * Per-host consume-once gate for the compaction continuation emit. The
- * reactor emits the continuation before compact runs and emits nothing
- * after, so a host that only sees the stream cannot observe "compact
- * occurred" — the emission itself is the outstanding-continuation claim.
- * Each emission (keyed by its session-scoped seq) is answered at most once:
- * a replayed duplicate of an already-answered emission is ignored instead
- * of re-delivered, since each delivery costs a billable inference. A forged
- * emission with a fresh seq still delivers, but the director answers an
- * unsolicited continuation with wait rather than infer, so that path cannot
- * burn a model turn either.
+ * reactor emits it before compact runs and nothing after, so the emission
+ * is the outstanding-continuation claim. Each emission (keyed by a
+ * session-scoped seq) is answered at most once: a replayed duplicate is
+ * ignored (every delivery costs a billable inference) and a forged fresh
+ * seq is answered with wait, so it cannot burn a model turn.
  */
 export function createContinuationGate(): {
   shouldDeliver: (seq: number) => boolean;
@@ -642,11 +623,10 @@ export function createContinuationGate(): {
 }
 
 /**
- * System-originated inbound that re-enters the parent after the fleet goes dry
- * with todo/doing tasks still open. Not operator input, so no
- * OPERATOR_ORIGINATED_FLAG. ChatDirector still resets idle and tool-only
- * nudge counters on any message.received — occupancy therefore fires one
- * deferred shot per dry edge rather than re-driving on every settle.
+ * System-originated inbound re-entering the parent after the fleet goes dry
+ * with todo/doing tasks still open (no OPERATOR_ORIGINATED_FLAG).
+ * ChatDirector resets nudge counters on any message.received, so occupancy
+ * fires one deferred shot per dry edge rather than on every settle.
  */
 export function buildFleetDryContinuationMessage(text: string): InboundMessage {
   return {
@@ -663,11 +643,8 @@ export function buildFleetDryContinuationMessage(text: string): InboundMessage {
   };
 }
 
-/**
- * System-originated inbound that re-enters the parent when mailbox mail
- * (worker terminal or fail) is ready. Not operator input, so no
- * OPERATOR_ORIGINATED_FLAG.
- */
+/** System-originated inbound re-entering the parent when mailbox mail
+ * (worker terminal or fail) is ready; not operator input. */
 export function buildMailboxMailMessage(text: string): InboundMessage {
   return {
     ref: { uid: 0, mailbox: "system" },
@@ -688,10 +665,9 @@ export function buildMailboxMailMessage(text: string): InboundMessage {
 const BACKGROUND_SHELL_PREVIEW_CHARS = 2_000;
 
 /**
- * Content-bearing inbound the host delivers when a background run_shell process
- * exits. Mailbox "system" and empty flags: loop protection treats it as
- * system-originated, so it re-enters the reactor without counting as operator
- * input (see message-provenance.ts).
+ * Inbound the host delivers when a background run_shell process exits.
+ * Mailbox "system" with empty flags makes loop protection re-enter it
+ * without counting as operator input (see message-provenance.ts).
  */
 export function buildShellBackgroundMessage(exit: {
   id: string;

@@ -14,9 +14,9 @@ import { ripgrepPlugin } from "./ripgrep-plugin.js";
 import type { RgChild, SpawnRg } from "./rg-run.js";
 
 /**
- * CL-9469: search_files must fail closed on unbounded root walks instead of
- * timing out. A workspace-root search with a recursive glob refuses up front
- * with scope guidance; bounded searches still return hits.
+ * search_files must fail closed on unbounded root walks instead of timing
+ * out. A workspace-root search with a recursive glob refuses up front with
+ * scope guidance; bounded searches still return hits.
  */
 
 async function withFixture(

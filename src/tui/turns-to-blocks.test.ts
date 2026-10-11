@@ -59,10 +59,9 @@ describe("turnsToContentBlocks no longer derives tasks", () => {
     ).toBe(false);
   });
 
-  // hydrateTasksFromTurns applies manage_tasks on the tool_call regardless of
-  // the result's outcome, so the strip must match: an errored or missing
-  // result must not leave the raw call/result rows behind next to the
-  // aggregated block runner.ts unshifts from hydrateTasksFromTurns.
+  // hydrateTasksFromTurns applies manage_tasks regardless of the result's
+  // outcome, so an errored or missing result must not leave raw call/result
+  // rows behind next to the aggregated block.
   test("strips a manage_tasks call whose result errored", () => {
     const turns = [manageTasksTurn("m1", "doing"), toolResultTurn("m1", true)];
     const blocks = turnsToContentBlocks(turns);

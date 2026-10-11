@@ -1,7 +1,6 @@
 /**
- * Regression: a reshape rebuild (resize -> setHeight, or an item-set refresh)
- * must carry the live selection index across, clamped to the new item count —
- * not snap back to the index the list opened at.
+ * A reshape rebuild (resize -> setHeight, or an item-set refresh) carries
+ * the live selection across, clamped to the new item count.
  */
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";

@@ -1,9 +1,7 @@
 /**
- * Privacy fence for PerfTrace tags.
- *
- * Allowed: phase-related enums, provider/model ids, numeric durations/bytes/counts,
- * transport enum, short opaque ids.
- * Forbidden: prompts, completions, tool args, paths, free-text errors, stack traces.
+ * Privacy fence for PerfTrace tags: allowlisted enums, ids, and numeric values
+ * pass; prompts, completions, tool args, paths, errors, and stacks are
+ * stripped.
  */
 
 export type TransportKind = "http_sse" | "ws";
@@ -77,8 +75,7 @@ const ID_KEYS: ReadonlySet<AllowedTagKey> = new Set([
 // Caps free-form id length so a dumped prompt never sneaks in as a "model_id".
 const MAX_ID_LENGTH = 64;
 
-// Opaque ids / model ids: alphanumerics, dots, underscores, hyphens, colons, @.
-// No spaces, slashes, backslashes, or control characters.
+// Opaque / model ids: alphanumerics, dots, underscores, hyphens, colons, @; no spaces or slashes.
 export const OPAQUE_ID_RE = /^[A-Za-z0-9._:@-]{1,64}$/;
 
 function isFiniteNumber(value: unknown): value is number {
@@ -94,10 +91,7 @@ export function isOpaqueId(value: unknown): value is string {
   );
 }
 
-/**
- * Strip unknown keys and non-allowlisted values.
- * Never throws; returns a new object with only safe tags (or undefined if empty).
- */
+/** Strip unknown keys and non-allowlisted values; never throws (undefined when empty). */
 export function sanitizeTags(
   tags: Record<string, unknown> | undefined | null,
 ): PerfTags | undefined {

@@ -2,17 +2,11 @@
  * Runtime side-channel notices: lifecycle hooks, MCP connection state,
  * recorded permission grants, and successful context compaction.
  *
- * These channels are chatter by default and only sometimes news. The split
- * this module encodes:
- *
- * - a **row** is for something the operator has to act on, and that they must
- *   still be able to read after scrolling away (a hook that failed, an MCP
- *   server asking for authorization or refusing to connect);
- * - a **flash** is for confirmation of something they just caused, true only
- *   for a moment (a hook that ran, a server that came up, a grant recorded,
- *   a compaction that folded turns away);
- * - **null** is for inventory and intermediate states (`hooks.loaded`, a
- *   server that is merely `connecting`) — the /hooks and /mcp panels own that.
+ * A **row** is something the operator must act on and still read after
+ * scrolling away (a failed hook, an MCP server refusing to connect); a
+ * **flash** confirms something they just caused (a hook that ran, a grant
+ * recorded); **null** is inventory and intermediate states, which the /hooks
+ * and /mcp panels own.
  *
  * Pure: strings only, no shell or renderer access.
  */
@@ -54,8 +48,8 @@ function hookFailure(hook: LifecycleHookStatus): string | null {
 
 /**
  * Live per-turn hook status. A hook that fired and failed is the only thing
- * worth a row: it silently did not do its job, and the operator's way out is
- * to disable it.
+ * worth a row: it silently did not do its job, and the way out is to disable
+ * it.
  */
 export function hookNotice(event: LifecycleHookEvent): RuntimeNotice | null {
   // Startup inventory, not a turn event — the /hooks panel already lists these.
@@ -79,7 +73,7 @@ export function hookNotice(event: LifecycleHookEvent): RuntimeNotice | null {
  * MCP connection state. Reconnect chatter is noise on every server every run;
  * a server refusing to connect changes what the agent can do, so it keeps a
  * row. A server waiting on authorization is a standing condition with an
- * action attached, which is the prompt box's and /mcp's job, not a row's.
+ * action attached — the prompt box's and /mcp's job, not a row's.
  */
 export function mcpNotice(state: MCPServerState): RuntimeNotice | null {
   switch (state.state) {
@@ -94,7 +88,7 @@ export function mcpNotice(state: MCPServerState): RuntimeNotice | null {
       };
     }
     // A raw authorization URL in the transcript is unactionable and scrolls
-    // away. The prompt box marks these and /mcp does the authorizing.
+    // away. The prompt box marks these; /mcp does the authorizing.
     case "needs-auth":
       return null;
     case "disconnected":
@@ -262,7 +256,8 @@ export function workflowPayloadInfo(
 
 /**
  * Live workflow projection. Active named steps flash the current step;
- * complete flashes only on the active→idle transition when last history has a name.
+ * complete flashes only on the active→idle transition when last history has
+ * a name.
  */
 export function workflowNotice(
   payload: WorkflowNoticePayload,

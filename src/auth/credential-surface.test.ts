@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { buildCredentialPatterns } from "./credential-surface.js";
 
-// CL-7929: the .lock/.tmp sidecar legs matched any directory, so a
+// The .lock/.tmp sidecar legs matched any directory, so a
 // workspace settings file (e.g. .vscode/settings.json.lock) denied as a
 // credential. They are scoped to the settings dir like the .bak legs.
 describe("credential sidecar scoping (CL-7929)", () => {

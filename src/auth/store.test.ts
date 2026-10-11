@@ -69,10 +69,9 @@ describe("createAuthStore", () => {
       const barrier = join(home, "start");
       // Each writer is a full `bun` process (~65 MB: the runtime plus the
       // store's arktype validators), and the barrier holds every one of them
-      // at that footprint at once. 16 concurrent writers made this test the
-      // suite's peak-RAM event (~1.7 GB); a handful of writers still races
-      // every lock window the queue has to serialize, at a fraction of the
-      // footprint.
+      // at that footprint at once. 16 concurrent writers made this the suite's
+      // peak-RAM event (~1.7 GB); a handful still races every lock window the
+      // queue serializes, at a fraction of the footprint.
       const names = Array.from(
         { length: 6 },
         (_, index) => `profile-${String(index)}`,

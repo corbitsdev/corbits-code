@@ -1,10 +1,10 @@
 /**
  * Runtime side-channel wiring, asserted end to end.
  *
- * Every test here emits on the same emitter the session runner emits on and
- * then reads the painted frame. An emit with no listener is silent, and so is
- * a listener that paints nothing — only the frame tells those apart from a
- * working channel, which is the regression this file exists to catch.
+ * Every test emits on the same emitter the session runner emits on, then
+ * reads the painted frame. An emit with no listener is silent, and so is a
+ * listener that paints nothing — only the frame tells those apart from a
+ * working channel, the regression this file exists to catch.
  */
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
@@ -196,8 +196,7 @@ describe("mcp.status channel", () => {
   test("a failed connect keeps the landing mountain and rides the notice strip (CL-5600)", async () => {
     // Full product-host path: mcp.status → mcpNotice → surfaceSystemNotice.
     // The unit landing suite covers surfaceSystemNotice alone; this locks the
-    // wire so a future re-route through appendStreamRow cannot wipe the hero
-    // again without failing here.
+    // wire so a future re-route cannot wipe the hero again without failing here.
     const { host, emitter, frame, cleanup } = await mountHeadless();
     try {
       expect(isLanding(host.shell)).toBe(true);

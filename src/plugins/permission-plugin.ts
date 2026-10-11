@@ -12,16 +12,17 @@ function blockedByPolicy(call: ToolCall, reason: string): ToolResult {
   };
 }
 
-// Run a tool call past the gate, invoking `next` only if it is allowed. Shared by
-// the posix middleware and the late-connected MCP tools (which are not part of
-// the posix runner the middleware wraps) so both produce the same denial result.
+// Run a tool call past the gate, invoking `next` only if it is allowed.
+// Shared by the posix middleware and the late-connected MCP tools (which are
+// not part of the posix runner the middleware wraps) so both produce the same
+// denial result.
 //
-// Under reactor gating this is an execution backstop, not a second env.authorize.
-// Consume the prior authorizeCall verdict when the same call identity (id, name,
-// arguments) is cached; decide only on a miss — nested posix whose outer tool is
-// not run_shell (Codex apply_patch proxy), colliding reused ids, and tests. Deny
-// blocks next; ask/allow skip the middleware prompt so an approved re-dispatch
-// never re-asks.
+// Under reactor gating this is an execution backstop, not a second
+// env.authorize. Consume the prior authorizeCall verdict when the same call
+// identity (id, name, arguments) is cached; decide only on a miss — nested
+// posix whose outer tool is not run_shell (Codex apply_patch proxy),
+// colliding reused ids, and tests. Deny blocks next; ask/allow skip the
+// middleware prompt so an approved re-dispatch never re-asks.
 export async function gateToolCall(
   gate: PermissionGate,
   call: ToolCall,

@@ -1,8 +1,8 @@
 /**
  * Background model discovery for the setup surface: Ollama's installed-model
- * list (which replaces the seeded pick-list once it resolves) and the OpenCode
- * Go and Zen catalog prefetches. All mutate the shared state and repaint; all
- * ignore resolutions from superseded attempts.
+ * list (replaces the seeded pick-list once it resolves) and the Go / Zen
+ * catalog prefetches. All mutate shared state, repaint, and ignore
+ * resolutions from superseded attempts.
  */
 
 import { createOverlayList } from "../shell/overlay-list.js";

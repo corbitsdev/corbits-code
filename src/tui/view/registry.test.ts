@@ -28,7 +28,7 @@ describe("grid width allocation (via view)", () => {
     };
     const lines = frame(node, 80);
     for (const l of lines) expect(l.length).toBeLessThanOrEqual(80 - 2);
-    // second data row should appear (absorption puts long content on last col)
+    // second data row appears (absorption puts long content on the last column)
     expect(lines.some((l) => /Second Item/.test(l))).toBe(true);
   });
 

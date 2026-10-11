@@ -7,14 +7,14 @@ import { resolveSkillBody } from "../extensions/skills.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { captureSkillUsed } from "../telemetry/product-events.js";
 
-// Lazy skill loading: names are listed in the system prompt; details come from
-// skill_search; this tool pulls the full instructions into context when the
-// model decides one applies. There is no operator invocation — discovery and
+// Lazy skill loading: names are listed in the system prompt; details come
+// from skill_search; this tool pulls the full instructions into context when
+// the model decides one applies. No operator invocation — discovery and
 // loading are entirely model-driven. Primary copy is on-demand catalog
-// (dispatch has no attached skills). Workers mount workerUseSkillDefinition
+// (dispatch has no attached skills); workers mount workerUseSkillDefinition
 // so they do not reload bodies already injected as attached. The handler
-// refuses attached names and names already loaded this session so the body
-// is never dumped twice.
+// refuses attached names and names already loaded this session so a body is
+// never dumped twice.
 const USE_SKILL_INPUT_SCHEMA = {
   type: "object",
   properties: {

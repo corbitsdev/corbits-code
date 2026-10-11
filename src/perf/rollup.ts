@@ -1,9 +1,7 @@
 /**
- * Pure rollup helpers over PerfSpan snapshots.
- *
- * No I/O, no module state. Inputs are bigint nanoseconds; outputs use plain
- * numbers so they serialize with JSON without custom revivers. Types are
- * exported for reuse by a future OTEL sink.
+ * Pure rollup helpers over PerfSpan snapshots. No I/O, no module state.
+ * Inputs are bigint nanoseconds; outputs are plain numbers so they serialize
+ * with JSON without custom revivers.
  */
 
 import type { PerfSpan, SpanName } from "./index.js";
@@ -43,10 +41,7 @@ export interface SessionTotals {
   totalTtftNs: number;
   totalStreamNs: number;
   totalToolCount: number;
-  /**
-   * Share of (ttft + stream) spent in TTFT. 0 when both sides are zero.
-   * Values are in [0, 1].
-   */
+  /** Share of (ttft + stream) spent in TTFT. 0 when both are zero. */
   ttftShare: number;
   /** Share of (ttft + stream) spent streaming after first token. */
   streamShare: number;
@@ -62,9 +57,8 @@ export function spanDurationNs(span: PerfSpan): number | undefined {
 }
 
 /**
- * Exclusive phase category for a span name. The name→bucket mapping lives
- * here once; the rollup and attribution switches below branch on the category
- * so bucket assignment cannot drift between the three sites.
+ * Phase category for a span name. The name→bucket mapping lives here once;
+ * the rollup and attribution switches branch on it so assignment cannot drift.
  */
 export type PerfCategory =
   | "inference"
@@ -150,15 +144,15 @@ export function rollupByPhase(spans: readonly PerfSpan[]): PhaseSummary[] {
     });
   }
 
-  // Stable order: SPAN_NAMES order first, then any remaining by name.
+  // Stable order: sorted by name.
   out.sort((a, b) => a.name.localeCompare(b.name));
   return out;
 }
 
 /**
- * Build parent → children index. Orphans (parent missing after ring eviction)
- * still appear as roots for by-phase; by-turn only lists actual turn spans.
- * Shared with attribution-report (exclusive shares walk the same tree).
+ * Build parent → children index. Orphans (parent evicted from the ring) still
+ * appear for by-phase; by-turn only lists turn spans. Shared with
+ * attribution-report.
  */
 export function childrenOf(
   spans: readonly PerfSpan[],
@@ -198,9 +192,8 @@ export function walkDescendants(
 }
 
 /**
- * Per-turn rollup. Children are attributed via parentId links
- * (turn → inference → {ttft, stream}; turn → tool).
- * Turns are ordered by startNs ascending.
+ * Per-turn rollup via parentId links (turn → inference → {ttft, stream};
+ * turn → tool), ordered by startNs ascending.
  */
 export function rollupByTurn(spans: readonly PerfSpan[]): TurnSummary[] {
   const byParent = childrenOf(spans);
@@ -252,8 +245,8 @@ export function rollupByTurn(spans: readonly PerfSpan[]): TurnSummary[] {
 }
 
 /**
- * Session totals summed across turns, plus TTFT vs stream ratio over the
- * whole snapshot (not only under turns — orphans still count toward phase sums).
+ * Session totals summed across turns, plus the TTFT vs stream ratio over
+ * the whole snapshot.
  */
 export function sessionTotals(spans: readonly PerfSpan[]): SessionTotals {
   const turns = rollupByTurn(spans);
@@ -276,8 +269,8 @@ export function sessionTotals(spans: readonly PerfSpan[]): SessionTotals {
     if (!t.open) completedTurnCount += 1;
   }
 
-  // Prefer turn-scoped sums; if no turns, fall back to flat phase totals so a
-  // partial snapshot (evicted roots) still reports something useful.
+  // No turns: flat phase totals so a partial snapshot (evicted roots)
+  // still reports.
   if (turns.length === 0) {
     for (const span of spans) {
       const dur = spanDurationNs(span) ?? 0;

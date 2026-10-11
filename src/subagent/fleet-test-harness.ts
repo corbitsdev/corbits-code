@@ -1,9 +1,4 @@
-/**
- * Shared scaffolding for the fleet/session mailbox test suite: the
- * pre-approved permission gate, an AgentFleetDeps factory, raw and parsed
- * tool-call drivers, mailbox wait predicates, and the map-backed
- * FleetDryMailbox fixtures used by the drive tests.
- */
+/** Shared scaffolding for the fleet/session mailbox test suite. */
 import { expect } from "bun:test";
 
 import type { AgentTool } from "@intx/agent";

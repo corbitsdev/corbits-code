@@ -1,6 +1,6 @@
-// CL-8220 regression tests: the compact path must always return to dequeue,
-// even when the summary call hangs, and back-to-back threshold compactions
-// must complete without operator action.
+// Regression tests: the compact path must always return to dequeue, even
+// when the summary call hangs, and back-to-back threshold compactions must
+// complete without operator action.
 import { describe, expect, test } from "bun:test";
 import type {
   Compactor,

@@ -1,10 +1,9 @@
 /**
- * Drive the parent back into a turn when uncollected mailbox terminals exist
- * while dispatch is idle. Pure: occupancy decides when to call; this module
- * decides whether to drive and what to send. Sibling of fleet-dry-drive —
- * per-item, not last-lane + open-tasks.
+ * Drive the parent back into a turn when uncollected mailbox terminals
+ * exist while dispatch is idle. Pure: occupancy decides when to call;
+ * this module decides whether to drive and what to send. Sibling of
+ * fleet-dry-drive — per-item, not last-lane + open-tasks.
  */
-
 import { isLiveWaitStatus } from "./lifecycle.js";
 import {
   collectUncollectedTerminals,
@@ -42,21 +41,21 @@ export function mailboxMailErrorUriHint(): string {
 
 /**
  * Whether inbound text is occupancy's mailbox mail. Internal runtime→agent
- * traffic — the fleet board already owns worker status and the payload is
- * a model-facing digest, so the transcript never paints it. The live event
- * map recognises it by content; history hydration keys on the persisted
- * origin marker instead (see isPersistedOccupancyWakeText).
+ * traffic — the fleet board owns worker status and the payload is a
+ * model-facing digest, so the transcript never paints it. The live event
+ * map matches it by content; history hydration keys on the persisted
+ * origin marker instead.
  */
 export function isMailboxMailText(text: string): boolean {
   return text.startsWith(mailboxMailWakeLine());
 }
 
 /**
- * Reactor envelope wrapping persisted inbound text: createInboundTurn stores
- * user-role turns as `[From: <sender>]\n\n<content>` (plus an optional
- * `[Subject: ...]` line), so a resumed wake never starts with its prompt
- * line. The resume path must see through it; the live event map matches raw
- * message content and keeps the bare matchers above.
+ * Reactor envelope wrapping persisted inbound text: createInboundTurn
+ * stores user-role turns as `[From: <sender>]\n\n<content>`, so a resumed
+ * wake never starts with its prompt line. The resume path must see through
+ * it; the live event map matches raw content and keeps the bare matchers
+ * above.
  */
 const INBOUND_ENVELOPE_PREFIX = /^(\[[^\]\n]*\]\n)+\n/;
 
@@ -67,8 +66,8 @@ function withoutInboundEnvelope(text: string): string {
 /**
  * Whether persisted text is an occupancy wake (mailbox mail or fleet-dry
  * continuation), tolerating the reactor envelope above. Resume-path only:
- * persisted turns carry no message flags, so turns-to-blocks marks wakes by
- * this shape and history-hydrate keys its drop on that marker.
+ * persisted turns carry no message flags, so turns-to-blocks marks wakes
+ * by this shape and history-hydrate keys its drop on that marker.
  */
 export function isPersistedOccupancyWakeText(text: string): boolean {
   const bare = withoutInboundEnvelope(text);
@@ -199,8 +198,8 @@ async function driveMailboxMailAfterCollect(
 /**
  * Store-subscribe, stall-poll, and idle-with-fleet settle all flush mailbox
  * mail. `driveMailboxMail` does not mark the parent busy until after an
- * awaited collect, so overlapping flushes would each call `send()` and fill
- * the agent's depth-16 queue. Hold one drive until that promise settles.
+ * awaited collect, so overlapping flushes would each `send()` and fill the
+ * agent's depth-16 queue. One drive holds until that promise settles.
  *
  * `flush()` is true only when this call starts a drive. `claimed()` is true
  * while that drive owns the slot — ask-wake admission uses it so a wake

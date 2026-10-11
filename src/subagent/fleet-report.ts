@@ -1,15 +1,11 @@
 /**
  * What the orchestrator says to the operator about the fleet, unprompted.
+ * Only attention the activity strip cannot keep: a lane failed or
+ * cancelled, and the moment the fleet runs dry. Per-lane "done" walls are
+ * never printed — they restate the strip and the parent.
  *
- * Live lanes already paint on the activity strip. Parent prose already narrates
- * phase plans. This module only emits transcript lines for attention the strip
- * cannot keep: a lane failed or cancelled, and the single moment the fleet runs
- * dry. Per-lane "done — summary" walls are intentionally never printed — they
- * restate the strip and the parent and turn the transcript into a second
- * status log.
- *
- * Pure and stateless per call — the caller keeps the returned watch and hands
- * it back on the next observation. No painting, no store access.
+ * Pure and stateless per call: the caller hands the returned watch back on
+ * each observation.
  */
 
 import {
@@ -47,11 +43,8 @@ export interface FleetLane {
 
 interface LaneMark {
   readonly status: SubAgentSessionStatus;
-  /**
-   * Sticky once set. A lane that flaps either side of the stall threshold
-   * would otherwise re-announce itself every time it went quiet, which is the
-   * wall of noise this module exists to avoid.
-   */
+  /** Sticky once set, so a lane flapping the stall threshold does not
+   * re-announce itself. */
   readonly stallReported: boolean;
 }
 
@@ -66,34 +59,21 @@ export function createFleetWatch(): FleetWatch {
   return { lanes: new Map(), running: 0, seeded: false };
 }
 
-/**
- * Above this many changes in one observation the individual lines stop being
- * readable and start being a scroll, so they collapse into one tally. Set by
- * what a glance can take in, not by fleet size.
- */
+/** Above this many changes per observation, lines collapse into one tally. */
 const COALESCE_ABOVE = 3;
 
 /** Enough of an outcome to judge it; past this the operator opens the lane. */
 const OUTCOME_CHARS = 56;
 
-/**
- * One update is one row. A line that wraps doubles the cost of every update on
- * screen, which is how a report meant to be glanced at turns into a scroll.
- */
+/** One update is one row; a wrapped line doubles every update's screen cost. */
 const MAX_UPDATE_CHARS = 76;
 
-/**
- * A lane going quiet is the one change that produces no event, so it has to be
- * looked for. Coarse on purpose: the stall threshold is tens of seconds, and
- * the observation is a cheap diff either way.
- */
+/** A lane going quiet produces no event, so it must be polled. Coarse is
+ * fine: the threshold is tens of seconds and each check is a cheap diff. */
 export const FLEET_STALL_POLL_MS = 5_000;
 
-/**
- * A parallel dispatch lands as one store change per lane, so observing each
- * one on its own turns a single decision into a line per lane. Settling first
- * is what lets the tally do its job.
- */
+/** A parallel dispatch lands as one store change per lane; settle first
+ * so one decision makes one line. */
 export const FLEET_REPORT_SETTLE_MS = 400;
 
 /** Lanes named in a digest before it starts counting instead of listing. */
@@ -102,8 +82,7 @@ const DIGEST_NAMED_LANES = 4;
 function firstLine(text: string | undefined): string {
   if (text === undefined) return "";
   for (const raw of text.split("\n")) {
-    // A report that opens with "## Summary" says nothing an operator can act
-    // on; the first line of prose under it is the outcome they wanted.
+    // A heading says nothing actionable; the first prose line under it does.
     if (/^\s*#/.test(raw)) continue;
     const line = raw.replace(/^[>*\-\s]+/, "").trim();
     if (line.length > 0) return line;
@@ -117,15 +96,15 @@ function clip(text: string, max: number): string {
 }
 
 function isStalled(lane: FleetLane, nowMs: number, stallMs: number): boolean {
-  // One definition of a stalled lane lives in `agentProgress`; asking it is
-  // what keeps this report and the agents panel from disagreeing on screen.
+  // Ask `agentProgress` for the one stalled definition so this report and
+  // the panel agree.
   return agentProgress(lane, nowMs, stallMs)?.stalled === true;
 }
 
 /**
- * Lanes still live — the count the idle-with-fleet hold reads (CL-7057).
- * Same rule as the progress strip (`agentLaneIsLive`): interrupted leftovers
- * keep TUI status "running" but are not occupancy.
+ * Lanes still live — the count the idle-with-fleet hold reads. Same rule
+ * as the progress strip (`agentLaneIsLive`): interrupted leftovers keep
+ * TUI status "running" but are not occupancy.
  */
 export function liveFleetCount(lanes: readonly FleetLane[]): number {
   return lanes.filter((lane) => agentLaneIsLive(lane)).length;
@@ -170,9 +149,8 @@ export function pendingAskSnapshot(
 export const ASK_DIRECTOR_WAKE_PREFIX = "ask_director wake";
 
 /**
- * The wake turn text. It must read as the worker's question reaching the
- * parent, not as the operator being asked — the parent answers via
- * send_input itself and only escalates when it genuinely cannot.
+ * The wake turn text: the worker's question reaching the parent, not the
+ * operator being asked. The parent answers via send_input itself.
  */
 export function pendingAskWakeText(
   wake: PendingAskWake,
@@ -184,10 +162,8 @@ export function pendingAskWakeText(
     wake.question,
     "",
   ];
-  // Escalation for a re-surfaced question (CL-8016): the earlier wake turn
-  // stalled past the bound and was aborted without an answer, so say so and
-  // restate the routing — otherwise a second identical wake reads as a
-  // duplicate rather than as proof the first one never landed.
+  // A re-surfaced question: the earlier wake was aborted without an answer.
+  // Say so, or the second identical wake reads as a duplicate.
   if (options?.resurface !== undefined && options.resurface > 0) {
     lines.push(
       `Re-surface ${options.resurface}: the earlier wake turn stalled and was aborted without an answer — reconcile against the live question before replying.`,
@@ -250,8 +226,8 @@ export function observeFleet(
 
     if (before.status !== lane.status) {
       if (lane.status === "done") {
-        // A forced stop (stall abort, etc) lands as "done" with a
-        // stopReason — that is attention, not a success line.
+        // A forced stop lands as "done" with a stopReason — attention,
+        // not success.
         if (lane.stopReason !== undefined) {
           changes.push({
             kind: "failed",
@@ -274,18 +250,15 @@ export function observeFleet(
       continue;
     }
 
-    // A lane going quiet is no longer emitted to the transcript: the single
-    // agents-panel rollup row carries the quiet count instead, so a stalled
-    // fleet stops producing "went quiet" walls. stallReported is
-    // still tracked internally so the strip does not flap.
+    // Quiet lanes are not emitted — the agents-panel rollup carries the
+    // count. stallReported stays tracked so the strip does not flap.
   }
 
   const watch: FleetWatch = { lanes: marks, running, seeded: true };
   const wentDry = running === 0 && previous.running > 0;
 
-  // Board owns live lanes. Parent prose owns success narratives. Transcript
-  // only: fail/cancel/stall while work is still running, or one dry-fleet tally.
-  // Never per-lane "done — summary" walls.
+  // Transcript only: fail/cancel/stall while work runs, or one dry-fleet
+  // tally. Never per-lane "done" walls.
   if (wentDry) {
     const summary = idleSummary(lanes);
     return {
@@ -339,9 +312,8 @@ function outcomeCounts(lanes: readonly FleetLane[]): OutcomeCounts {
   let failed = 0;
   let cancelled = 0;
   for (const lane of lanes) {
-    // Occupancy leftovers (still TUI-running, including interrupted leftovers)
-    // are not finished outcomes. Cancelled workers project lifecycleStatus
-    // interrupted too — skip on live/running, not on interrupted alone.
+    // Live/running lanes are not finished outcomes; cancelled workers stay
+    // TUI-running too, so skip on live/running, not interrupted alone.
     if (agentLaneIsLive(lane) || lane.status === "running") continue;
     switch (lane.status) {
       case "done":
@@ -377,10 +349,7 @@ function idleSummary(lanes: readonly FleetLane[]): string {
   }).join(", ");
 }
 
-/**
- * The answer to "where are we" on demand — the same picture the unprompted
- * lines build up to, in one row, so asking never costs an interrupt.
- */
+/** The "where are we" answer on demand — the unprompted picture in one row. */
 export function fleetDigest(
   lanes: readonly FleetLane[],
   nowMs: number,

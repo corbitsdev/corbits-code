@@ -1,7 +1,6 @@
-// Canonical product-identity strings for runtime TypeScript. Product name, CLI
-// command, config directory, logger/director/tool namespace, and wire identity
-// (MCP client name, user-agent token, prompt-injection tag) derive from here so
-// a future *runtime* rename does not scatter literals across src/.
+// Canonical product-identity strings for runtime TypeScript: product name, CLI
+// command, config directory, namespaces, and wire identity derive from here so
+// a future runtime rename does not scatter literals across src/.
 //
 // package.json "name"/"bin", build/release scripts, and docs cannot import
 // TypeScript — keep those in sync with COMMAND_NAME / PRODUCT_NAME by hand.

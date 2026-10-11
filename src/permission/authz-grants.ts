@@ -10,8 +10,8 @@ import { directoryGrantAllows, matchesPattern } from "./matcher.js";
 import { realpathOr } from "./worktree-roots.js";
 
 // Exact-escaped patterns (backslash before metacharacters) cannot round-trip
-// through @intx/authz matchPattern, so those grants are filtered out of the
-// package call and handled by the exact-equality path in matcher.ts.
+// through @intx/authz matchPattern; they skip the package call and fall to
+// the exact-equality path in matcher.ts.
 function isPackageCompatiblePattern(pattern: string): boolean {
   return !pattern.includes("\\");
 }
@@ -26,7 +26,7 @@ export function approvalToGrantRule(
     roleId: null,
     effect: "allow",
     origin: "invoker",
-    // resource = subject pattern (command or path); action = tool name.
+    // resource = subject pattern; action = tool name.
     resource: approval.pattern,
     action: canonicalToolName(approval.tool),
     conditions: null,
@@ -34,31 +34,27 @@ export function approvalToGrantRule(
   };
 }
 
-// The gate's own project boundary: the session root it was constructed with,
-// plus every git worktree registered against that root (which, per CL-4929,
-// may live outside the root entirely — a sibling directory, not a
-// subdirectory). Built once per gate from its closed-over resolvedCwd and
-// rootsProvider and threaded through — never accept one built anywhere else,
-// or "same project" quietly stops meaning "same gate's project."
+// The gate's project boundary: the session root plus every registered git
+// worktree (which may be a sibling directory, not a subdirectory). Built once
+// per gate from its closed-over resolvedCwd and rootsProvider and threaded
+// through — never accept one built elsewhere, or "same project" stops meaning
+// "same gate's project."
 export interface GrantWorkspace {
   resolvedCwd: string;
   roots: readonly string[];
 }
 
-// A project-scoped grant (Approval.cwd set) is confined to the session that
-// minted it: it may replay only for a request whose cwd is that same session
-// root, or one of the root's registered worktrees. A worktree cwd never
-// equals the session root by string identity (that's the bug this closes),
-// so membership is resolved through `workspace` instead of a bare `===`.
+// A project-scoped grant (Approval.cwd set) replays only for the session root
+// that minted it or one of its registered worktrees. A worktree cwd never
+// equals the session root by string identity (the bug this closes), so
+// membership goes through `workspace`, not a bare `===`.
 //
-// `grantCwd !== workspace.resolvedCwd` is the boundary: a grant stamped with
-// some OTHER project's root is rejected before roots are ever consulted, so
-// a request cwd that happens to coincide with a different project's worktree
-// can never match. Membership within a matching project is exact equality
-// against the resolved roots, never a path-prefix — a prefix check would let
-// a maliciously named sibling directory (`/repo/wt-1-evil`) match a
-// legitimate root (`/repo/wt-1`). `workspace.roots` already comes back
-// realpath-resolved (see worktree-roots.ts); `requestCwd` is realpath'd here
+// `grantCwd !== workspace.resolvedCwd` rejects a grant stamped with another
+// project's root before roots are consulted, so a coinciding request cwd in a
+// different project never matches. Within a matching project, membership is
+// exact equality against the resolved roots, never path-prefix (a
+// `/repo/wt-1-evil` sibling would match `/repo/wt-1`). `workspace.roots` comes
+// back realpath-resolved (worktree-roots.ts); `requestCwd` is realpath'd here
 // so a symlinked checkout (macOS /tmp vs /private/tmp) still compares equal.
 export function cwdMatchesGrant(
   grantCwd: string | undefined,
@@ -72,10 +68,9 @@ export function cwdMatchesGrant(
   return workspace.roots.includes(realpathOr(requestCwd));
 }
 
-// Seeded grants enter the gate in native key space: pure renames collapse
-// onto the engine id, and narrow update_plan keys (which no native key can
-// represent without overclaiming capability) are dropped fail-closed. Fresh
-// array; the gate owns it.
+// Seeded grants enter in native key space: pure renames collapse onto the
+// engine id; narrow update_plan keys (no native key preserves them without
+// overclaiming capability) drop fail-closed. Fresh array; the gate owns it.
 export function normalizeSeededApprovals(
   seeded: readonly Approval[],
 ): Approval[] {
@@ -88,12 +83,10 @@ export function normalizeSeededApprovals(
   return out;
 }
 
-// The single place that decides whether a grant's tool/providerModel/cwd
-// scope covers a request, independent of whether the grant's pattern matches
-// the request's subject. Every live call site that needs to know "does this
-// grant cover this request's scope" — evaluateApprovals, isRequestCoveredByGrant —
-// delegates here so a scoping-dimension change never has to be made in more
-// than one place.
+// Single owner for grant tool/providerModel/cwd scope coverage, independent
+// of pattern matching. Both live call sites (evaluateApprovals,
+// isRequestCoveredByGrant) delegate here so a scoping-dimension change lands
+// in one place.
 export function grantScopeMatches(
   approval: Approval,
   tool: string,
@@ -118,12 +111,10 @@ export interface EvaluateApprovalsInput {
   workspace: GrantWorkspace;
 }
 
-// Grant-evaluation owner for the live decide() path: the shell per-segment
-// checks and the path-arg check inside decide() resolve coverage through this
-// function. The queued-request reconciliation path (isRequestCoveredByApprovals
-// in gate.ts) matches inline against the same scope helper and pattern
-// matcher instead of calling here, so keep the two in sync when changing
-// matching semantics. Fail-closed throughout:
+// Grant-evaluation owner for the live decide() path (shell per-segment checks
+// and the path-arg check). The queued-reconciliation path
+// (isRequestCoveredByApprovals in gate.ts) matches inline against the same
+// helpers instead of calling here — keep the two in sync. Fail-closed:
 // unknown tools, unknown runners, and empty grant lists all refuse.
 export async function approvalCoversSubject(
   input: EvaluateApprovalsInput,
@@ -137,20 +128,20 @@ export async function approvalCoversSubject(
     workspace,
   } = input;
   const action = canonicalToolName(tool);
-  // Scope-matching sees the raw request name: grantToolCovers is directional
+  // Scope matching sees the raw request name: grantToolCovers is directional
   // for the update_plan/manage_tasks pair (a stored update_plan grant covers
-  // only update_plan-presenting requests), so pre-canonicalizing here would
-  // erase the alias and wrongly deny same-alias replay. The @intx/authz call
-  // below still uses the canonical action on both sides.
+  // only update_plan-presenting requests), so pre-canonicalizing would erase
+  // the alias and wrongly deny same-alias replay. The @intx/authz call below
+  // still uses the canonical action on both sides.
   const scoped = approvals.filter((a) =>
     grantScopeMatches(a, tool, activeProviderModel, requestCwd, workspace),
   );
   if (scoped.length === 0) return false;
 
-  // Directory Always grants (`<dir>/*`) cannot reach the package evaluator
-  // with a `..` walk-out subject: package `*` matches `..` lexically, so the
-  // same containment gate matchesPattern enforces applies here first. The
-  // gate only denies directory escapes; every other grant defers untouched.
+  // Directory Always grants (`<dir>/*`) cannot reach the package evaluator with
+  // a `..` walk-out subject: package `*` matches `..` lexically, so the same
+  // containment gate matchesPattern enforces applies here first. Only
+  // directory escapes are denied; every other grant defers untouched.
   const effectiveCwd = requestCwd ?? workspace.resolvedCwd;
   const contained = scoped.filter((a) =>
     directoryGrantAllows(a.pattern, subject, effectiveCwd),
@@ -175,11 +166,7 @@ export async function approvalCoversSubject(
   return decision.effect === "allow";
 }
 
-// Grant-store evaluation via @intx/authz. Filters provider-model and cwd via
-// grantScopeMatches, then asks evaluateGrants for the highest-specificity
-// allow among package-compatible grants. Exact-escaped grants are checked with
-// matchesPattern (equality after unescape) first so a stored exact command is
-// never lost.
+// Grant-store evaluation entry point; delegates to approvalCoversSubject.
 export async function evaluateApprovals(
   input: EvaluateApprovalsInput,
 ): Promise<boolean> {

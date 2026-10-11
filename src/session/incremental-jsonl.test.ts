@@ -94,10 +94,8 @@ describe("createSegmentedJSONLWriter", () => {
     }
   });
 
-  // Agent rebuilds (tool promotion, interrupt, MCP connect) construct a fresh
-  // writer with no in-memory segment map. A compaction rewrite through that
-  // writer must still unlink the prior writer's sealed tails; otherwise the
-  // next load concatenates orphans and duplicates tool_call ids in history.
+  // A fresh writer has no segment map; the rewrite must still unlink the
+  // prior writer's sealed tails, or the next load duplicates tool_call ids.
   test("a fresh writer still deletes stale segments left by a prior writer", async () => {
     const dir = tempDir();
     const write1 = createSegmentedJSONLWriter(dir, BASE, 64);
@@ -256,16 +254,14 @@ describe("createSegmentedJSONLWriter stale keepBytes", () => {
     await write([a, b, c]);
 
     const full = path.join(dir, BASE);
-    // Simulate external shrink/compaction that left the in-memory offsets stale:
-    // file is shorter than the writer's remembered keepBytes for a shared prefix.
+    // Simulate external shrink: the file is shorter than the writer's remembered keepBytes.
     const keptOnDisk = fullSnapshot([a]);
     fs.writeFileSync(full, keptOnDisk);
     expect(fs.statSync(full).size).toBeLessThan(
       Buffer.byteLength(fullSnapshot([a, b, c])),
     );
 
-    // Shared prefix [a, b] would compute keepBytes past the shrunken file size.
-    // Writer must rebuild rather than truncate-extend with null padding.
+    // keepBytes would exceed the shrunken file; the writer must rebuild, not pad with nulls.
     const d = { id: 4, text: "after-shrink" };
     await write([a, b, d]);
 

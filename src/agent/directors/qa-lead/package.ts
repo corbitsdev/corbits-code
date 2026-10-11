@@ -2,10 +2,10 @@ import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
- * QA Lead worker (CL-9903).
- * Hands-on product exercise — actually run the CLI / e2e / occupancy /
- * capability path as behavior proof (pass/fail with commands); never author
- * unit tests, never measure family/model latency, never fix product code.
+ * QA Lead worker. Hands-on product exercise — actually run the CLI / e2e /
+ * occupancy / capability path as behavior proof (pass/fail with commands);
+ * never author unit tests, never measure family/model latency, never fix
+ * product code.
  */
 export const qaLeadPackage: DirectorPackage = {
   id: "qa-lead",

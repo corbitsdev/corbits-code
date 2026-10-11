@@ -1,8 +1,8 @@
 // Result-side secret scrubbing for web tool outputs. Provider error paths
 // (401/403 bodies, echoed headers, query params) may leak API keys into
-// ToolResult.content/detail, which are JSON.stringify'd into .agent-state/run.json
-// in plaintext. This scrubber redacts known patterns before the result leaves
-// the tool layer.
+// ToolResult.content/detail, which are JSON.stringify'd into
+// .agent-state/run.json in plaintext. This scrubber redacts known patterns
+// before the result leaves the tool layer.
 
 // Patterns that indicate a secret value in text.
 const SECRET_PATTERNS: RegExp[] = [

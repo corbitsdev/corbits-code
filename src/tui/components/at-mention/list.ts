@@ -16,12 +16,11 @@ async function resolveDirectory(
   }
 }
 
-// Given a path prefix the user has typed (e.g. after @ or in a path field),
-// return up to MAX_SUGGESTIONS matching filesystem entries. Directories get a
-// trailing / so the user can drill in. Never throws — returns [] on any fs error.
-// Home-relative prefixes (`~`, `~/…`) list the operator's home directory and
-// keep the `~/` display form, matching the submit-time expandHome behavior in
-// mention-resolution.ts (the completion popup previously offered nothing here).
+// Given a path prefix the user has typed (after @ or in a path field), return
+// up to MAX_SUGGESTIONS matching filesystem entries. Directories get a trailing
+// / so the user can drill in. Never throws — returns [] on any fs error.
+// Home-relative prefixes (`~`, `~/…`) list the operator's home and keep the
+// `~/` display form, matching submit-time expandHome in mention-resolution.ts.
 export async function listPathSuggestions(
   prefix: string,
   cwd: string,
@@ -35,12 +34,9 @@ export async function listPathSuggestions(
     const endsWithSep = homeRelative
       ? rest.endsWith("/") || rest === ""
       : prefix.endsWith("/");
-    // When prefix ends with / the user wants to list that directory.
-    // When prefix contains a slash but doesn't end with one, split on the last
-    // slash: the left side is the dir to list, the right side is the filter.
-    // When prefix has NO slash at all (including the empty string), list cwd
-    // and use the whole prefix as a filter. This is the `@` alone case which
-    // should behave like `ls` in the current directory.
+    // A trailing / lists that directory; a slash without one splits into the
+    // dir to list and the filter; no slash at all lists cwd with the whole
+    // prefix as filter (the `@` alone case, like `ls`).
     const lastSlash = rest.lastIndexOf("/");
     const hasSlash = lastSlash !== -1;
     const dir = endsWithSep ? rest || "." : hasSlash ? dirname(rest) : ".";
@@ -57,10 +53,9 @@ export async function listPathSuggestions(
       scanned++;
       if (fragment !== "" && !entry.name.startsWith(fragment)) continue;
 
-      // Reconstruct the path the user would type. For bare-fragment prefixes
-      // (no slash) entries are shown relative to cwd so dirPrefix is "".
-      // Home-relative results keep the `~/` form so the completion inserts
-      // text the submit path expands verbatim.
+      // Reconstruct the path the user would type: bare fragments are shown
+      // relative to cwd (dirPrefix ""), and home-relative results keep the
+      // `~/` form so the completion inserts text the submit path expands.
       const innerPrefix = endsWithSep
         ? rest
         : hasSlash

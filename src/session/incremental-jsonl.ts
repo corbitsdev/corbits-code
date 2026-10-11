@@ -9,8 +9,8 @@ interface WriterState {
   // Global byte offset where each record's line starts; offsets[refs.length] is
   // the total byte length across every segment.
   offsets: number[];
-  // First record index of each segment, in order. Segment s spans records
-  // [segStarts[s], segStarts[s + 1]) and the last segment ends at refs.length.
+  // First record index of each segment: segment s spans
+  // [segStarts[s], segStarts[s + 1]); the last ends at refs.length.
   segStarts: number[];
   // Serialized form of the final record, re-checked on every write because the
   // caller may mutate the newest record in place between writes.
@@ -39,10 +39,9 @@ async function pathExists(fullPath: string): Promise<boolean> {
 }
 
 /**
- * Filename of segment `index` for an append-only JSONL file. Segment zero keeps
- * the original name (`turns.jsonl`) so legacy monolithic sessions read back as
- * their own first segment; later segments interleave the index before the
- * extension (`turns-0001.jsonl`).
+ * Segment filename: zero keeps the base name (`turns.jsonl`) so a legacy
+ * monolithic session reads as its own first segment; later segments
+ * interleave the index before the extension (`turns-0001.jsonl`).
  */
 export function segmentFileName(baseName: string, index: number): string {
   if (index === 0) return baseName;
@@ -72,10 +71,9 @@ export async function listSegmentFiles(
 }
 
 /**
- * Highest segment index present on disk for `baseName`, including gapped strays
- * (`turns-0003.jsonl` with `turns-0002.jsonl` missing). Returns -1 when neither
- * the base nor any numbered segment exists. Used by the writer to unlink stale
- * tails after a rewrite when in-memory segment count is unknown.
+ * Highest on-disk segment index, including gapped strays; -1 when none
+ * exists. Lets a fresh writer unlink stale tails after a rewrite when the
+ * in-memory count is unknown.
  */
 export async function highestSegmentIndex(
   dir: string,
@@ -109,9 +107,9 @@ export async function highestSegmentIndex(
 }
 
 /**
- * Raw text of every segment past the base one (`turns-0001.jsonl`, ...), in
- * order. The base segment is read separately by the underlying store, so this
- * returns only the tail segments the store does not already know about.
+ * Raw text of every segment past the base one, in order. The underlying
+ * store reads the base segment separately, so only tail segments are
+ * returned here.
  */
 export async function readExtraSegmentTexts(
   dir: string,
@@ -126,23 +124,19 @@ export async function readExtraSegmentTexts(
 }
 
 /**
- * Append-oriented writer for a JSONL snapshot that the caller rebuilds with the
- * full record history on every checkpoint. Serializing the whole history each
- * time is O(session length) per turn and stalls the single-process TUI; equally,
- * re-hashing one ever-growing file on every `git add` is O(session length) per
- * commit. This writer serializes only records past the longest unchanged prefix
- * (matched by reference) and rolls the file into fixed-size segments so sealed
- * segments never change and only the active segment is re-hashed.
+ * Append-oriented JSONL snapshot writer. Full-history rewrites are
+ * O(session length) per turn and re-hash one ever-growing file on every
+ * `git add`; instead this writer serializes only records past the
+ * longest unchanged prefix (matched by reference) and rolls the file
+ * into fixed-size segments, so sealed segments never change and only
+ * the active one re-hashes.
  *
- * A history rewrite such as compaction replaces the record objects, fails the
- * reference match, truncates back to the first changed record, and deletes any
- * now-stale later segments. Each write reports the segment files it touched so
- * the caller can stage precisely those.
- *
- * The writer is process-local. Agent rebuilds construct a fresh writer with no
- * in-memory state; the first write after that must still discover and delete
- * stale on-disk segments, or a compaction rewrite leaves orphan tails that the
- * next load concatenates back into history (duplicate tool_call ids).
+ * A compaction rewrite replaces the record objects, fails the reference
+ * match, truncates back to the first changed record, and deletes stale
+ * later segments. Process-local: a fresh writer has no in-memory state,
+ * so its first write discovers and deletes stale on-disk segments; a
+ * rewrite otherwise leaves orphan tails the next load concatenates back
+ * into history (duplicate tool_call ids).
  */
 export function createSegmentedJSONLWriter(
   dir: string,
@@ -173,9 +167,9 @@ export function createSegmentedJSONLWriter(
 
     const prevSegStarts = state?.segStarts ?? [0];
     const prevOffsets = state?.offsets ?? [0];
-    // Fresh writers have no memory of prior segment count. Discover every
-    // on-disk segment (including gapped strays) so a rewrite that produces
-    // fewer segments can still unlink the tails a previous writer left behind.
+    // Fresh writers have no memory of prior segment count; discover every
+    // on-disk segment (including gapped strays) so a rewrite producing fewer
+    // segments can still unlink the previous writer's tails.
     let prevSegCount = prevSegStarts.length;
     if (state === null) {
       const highest = await highestSegmentIndex(dir, baseName);
@@ -259,10 +253,10 @@ export function createSegmentedJSONLWriter(
       const full = path.join(dir, name);
       const truncateInPlace = isFirst && state !== null && entry.keepBytes > 0;
       if (truncateInPlace) {
-        // Stale keepBytes (e.g. after external shrink/compaction) can exceed the
-        // on-disk size. POSIX truncate-past-EOF pads with null bytes, which
-        // poisons the JSONL and breaks resume with `\u0000` parse errors.
-        // Never extend via truncate — rewrite the full segment instead.
+        // keepBytes can exceed the on-disk size after external shrink;
+        // truncating past EOF pads null bytes, which poisons resume with
+        // `\u0000` parse errors. Never extend via truncate — rewrite the full
+        // segment instead.
         let existingSize = 0;
         try {
           existingSize = (await fs.promises.stat(full)).size;
@@ -270,9 +264,8 @@ export function createSegmentedJSONLWriter(
           existingSize = 0;
         }
         if (entry.keepBytes > existingSize) {
-          // Offsets are wrong relative to disk. Rebuild the kept prefix from
-          // the in-memory records that belong in this segment, then append
-          // the planned text (the post-prefix lines for this segment).
+          // Offsets no longer match disk; rebuild the kept prefix from the
+          // in-memory records, then append the planned post-prefix text.
           const keptRecords = records.slice(firstSegStartRecord, prefix);
           const fullText =
             keptRecords.map((r) => lineFor(r)).join("") + entry.text;

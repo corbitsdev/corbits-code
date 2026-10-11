@@ -1,5 +1,5 @@
 /**
- * CL-5170: permission.wait and subagent spans at the ask gate and task fleet.
+ * permission.wait and subagent spans at the ask gate and task fleet.
  */
 import { defined } from "../../testkit/defined.js";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";

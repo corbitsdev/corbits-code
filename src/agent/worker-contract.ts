@@ -10,12 +10,10 @@ export interface WorkerContractOptions {
 }
 
 /**
- * Lean worker contract (CL-8212): the entire harness surface a dispatched
- * worker gets. Identity + escalation rules + the report envelope — no
- * guidelines, no tool catalog, no appendix, no idle/poll/mailbox copy.
- *
- * The report envelope section is buildSubAgentReportContract verbatim
- * (byte-identical by construction — it is composed, not copied).
+ * Lean worker contract: the entire harness surface a dispatched worker gets.
+ * Identity + escalation rules + the report envelope — no guidelines, no tool
+ * catalog, no appendix, no idle/poll/mailbox copy. The report envelope is
+ * buildSubAgentReportContract verbatim (composed, not copied).
  */
 export function buildWorkerContract(opts: WorkerContractOptions = {}): string {
   const askDirector = opts.askDirector === true;

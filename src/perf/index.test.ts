@@ -12,8 +12,7 @@ import {
   type PerfSpan,
 } from "./index.js";
 
-// The span store is process-wide, so a perf test cannot assume the tests that
-// ran before it in this process left it empty. Reset on both edges.
+// Span store is process-wide: earlier tests may leave it non-empty. Reset both edges.
 beforeEach(() => {
   clear();
 });
@@ -141,8 +140,7 @@ describe("parentId privacy fence", () => {
     end(child);
     end(parent);
 
-    // Opaque id that matches OPAQUE_ID_RE but is not currently open/ring-known
-    // after clear of only that id — still accepted when pattern matches.
+    // Pattern-matching parentId is accepted even when never opened/ring-known.
     const orphan = start("tool", { parentId: "parent1" });
     end(orphan);
 

@@ -1,7 +1,7 @@
 /**
- * The shared description-zone kit: `describe` on `openListOverlay` reserves a
- * fixed two-line zone under a rule, and `onCycle` claims Left/Right for
- * overlays that opt in (settings inline cycling).
+ * Shared description-zone kit: `describe` on `openListOverlay` reserves a
+ * fixed two-line zone under a rule; `onCycle` claims Left/Right for overlays
+ * that opt in (settings inline cycling).
  */
 
 import { describe, expect, test } from "bun:test";
@@ -35,8 +35,8 @@ async function withShell(
 
 describe("description zone", () => {
   test("charges rows only when describe is supplied", async () => {
-    // Tall terminal so the geometry resolver's overlay cap never kicks in —
-    // this test is about the zone's own row cost, not the resolver's floor.
+    // Tall terminal so the overlay cap never kicks in; this tests the zone's
+    // own row cost.
     await withShell(
       (shell) => {
         openListOverlay(shell, { kind: "demo", items: ["a", "b"] });

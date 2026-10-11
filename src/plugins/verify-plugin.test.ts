@@ -45,8 +45,8 @@ const lineRangeEditHandler: ToolHandler = async (call) => {
   return { callId: call.id, content: "edited" };
 };
 
-// A handler that lands `content` verbatim regardless of the call — the
-// stand-in for a bad write/edit that verifyPlugin must catch.
+// Lands `content` verbatim regardless of the call — the bad write/edit
+// verifyPlugin must catch.
 const overwriteHandler =
   (content: string, reply: string): ToolHandler =>
   async (call): Promise<ToolResult> => {
@@ -128,8 +128,8 @@ describe("verifyPlugin", () => {
 
   test("skips verification when edit_file mixes substring and line-range args", async () => {
     await withTempDir("verify-test-", async (dir) => {
-      // Mixed-mode is invalid at the parse layer; verify should not treat it as
-      // a successful line-range edit even if the underlying write applied one.
+      // Mixed-mode is invalid at the parse layer; verify must not treat it as
+      // a successful line-range edit even if the write applied.
       const handler = verify(lineRangeEditHandler);
       const path = join(dir, "mixed.txt");
       await writeFile(path, "a\nb\nc\n");

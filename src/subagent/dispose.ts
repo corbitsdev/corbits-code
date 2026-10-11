@@ -35,11 +35,8 @@ export function isSubAgentCancelError(
 /** Wall-clock wait for in-flight plugin tool calls to finish before posix dispose. */
 export const SUBAGENT_SPAWN_DRAIN_MS = 2_000;
 
-/**
- * Bounded cleanup deadline for close_agent: a wedged descendant's
- * teardown is abandoned (not awaited further), not a reason to hang the
- * caller.
- */
+/** Bounded cleanup deadline for close_agent: abandon a wedged teardown
+ * instead of hanging the caller. */
 export const DEFAULT_CLOSE_DEADLINE_MS = 30_000;
 
 /** Fail a hung close instead of resolving as successful teardown. */
@@ -73,8 +70,8 @@ export async function awaitBoundedTeardown(
 }
 
 /**
- * Always start `close`. Await it only when posix/toolset dispose already
- * succeeded; a leftover throw must not wait unbounded on a hung close.
+ * Start `close` always; await only when posix dispose already succeeded, so a
+ * leftover throw does not wait unbounded on a hung close.
  */
 export async function awaitCloseWithoutHidingLeftover(
   close: Promise<unknown>,

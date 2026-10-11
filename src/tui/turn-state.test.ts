@@ -107,10 +107,10 @@ describe("turnStateFromEvent", () => {
   });
 
   test("a name-only streamed announcement and an id-bearing tool.start for the same call settle on one tool.done", () => {
-    // Regression for CL-5645: inference.tool_call.start streamed the call
-    // under its name (no callId yet); tool.start then announced the same
-    // call under a real id. One tool.done must clear both records, not
-    // leave a name-keyed duplicate pinning activeToolCalls forever.
+    // Regression: inference.tool_call.start streamed the call under its name
+    // (no callId yet); tool.start then announced the same call under a real
+    // id. One tool.done must clear both records, not leave a name-keyed
+    // duplicate pinning activeToolCalls forever.
     const running = fold([
       { type: "inference.start" },
       { type: "inference.tool_call.start", data: { name: "bash" } },
@@ -156,10 +156,10 @@ describe("turnStateFromEvent", () => {
   });
 
   test("concurrent same-name collects stay tracked when the mapping owner finishes first", () => {
-    // Regression for CL-8059: two concurrent wait_agents calls share one
-    // callIdByName slot, so the second registration overwrites the first.
-    // When the mapping-owning sibling resolves first and clears that slot,
-    // the leftover earlier collect must keep its own name record.
+    // Regression: two concurrent wait_agents calls share one callIdByName
+    // slot, so the second registration overwrites the first. When the
+    // mapping-owning sibling resolves first and clears that slot, the
+    // leftover earlier collect must keep its own name record.
     const running = fold([
       { type: "inference.start" },
       {
@@ -193,10 +193,10 @@ describe("turnStateFromEvent", () => {
   });
 
   test("tool.done only sets awaitingResponse once every parallel call has finished", () => {
-    // Regression for CL-5661: with a fan-out of two outstanding calls, the
-    // first tool.done must not claim the turn is idle while the second call
-    // is still running — that falsely tells consumers (stall watchdog,
-    // status chrome) the model is the only thing left to wait on.
+    // Regression: with a fan-out of two outstanding calls, the first
+    // tool.done must not claim the turn is idle while the second call is
+    // still running — that falsely tells consumers (stall watchdog, status
+    // chrome) the model is the only thing left to wait on.
     const running = fold([
       { type: "inference.start" },
       { type: "tool.start", data: { call: { id: "call_1", name: "grep" } } },
@@ -268,10 +268,10 @@ describe("turnStateFromEvent", () => {
   });
 
   test("inference.done with no active tool calls settles the turn", () => {
-    // Regression for CL-5563/CL-5570: a self-continuing workflow cycle
-    // may never emit connector.reply, the usual
-    // terminator. Without settling here too, isProcessing (and the "working"
-    // ramp it drives) stays true forever once nothing else arrives.
+    // Regression: a self-continuing workflow cycle may never emit
+    // connector.reply. Without settling here too, isProcessing (and the
+    // "working" ramp it drives) stays true forever once nothing else
+    // arrives.
     const s = fold([
       { type: "inference.start" },
       { type: "inference.text.delta" },
@@ -466,9 +466,9 @@ describe("repetition tracking", () => {
     // The gap this closes: an unconditional per-cycle reset (no cross-cycle
     // memory at all) never catches a model that loops while interleaving a
     // trivial tool call between every repeat — verified against a 500-cycle,
-    // 88,000-character run that never flipped `repeating`. A fingerprint of
-    // each completed cycle, compared to the one before it, catches this
-    // shape within a small, bounded number of cycles instead.
+    // 88,000-character run that never flipped `repeating`. A per-cycle
+    // fingerprint compared to the prior one catches it within a bounded
+    // number of cycles.
     const block = "xk4mQ2 loop unit that never varies at all here";
     expect(block.length).toBeGreaterThanOrEqual(24);
 
@@ -500,10 +500,9 @@ describe("repetition tracking", () => {
 
   test("a short narration line repeated before each of nine tool calls is not a loop", () => {
     // Verified false positive (CL-5577): "Let me check the next file now."
-    // fed in 4-char chunks before nine separate tool calls, interleaved with
-    // tool.start/connector.reply/tool.done, must not abort the turn. Nothing
-    // about saying a similar short thing before each of several tool calls
-    // in one turn is degenerate.
+    // fed in 4-char chunks before nine separate tool calls, must not abort
+    // the turn. Nothing about saying a similar short thing before each of
+    // several tool calls in one turn is degenerate.
     const narration = "Let me check the next file now.";
     const chunks: string[] = [];
     for (let i = 0; i < narration.length; i += 4) {

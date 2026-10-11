@@ -22,9 +22,8 @@ import type { InferenceSource } from "@intx/types/runtime";
 
 // Providers that enforce long-window quotas (e.g. monthly limits) set
 // Retry-After to days or weeks. The default policy trusts that value and
-// schedules the next attempt accordingly — silently blocking the session
-// for the full duration. Abort instead and surface the error immediately
-// so the user can switch providers or decide when to retry manually.
+// parks the session for the full duration; abort instead and surface the
+// error so the user can switch providers or decide when to retry.
 export const MAX_BLIND_WAIT_MS = 30_000;
 const DEFAULT_PRESSURE_PAUSE_MS = 1_000;
 const RATE_LIMIT_HANG_MS = 86_400_000;
@@ -127,10 +126,9 @@ export function createCorbitsRetryPolicy(
       admission.notePressure(provider, now() + pauseMs);
       // The vendored default retries `retryable` on a fixed 500/1000ms
       // schedule and ignores Retry-After. A 429 carries the server's pacing
-      // instruction: honor the full window. Capping at MAX_BLIND_WAIT_MS and
-      // retrying early burns the attempt budget while the server is still
-      // closed (the 45s xAI/Codex fixtures). Days-long Retry-After is a hang
-      // — abort rather than park the session. Attempt abort comes from
+      // instruction: honor the full window. Retrying early burns the attempt
+      // budget while the server is still closed; days-long Retry-After is a
+      // hang — abort rather than park the session. Attempt abort comes from
       // defaultPolicy so this path cannot drift from MAX_ATTEMPTS.
       if (error.retryAfterMs !== undefined) {
         if (error.retryAfterMs >= RATE_LIMIT_HANG_MS) return { kind: "abort" };

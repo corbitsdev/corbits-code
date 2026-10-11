@@ -13,14 +13,14 @@ import {
   type CompactionArchive,
 } from "../session/compaction-archive.js";
 
-// Characters, not tokens — conversion ratio is roughly 4 chars/token.
-// Match the reactor's default size-cap (vendor/intx-inference assembly.ts) so
-// leisure materialization owns the spill of the pretty/full bytes under the
-// `:full` key before the reactor's own 10k transform can write a lossier copy
-// under the bare call id.
+// Characters, not tokens (~4 chars/token). Matches the reactor's size-cap so
+// this middleware spills the full bytes before the reactor's 10k transform
+// writes a lossier copy under the bare call id.
 export const MAX_RESULT_CHARS = 10_000;
 
-/** Writes a blob to the session's context store (ContextStore.writeBlob's shape). */
+/**
+ * Writes a blob to the session's context store (ContextStore.writeBlob shape).
+ */
 export type SpillBlobWriter = (
   key: string,
   bytes: Uint8Array,
@@ -32,22 +32,16 @@ export interface TruncationSpillOptions {
   callId: string;
   writeBlob: SpillBlobWriter;
   /**
-   * Absolute path to the session context dir (`…/context`). When set, the
-   * truncation notice also names the on-disk tool-output path beside the
-   * `tool-output:///` URI so an operator can open the spill directly.
+   * Absolute session context dir; the notice then names the on-disk spill
+   * path.
    */
   contextDir?: string;
 }
 
 /**
- * Blob key the full pre-cut content is written under. Deliberately NOT the
- * bare callId: the reactor's own size-cap transform (vendor/intx-inference's
- * assembly.ts, always on, default cap 10,000 chars) runs on every ToolResult
- * after this middleware returns it. Leisure truncation keeps the inline
- * result (kept + notice) ≤ maxChars so that transform normally passes through
- * within-cap, but any other path that still exceeds the cap would spill under
- * the bare call id and clobber a same-keyed full write. The ":full" suffix
- * keeps our blob a distinct entry the reactor never touches.
+ * Blob key for the full pre-cut content. Deliberately not the bare callId:
+ * the reactor's always-on 10k size-cap could spill an over-cap result under
+ * that id and clobber this write. The ":full" suffix keeps the entry distinct.
  */
 export function spillBlobKey(callId: string): string {
   return `${callId}:full`;
@@ -82,13 +76,9 @@ export function truncationNotice(args: {
 }
 
 /**
- * Truncates so the FINAL result (kept + notice) never exceeds maxChars — the
- * notice is reserved before slicing, not appended after. Without this, leisure
- * output is maxChars+noticeLen and the reactor's always-on 10k size-cap
- * (createSizeCapTransform) replaces the whole string, stripping the leisure
- * URI+path the model needs. Notice length depends on digit counts of
- * remaining/fullLength (and optional absolutePath), so shrink kept until the
- * assembled result fits.
+ * Keeps kept + notice within maxChars by reserving the notice before slicing.
+ * Appending after would exceed the cap and let the reactor's size-cap replace
+ * the string, stripping the spill URI the model needs.
  */
 export function truncateWithReservedNotice(
   text: string,
@@ -147,32 +137,22 @@ async function spillAndTruncate(
   );
 }
 
-// The single primitive for size truncation: callers may pass their own
-// threshold but never invent their own wording, so a result can never carry
-// two differently-worded "truncated" notices. Called directly by runners this
-// middleware does not wrap — the MCP tool runner (src/mcp/plugin.ts). The
-// posix chain gets this middleware prepended unconditionally in
-// posix-tool-plugins.ts, so plugins like ripgrepPlugin that answer without
-// calling next() no longer need to apply the cap themselves.
+// Single truncation primitive: callers pass their own threshold but never
+// their own wording, so a result never carries two different truncation
+// notices. Runs directly in runners the middleware does not wrap (MCP:
+// src/mcp/plugin.ts) and is prepended to the posix chain in
+// posix-tool-plugins.ts, so plugins that answer without calling next() still
+// get the cap.
 //
-// When content exceeds `maxChars`, it is leisure-materialized first (pretty
-// JSON / preserved NDJSON / raw text) and the FORMATTED bytes are what we
-// spill and what we truncate inline. Under-gate content is returned unchanged
-// (no pretty, no blob).
+// Over-gate content is leisure-materialized first (pretty JSON / preserved
+// NDJSON / raw text); the formatted bytes are what we spill and truncate.
+// Under-gate content passes through unchanged.
 //
-// When `spill` is supplied, the full formatted content is written to the
-// session's own blob store — the same `ContextStore.writeBlob` /
-// `tool-output:///{key}` machinery the reactor's own size-cap transform uses
-// — and the notice names that real URI (plus the absolute session path when
-// `contextDir` is plumbed). Writing into the blob store (rather than a side
-// file) means the content is staged and committed with the rest of the turn
-// (see createOptimizedContextStore), so it persists exactly as long as the
-// session's own history does: forever, by design, same as every other spilled
-// tool output. No separate cleanup exists or is needed.
-//
-// Without `spill` (tests, or a caller with no session store to write into)
-// the notice says plainly that the rest is gone; it must never claim a
-// retrieval path that does not exist (CL-6908).
+// With `spill`, the full formatted content goes to the session blob store
+// and the notice names that URI (plus the absolute path when `contextDir`
+// is set). Staged with the turn, the blob lives as long as the session
+// history does. Without `spill` (tests, no session store), the notice says
+// the rest is gone and never claims a retrieval path that does not exist.
 export async function truncateToolResultContent(
   content: string,
   maxChars: number = MAX_RESULT_CHARS,
@@ -187,9 +167,8 @@ export async function truncateToolResultContent(
 }
 
 /**
- * Same gate/spill path as {@link truncateToolResultContent} for structured
- * `ToolResult.content` Records: pretty-serialize, then spill/truncate the
- * formatted JSON when over the gate.
+ * Same gate/spill path as {@link truncateToolResultContent} for Record
+ * content: pretty-serialize, then spill/truncate when over the gate.
  */
 export async function truncateToolResultRecord(
   content: Record<string, unknown>,
@@ -198,9 +177,7 @@ export async function truncateToolResultRecord(
 ): Promise<string> {
   const compactLength = JSON.stringify(content).length;
   if (compactLength <= maxChars) {
-    // Under-gate Records stay Records at the plugin layer; this helper is only
-    // reached when the plugin has already decided to serialize. Return pretty
-    // so callers that asked for a string get a stable shape.
+    // Under-gate records serialize pretty so string callers get a stable shape.
     return materializeToolResultRecord(content).text;
   }
   return spillAndTruncate(
@@ -211,14 +188,12 @@ export async function truncateToolResultRecord(
 }
 
 export interface ResultTruncationPluginOptions {
-  // Live getter for the session's blob writer, re-read on every call so a
-  // session rotation (new sessionId mid-process) spills into the new
-  // session's store rather than a stale one. Omitted only where there is no
-  // session store to spill into (tests, ad-hoc toolsets) — truncation still
-  // runs, just without a retrievable remainder.
+  // Live getters, re-read per call so a session rotation spills into the new
+  // session's store. Omitted where there is no session store (tests, ad-hoc
+  // toolsets): truncation still runs, without a retrievable remainder.
   getBlobWriter?: () => SpillBlobWriter | undefined;
-  // Live getter for the absolute session context dir, re-read like
-  // getBlobWriter so rotation picks up the new path for the notice.
+  // Absolute session context dir for the notice's on-disk path; re-read like
+  // getBlobWriter.
   getContextDir?: () => string | undefined;
   /** Primary-only evidence archive; workers omit this getter. */
   getEvidenceArchive?: () => CompactionArchive | undefined;
@@ -256,10 +231,9 @@ function spillOptionsForCall(
 }
 
 /**
- * Leisure-materialize and spill a tool result when its compact payload exceeds
- * {@link MAX_RESULT_CHARS}. Error results are returned unchanged. Shared by the
- * posix middleware and the AgentTool wrapper so fleet verbs (which never enter
- * the posix plugin chain) take the same path.
+ * Materialize and spill a tool result when its compact payload exceeds
+ * {@link MAX_RESULT_CHARS}. Errors pass through. Shared by the posix
+ * middleware and the AgentTool wrapper so fleet verbs take the same path.
  */
 export async function applyToolResultTruncation(
   result: ToolResult,
@@ -293,11 +267,9 @@ export async function applyToolResultTruncation(
   return result;
 }
 
-// A read_file page already carries its own continuation contract (a plain
-// `Use offset=` footer). Re-cutting it at the 10k leisure cap would slice the
-// footer off the page boundary and strand the pagination chain, so
-// footer-bearing read_file pages pass through intact.
-// Pages without a footer take the normal path.
+// read_file pages carry their own `Use offset=` continuation footer. Re-cutting
+// at the 10k cap would slice the footer off and strand pagination, so
+// footer-bearing pages pass through intact.
 const READ_FILE_CONTINUATION_RE = /Use offset=\d+ to continue\./;
 
 function isPagedReadFilePage(
@@ -375,9 +347,9 @@ async function archiveThenTruncate(
 
 /**
  * Wrap an AgentTool so its result hits {@link applyToolResultTruncation}.
- * `kind: "string"` handlers are lifted to `kind: "full"` so the spill can use
- * the call id. Factories such as createSearchAgentsTool stay `kind: "string"`
- * until mount.
+ * `kind: "string"` handlers lift to `kind: "full"` so the spill can use the
+ * call id; factories such as createSearchAgentsTool stay `"string"` until
+ * mount.
  */
 export function wrapAgentToolResultTruncation(
   tool: AgentTool,

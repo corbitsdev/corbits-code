@@ -1,6 +1,6 @@
 /**
- * Pure helpers for the local capability eval suite (case load, grade, baseline compare).
- * Kept free of process.exit so unit tests can import it.
+ * Pure helpers for the capability eval suite (case load, grade, baseline compare).
+ * No process.exit so unit tests can import it.
  */
 
 import { readdir, readFile, stat } from "node:fs/promises";
@@ -23,13 +23,7 @@ import {
   type NumericBehaviorMetric,
 } from "./behaviors.js";
 
-/**
- * Difficulty tiers. The suite is deliberately four cases, one per tier, with a
- * target pass band each: easy ~100% (floor tripwire), med 70-90%, hard 30-60%,
- * xhard 0-25% (headroom). A case that saturates its band gets promoted or
- * retired -- never kept as-is. See CL-6963 for why: the previous 19-case suite
- * scored 92/95 with every failure on one case, so it measured nothing.
- */
+/** Difficulty tiers with target pass bands; saturated cases are promoted or retired. */
 export type EvalTier = "easy" | "med" | "hard" | "xhard";
 
 export const EVAL_TIERS: readonly EvalTier[] = ["easy", "med", "hard", "xhard"];
@@ -38,22 +32,13 @@ function isEvalTier(value: string): value is EvalTier {
   return EVAL_TIERS.includes(value as EvalTier);
 }
 
-/**
- * A bait declaration marks a case that exists to reproduce a known
- * misbehavior. The case misbehaves when the aggregate median of `metric`
- * exceeds `threshold`; baseline comparison flags a bait whose baseline no
- * longer reproduces (honesty check) instead of letting it silently pass.
- */
+/** Case reproducing a known misbehavior: aggregate median of `metric` above `threshold`. */
 export interface EvalBait {
   metric: NumericBehaviorMetric;
   threshold: number;
 }
 
-/**
- * Hard bound on a captured numeric behavior metric. The case fails when the
- * metric is outside [min, max] (either bound optional; at least one required).
- * Used for honesty checks (e.g. web-bait must actually call web_fetch).
- */
+/** Hard bound on a captured behavior metric: case fails when outside [min, max]. */
 export interface BehaviorRequirement {
   metric: NumericBehaviorMetric;
   min?: number;
@@ -74,15 +59,9 @@ export interface EvalCase {
   /** Absolute path to the case directory on disk. */
   caseDir: string;
   bait?: EvalBait;
-  /**
-   * When true the runner starts a hermetic local HTTP server (127.0.0.1,
-   * ephemeral port) for the case and substitutes `{{HTTP_URL}}` in the prompt.
-   */
+  /** Runner serves a hermetic local HTTP page and substitutes `{{HTTP_URL}}` in the prompt. */
   httpFixture?: boolean;
-  /**
-   * Optional post-run honesty bounds on captured behavior metrics. Fail the
-   * case when a bound is violated even if agent exit and verify.sh are green.
-   */
+  /** Honesty bounds on captured metrics: fail the case even when exit and verify pass. */
   requireBehaviors?: BehaviorRequirement[];
 }
 
@@ -114,10 +93,8 @@ export interface EvalVariant {
 }
 
 /**
- * Recorded when the resolved provider/model for a run cell differs from what
- * was requested (matrix cell or CLI flags) — e.g. a silent fallback/default
- * kicked in. Present on results even when the run was allowed to proceed via
- * --allow-provider-fallback, so the mismatch stays visible downstream.
+ * Resolved provider/model differs from what the cell requested (matrix cell
+ * or CLI flags) — e.g. a silent fallback kicked in.
  */
 export interface ProviderFallbackInfo {
   requestedProvider: string | null;
@@ -403,10 +380,7 @@ function parseBehaviorRequirement(
   };
 }
 
-/**
- * Check captured behavior metrics against case requireBehaviors bounds.
- * Fails closed when capture is missing and requirements are non-empty.
- */
+/** Check captured behavior metrics against case bounds; fails closed when capture is missing. */
 export function checkBehaviorRequirements(
   behaviors: BehaviorMetrics | null,
   reqs: readonly BehaviorRequirement[],
@@ -489,10 +463,8 @@ export function makeResultKey(variantId: string, caseId: string): string {
 export { evalHttpEnvGet, runWithEvalHttpEnv };
 
 /**
- * Env vars the eval-only SSRF fixture exception in src/tools/ssrf-guard.ts
- * checks against. Shared by the agent process (must see EVAL_HTTP_URL so
- * web_fetch can reach the fixture) and the spawned verify.sh (which also
- * gets EVAL_HTTP_TOKEN to assert on the fetched content).
+ * Env vars for the eval-only SSRF fixture exception (src/tools/ssrf-guard.ts):
+ * EVAL_HTTP_URL for the agent, EVAL_HTTP_TOKEN for verify.sh.
  */
 export function httpFixtureEnv(fixture: {
   url: string;
@@ -502,12 +474,8 @@ export function httpFixtureEnv(fixture: {
 }
 
 /**
- * Isolates `vars` for the duration of `fn` via async context (ALS), even when
- * sibling cells overlap under `--concurrency`. In-process readers (ssrf-guard)
- * see this cell's values through evalHttpEnvGet; one cell finishing cannot
- * delete a sibling's overlay. process.env is left alone so a restore cannot
- * clobber a concurrent cell. verify.sh still receives an explicit env object
- * at spawn (see scripts/eval-capability.ts).
+ * Runs `fn` with `vars` isolated via async context so concurrent cells never
+ * clobber each other's overlay; process.env stays untouched.
  */
 export async function withEnv<T>(
   vars: Record<string, string>,
@@ -517,25 +485,9 @@ export async function withEnv<T>(
 }
 
 /**
- * The provider/model actually requested for a cell: the matrix variant's own
- * override when it carries one, otherwise the run's resolved primary labels
- * (from `resolveVariantLabels` — the same catalog/OAuth-aware `loadConfig`
- * resolution that populates the report's top-level `provider`/`model`).
- *
- * The default (unlabeled, single-variant) matrix cell never sets its own
- * provider/model — it exists purely to key the results by "default:default" —
- * and a run given no explicit `--provider`/`--model` flags at all has nothing
- * in `opts` either; both leave the caller with only ambient default
- * resolution (e.g. a project's local .corbits/settings.json) to fall back on.
- * Comparing a cell's resolved provider/model against the variant/opts fields
- * alone misses this entirely — it silently skips the mismatch check on every
- * ambient-default run, which is exactly how a per-case fixture workdir
- * lacking that local settings file can resolve to a different provider than
- * the run believed it was configured for. `labels` is what the run actually
- * resolved at plan time, so it is the correct requested baseline regardless
- * of variant labeling or whether explicit flags were passed. The "(default)"
- * placeholder `resolveVariantLabels` returns when nothing could be resolved
- * at all is not a real request and is treated as absent.
+ * What the cell actually requested: the variant's own override, else the
+ * run's resolved labels. Ambient-default runs would otherwise skip the
+ * mismatch check; "(default)" means absent.
  */
 export function resolveRequestedProviderModel(
   variant: { provider?: string; model?: string },
@@ -551,11 +503,7 @@ export function resolveRequestedProviderModel(
   };
 }
 
-/**
- * Compares the requested (matrix cell / CLI flag) provider and model against
- * what the run actually resolved to. Returns null when they match (or when
- * nothing specific was requested for that axis).
- */
+/** Compare requested vs resolved provider/model; null when they match or nothing was requested. */
 export function detectProviderFallback(args: {
   requestedProvider?: string;
   requestedModel?: string;
@@ -590,16 +538,9 @@ export function defaultVariantId(provider?: string, model?: string): string {
 }
 
 /**
- * Parse a matrix string of variants.
- * Formats (comma-separated cells):
- *   - `provider:model`
- *   - `provider:model:effort`
- *   - `provider/model` (slash only when no colon)
- *   - `label=provider:model[:effort]`
- * Empty / omitted → single default variant (caller provider/model/effort flags).
- * Each expanded cell must have both provider and model (after applying
- * `--provider`/`--model` as cell defaults when a side is omitted); effort
- * falls back to `--effort` when the cell does not specify its own.
+ * Parse a comma-separated matrix string: `provider:model[:effort]`,
+ * `provider/model`, or `label=...`. Empty → a single default variant from
+ * the caller's flags; missing sides fill from `--provider`/`--model`.
  */
 export function parseMatrix(
   matrix: string | undefined,
@@ -645,9 +586,7 @@ function parseMatrixCell(
   let effort: ReasoningEffort | undefined;
   if (rest.includes(":")) {
     const parts = rest.split(":");
-    // provider:model or provider:model:effort — the last segment is treated
-    // as effort only when it parses as a real reasoning-effort literal, so a
-    // model id that happens to contain a colon still falls through cleanly.
+    // The last segment is effort only when it parses as a reasoning-effort literal.
     const last = parts.at(-1);
     if (parts.length >= 3 && last !== undefined) {
       const trimmedLast = last.trim();
@@ -881,11 +820,7 @@ function metricStats(values: readonly number[]): MetricStats {
   };
 }
 
-/**
- * Group case results by resultKey (one group per case×variant cell across
- * repeats) and compute pass-rate plus behavior-metric min/median/max.
- * Behavior stats only cover repeats whose behaviors were captured.
- */
+/** Group results by case×variant cell and compute pass-rate plus behavior-metric stats. */
 export function computeCellAggregates(
   results: readonly CaseResult[],
 ): CellAggregate[] {
@@ -924,10 +859,7 @@ export function computeCellAggregates(
   return aggregates;
 }
 
-/**
- * Validate a results JSON document (accepts v1–v3; aggregates are always
- * recomputed from cases so stored aggregates cannot drift from the data).
- */
+/** Validate a results JSON document (v1–v3); aggregates are recomputed from cases. */
 export function parseEvalRunReport(raw: unknown): EvalRunReport {
   if (!isRecord(raw)) throw new Error("report must be an object");
   if (!Array.isArray(raw.cases))
@@ -1030,10 +962,9 @@ export function baitReproduces(
 }
 
 /**
- * Compare per-cell aggregates against a baseline report. Any pass-rate change
- * is significant; behavior metrics compare medians per metric direction.
- * `cases` supplies bait declarations for the honesty check: a bait whose
- * baseline aggregate does not exceed its misbehavior threshold is flagged.
+ * Compare per-cell aggregates against a baseline. Pass-rate changes and
+ * behavior-median changes are significant; `cases` supplies bait
+ * declarations for the honesty check.
  */
 export function compareToBaseline(
   current: readonly CaseResult[],

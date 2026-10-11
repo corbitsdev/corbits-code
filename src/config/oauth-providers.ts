@@ -2,11 +2,10 @@ import type { ProviderCatalogEntry } from "./index.js";
 import type { ProviderSettings } from "./settings.js";
 
 // OAuth profiles surface through the same provider catalog as API-key
-// providers so the /agent picker lists them inline. Each profile becomes a
-// provider named "<prefix><profile>"; the prefix namespaces them and signals
-// the OAuth origin in the UI without special-casing the picker. Codex and xAI
-// share this projection; only the prefix, endpoint, model list, and catalog
-// markers differ.
+// providers. Each profile becomes a provider named "<prefix><profile>"; the
+// prefix namespaces them and signals the OAuth origin without
+// special-casing the picker. Codex and xAI share this projection; only the
+// prefix, endpoint, model list, and catalog markers differ.
 
 interface OAuthProfileLike {
   name: string;

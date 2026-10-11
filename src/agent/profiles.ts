@@ -68,17 +68,14 @@ function isENOENT(err: unknown): boolean {
 // Mutable registry seeded with the default plugin. Plugin-provided profiles
 // are overridable: a profile with the same id loaded later (or from the local
 // .agents/agents/ directory) replaces the earlier one — except closed
-// DIRECTOR_IDS, which are reserved and skipped at load (CL-7015).
+// DIRECTOR_IDS, which are reserved and skipped at load.
 const registry: AgentProfile[] = [...defaultPlugin.agents];
 
 // Load diagnostics: additive over loadAgentProfiles. `revision` stamps the
 // profile snapshot a dispatch was verified against (agent-fleet records it on
 // the session); `malformed` names local files that failed to load and why.
 // A malformed file never blocks the load — it is skipped and named here so
-// callers can surface it. requires_tools preflight verifies against the
-// resolved dispatch capabilities only, never against this list (CL-9476 keeps
-// no malformed_profile preflight branch: agent-fleet never plumbed a failing
-// source through dispatch, so the branch was dead and has been removed).
+// callers can surface it.
 export interface MalformedAgentProfile {
   path: string;
   reason: string;

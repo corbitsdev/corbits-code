@@ -1,15 +1,15 @@
 import type { LocalSettings, Settings } from "./settings.js";
 
 /**
- * CL-5814: orchestrator is the only product path. The type is retained as a
- * single literal so call sites can drop the parameter without a big-bang rename
- * in the same PR series; `"single"` is never returned from resolve helpers.
+ * Orchestrator is the only product path. The type is retained as a single
+ * literal so call sites can drop the parameter later; `"single"` is never
+ * returned from resolve helpers.
  */
 export type SessionMode = "orchestrator";
 
 /**
  * Product always runs orchestrator. Legacy `sessionMode` values in settings
- * (including `"single"`) are ignored — not errors on load, not written back here.
+ * (including `"single"`) are ignored — not errors on load, not written back.
  */
 export function resolveSessionMode(
   _global?: Settings | null,

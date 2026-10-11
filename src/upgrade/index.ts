@@ -1,10 +1,9 @@
 /**
- * Soft upgrade check for interactive TUI start.
- *
- * Pure helpers detect how the running build was installed, compare the package
- * version to the latest GitHub release, and format a method-specific notice.
- * Network and detection failures never throw to callers: the check returns
- * `skipped` so startup is never blocked or errored loudly.
+ * Soft upgrade check for interactive TUI start. Pure helpers detect how the
+ * running build was installed, compare the package version to the latest
+ * GitHub release, and format a method-specific notice. Network and detection
+ * failures never throw: the check returns `skipped` so startup is never
+ * blocked or errored loudly.
  */
 
 import { basename } from "node:path";
@@ -99,7 +98,6 @@ function pathMarkers(probe: InstallProbe): string {
 /**
  * Best-effort install path detection. Prefer specific package managers over
  * generic binary / source so upgrade hints match how the operator installed.
- *
  * Order matters: Bun-under-Homebrew (`/opt/homebrew/bin/bun`) is source, not
  * homebrew — only the Cellar / formula binary is a brew install of Corbits.
  */

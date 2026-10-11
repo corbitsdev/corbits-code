@@ -565,9 +565,8 @@ describe("mountProductHost", () => {
     expect(host.shell.streamLog).toEqual([]);
   });
 
-  // Production holds finished rows for 4s; a short override keeps the
-  // assertion (sticky poll clears the zone once linger expires, no
-  // setChrome) identical without paying the full window in wall clock.
+  // Short linger keeps the assertion identical without paying the full
+  // window in wall clock (see agentsPanelLingerMs).
   const TEST_AGENTS_PANEL_LINGER_MS = 300;
 
   test("sticky ticks clear the agents zone after linger without setChrome", async () => {
@@ -629,9 +628,9 @@ describe("flat type-to-filter model picker", () => {
     } = {},
   ) {
     // One row taller than the usual fixture: on the landing screen (no
-    // session content yet, which this fixture never sends) the version badge
-    // reserves the terminal's last row, and this picker's row list needs
-    // every row of the 24-row case to fit every provider.
+    // session content yet) the version badge reserves the terminal's last
+    // row, and this picker's row list needs every row of the 24-row case to
+    // fit every provider.
     const harness = await createHarness({
       width: 80,
       height: options.height ?? 25,
@@ -1222,7 +1221,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("sequence-only å with name a opens add-provider from the model picker", async () => {
     // Terminals can report Option+A as sequence å while name stays ASCII a
-    // and option/meta stay false (#482).
+    // and option/meta stay false.
     const { harness, host } = await mountPicker({
       onConnectProvider: () => undefined,
       addProviderChoices: ADD_PROVIDER_CHOICES,

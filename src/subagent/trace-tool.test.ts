@@ -55,10 +55,8 @@ describe("createReadAgentTraceTool", () => {
   });
 
   describe("descendant-only scoping (two sibling subtrees under one flat root)", () => {
-    // Every worker at every nesting depth lands under the same root
-    // subagents/ dir (see run.ts), so on disk workerA1 and workerY are
-    // indistinguishable siblings. Authority comes entirely from the fleet
-    // node list (parentSessionId chain), not from directory structure.
+    // All workers share one root subagents/ dir; authority comes from the
+    // fleet node list, not the directory tree.
     const nodes: FleetNode[] = [
       { id: "orchA" },
       { id: "workerA1", parentSessionId: "orchA" },

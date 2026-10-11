@@ -1,9 +1,7 @@
 /**
- * Shared subscriber for the chat-director reactor events. The TUI and exec
- * stream sinks both listen for the task-list and tool-activation events the
- * chat director emits in place of the former host closures; the parse,
- * validation, and invalid-payload handling live here so the two sinks cannot
- * drift apart.
+ * Shared chat-director reactor subscriber for the TUI and exec stream sinks.
+ * Parse, validation, and invalid-payload handling live here so the two sinks
+ * cannot drift apart.
  */
 
 import { type } from "arktype";
@@ -29,10 +27,9 @@ export type ChatDirectorEventDebugLog = (
 ) => void;
 
 /**
- * Dispatch one stream event to the chat-director handlers. Returns true when
- * the event is a chat-director event (valid or not) so sinks can fall through
- * to their own handling otherwise. Invalid payloads are dropped after a
- * debug-level log naming the failure — never silently.
+ * Dispatch one chat-director stream event to the handlers. Returns true for
+ * any chat-director event (valid or not) so sinks fall through otherwise.
+ * Invalid payloads are dropped with a debug log naming the failure.
  */
 export function handleChatDirectorEvent(
   event: { type: string; data: unknown },

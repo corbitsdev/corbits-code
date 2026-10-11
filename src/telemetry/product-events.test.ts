@@ -1,4 +1,4 @@
-// Each test here feeds an emission site a name that identifies an employer, a
+// Each test feeds an emission site a name that identifies an employer, a
 // service, or a path, then asserts that string appears NOWHERE in the bytes
 // that would go to PostHog. Serializing the whole request body (not just the
 // property the site meant to set) is the point: a comment claiming a value is
@@ -568,7 +568,7 @@ test('slash_command buckets a plugin-registered command to "custom"', async () =
   const { telemetry, wire, events } = harness();
 
   // Shared product-event helper — not the TUI runner — so headless and TUI
-  // callers hit the same emission path (CL-5744).
+  // callers hit the same emission path.
   captureSlashCommand(telemetry, "acmecorp-deploy");
   captureSlashCommand(telemetry, "settings");
 
@@ -669,9 +669,9 @@ test("auth_success reports the classified provider and never the settings name",
   captureAuthSuccess(telemetry, classifyAuthProvider("codex"));
   captureAuthSuccess(telemetry, classifyAuthProvider("xai"));
   captureAuthSuccess(telemetry, classifyAuthProvider("anthropic"));
-  // An employer-named settings entry funnels to "other" instead of shipping
-  // the name: the input type is the closed enum, so reaching this branch
-  // means a value nobody classified crossed the boundary.
+  // An employer-named settings entry funnels to "other": the input type is
+  // the closed enum, so reaching this branch means a value nobody classified
+  // crossed the boundary.
   captureAuthSuccess(
     telemetry,
     classifyAuthProvider("acmecorp-eng" as "other"),
@@ -709,7 +709,7 @@ test("compaction fires only when turns were actually folded away", async () => {
   const compactor = createSessionPruningCompactor({
     summarize: async () => "summary",
     telemetry,
-    // CL-9489: pin a one-token tail budget so this tiny fixture still folds.
+    // Pin a one-token tail budget so this tiny fixture still folds.
     compactionShape: { tailBudgetTokens: 1 },
   });
 

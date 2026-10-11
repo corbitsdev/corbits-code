@@ -32,10 +32,9 @@ import {
 /** Minimum interval between live shell-tail emits to the transcript feed. */
 export const SHELL_FEED_EMIT_MS = 100;
 
-// We do not patch interchange: this middleware short-circuits run_shell and
-// enforces a 120s foreground default (per-call timeout overrides with no
-// ceiling; background has no default), an
-// output-byte cap, and process-group kill so open-ended walks cannot OOM the host.
+// Short-circuits run_shell to enforce the 120s foreground default (per-call
+// overrides with no ceiling; background unbounded), an output-byte cap, and
+// process-group kill so open-ended walks cannot OOM the host.
 
 export const MAX_SHELL_OUTPUT_BYTES = 512_000;
 
@@ -49,13 +48,9 @@ export interface ShellTimeoutConfig {
 }
 
 /**
- * Effective run_shell timeout.
- *
- * 1. Background: a positive `requested` is the bound with no maxMs clamp;
- *    omitted → undefined (ignore defaultMs and the 120s built-in).
- * 2. Foreground: a positive `requested` is the bound with no maxMs clamp.
- * 3. Else base = defaultMs > 0 ? defaultMs : 120_000; maxMs clamps only this
- *    default path.
+ * Effective run_shell timeout. A positive `requested` is always the bound,
+ * unclamped. Background with none returns undefined (no default). Otherwise
+ * base = defaultMs || 120_000, clamped by maxMs only on this default path.
  */
 export function resolveShellTimeoutMs(args: {
   requested: number | undefined;
@@ -82,16 +77,12 @@ export function formatShellTimeoutNotice(timeoutMs: number): string {
 }
 
 /**
- * Stock tools-posix still advertises timeout default 30000. Shell-guard's
- * foreground default is 120s (settings.shell.timeoutMs overrides; maxTimeoutMs
- * clamps that default path); rewrite the definition the model sees so schema
- * and behavior agree. Corbits Code-only — does not patch interchange.
- *
- * Schema `default` is the foreground omit path. Description says omit
- * timeout on background:true so the model does not copy 120000 onto
- * background calls (a copied value becomes a requested timeout and kills
- * the job). Callers without a background registry pass
- * advertiseBackground=false so background is not advertised.
+ * Rewrites run_shell's advertised schema so it matches shell-guard's 120s
+ * foreground default (stock tools-posix still says 30000). The schema
+ * `default` is the foreground omit path; the description tells the model to
+ * omit timeout on background calls, since a copied 120000 becomes a requested
+ * timeout that kills the job. advertiseBackground=false drops background when
+ * no registry is wired.
  */
 export function advertiseShellGuardTimeout(
   definition: ToolDefinition,
@@ -167,11 +158,9 @@ export function advertiseShellGuardTimeout(
 const SEARCH_TOOL_TIMEOUT_MS = 10_000;
 const SEARCH_TOOLS = new Set(["grep", "search_files"]);
 
-// Timeout outcome mapping for scoped search tools, extracted pure so the
-// fail-closed behavior is unit-testable without waiting out the budget: a
-// budget expiry or an abort torn down by the budget is always an explicit
-// error carrying the timeout notice — a timeout never reads as empty
-// results, and genuine empty successes pass through untouched.
+// Maps budget outcomes for scoped search tools (pure so tests need not wait
+// the budget out): expiry, or an abort torn down by the budget, is always an
+// explicit timeout error — never empty results.
 export function mapSearchBudgetOutcome(
   callId: string,
   tool: ScopedSearchTool,
@@ -219,9 +208,9 @@ export interface GuardedShellResult {
 }
 
 /**
- * Collects shell stdout/stderr with a hard byte ceiling. While under the cap the
- * stream is buffered whole; beyond it only the first and last slices are kept
- * (head+tail) so RSS stays bounded and the agent still sees start/end of output.
+ * Collects shell stdout/stderr under a hard byte ceiling: buffered whole
+ * while under cap, head+tail beyond it so RSS stays bounded and the agent
+ * still sees the start and end of output.
  */
 export class BoundedShellOutput {
   private readonly headMax: number;
@@ -327,11 +316,10 @@ function childStillLive(child: ChildProcess): boolean {
   return child.exitCode === null && child.signalCode === null;
 }
 
-// Abort SIGKILLs the process group immediately (runGuardedShell onAbort). This
-// window is only a backstop for children still tracked at dispose. Leftovers
-// after it must fail teardown; do not stretch the process-exit 2s deadline.
-// Tests pass a short window so they do not pay the production 2s in wall
-// clock; production never passes it and keeps the default.
+// Abort already SIGKILLs the group; this window only backstops children still
+// tracked at dispose. Leftovers must fail teardown rather than stretch the 2s
+// process-exit deadline. Tests pass a short window; production keeps the
+// default.
 export async function reapLiveChildren(
   liveChildren: Set<ChildProcess>,
   reapWindowMs: number = SHELL_GUARD_DISPOSE_REAP_MS,
@@ -475,9 +463,8 @@ export async function runGuardedShell(
       // the command can finish and its true exit code is preserved.
       collector.append(chunk);
       // Live tail for the transcript: buffered between emits so the feed sees
-      // at most one update per SHELL_FEED_EMIT_MS (plus a final flush at
-      // settle). Lossless — dropped cadence windows accumulate, they do not
-      // skip text.
+      // at most one update per SHELL_FEED_EMIT_MS, plus a final flush at
+      // settle. Lossless — skipped windows accumulate, text is never dropped.
       pendingOutput += decoder.write(chunk);
       emitPendingOutput(false);
     };
@@ -530,14 +517,14 @@ function optionalNumber(value: unknown): number | undefined {
 }
 
 /**
- * Replaces stock run_shell with a hard-capped implementation, and applies a
- * 10s wall-clock budget to grep/search_files when the agent does not abort
- * earlier. Does not modify interchange — short-circuits before the base tool.
+ * Options for shellGuardPlugin: a hard-capped run_shell plus a 10s
+ * wall-clock budget on grep/search_files. Short-circuits before the base
+ * tool; interchange is not modified.
  */
 export interface ShellGuardPluginOptions {
-  // When true (yolo / --dangerously-skip-permissions), shell may retain a cwd
-  // outside the session root. A getter is resolved per call so `/yolo`
-  // mid-session takes effect without rebuilding the plugin stack.
+  // When true (yolo), shell may retain a cwd outside the session root. A
+  // getter resolves per call so a mid-session toggle applies without
+  // rebuilding the plugin stack.
   allowOutsideCwd?: boolean | (() => boolean);
   // Live getter for the background-shell registry. Unwired (undefined result)
   // makes `background: true` fail closed: nothing spawns, no handle returns.
@@ -684,9 +671,8 @@ export function shellGuardPlugin(
             if ("error" in started) {
               return { callId: call.id, content: started.error, isError: true };
             }
-            // No pwd probe and no retained-cwd mutation: the background shell
-            // never runs in the foreground shell's session, so a `cd` inside it
-            // affects only its own process.
+            // No pwd probe or retained-cwd mutation: the background shell runs
+            // in its own process, so a `cd` inside it affects only itself.
             return {
               callId: call.id,
               content: JSON.stringify({
@@ -767,10 +753,9 @@ export function shellGuardPlugin(
       if (SEARCH_TOOLS.has(call.name)) {
         const budget = withTimeout(signal, SEARCH_TOOL_TIMEOUT_MS);
         try {
-          // Race the downstream handler against the budget rather than awaiting
-          // it. The fallback grep performs a non-abortable recursive readdir, so
-          // aborting its signal does not stop the walk; without the race a host
-          // without ripgrep could burn the loop far past the wall-clock budget.
+          // Race the downstream handler against the budget: the fallback grep
+          // performs a non-abortable recursive readdir, so without the race a
+          // host without ripgrep burns far past the wall-clock budget.
           const outcome = await Promise.race([
             next(call, budget.signal),
             budgetExpiry(budget.signal),

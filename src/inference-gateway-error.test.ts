@@ -12,10 +12,9 @@ const CLOUDFLARE_503_HTML = `<!DOCTYPE html>
 <body><h1>503 Service Temporarily Unavailable</h1>
 <p>Cloudflare Ray ID: abc</p></body></html>`;
 
-// PROVISIONAL (Phase 0, issue #1295): the real xAI 426 body for xai/default-2
-// is unknown — the issue reports a bare "HTTP 426 Upgrade Required". Grounded
-// in the status code, the reason phrase, and the OAuth provider id only; no
-// body-signal assertions until a real payload lands.
+// PROVISIONAL: the real xAI 426 body for xai/default-2 is unknown (reports show
+// a bare "HTTP 426 Upgrade Required"); grounded in status code, reason phrase,
+// and OAuth id only, with no body-signal assertions until a real payload lands.
 const PROVISIONAL_XAI_426_UPGRADE_REQUIRED = {
   category: "fatal" as const,
   message: "Upgrade Required",
@@ -85,8 +84,8 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalizeInferenceErrorForRetry(err)).toEqual(err);
   });
 
-  // Phase 1 (issue #1295): normalizeOAuthUpgradeRequiredError grounds the
-  // provisional marker list — OAuth 426 with upgrade signal is reconnect-class.
+  // normalizeOAuthUpgradeRequiredError grounds the provisional marker list —
+  // OAuth 426 with upgrade signal is reconnect-class.
   test("PROVISIONAL: xAI OAuth 426 with upgrade signal normalizes to credential_failure", () => {
     const normalized = normalizeInferenceErrorForRetry(
       PROVISIONAL_XAI_426_UPGRADE_REQUIRED,
@@ -264,9 +263,9 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalizeInferenceErrorForRetry(err)).toEqual(err);
   });
 
-  // intx defaults 429 → quota_exhausted; known-provider context channels
-  // reclassify a bare 429 (no quota markers in the body) as a plain rate
-  // limit. A reclassified message must never claim quota/usage-limit copy.
+  // intx defaults 429 → quota_exhausted; known-provider context reclassifies a
+  // bare 429 (no quota markers) as rate_limit, never claiming quota/usage-limit
+  // copy.
   const BARE_429 = {
     category: "quota_exhausted" as const,
     message: "Too Many Requests",
@@ -416,10 +415,10 @@ describe("normalizeInferenceErrorForRetry", () => {
   });
 
   /**
-   * Wire shape for a revoked Codex credential: the harness classifies the
-   * HTTP 404 as fatal with the statusText message while the JSON body rides
-   * on raw. The body carries the auth-rejection signal; the status line
-   * alone ("Not Found") must never reclassify.
+   * Wire shape for a revoked Codex credential: the harness classifies the 404
+   * as fatal with the statusText message while the JSON body rides on raw.
+   * The body carries the auth-rejection signal; the status line alone must
+   * never reclassify.
    */
   const REVOKED_CREDENTIAL_404_RAW = {
     error: {
@@ -440,8 +439,8 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalized.category).toBe("credential_failure");
     expect(normalized.message).toContain('Codex profile "work"');
     expect(carriesCodexReLoginHint(normalized.message)).toBe(true);
-    // Original diagnostic rides along so the failure stays debuggable, and
-    // the wire body stays on raw for logs.
+    // Original diagnostic rides along so the failure stays debuggable; the
+    // wire body stays on raw for logs.
     expect(normalized.message).toContain("Not Found");
     expect(normalized.raw).toEqual(REVOKED_CREDENTIAL_404_RAW);
   });
@@ -525,9 +524,9 @@ describe("normalizeInferenceErrorForRetry", () => {
   });
 
   test("Codex model-deprecation 404 containing 'expired' stays fatal", () => {
-    // Keeper: a retired model names itself with the credential marker word,
-    // but logging in again cannot resurrect it — the fatal switch-models
-    // path must win over the expired-credential reclassification.
+    // Keeper: a retired model names itself with the credential marker word, but
+    // logging in again cannot resurrect it — the fatal switch-models path must
+    // win over the expired-credential reclassification.
     const error = {
       category: "fatal" as const,
       message:
@@ -566,9 +565,9 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalizeInferenceErrorForRetry(error)).toBe(error);
   });
 
-  // Live Codex 400: harness classifies HTTP 400 as fatal with statusText
-  // "Bad Request" while the nested diagnostic rides on raw. The lift must
-  // surface that diagnostic without reclassifying the category.
+  // Live Codex 400: the harness classifies it as fatal with statusText "Bad
+  // Request" while the nested diagnostic rides on raw; the lift must surface
+  // it without changing category.
   const CODEX_FATAL_400_NESTED_RAW = {
     detail: {
       error: {

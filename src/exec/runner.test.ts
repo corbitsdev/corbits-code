@@ -57,7 +57,7 @@ const OUTSIDE_ALLOW = "mcp__linear__create_issue";
 
 function bareConfig(task: string): Config {
   // Minimal unconfigured-shaped object is not enough — runExec only needs
-  // `task` for the empty-prompt early return before any bootstrap.
+  // `task` for the empty-prompt early return.
   return {
     command: "exec",
     task,
@@ -431,8 +431,8 @@ describe("exec credential failure surface", () => {
       lockPath,
       `Timed out after 30000ms waiting for the Codex refresh lock at ${lockPath}.`,
     );
-    // Joint surface with the combined classifier (#1138 rework is in flight
-    // in parallel): the lock error never composes into credential_failure.
+    // Joint surface with the combined classifier: the lock error never
+    // composes into credential_failure.
     expect(codexAuthFailureDiagnostic(lock)).toBeNull();
     // Raw pre-send failure: the exec layer repeats the lock message verbatim
     // instead of the generic re-login hint.

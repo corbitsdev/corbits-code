@@ -1,5 +1,5 @@
-// Closed director package contract for the v1 fleet (CL-5818).
-// Prompt-first: system prompt is the opinionated core; skills are optional.
+// Closed director package contract for the v1 fleet. Prompt-first: system
+// prompt is the opinionated core; skills are optional.
 
 import type { OutputType } from "../../subagent/submit-result.js";
 
@@ -27,14 +27,12 @@ export type TaskIntent =
   | "general";
 
 /**
- * Fleet authority tier (CL-6941). Runtime-enforced at the tool-mount point in
- * subagent/run.ts and by subagent/authority.ts — never by prompt wording.
+ * Fleet authority tier, enforced at the tool-mount point in subagent/run.ts
+ * and by subagent/authority.ts — never by prompt wording.
  *
- * - "orchestrator": Tier 1, primary (dispatch). Full fleet control over the
- *   whole tree.
- * - "nested-orchestrator": Tier 2, scoped to its own subtree (no closed
- *   director uses this tier today). May manage only its own descendants,
- *   never siblings or ancestors.
+ * - "orchestrator": Tier 1, primary (dispatch). Full fleet control.
+ * - "nested-orchestrator": Tier 2, scoped to its own subtree — own
+ *   descendants only, never siblings or ancestors.
  * - "leaf": Tier 3 worker. No fleet verbs at all.
  */
 export type SubagentTier = "orchestrator" | "nested-orchestrator" | "leaf";
@@ -69,11 +67,11 @@ export interface NudgePolicy {
 }
 
 /**
- * Optional structured-output contract for a director's worker (CL-6946).
- * Additive alongside the markdown envelope (Summary/Findings/Blockers/Paths,
- * see subagent/report.ts) — declaring `outputSchema` lets a Tier 3 worker also
- * submit a JSON payload via `submit_result`, validated against this schema.
- * Omit entirely to keep a director on the markdown-only path.
+ * Optional structured output for a worker, additive alongside the markdown
+ * envelope (Summary/Findings/Blockers/Paths, see subagent/report.ts):
+ * declaring `outputSchema` lets a Tier 3 worker also submit a JSON payload
+ * via `submit_result`, validated against this schema. Omit to stay on the
+ * markdown-only path.
  */
 export interface ReportContract {
   /** Shape of submit_result's payload, validated with arktype (see subagent/submit-result.ts). */
@@ -81,8 +79,8 @@ export interface ReportContract {
 }
 
 /**
- * One shipped director: hard primary intent + package fields.
- * Packages land in later levels; registry holds the closed set.
+ * One shipped director: hard primary intent + package fields. Registry holds
+ * the closed set.
  */
 export interface DirectorPackage {
   readonly id: DirectorId;
@@ -96,10 +94,11 @@ export interface DirectorPackage {
   /**
    * Skill names whose bodies are injected once into the worker system prompt
    * at spawn (zero extra turn). Do not duplicate these names in optionalSkills.
-   * Dispatch/primary leaves this unset.
+   * Primary leaves this unset.
    */
   readonly attachedSkills?: readonly string[];
-  /** Optional skill names (ordered). Workers load matching bodies on demand with skill_search + use_skill, scoped to the union of attachedSkills and optionalSkills; the primary orchestrator keeps them use_skill-loadable. */
+  /** Optional skill names (ordered). Loaded on demand via skill_search +
+   * use_skill, scoped to attachedSkills ∪ optionalSkills. */
   readonly optionalSkills?: readonly string[];
   readonly tools?: ToolEnvelope;
   readonly spawn: SpawnRights;
@@ -107,7 +106,7 @@ export interface DirectorPackage {
   readonly modelRole: ModelRole;
   /** Fleet authority tier — data on the package, gated at mount, not prose. */
   readonly tier: SubagentTier;
-  /** Optional typed output contract (CL-6946); Tier 3 leaves only. */
+  /** Optional typed output contract; Tier 3 leaves only. */
   readonly reportContract?: ReportContract;
 }
 

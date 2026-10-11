@@ -23,8 +23,7 @@ export async function runOnboarding(
   // Disclosure before any send: startup held telemetry because the notice
   // has never been shown, so render it here and treat a completed submit as
   // the affirmative action that activates telemetry (consent by proceeding).
-  // Read from the TRUE global settings file — telemetry state never lives in
-  // a --config override file.
+  // Read from the TRUE global settings file, never a --config override.
   const trueGlobalPath = globalSettingsPath();
   const trueGlobalSettings = await loadSettings(trueGlobalPath).catch(
     () => null,
@@ -32,8 +31,7 @@ export async function runOnboarding(
   const showTelemetryNotice = telemetryFirstRunPending(trueGlobalSettings);
 
   // Welcome is global first-run state (same TRUE global file as telemetry /
-  // onboarded), independent of --config provider write targets. Already-
-  // onboarded users who wiped providers jump straight to setup.
+  // onboarded), independent of --config provider write targets.
   if (trueGlobalSettings?.onboarded !== true) {
     const welcomed = await runWelcome();
     if (!welcomed) {
@@ -58,9 +56,9 @@ export async function runOnboarding(
     ),
   });
 
-  // If the user cancelled (Ctrl+C) onSubmit was never called and settings were
-  // never written. Skip launching the TUI — and leave telemetry held, so a
-  // cancelled first run sends nothing.
+  // If the user cancelled (Ctrl+C), onSubmit was never called and settings
+  // were never written — skip launching the TUI and leave telemetry held,
+  // so a cancelled first run sends nothing.
   if (!submitted) {
     return 1;
   }

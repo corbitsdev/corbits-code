@@ -113,8 +113,8 @@ describe("background shell registry", () => {
     const registry = createBackgroundShellRegistry({
       onExit: recorder.onExit,
     });
-    // Grandchild inherits the piped stdout so Node's 'close' waits on it.
-    // The shell itself exits immediately; delivery must not require close.
+    // Grandchild inherits the piped stdout so Node's 'close' waits on it; the
+    // shell exits immediately, so delivery must not require close.
     const started = registry.start({
       command: `bash -c 'exec -a ${token} sleep 600 & exit 0'`,
       cwd: tmpCwd,

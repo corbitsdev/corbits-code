@@ -22,19 +22,12 @@ import { webFetchDefinition } from "../tools/web-fetch.js";
 import { webSearchDefinition } from "../tools/web-search.js";
 
 /**
- * Canonical prompt-size fixture (CL-7664).
- *
- * Assembles each director prompt exactly as src/subagent/run.ts does:
- * extensions=[director systemPromptRole] + environment + tools +
- * appendix, with the Grok finish-bias note gated by
- * shouldApplyGrokAntiThrash (leaves on Grok-family providers only) and the
- * family promptResidual (CL-8297 tool budget for grok leaves, XML
- * task_guidance block for claude leaves, narrate-before-tools nudge for
- * gpt leaves) resolved from the model family policy. Residual texts are
- * single-sourced from the versioned prompt-variance package (CL-8269).
- *
- * The env and provider inputs are pinned here so sizes never drift with the
- * machine, date, or checkout — only real prompt changes move the numbers.
+ * Canonical prompt-size fixture: assembles each director prompt exactly as
+ * src/subagent/run.ts does — extensions=[director systemPromptRole] +
+ * environment + tools + appendix, Grok finish-bias gated by
+ * shouldApplyGrokAntiThrash, family promptResidual from the model family
+ * policy. Inputs are pinned so sizes never drift with machine, date, or
+ * checkout — only real prompt changes move the numbers.
  */
 export const CANONICAL_PROMPT_ENV: EnvironmentInfo = {
   cwd: "/repo",
@@ -49,9 +42,8 @@ export const CANONICAL_PROMPT_ENV: EnvironmentInfo = {
 };
 
 const GROK_PROVIDER = { providerName: "xai/default", model: "grok-4.6" };
-// Default-family probe: anthropic/claude-sonnet-4 hits the claude row and
-// openai/gpt-5.6 hits the gpt row, so an unrecognized provider is the probe
-// that still resolves to the default family (no residual).
+// Default-family probe: an unrecognized provider still resolves to the
+// default family (no residual).
 const MUSE_PROVIDER = {
   providerName: "opencode-go",
   model: "muse-spark-1.3-contributor",
@@ -70,17 +62,9 @@ const GPT_PROVIDER = { providerName: "openai", model: "gpt-5.6" };
 export type PromptSizeFamily = "default" | "muse" | "grok" | "claude" | "gpt";
 
 /**
- * Pinned AGENTS.md body for prefix measurement. Production reads the live
- * file (capped at MAX_AGENTS_MD_BYTES); the fixture pins a short body so
- * sizes move only when framing or assembly changes, not when the checkout's
- * AGENTS.md is edited.
- */
-
-/**
- * Pre-filter mount names in run.ts install order: posix base (TOOL_NAMES,
- * shared with createPosixTools) + delete_file / lsp plugin tools
- * (buildCorePosixToolPlugins) + core web tools (coreSubAgentWebTools).
- * Codex natives are not mounted.
+ * Pre-filter mount names in run.ts install order: posix base (TOOL_NAMES)
+ * + delete_file / lsp plugin tools + core web tools. Codex natives are not
+ * mounted.
  */
 function preFilterMountNames(): readonly string[] {
   return [
@@ -94,14 +78,11 @@ function preFilterMountNames(): readonly string[] {
 
 /**
  * Canonical tool names per director, assembled exactly as run.ts mounts them:
- * the pre-filter set above narrowed by the package capability filter (the
- * same packageToCapabilities agent-fleet dispatches with; allow keeps only
- * mounted names, exclude drops denials — run.ts:720-722), then manage_tasks
- * (run.ts:727-736), leaf-only submit_result + ask_director (run.ts:740-785),
- * then orchestrator fleet tools with Tier-1-only search_agents
- * (run.ts:791-918, tier gate at 796-797). Allowlist entries that name no
- * mounted tool (list_dir, fleet verbs, off-family Codex proxies) fall out at
- * the filter instead of inflating the prompt.
+ * pre-filter set narrowed by the package capability filter (allow keeps only
+ * mounted names, exclude drops denials), then manage_tasks, leaf-only
+ * submit_result + ask_director, then orchestrator fleet tools (search_agents
+ * Tier-1 only). Allowlist entries naming no mounted tool fall out at the
+ * filter instead of inflating the prompt.
  */
 export function canonicalToolNamesForDirector(
   pkg: DirectorPackage,

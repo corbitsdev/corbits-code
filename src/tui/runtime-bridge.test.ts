@@ -120,7 +120,7 @@ async function clockedBridge(
   );
 }
 
-/** A tool-less turn settles on inference.done — the spawn_agent dispatch shape. */
+/** A tool-less turn settles on inference.done — the spawn_agent shape. */
 function settleToollessTurn(
   bridge: ReturnType<typeof attachSessionBridge>,
 ): void {
@@ -217,7 +217,7 @@ describe("attachSessionBridge", () => {
         await h.renderOnce();
         expect(port.calls.some((c) => c.op === "enqueue")).toBe(true);
         const enq = port.calls.find((c) => c.op === "enqueue");
-        // Plain Enter mid-run soft-steers (CL-6290). Follow-up is Alt+Enter.
+        // Plain Enter mid-run soft-steers. Follow-up is Alt+Enter.
         expect(enq).toEqual({
           op: "enqueue",
           text: "queued please",
@@ -445,9 +445,8 @@ describe("attachSessionBridge", () => {
   });
 
   test("queued item delivers on a tool-less turn (inference.done, no tool calls)", async () => {
-    // Regression for CL-5563: reactor.done only fires once, at agent
-    // shutdown, never between turns — a plain-text reply with no tool calls
-    // must still drain the queue, or a queued message sits forever.
+    // Regression: reactor.done fires only at agent shutdown, never between
+    // turns — a plain reply with no tool calls must still drain the queue.
     await withBridge({ run: "busy" }, async ({ shell, port, bridge }) => {
       bridge.submit("follow up", "queue");
       expect(badgeCount(shell.session)).toBe(1);
@@ -471,14 +470,10 @@ describe("attachSessionBridge", () => {
   });
 
   test("run and the phase ramp both return to idle after a tool-less inference.done, with no connector.reply", async () => {
-    // Regression: a self-continuing workflow cycle
-    // may never emit connector.reply, the only other event that clears
-    // `run` and the turn's `isProcessing`. Without this, every future Enter
-    // resolves to "queue" (busy is sticky) and, once the workflow stops
-    // producing cycles, that queued message is never drained — CL-5563's
-    // bug moved one layer over. The ramp indicator has the same failure
-    // mode: it reads `isProcessing`, not `run`, so it can say "working"
-    // forever even once dispatch itself is fixed.
+    // Regression: a self-continuing workflow may never emit connector.reply,
+    // the only other event that clears `run` and `isProcessing`; else busy
+    // sticks, the queued message never drains, and the ramp says "working"
+    // forever.
     await withBridge({ run: "busy" }, async ({ shell, port, bridge }) => {
       bridge.handle({ type: "inference.start" });
       bridge.handle({
@@ -554,8 +549,8 @@ describe("attachSessionBridge", () => {
         type: "inference.text.delta",
         data: { token: "the answer." },
       });
-      // Deltas coalesce: the accumulated text lands at the next renderer
-      // frame, not per token.
+      // Deltas coalesce: the accumulated text lands at the next frame, not
+      // per token.
       await h.renderOnce();
 
       const assistant = shell.streamLog.filter((r) => r.role === "assistant");
@@ -651,11 +646,9 @@ describe("failed sends", () => {
 });
 
 describe("committed inference retry", () => {
-  /**
-   * The reactor re-streams a committed attempt from a fresh inference.start
-   * after a same-source quota retry, so the transcript must retract the failed
-   * attempt rather than append the replay underneath it.
-   */
+  /** The reactor re-streams a committed attempt after a same-source quota
+   * retry, so the transcript must retract the failed attempt rather than
+   * append the replay underneath it. */
   const COMMITTED_RETRY_EVENTS = [
     { type: "inference.start", data: {} },
     { type: "inference.text.delta", data: { token: "partial answer" } },
@@ -759,7 +752,7 @@ describe("same-turn retry after inference.error", () => {
       expect(
         shell.streamLog.filter((r) => r.role === "user").map((r) => r.text),
       ).toEqual(["retry this"]);
-      // Same-turn retry, not an operator stop — recovery must not borrow interrupt.
+      // Same-turn retry, not an operator stop — must not borrow interrupt.
       expect(port.calls.some((c) => c.op === "interrupt")).toBe(false);
       expect(shell.streamLog.some((r) => r.meta === "stop")).toBe(false);
     });
@@ -884,9 +877,8 @@ describe("same-turn retry after inference.error", () => {
       // painting its transcript row after the armed attempt mark.
       bridge.handle({ type: "tool.boundary" });
       expect(port.calls.some((c) => c.op === "deliver")).toBe(true);
-      // Same-attempt failure: the retry rolls back to the attempt mark.
-      // The delivered row must survive — delivery already happened, so
-      // retracting it would show a transcript the runtime never saw.
+      // Same-attempt failure: the retry rolls back to the attempt mark. The
+      // delivered row must survive.
       bridge.handle({
         type: "inference.error",
         data: {
@@ -972,12 +964,10 @@ describe("same-turn retry after inference.error", () => {
 });
 
 describe("parallel sub-agent dispatch on the live session bridge", () => {
-  // The live main-session path tracks a call's row by callId in its own map
+  // The live main-session path tracks a call's row by callId
   // (applyToolCall/applyToolResult), independent of tool-rows.ts's name-based
-  // pendingCallIndex — this pins that down so a future change to either path
-  // cannot silently reintroduce CL-5562's misattribution on the parent
-  // transcript specifically (the observe overlay and resumed history are
-  // covered separately in tool-rows.test.ts / history-hydrate.test.ts).
+  // pendingCallIndex — pinned so neither path can silently reintroduce
+  // misattribution.
   test("three parallel spawn_agent calls resolve to three rows, each with its own result", async () => {
     await withBridge({ run: "idle" }, async ({ shell, bridge }) => {
       const events = [
@@ -1326,8 +1316,8 @@ describe("idle-with-fleet (CL-7057)", () => {
       bridge.submit("follow up later", "queue");
       port.clear();
       settleToollessTurn(bridge);
-      // The parent turn settled but the fleet is live: the run stays
-      // busy and the follow-up does not drain at mere parent-idle.
+      // The parent turn settled but the fleet is live: the run stays busy
+      // and the follow-up does not drain at mere parent-idle.
       expect(shell.session.run).toBe("busy");
       expect(shell.lockupPhase).not.toBeNull();
       expect(
@@ -1399,9 +1389,8 @@ describe("idle-with-fleet (CL-7057)", () => {
       bridge.handle({ type: "fleet", running: 1 });
       port.clear();
       settleToollessTurn(bridge);
-      // The parent the steer was addressing has stopped, so it delivers
-      // as its own turn right away instead of sitting out the hold — but
-      // the run itself stays held by the live fleet.
+      // The parent the steer was addressing has stopped, so it delivers as
+      // its own turn instead of sitting out the hold.
       expect(shell.session.run).toBe("busy");
       expect(badgeCount(shell.session)).toBe(0);
       const deliver = port.calls.find((c) => c.op === "deliver");
@@ -1419,8 +1408,8 @@ describe("idle-with-fleet (CL-7057)", () => {
     await withBridge({ run: "idle" }, async ({ shell, bridge }) => {
       bridge.submit("dispatch workers", "immediate");
       bridge.handle({ type: "fleet", running: 1 });
-      // The lone worker fails immediately while the parent is still
-      // streaming its reply: no release, no premature idle.
+      // The lone worker fails while the parent is still streaming its reply:
+      // no release, no premature idle.
       bridge.handle({ type: "fleet", running: 0 });
       expect(shell.session.run).toBe("busy");
       settleToollessTurn(bridge);
@@ -1697,8 +1686,8 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
       expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(
         userRowsAfterSubmit,
       );
-      // Fleet-dry continuations are internal runtime→agent traffic and
-      // paint no row; the abort must not have swallowed the inbound.
+      // Fleet-dry continuations are internal runtime→agent traffic, paint no
+      // row; the abort must not have swallowed the inbound.
       expect(
         shell.streamLog.filter(
           (r) => r.role === "system" && r.text === DRY_OPEN_TASK_PROMPT,
@@ -2050,8 +2039,8 @@ describe("in-flight tool row elapsed time", () => {
             },
           },
         });
-        // The elapsed clock was scaffolding for the wait, not a fact worth
-        // keeping — the answer's own addendum takes the row over.
+        // The elapsed clock was wait scaffolding, not a fact worth keeping —
+        // the answer's addendum takes the row over.
         expect(defined(shell.streamLog[index], "tool row").stat).not.toBe(
           "1:05",
         );
@@ -2322,7 +2311,7 @@ describe("task checklist calls stay out of the transcript", () => {
       });
 
       // The list lives in the task panel; scrollback must not carry a
-      // second copy of it.
+      // second copy.
       expect(streamRowCount(shell)).toBe(before);
     });
   });

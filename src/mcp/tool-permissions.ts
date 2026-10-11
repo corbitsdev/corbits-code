@@ -51,8 +51,8 @@ function hasAnnotationHints(
   );
 }
 
-// When the server supplies annotation hints, readOnlyHint drives allow vs ask.
-// Empty {} or title-only objects fall back to name-prefix heuristics (list_/get_/save_).
+// With annotation hints, readOnlyHint drives allow vs ask; empty {} or
+// title-only objects fall back to name-prefix heuristics (list_/get_/save_).
 export function tierFromMcpTool(
   annotations: McpToolAnnotations | undefined,
   serverName: string,

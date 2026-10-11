@@ -8,12 +8,10 @@ export function formatResumeHint(sessionId: string): string {
   return `Run ${COMMAND_NAME} resume ${sessionId}`;
 }
 
-// Exactly-once per process. The normal quit tail (finalizeTUIRun) and the
-// external-signal handler (installSignalHandlers) both funnel through
-// printResumeHint, and a signal arriving mid-finalize would otherwise print
-// the line twice: the process-level `terminating` guard covers
-// signal-vs-signal only, never signal-vs-finalize. The flag lives here —
-// the single choke point — so every current and future caller shares it.
+// Exactly-once per process. finalizeTUIRun and installSignalHandlers both
+// funnel through printResumeHint, and a signal mid-finalize would otherwise
+// print twice: the process-level `terminating` guard covers signal-vs-signal
+// only, never signal-vs-finalize. The flag lives at the single choke point.
 let printed = false;
 
 export function resetResumeHintForTests(): void {

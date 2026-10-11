@@ -25,7 +25,7 @@ import { discoverSessionPlugins } from "../session/runtime-assembly.js";
 // The TUI holds the alternate screen for the whole interactive session, so any
 // of the real plugin-loading paths runner.ts drives at startup / enable /
 // verify / add-path / tool-resolve time must never write to raw stderr — a
-// bare write lands mid-frame and corrupts the rendered transcript (CL-5411).
+// bare write lands mid-frame and corrupts the rendered transcript.
 // This instruments process.stderr.write around each real code path runner.ts
 // calls (not a source grep for one function name), so it catches the bug
 // class regardless of which function or file the write comes from.

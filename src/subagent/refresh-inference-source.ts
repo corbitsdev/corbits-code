@@ -26,13 +26,12 @@ export interface ContinuationRefreshOptions {
   catalog: readonly ProviderCatalogEntry[] | undefined;
 }
 
-// Concurrent continuation ensures share one in-flight refresh per credential
-// so a burst of post-tool infer decisions issues a single token grant.
+// Share one in-flight refresh per credential so a burst of infer
+// decisions issues one grant.
 const inFlightRefreshes = new Map<string, Promise<InferenceSource>>();
 
-// Directors already wrapped by withContinuationOAuthRefresh, mapped back to
-// their proxy. The run.ts factory applies the wrapper once, but the cache
-// keeps a second application a no-op instead of stacking duplicate refreshes.
+// Wrapped directors, mapped back to their proxy, so a second application is a
+// no-op instead of stacking duplicate refreshes.
 const wrappedDirectors = new WeakMap<object, ReactorDirector>();
 
 async function stagedOAuthTokensFresh(
@@ -51,8 +50,8 @@ async function stagedOAuthTokensFresh(
       return false;
     return tokens.access === secret;
   } catch {
-    // An unreadable credential store says nothing about expiry. Fall through
-    // to the unconditional refresh path, which surfaces the real auth error.
+    // An unreadable store says nothing about expiry; fall through to the
+    // refresh path, which surfaces the real auth error.
     return false;
   }
 }
@@ -70,10 +69,9 @@ async function ensureFreshOAuthSource(
 }
 
 /**
- * Ensures the inference source's OAuth credential is valid before a
- * continuation infer runs. Fresh staged tokens return the source untouched —
- * no token-session call, no lock, no latency. Expiring, missing, or
- * unreadable staged tokens fall through to the unconditional refresh path.
+ * Ensure the source's OAuth credential is valid before a continuation infer.
+ * Fresh staged tokens return the source untouched; expired, missing, or
+ * unreadable tokens fall through to the unconditional refresh path.
  */
 export async function ensureFreshInferenceSource(
   source: InferenceSource,
@@ -94,11 +92,8 @@ export async function ensureFreshInferenceSource(
   }
 }
 
-/**
- * Refreshes every inference source in the bundle whose OAuth credential is
- * expiring. Sources with fresh staged tokens (or no OAuth provenance) pass
- * through untouched.
- */
+/** Refresh every bundle source whose OAuth credential is expiring; fresh
+ * or non-OAuth sources pass through. */
 export async function refreshInferenceSourceBundle(
   sources: readonly InferenceSource[],
   defaultSource: string,
@@ -118,15 +113,12 @@ function returnsInferAction(
 }
 
 /**
- * Host-layer wrapper: after the inner director returns an infer action, the
- * OAuth credential backing the continuation is ensured fresh and pushed to
- * the live agent before the reactor executes the infer. Non-infer decisions
- * pass through untouched, directors stay pure, and the inner policy stamping
- * runs exactly once.
+ * Host-layer wrapper: when the inner director returns an infer action, ensure
+ * the continuation's OAuth credential is fresh and push it to the live agent
+ * before the reactor executes. Non-infer decisions pass through untouched.
  *
  * Implemented as a Proxy so the factory keeps returning the director it
- * built: instanceof checks, observe* hooks, and every other member forward
- * to the inner director; only decide() is intercepted.
+ * built; only decide() is intercepted.
  */
 export function withContinuationOAuthRefresh<TDirector extends ReactorDirector>(
   inner: TDirector,

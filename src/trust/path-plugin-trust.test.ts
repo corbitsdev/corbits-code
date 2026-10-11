@@ -26,9 +26,8 @@ import {
   trustPlugin,
 } from "./project-trust.js";
 
-// `onSkip` is required on `expandPluginPath` — no default sink to fall back
-// to. These fixtures expect every declared member to resolve, so a skip here
-// is a test-fixture bug; fail loudly instead of silently passing it through.
+// `onSkip` is required on `expandPluginPath` (no default sink); every fixture
+// member here must resolve, so a skip is a fixture bug — fail loudly.
 function failOnSkip(skip: ExpandPluginPathSkip): never {
   throw new Error(`unexpected marketplace skip: ${JSON.stringify(skip)}`);
 }
@@ -193,7 +192,7 @@ describe("path plugin trust across working directories", () => {
       const projectTrust = await loadProjectTrust(cwd, home);
 
       // Same discovery order as the runners: project scan first, explicit
-      // paths last. The path store has no grant for this plugin.
+      // paths last; the path store has no grant here.
       const fromPaths = await loadPluginsFromPaths([pluginDir], cwd, {
         isPluginTrusted: () => false,
       });
@@ -309,11 +308,10 @@ describe("path plugin trust across working directories", () => {
   });
 });
 
-// The /plugins add-by-path ordering probe (CL-8991): `trustPathPlugins` is
-// mocked once for this file so each `addPath` below can observe whether any
-// plugin code ran before the grant resolved. The wrapper delegates to the
-// real store with an explicit home, so behavior — including the existing
-// tests above, which always pass their own home — is unchanged.
+// The /plugins add-by-path ordering probe: `trustPathPlugins` is mocked once
+// for this file so each `addPath` below observes whether any plugin code ran
+// before the grant resolved. The wrapper delegates to the real store with an
+// explicit home, so behavior is unchanged.
 const addPathProbe = {
   home: "",
   marker: "",
@@ -339,9 +337,8 @@ await withMockedModule(
       );
       return real.trustPathPlugins(paths, home ?? addPathProbe.home);
     },
-    // revokeTrust in the backend calls without a home (production default).
-    // Redirect here too so an add→revoke round trip in this file reads back
-    // the same store the grant went to.
+    // Backend revokeTrust calls without a home (production default); redirect
+    // too so an add→revoke round trip reads back the same store.
     revokePathPlugin: async (path: string, home?: string) => {
       return real.revokePathPlugin(path, home ?? addPathProbe.home);
     },
@@ -510,8 +507,8 @@ describe("addPath grants path trust before importing plugin code", () => {
       const admin = await makeAddPathAdmin(base);
       const result = await admin.addPath("broken-plugin");
       // Explicit add-by-path is consent: the grant is recorded before the
-      // import runs, so a failed import keeps the grant. Only bogus
-      // (unresolvable) paths return before the grant.
+      // import runs, so a failed import keeps it. Only unresolvable paths
+      // return before the grant.
       expect(result).toEqual({
         ok: false,
         message: "Could not load a plugin at broken-plugin",
@@ -543,8 +540,8 @@ describe("addPath grants path trust before importing plugin code", () => {
         message: "Added file-plugin",
         id: "file-plugin",
       });
-      // The grant is the normalized dir — the identity loadPluginEntry stamps
-      // and revokeTrust removes — never the raw file path.
+      // The grant is the normalized dir (the identity revokeTrust removes),
+      // never the raw file path.
       expect(addPathProbe.trustCalls).toEqual([[pluginDir]]);
       expect((await loadPathTrust(home)).trustedPluginPaths).toEqual([
         pluginDir,
@@ -555,8 +552,8 @@ describe("addPath grants path trust before importing plugin code", () => {
       expect(revoked.ok).toBe(true);
       expect((await loadPathTrust(home)).trustedPluginPaths).toEqual([]);
 
-      // Next boot resolves the persisted entry against the emptied store: the
-      // module stays metadata-only and its code never re-executes.
+      // Next boot against the emptied store: the module stays metadata-only,
+      // its code never re-runs.
       await rm(marker, { force: true });
       const store = await loadPathTrust(home);
       const mods = await loadPluginsFromPaths([pluginDir], base, {
@@ -594,8 +591,8 @@ describe("addPath grants path trust before importing plugin code", () => {
 
       const admin = await makeAddPathAdmin(base);
       const result = await admin.addPath("hybrid");
-      // Only the expanded member set is granted, and the result names it so
-      // the operator sees the sibling consent covers.
+      // Only the expanded member set is granted; the result names it so the
+      // operator sees what consent covers.
       expect(addPathProbe.trustCalls).toEqual([[sibling]]);
       expect((await loadPathTrust(home)).trustedPluginPaths).toEqual([sibling]);
       expect(result).toEqual({
