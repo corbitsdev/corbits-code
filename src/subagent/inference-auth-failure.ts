@@ -1,13 +1,15 @@
 import { CodexAuthError } from "../auth/codex/session.js";
+import { MetaAuthError } from "../auth/meta/session.js";
 import { XaiAuthError } from "../auth/xai/session.js";
 import { errorMessage } from "../agent/error-message.js";
 
-export type SubAgentAuthFailureKind = "codex" | "xai";
+export type SubAgentAuthFailureKind = "codex" | "xai" | "meta";
 
 export function classifySubAgentInferenceAuthFailure(
   err: unknown,
 ): SubAgentAuthFailureKind | null {
   if (err instanceof CodexAuthError) return "codex";
+  if (err instanceof MetaAuthError) return "meta";
   if (err instanceof XaiAuthError) return "xai";
   return null;
 }
@@ -20,12 +22,15 @@ export function formatSubAgentSpawnAuthFailureMessage(
   const kind = classifySubAgentInferenceAuthFailure(err);
   if (kind === null) return null;
   const profile =
-    err instanceof CodexAuthError || err instanceof XaiAuthError
+    err instanceof CodexAuthError ||
+    err instanceof MetaAuthError ||
+    err instanceof XaiAuthError
       ? err.profile
       : "default";
   const detail = errorMessage(err);
   const detailSentence = detail.endsWith(".") ? detail : `${detail}.`;
-  const providerLabel = kind === "codex" ? "Codex" : "xAI";
+  const providerLabel =
+    kind === "codex" ? "Codex" : kind === "meta" ? "Meta" : "xAI";
   // No "Error:" prefix — SessionStore.fail and tool-result surfaces add their own.
   return (
     `sub-agent "${description}" could not run inference (${providerLabel} profile "${profile}"). ` +

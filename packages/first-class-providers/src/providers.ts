@@ -13,6 +13,7 @@ import {
   ZEN_MODEL_IDS,
   ZEN_PROVIDER_ID,
 } from "../../zen/src/index.js";
+import { META_BASE_URL, META_DEFAULT_MODELS } from "@corbits/meta-provider";
 import type { FirstClassProviderDef } from "./types.js";
 
 const OPENAI_API_MODELS = [
@@ -87,6 +88,30 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
     label: "xAI Grok",
     auth: "oauth",
     oauth: "xai",
+  },
+  {
+    id: "meta",
+    label: "Meta",
+    auth: "chooser",
+    paths: [
+      {
+        id: "signin",
+        label: "Sign In",
+        auth: "oauth",
+        oauth: "meta",
+        providerId: "meta",
+      },
+      {
+        id: "api",
+        label: "Meta API — API key",
+        auth: "api-key",
+        baseURL: META_BASE_URL,
+        models: META_DEFAULT_MODELS,
+        defaultModel: "muse-spark-1.3",
+        authHint: "Paste your Meta API key (LLM|...)",
+        providerId: "meta",
+      },
+    ],
   },
   {
     id: OPENCODE_GO_PROVIDER_ID,

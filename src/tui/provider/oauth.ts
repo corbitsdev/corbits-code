@@ -9,6 +9,8 @@ import {
   OAUTH_SURFACES,
   resolveApiKeyInstanceName,
 } from "./choices.js";
+import { writeClipboard } from "../copy-path.js";
+import { RUNTIME_FLASH_MS } from "../runtime-notices.js";
 import { OAUTH_PROFILE_HINT } from "./form.js";
 import { RAMP_TICK_MS, stopRamp } from "./surface.js";
 import type {
@@ -87,6 +89,10 @@ export const defaultProfileLister = async (
     const { listCodexProfiles } = await import("../../config/oauth-stores.js");
     return (await listCodexProfiles()).map((p) => p.name);
   }
+  if (kind === "meta") {
+    const { listMetaProfiles } = await import("../../config/oauth-stores.js");
+    return (await listMetaProfiles()).map((p) => p.name);
+  }
   const { listXaiProfiles } = await import("../../config/oauth-stores.js");
   return (await listXaiProfiles()).map((p) => p.name);
 };
@@ -121,15 +127,29 @@ export const defaultLoginStarter = async ({
   kind,
   profile,
   signal,
+  notify,
 }: {
   readonly kind: OAuthKind;
   readonly profile: string;
   readonly signal: AbortSignal;
+  readonly notify?: (event: {
+    readonly type: "device_code";
+    readonly verificationUri: string;
+    readonly userCode: string;
+  }) => void;
 }) => {
   const { productCallbackCopy } = await import("../../branding.js");
   if (kind === "codex") {
     const { startCodexLogin } = await import("../../auth/codex/login.js");
     return startCodexLogin({ profile, signal, copy: productCallbackCopy });
+  }
+  if (kind === "meta") {
+    const { startMetaLogin } = await import("../../auth/meta/login.js");
+    return startMetaLogin({
+      profile,
+      signal,
+      ...(notify !== undefined ? { notify } : {}),
+    });
   }
   const { startXaiLogin } = await import("../../auth/xai/login.js");
   return startXaiLogin({ profile, signal, copy: productCallbackCopy });
@@ -163,6 +183,7 @@ export function createLoginFlow(
     state.loginAbort = null;
     state.loginHandle?.cancel();
     state.loginHandle = null;
+    state.deviceCode = null;
   };
 
   /** Denial, transport failure, or the deadline — all land the operator here. */
@@ -173,6 +194,7 @@ export function createLoginFlow(
     state.loginStatus = "failed";
     state.loginError = message;
     state.loginURL = null;
+    state.deviceCode = null;
     surface.paint();
   };
 
@@ -210,6 +232,7 @@ export function createLoginFlow(
     state.loginStatus = "pending";
     state.loginError = null;
     state.loginCancelled = false;
+    state.deviceCode = null;
     const abort = new AbortController();
     state.loginAbort = abort;
     // A browser round-trip that never comes back must still give the screen
@@ -226,6 +249,33 @@ export function createLoginFlow(
         kind,
         profile: state.values.oauthProfile,
         signal: abort.signal,
+        notify: (event) => {
+          if (event.type !== "device_code") return;
+          if (attempt !== state.loginAttempt) return;
+          state.deviceCode = {
+            verificationUri: event.verificationUri,
+            userCode: event.userCode,
+          };
+          // The URL is already on the clipboard when the device-code box
+          // paints "open the url, enter the code" — the operator only has to
+          // paste. A failed write flashes so it is never silently missing.
+          const flash = (message: string): void => {
+            state.statusFlash = message;
+            if (state.statusFlashTimer !== null)
+              clearTimeout(state.statusFlashTimer);
+            state.statusFlashTimer = setTimeout(() => {
+              if (state.statusFlash === message) state.statusFlash = null;
+              state.statusFlashTimer = null;
+              surface.paintStatus();
+            }, RUNTIME_FLASH_MS);
+            surface.paintStatus();
+          };
+          writeClipboard(state.clipboard, event.verificationUri, {
+            onSuccess: () => flash("verification link copied to clipboard"),
+            onFailure: () => flash("copy failed — copy the url above"),
+          });
+          surface.paint();
+        },
       })
       .then(
         (handle) => {
@@ -263,6 +313,7 @@ export function createLoginFlow(
     state.loginURL = null;
     state.loginError = null;
     state.loginResult = null;
+    state.deviceCode = null;
     hooks.back();
     state.loginCancelled = wasPending;
     surface.paint();

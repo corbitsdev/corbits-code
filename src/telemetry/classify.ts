@@ -148,7 +148,7 @@ export function classifyErrorClass(error: unknown): string {
 // success path classifies structured setup data (OAuth kind, or the picked
 // preset's protocol flag) — never the settings catalog name (operator-
 // authored free text), which always buckets to "other".
-export type AuthProvider = "codex" | "xai" | "anthropic" | "other";
+export type AuthProvider = "codex" | "xai" | "meta" | "anthropic" | "other";
 
 export function classifyAuthProvider(value: string): AuthProvider {
   switch (value) {
@@ -156,6 +156,8 @@ export function classifyAuthProvider(value: string): AuthProvider {
       return "codex";
     case "xai":
       return "xai";
+    case "meta":
+      return "meta";
     case "anthropic":
       return "anthropic";
     default:

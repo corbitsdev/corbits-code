@@ -23,8 +23,11 @@ import { XAI_BASE_URL, XAI_TOKEN_TIMEOUT_MS } from "./xai/constants.js";
 import { refreshStagedXaiTokens } from "./xai/session.js";
 import type { XaiTokens } from "./xai/store.js";
 import { xaiAuthHeadersForToken } from "./xai/auth-headers.js";
+import { META_BASE_URL } from "./meta/constants.js";
+import { refreshStagedMetaTokens } from "./meta/session.js";
+import type { MetaOAuthTokens } from "./meta/store.js";
 
-export type OAuthScopeCheckKind = "codex" | "xai";
+export type OAuthScopeCheckKind = "codex" | "xai" | "meta";
 
 export type OAuthScopeCheckResult =
   | { status: "ok" }
@@ -142,15 +145,34 @@ async function checkXaiScope(
   }
 }
 
+async function checkMetaScope(
+  tokens: MetaOAuthTokens,
+): Promise<OAuthScopeCheckResult> {
+  const providerLabel = "Meta";
+  try {
+    const refreshed = await refreshStagedMetaTokens(tokens);
+    const res = await fetch(`${META_BASE_URL}/models`, {
+      headers: { authorization: `Bearer ${refreshed.access}` },
+      signal: AbortSignal.timeout(SCOPE_CHECK_TIMEOUT_MS),
+    });
+    if (res.ok) return { status: "ok" };
+    return classifyStatus(res.status, providerLabel);
+  } catch (err) {
+    if (isDefinitiveRefreshAuthRejection(err))
+      return invalidCredentials(providerLabel);
+    return unavailable(providerLabel);
+  }
+}
+
 // Probe an OAuth-issued token against the provider's own catalog/list
 // endpoint to prove it carries real API scope, rather than trusting the
 // login result alone.
 export async function checkOAuthProviderScope(
   kind: OAuthScopeCheckKind,
-  tokens: CodexTokens | XaiTokens,
+  tokens: CodexTokens | XaiTokens | MetaOAuthTokens,
   commandName: string,
 ): Promise<OAuthScopeCheckResult> {
-  return kind === "codex"
-    ? checkCodexScope(tokens, commandName)
-    : checkXaiScope(tokens);
+  if (kind === "codex") return checkCodexScope(tokens, commandName);
+  if (kind === "meta") return checkMetaScope(tokens);
+  return checkXaiScope(tokens);
 }

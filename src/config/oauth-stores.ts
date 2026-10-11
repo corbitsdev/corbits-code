@@ -1,9 +1,11 @@
 import { SETTINGS_DIR_NAME } from "../branding.js";
 import { createCodexAuthStore } from "../auth/codex/store.js";
 import { createXaiAuthStore } from "../auth/xai/store.js";
+import { createMetaAuthStore } from "../auth/meta/store.js";
 
 const xaiAuthStore = createXaiAuthStore(SETTINGS_DIR_NAME);
 const codexAuthStore = createCodexAuthStore(SETTINGS_DIR_NAME);
+const metaAuthStore = createMetaAuthStore(SETTINGS_DIR_NAME);
 
 export const xaiAuthPath = xaiAuthStore.authPath;
 export const listXaiProfiles = xaiAuthStore.listProfiles;
@@ -18,3 +20,10 @@ export const loadCodexProfile = codexAuthStore.loadProfile;
 export const saveCodexProfile = codexAuthStore.saveProfile;
 export const updateCodexTokens = codexAuthStore.updateTokens;
 export const removeCodexProfile = codexAuthStore.removeProfile;
+
+export const metaAuthPath = metaAuthStore.authPath;
+export const listMetaProfiles = metaAuthStore.listProfiles;
+export const loadMetaProfile = metaAuthStore.loadProfile;
+export const saveMetaProfile = metaAuthStore.saveProfile;
+export const updateMetaTokens = metaAuthStore.updateTokens;
+export const removeMetaProfile = metaAuthStore.removeProfile;

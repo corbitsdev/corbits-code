@@ -14,7 +14,12 @@ import {
   CODEX_DEFAULT_MODELS,
 } from "../../auth/codex/constants.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../../auth/xai/constants.js";
+import {
+  META_BASE_URL,
+  META_DEFAULT_MODELS,
+} from "../../auth/meta/constants.js";
 import { codexProviderName } from "../../config/codex-providers.js";
+import { metaProviderName } from "../../config/meta-providers.js";
 import { xaiProviderName } from "../../config/xai-providers.js";
 import {
   selectableGoModelIds,
@@ -100,18 +105,26 @@ export const OAUTH_SURFACES: Record<
     hint: "SuperGrok or X Premium+ subscription",
     providerName: xaiProviderName,
   },
+  meta: {
+    baseURL: META_BASE_URL,
+    models: META_DEFAULT_MODELS,
+    hint: "Meta subscription (device flow — open the URL and enter the code)",
+    providerName: metaProviderName,
+  },
 };
 
 function oauthChoice(
   id: string,
   label: string,
   kind: OAuthKind,
+  rowId = id,
 ): ProviderChoice | null {
   const surface = OAUTH_SURFACES[kind];
   const defaultModel = surface.models[0];
   if (defaultModel === undefined) return null;
   return {
     id,
+    rowId,
     label,
     baseURL: surface.baseURL,
     models: surface.models,
@@ -126,6 +139,7 @@ function oauthChoice(
 
 const CUSTOM_CHOICE: ProviderChoice = {
   id: CUSTOM_CHOICE_ID,
+  rowId: CUSTOM_CHOICE_ID,
   label: "Custom — any OpenAI-compatible endpoint",
   baseURL: "",
   models: [],
@@ -150,6 +164,7 @@ function choiceFromDef(def: FirstClassProviderDef): ProviderChoice | null {
   if (defaultModel === undefined) return null;
   return {
     id: def.id,
+    rowId: def.id,
     label: def.label,
     baseURL: def.baseURL,
     models,
@@ -169,6 +184,7 @@ function choiceFromDef(def: FirstClassProviderDef): ProviderChoice | null {
  */
 export function providerChoices(): readonly ProviderChoice[] {
   const out: ProviderChoice[] = [];
+  const pushedRowIds = new Set<string>();
   for (const def of FIRST_CLASS_PROVIDERS) {
     if (def.auth === "chooser") {
       for (const path of def.paths ?? []) {
@@ -180,31 +196,50 @@ export function providerChoices(): readonly ProviderChoice[] {
             `${def.label} ${path.label}`,
             path.oauth,
           );
-          if (choice !== null) out.push(choice);
+          if (choice !== null && !pushedRowIds.has(choice.rowId)) {
+            pushedRowIds.add(choice.rowId);
+            out.push(choice);
+          }
           continue;
         }
         if (path.auth !== "api-key") continue;
         const seeded = firstClassPathAsProvider(def, path.id);
         if (seeded === undefined) continue;
         const choice = choiceFromDef(seeded);
-        if (choice !== null) out.push(choice);
+        if (choice !== null) {
+          // A chooser whose paths resolve to the same catalog kind (Meta Sign
+          // In vs Meta API key, both `meta`) would otherwise put two rows
+          // under one id — the second row becomes unreachable with arrows.
+          // Give it a distinct pick-list row id while keeping the catalog id.
+          const rowId = pushedRowIds.has(choice.rowId)
+            ? `${def.id}/${path.id}`
+            : choice.rowId;
+          pushedRowIds.add(rowId);
+          out.push({ ...choice, rowId });
+        }
       }
       continue;
     }
     if (def.auth === "oauth" && def.oauth !== undefined) {
       const choice = oauthChoice(def.id, def.label, def.oauth);
-      if (choice !== null) out.push(choice);
+      if (choice !== null && !pushedRowIds.has(choice.rowId)) {
+        pushedRowIds.add(choice.rowId);
+        out.push(choice);
+      }
       continue;
     }
     const choice = choiceFromDef(def);
-    if (choice !== null) out.push(choice);
+    if (choice !== null && !pushedRowIds.has(choice.rowId)) {
+      pushedRowIds.add(choice.rowId);
+      out.push(choice);
+    }
   }
   out.push(CUSTOM_CHOICE);
   return out;
 }
 
 export function providerChoiceById(id: string): ProviderChoice | undefined {
-  return providerChoices().find((c) => c.id === id);
+  return providerChoices().find((c) => c.rowId === id);
 }
 
 /**
@@ -282,7 +317,9 @@ export function addProviderSelectorChoices(
     const connected =
       choice.oauth !== null && !choice.custom && accountCount > 0;
     return {
-      id: choice.id,
+      // The pick-list row id so two chooser rows sharing a catalog kind stay
+      // distinct in the Alt+A selector too.
+      id: choice.rowId,
       label: connected
         ? `${choice.label.split(" — ")[0]} · ${accountCount} connected`
         : choice.label,
@@ -297,7 +334,7 @@ export function providerChoiceRows(
   choices: readonly ProviderChoice[] = providerChoices(),
 ): readonly ResidualCatalogEntry[] {
   return choices.map((c) => ({
-    id: c.id,
+    id: c.rowId,
     label: c.hint.length > 0 ? `${c.label} — ${c.hint}` : c.label,
   }));
 }
@@ -416,7 +453,7 @@ export function enterProviderRows(
   state.listRows = providerChoiceRows(state.choices);
   const active = Math.max(
     0,
-    state.listRows.findIndex((row) => row.id === state.choice?.id),
+    state.listRows.findIndex((row) => row.id === state.choice?.rowId),
   );
   state.list = createOverlayList(renderer, {
     count: state.listRows.length,

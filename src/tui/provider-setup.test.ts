@@ -98,6 +98,8 @@ function stagedLoginStarter(
   opts: {
     onStart?: (input: StagedLoginInput) => void;
     deniedStarts?: number;
+    /** Emit a device_code event via `notify` on the first start (Meta flow). */
+    emitDeviceCode?: boolean;
   } = {},
 ): {
   start: OAuthLoginStarter;
@@ -124,6 +126,13 @@ function stagedLoginStarter(
     start: async (input) => {
       events.starts.push(input);
       opts.onStart?.(input);
+      if (opts.emitDeviceCode === true && events.starts.length === 1) {
+        input.notify?.({
+          type: "device_code",
+          verificationUri: "https://auth.meta.com/device?code=ABCD-1234",
+          userCode: "ABCD-1234",
+        });
+      }
       input.signal.addEventListener("abort", () => {
         events.aborted = true;
       });
@@ -349,7 +358,9 @@ describe("provider setup pure helpers", () => {
       { name: "codex/default" },
     ]);
     expect(rows.map((r) => r.id)).toContain(CUSTOM_CHOICE_ID);
-    expect(rows.map((r) => r.id)).toEqual(choices.map((c) => c.id));
+    // Alt+A rows are keyed by the pick-list row id (two Meta rows stay
+    // distinct), which mirrors the onboarding list.
+    expect(rows.map((r) => r.id)).toEqual(choices.map((c) => c.rowId));
     const openai = rows.find((r) => r.id === "openai");
     const codex = rows.find((r) => r.id === "codex");
     const custom = rows.find((r) => r.id === CUSTOM_CHOICE_ID);
@@ -485,6 +496,21 @@ async function mountConfig(
   return { done, harness };
 }
 
+/** Recording clipboard port for the Meta device-flow copy test. */
+function recordingClipboard(): {
+  clipboard: { writeText: (t: string) => void; writes: string[] };
+} {
+  const writes: string[] = [];
+  return {
+    clipboard: {
+      writes,
+      writeText: (text: string) => {
+        writes.push(text);
+      },
+    },
+  };
+}
+
 async function mountSetup(
   onSubmit: ProviderSetupSubmit = async () => undefined,
   showTelemetryNotice = false,
@@ -597,6 +623,7 @@ async function mountLogin(opts: {
   onSubmit?: ProviderSetupSubmit;
   loginTimeoutMs?: number;
   listOAuthProfiles?: OAuthProfileLister;
+  clipboard?: ProviderSetupConfig["clipboard"];
 }): Promise<{ done: Promise<boolean>; harness: Harness }> {
   return mountConfig({
     onSubmit: opts.onSubmit ?? (async () => undefined),
@@ -605,6 +632,7 @@ async function mountLogin(opts: {
     ...(opts.loginTimeoutMs !== undefined
       ? { loginTimeoutMs: opts.loginTimeoutMs }
       : {}),
+    ...(opts.clipboard !== undefined ? { clipboard: opts.clipboard } : {}),
   });
 }
 
@@ -1188,6 +1216,60 @@ describe("runProviderSetup sign-in", () => {
     expect(harness.captureCharFrame()).toContain("step 2 of 4");
     harness.pressKey("Ctrl+C");
     expect(await done).toBe(false);
+  });
+
+  test("the Meta device flow copies the verification URI to the clipboard", async () => {
+    const rec = recordingClipboard();
+    const { start } = stagedLoginStarter({ emitDeviceCode: true });
+    const { done, harness } = await mountLogin({
+      start,
+      clipboard: rec.clipboard,
+    });
+    await pickRow(harness, PROVIDER_IDS, "meta");
+    await nameOAuthAccount(harness);
+    const frame = harness.captureCharFrame();
+    expect(frame).toContain("https://auth.meta.com/device?code=ABCD-1234");
+    expect(frame).toContain("ABCD-1234");
+    expect(rec.clipboard.writes).toEqual([
+      "https://auth.meta.com/device?code=ABCD-1234",
+    ]);
+    harness.pressKey("Ctrl+C");
+    expect(await done).toBe(false);
+  });
+
+  test("the Meta chooser exposes two arrow-navigable rows with distinct ids", () => {
+    const metaRows = providerChoiceRows(providerChoices()).filter((r) =>
+      r.label.includes("Meta"),
+    );
+    expect(metaRows.map((r) => r.id)).toEqual(["meta", "meta/api"]);
+    expect(providerChoiceById("meta")?.oauth).toBe("meta");
+    expect(providerChoiceById("meta/api")?.oauth).toBeNull();
+    expect(providerChoiceById("meta/api")?.baseURL).toBe(
+      "https://api.meta.ai/v1",
+    );
+    expect(providerChoiceById("meta/api")?.defaultModel).toBe("muse-spark-1.3");
+  });
+
+  test("picking the Meta API-key row walks the key path, not the sign-in", async () => {
+    const seen: ProviderFormValues[] = [];
+    const { done, harness } = await mountSetup(async (values) => {
+      seen.push({ ...values });
+    });
+    await pickRow(harness, PROVIDER_IDS, "meta/api");
+    await flush(harness);
+    expect(harness.captureCharFrame()).toContain("step 2 of 4");
+    // Instance name step, then key — not the login step.
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    type(harness, "LLM|test-key");
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    expect(await done).toBe(true);
+    expect(seen[0]?.name).toBe("meta/default");
+    expect(seen[0]?.apiKey).toBe("LLM|test-key");
+    expect(seen[0]?.model).toBe("muse-spark-1.3");
   });
 });
 

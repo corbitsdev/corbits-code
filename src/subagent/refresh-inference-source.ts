@@ -5,10 +5,15 @@ import type {
 } from "@intx/types/runtime";
 
 import { isCodexTokenExpired } from "../auth/codex/session.js";
+import { isMetaTokenExpired } from "../auth/meta/session.js";
 import { isXaiTokenExpired } from "../auth/xai/session.js";
 import type { OAuthCredentialProvenance } from "../auth/refresh-source-credential.js";
 import { refreshSourceCredentialFromRecord } from "../auth/refresh-source-credential.js";
-import { loadCodexProfile, loadXaiProfile } from "../config/oauth-stores.js";
+import {
+  loadCodexProfile,
+  loadMetaProfile,
+  loadXaiProfile,
+} from "../config/oauth-stores.js";
 import {
   findSourceCredentialRecord,
   type SourceCredentialRecord,
@@ -42,6 +47,12 @@ async function stagedOAuthTokensFresh(
     if (provenance.provider === "codex") {
       const tokens = (await loadCodexProfile(provenance.profile))?.tokens;
       if (tokens === undefined || isCodexTokenExpired(tokens, Date.now()))
+        return false;
+      return tokens.access === secret;
+    }
+    if (provenance.provider === "meta") {
+      const tokens = (await loadMetaProfile(provenance.profile))?.tokens;
+      if (tokens === undefined || isMetaTokenExpired(tokens, Date.now()))
         return false;
       return tokens.access === secret;
     }

@@ -9,6 +9,7 @@ import {
   credentialFileDescriptors,
 } from "./credential-surface.js";
 import { MCP_AUTH_DIRNAME } from "../mcp/auth-store.js";
+import { META_AUTH_FILENAME } from "./meta/store.js";
 import { XAI_AUTH_FILENAME } from "./xai/store.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -18,6 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 // scan excludes, so fixture names can never become denylist patterns.
 const STORE_FILES = [
   join(here, "codex", "store.ts"),
+  join(here, "meta", "store.ts"),
   join(here, "xai", "store.ts"),
   join(here, "..", "mcp", "auth-store.ts"),
 ];
@@ -62,7 +64,7 @@ describe("CL-7789 credential-surface coverage", () => {
       }
     }
     expect([...seen].sort()).toEqual(
-      [CODEX_AUTH_FILENAME, XAI_AUTH_FILENAME].sort(),
+      [CODEX_AUTH_FILENAME, META_AUTH_FILENAME, XAI_AUTH_FILENAME].sort(),
     );
   });
 

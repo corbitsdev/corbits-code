@@ -4,6 +4,8 @@ import {
   buildBifrostSource,
   buildCodexSource,
   buildGoSource,
+  buildMetaApiKeySource,
+  buildMetaSource,
   buildZenSource,
   buildAnthropicSource,
   buildOpenAISource,
@@ -21,6 +23,7 @@ import {
 } from "../provider/reasoning-effort.js";
 import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 import { isZenProvider } from "../../packages/zen/src/index.js";
+import { isMetaProviderName } from "./meta-providers.js";
 import { customReasoningSettings } from "./providers.js";
 
 export interface BuildSourceContext {
@@ -113,6 +116,37 @@ export function buildInferenceSourceForRef(
       id: ref.provider,
       profile: entry.xaiProfile,
       apiKey: entry.apiKey ?? "",
+      model: ref.model,
+      sessionId: ctx.sessionId,
+      ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+    });
+  }
+  if (entry?.metaProfile !== undefined) {
+    return buildMetaSource({
+      id: ref.provider,
+      profile: entry.metaProfile,
+      apiKey: entry.apiKey ?? "",
+      model: ref.model,
+      sessionId: ctx.sessionId,
+      ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+    });
+  }
+  // Meta Model API key rows (the Meta chooser's "API key" path, a hand-named
+  // meta/<slug>, or a bare `meta` row) also speak the Responses protocol at
+  // META_BASE_URL — never the openai-compatible /chat/completions fallback
+  // below. They have no metaProfile marker, so route them to the same
+  // meta-responses adapter as the OAuth profiles.
+  if (
+    ref.provider === "meta" ||
+    (entry?.metaProfile === undefined && isMetaProviderName(ref.provider))
+  ) {
+    return buildMetaApiKeySource({
+      id: ref.provider,
+      ...(entry?.apiKey !== undefined
+        ? { apiKey: entry.apiKey }
+        : providerSettings?.apiKey !== undefined
+          ? { apiKey: providerSettings.apiKey }
+          : {}),
       model: ref.model,
       sessionId: ctx.sessionId,
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),

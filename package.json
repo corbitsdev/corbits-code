@@ -76,7 +76,7 @@
   },
   "catalog": {
     "@types/semver": "^7.7.1",
-    "arktype": "^2.2.3",
+    "arktype": "2.2.3",
     "better-auth": "^1.4.18",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.11.9",
@@ -87,6 +87,7 @@
   },
   "dependencies": {
     "@corbits/codex-provider": "0.1.1",
+    "@corbits/meta-provider": "github:corbitsdev/corbits-meta-provider#8c153bf",
     "@corbits/oauth-core": "0.2.0",
     "@corbits/openai-responses": "0.2.1",
     "@corbits/xai-provider": "0.1.2",

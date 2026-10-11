@@ -668,6 +668,7 @@ test("auth_success reports the classified provider and never the settings name",
 
   captureAuthSuccess(telemetry, classifyAuthProvider("codex"));
   captureAuthSuccess(telemetry, classifyAuthProvider("xai"));
+  captureAuthSuccess(telemetry, classifyAuthProvider("meta"));
   captureAuthSuccess(telemetry, classifyAuthProvider("anthropic"));
   // An employer-named settings entry funnels to "other": the input type is
   // the closed enum, so reaching this branch means a value nobody classified
@@ -683,10 +684,12 @@ test("auth_success reports the classified provider and never the settings name",
     "auth_success",
     "auth_success",
     "auth_success",
+    "auth_success",
   ]);
   expect(captured.map((e) => e.properties.auth_provider)).toEqual([
     "codex",
     "xai",
+    "meta",
     "anthropic",
     "other",
   ]);
@@ -696,6 +699,7 @@ test("auth_success reports the classified provider and never the settings name",
 test("classifyAuthProvider passes the closed enum through", () => {
   expect(classifyAuthProvider("codex")).toBe("codex");
   expect(classifyAuthProvider("xai")).toBe("xai");
+  expect(classifyAuthProvider("meta")).toBe("meta");
   expect(classifyAuthProvider("anthropic")).toBe("anthropic");
   expect(classifyAuthProvider("other")).toBe("other");
 });
