@@ -33,6 +33,7 @@ import {
   operatorChoicesFromOptions,
   operatorResultFromSelection,
   PERMISSION_DENY_ID,
+  PERMISSION_STOP_ID,
   PERMISSION_ONCE_ID,
   permissionBodyFromRequest,
   permissionChoicesFromRequest,
@@ -129,14 +130,19 @@ function settleCapture(): {
 }
 
 describe("permissionChoicesFromRequest", () => {
-  test("always includes reject + accept once", () => {
+  test("always includes reject, reject and stop, and accept once", () => {
     const choices = permissionChoicesFromRequest(baseRequest(), "req-1");
-    expect(choices.items).toEqual(["Reject", "Accept once"]);
+    expect(choices.items).toEqual(["Reject", "Reject and stop", "Accept once"]);
     expect(choices.itemIds).toEqual([
       `req-1:${PERMISSION_DENY_ID}`,
+      `req-1:${PERMISSION_STOP_ID}`,
       `req-1:${PERMISSION_ONCE_ID}`,
     ]);
-    expect(choices.outcomes).toEqual([{ allow: false }, { allow: true }]);
+    expect(choices.outcomes).toEqual([
+      { allow: false },
+      { allow: false },
+      { allow: true },
+    ]);
   });
 
   test("appends scopes as bare labels; persist only when pattern set", () => {
@@ -160,21 +166,26 @@ describe("permissionChoicesFromRequest", () => {
     );
     expect(choices.items).toEqual([
       "Reject",
+      "Reject and stop",
       "Accept once",
       "Allow git *",
       "Allow this path",
     ]);
     expect(choices.itemIds).toEqual([
       `req-1:${PERMISSION_DENY_ID}`,
+      `req-1:${PERMISSION_STOP_ID}`,
       `req-1:${PERMISSION_ONCE_ID}`,
       "req-1:session-git",
       "req-1:once-extra",
     ]);
-    expect(choices.outcomes[2]).toEqual({
+    // Reject and stop never carries a grant, even when a persistable scope is
+    // on offer.
+    expect(choices.outcomes[1]).toStrictEqual({ allow: false });
+    expect(choices.outcomes[3]).toEqual({
       allow: true,
       persist: scopeWithPattern,
     });
-    expect(choices.outcomes[3]).toEqual({ allow: true });
+    expect(choices.outcomes[4]).toEqual({ allow: true });
   });
 });
 
@@ -201,6 +212,12 @@ describe("approvalOutcomeFromSelection", () => {
     ).toEqual({
       allow: false,
     });
+    expect(
+      approvalOutcomeFromSelection(choices, {
+        index: 0,
+        id: `req-1:${PERMISSION_STOP_ID}`,
+      }),
+    ).toEqual({ allow: false });
     expect(
       approvalOutcomeFromSelection(choices, {
         index: 0,
@@ -404,7 +421,11 @@ describe("wireGates", () => {
       const settled = settleCapture();
       emitPermission(emitter, { resolve: settled.resolve });
       expect(shell.overlayKind).toBe("permissions");
-      expect(shell.overlayItems).toEqual(["Reject", "Accept once"]);
+      expect(shell.overlayItems).toEqual([
+        "Reject",
+        "Reject and stop",
+        "Accept once",
+      ]);
 
       acceptOverlaySelection(shell);
       expect(settled.get()).toEqual({ allow: false });
@@ -521,7 +542,7 @@ describe("wireGates", () => {
       expect(shell.overlayKind).toBe("permissions");
       expect(
         shell.overlayList?.select.options.map((option) => option.name),
-      ).toEqual(["Reject", "Accept once", "Allow git A"]);
+      ).toEqual(["Reject", "Reject and stop", "Accept once", "Allow git A"]);
 
       closeInsetOverlay(shell);
       expect(settledA.get()).toEqual({ allow: false });
@@ -539,11 +560,13 @@ describe("wireGates", () => {
       const painted = shell.overlayList?.select.options ?? [];
       expect(painted.map((option) => option.name)).toEqual([
         "Reject",
+        "Reject and stop",
         "Accept once",
         "Allow git B",
       ]);
       expect(painted.map((option) => option.value)).toEqual([
         `req-b:${PERMISSION_DENY_ID}`,
+        `req-b:${PERMISSION_STOP_ID}`,
         `req-b:${PERMISSION_ONCE_ID}`,
         "req-b:scope-b",
       ]);
@@ -1186,8 +1209,8 @@ describe("permission overlay height", () => {
   };
 
   test("tracks item count, not terminal height", async () => {
-    const short = await hostRowsFor(30, 1);
-    const tall = await hostRowsFor(60, 1);
+    const short = await hostRowsFor(60, 1);
+    const tall = await hostRowsFor(80, 1);
     expect(short).toBe(tall);
 
     // Two extra choices cost exactly four extra rows: each choice occupies

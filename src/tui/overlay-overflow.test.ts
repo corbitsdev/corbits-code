@@ -299,9 +299,9 @@ describe("gate-wire approval overflow on short terminal", () => {
       expect(shell.layout.heights.overlay_host).toBeLessThanOrEqual(
         Math.floor(SHORT.height * OVERLAY_MAX_FRACTION),
       );
-      // Two base choices + one scope still navigable.
-      expect(shell.overlayItems.length).toBe(3);
-      moveOverlaySelection(shell, 2);
+      // Three base choices + one scope still navigable.
+      expect(shell.overlayItems.length).toBe(4);
+      moveOverlaySelection(shell, 3);
       activeVisible(shell);
       dispose();
     });

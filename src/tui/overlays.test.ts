@@ -116,16 +116,29 @@ describe("permissions overlay", () => {
     );
   });
 
-  test("key hints drop to Esc · Enter on a narrow interior", async () => {
+  test("key hints narrow to Ctrl+C stop on a narrow interior", async () => {
     await withAppShell(
       async (shell, h) => {
         openPermissionsOverlay(shell, { items: makePermissionItems(4) });
         await h.renderOnce();
         const frame = h.captureCharFrame();
-        expect(frame).toContain("Esc · Enter");
+        expect(frame).toContain("permissions · Ctrl+C stop");
         expect(frame).not.toContain("/yolo");
       },
       { width: 32 },
+    );
+  });
+
+  test("key hints keep Esc · Enter · Ctrl+C stop at a medium width", async () => {
+    await withAppShell(
+      async (shell, h) => {
+        openPermissionsOverlay(shell, { items: makePermissionItems(4) });
+        await h.renderOnce();
+        const frame = h.captureCharFrame();
+        expect(frame).toContain("Esc · Enter · Ctrl+C stop");
+        expect(frame).not.toContain("/yolo");
+      },
+      { width: 44 },
     );
   });
 

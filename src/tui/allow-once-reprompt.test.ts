@@ -56,9 +56,12 @@ const destructiveRequest = (subject: string): PermissionRequest => ({
   scopes: [],
 });
 
-/** Accept the highlighted choice after moving to `index` (0 Reject, 1 Accept once). */
-function acceptChoice(shell: AppShell, index: 0 | 1 | 2): void {
-  for (let i = 0; i < index; i++) moveOverlaySelection(shell, 1);
+/** Move the highlight to the row labelled `label`, then accept it. */
+function acceptChoice(shell: AppShell, label: string): void {
+  const target = shell.overlayItems.indexOf(label);
+  if (target < 0) throw new Error(`no overlay row labelled ${label}`);
+  const list = defined(shell.overlayList, "overlayList");
+  moveOverlaySelection(shell, target - list.activeIndex);
   acceptOverlaySelection(shell);
 }
 
@@ -151,7 +154,7 @@ describe("CL-8792 gate level: a second destructive evaluation re-prompts after a
       const first = gate.evaluate(shellCall(command));
       await flushGateRaise();
       expect(shell.overlayKind).toBe("permissions");
-      acceptChoice(shell, 1);
+      acceptChoice(shell, "Accept once");
       const firstVerdict = await settledWithin(first, 500);
       expect(firstVerdict.settled).toBe(true);
       if (!firstVerdict.settled) throw new Error("first evaluation hung");
@@ -161,7 +164,7 @@ describe("CL-8792 gate level: a second destructive evaluation re-prompts after a
       await flushGateRaise();
       // A grant would auto-allow with no overlay; allow-once must re-prompt.
       expect(shell.overlayKind).toBe("permissions");
-      acceptChoice(shell, 1);
+      acceptChoice(shell, "Accept once");
       const verdict = await settledWithin(second, 500);
       expect(verdict.settled).toBe(true);
       if (!verdict.settled) throw new Error("second evaluation hung");
@@ -186,12 +189,12 @@ describe("CL-8792 gate level: a second destructive evaluation re-prompts after a
 
       // Accept once on the first card: the queued card must take the host
       // before the deferred slash, and both evaluations must settle.
-      acceptChoice(shell, 1);
+      acceptChoice(shell, "Accept once");
       const firstVerdict = await settledWithin(first, 500);
       expect(firstVerdict.settled).toBe(true);
 
       expect(shell.overlayKind).toBe("permissions");
-      acceptChoice(shell, 1);
+      acceptChoice(shell, "Accept once");
       const secondVerdict = await settledWithin(second, 500);
       expect(secondVerdict.settled).toBe(true);
       if (!secondVerdict.settled) throw new Error("second evaluation hung");
@@ -224,12 +227,12 @@ describe("CL-8792 overlay host: queued cards outrank deferred surfaces", () => {
         },
       });
 
-      acceptChoice(shell, 1);
+      acceptChoice(shell, "Accept once");
       expect(resolvedA).toEqual({ allow: true });
       expect(shell.overlayKind).toBe("permissions");
       expect(shell.overlayItems).toContain("Accept once");
 
-      acceptChoice(shell, 1);
+      acceptChoice(shell, "Accept once");
       expect(resolvedB).toEqual({ allow: true });
 
       // With every gate settled, the deferred slash finally takes the host.
@@ -259,11 +262,11 @@ describe("CL-8792 overlay host: queued cards outrank deferred surfaces", () => {
         },
       });
 
-      acceptChoice(shell, 0);
+      acceptChoice(shell, "Reject");
       expect(resolvedA).toEqual({ allow: false });
       expect(shell.overlayKind).toBe("permissions");
 
-      acceptChoice(shell, 1);
+      acceptChoice(shell, "Accept once");
       expect(resolvedB).toEqual({ allow: true });
     });
   });
@@ -299,14 +302,14 @@ describe("CL-8792 overlay host: queued cards outrank deferred surfaces", () => {
         },
       });
 
-      acceptChoice(shell, 2);
+      acceptChoice(shell, "Allow rm *");
       expect(resolvedA).toMatchObject({
         allow: true,
         persist: { id: "scope-a" },
       });
       expect(shell.overlayKind).toBe("permissions");
 
-      acceptChoice(shell, 1);
+      acceptChoice(shell, "Accept once");
       expect(resolvedB).toEqual({ allow: true });
     });
   });
@@ -326,7 +329,7 @@ describe("CL-8792 overlay host: queued cards outrank deferred surfaces", () => {
       });
       expect(shell.overlayKind).toBe("permissions");
 
-      acceptChoice(shell, 1);
+      acceptChoice(shell, "Accept once");
       expect(resolved).toEqual({ allow: true });
       expect(shell.overlayKind).toBe("help");
       expect(shell.overlayItems).toEqual(["Help"]);
@@ -363,7 +366,7 @@ describe("CL-8792 overlay host: queued cards outrank deferred surfaces", () => {
       await new Promise((resolve) => setTimeout(resolve, 80));
       expect(resolvedB).toBeUndefined();
 
-      acceptChoice(shell, 1);
+      acceptChoice(shell, "Accept once");
       expect(resolvedA).toEqual({ allow: true });
       expect(shell.overlayKind).toBe("permissions");
 
@@ -441,7 +444,7 @@ describe("CL-8792 elapsed: pending tool row freezes while a gate is outstanding 
           await h.renderOnce();
           expect(stat()).toBe("0:10");
 
-          acceptChoice(shell, 1);
+          acceptChoice(shell, "Accept once");
           expect(resolved).toEqual({ allow: true });
           bridge.gateClosed();
         } finally {
@@ -479,7 +482,7 @@ describe("CL-8792 overlay host: suspend preserves the surface instead of dismiss
       expect(shell.overlayKind).toBe("permissions");
       expect(events).toEqual([]);
 
-      acceptChoice(shell, 1);
+      acceptChoice(shell, "Accept once");
       expect(resolved).toEqual({ allow: true });
       expect(shell.overlayKind).toBe("help");
       expect(events).toEqual([]);
@@ -506,7 +509,7 @@ describe("CL-8792 overlay host: suspend preserves the surface instead of dismiss
       });
       expect(shell.overlayKind).toBe("permissions");
 
-      acceptChoice(shell, 1);
+      acceptChoice(shell, "Accept once");
       expect(resolved).toEqual({ allow: true });
       expect(shell.overlayKind).toBe("help");
       expect(shell.overlayList).toBe(list);
@@ -551,7 +554,7 @@ describe("CL-8792 overlay host: suspend preserves the surface instead of dismiss
       expect(shell.overlayKind).toBe("permissions");
       expect(shell.overlayItems).toContain("Accept once");
 
-      acceptChoice(shell, 1);
+      acceptChoice(shell, "Accept once");
       expect(resolved).toEqual({ allow: true });
       expect(cancelOpens).toBe(0);
       expect(shell.overlayKind).toBe("mcp");
