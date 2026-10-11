@@ -475,7 +475,7 @@ export interface BridgeBag {
   /** Calls waiting on a decision gate; `gateClosed` re-syncs clocks to
    * time-since-grant. Results/rollbacks drop ids so the set cannot leak. */
   gatedToolCalls: Set<string>;
-/** Calls the reactor reported with `tool.start`, until their `tool.done`. */
+  /** Calls the reactor reported with `tool.start`, until their `tool.done`. */
   executingToolCalls: Set<string>;
   /**
    * Calls that had not started executing when an approval gate blocked. See
@@ -2059,7 +2059,7 @@ export function attachSessionBridge(
       return;
     }
 
-// Not stalled: any earlier resume attempt belongs to a stall that ended,
+    // Not stalled: any earlier resume attempt belongs to a stall that ended,
     // so a later stall starts clean instead of waiting out its budget.
     stallResumeStartedAt = undefined;
 
