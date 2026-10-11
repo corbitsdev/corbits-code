@@ -14,6 +14,9 @@ import {
   enqueue,
   enqueueSteer,
   interrupt,
+  isPaused,
+  badgeCount,
+  resumeForSend,
   setRunState,
   type QueueItem,
   type QueueKind,
@@ -1364,6 +1367,10 @@ function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
 }
 
 function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
+  // Pause gate (CL-10149): while the operator holds the queue, no boundary may
+  // auto-drain into a rebuilt agent. Return early keeping every item pending;
+  // an explicit new send clears the flag and the next boundary delivers.
+  if (isPaused(shell.session)) return;
   for (;;) {
     const { state, item } = drainOne(shell.session);
     if (!item) break;
@@ -1379,6 +1386,10 @@ function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
  * kind filter.
  */
 function drainSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
+  // Pause gate (CL-10149): soft steers are also held while paused; the parent
+  // that accepted them has stopped, so they must wait for an explicit new send
+  // rather than auto-start on the rebuilt agent.
+  if (isPaused(shell.session)) return;
   for (;;) {
     const { state, item } = drainOne(shell.session, "steer");
     if (!item) break;
@@ -2002,9 +2013,16 @@ export function attachSessionBridge(
       bag.mapCtx.errorRollbackArmed = false;
       bag.attemptRow = null;
       shell.session = interrupt(shell.session);
+      // Reuse the first-Ctrl+C pause wording ("pending kept"/"stopped") plus the
+      // arming-window flash so this reinject stop reads as a pause, not a
+      // restart: queued work delivers only on the operator's next explicit send,
+      // and a second Ctrl+C quits.
       appendStreamRow(shell, {
         role: "system",
-        text: "stop — restarting from your message",
+        text:
+          badgeCount(shell.session) > 0
+            ? `${badgeCount(shell.session)} pending kept — press ctrl+c again to exit`
+            : "stopped — press ctrl+c again to exit",
         meta: "stop",
       });
       bag.port.interrupt();
@@ -2024,6 +2042,11 @@ export function attachSessionBridge(
       shell.session.run === "idle" ||
       parentIdleWithFleet
     ) {
+      // An explicit operator send releases the operator pause (CL-10149): clear
+      // the flag so the next drain boundary delivers the held follow-ups and
+      // compaction continuations onto this fresh turn. Queued work never
+      // auto-drains after a single Ctrl+C — only an explicit new send clears it.
+      shell.session = resumeForSend(shell.session);
       appendStreamRow(shell, {
         role: "user",
         text: userRowText(t, attached),
@@ -2070,6 +2093,7 @@ export function attachSessionBridge(
     });
   };
   const flushMailboxMail = (): boolean => {
+    if (isPaused(shell.session)) return false;
     if (bag.disposed || bag.turn.isProcessing) return false;
     try {
       if (bag.mailboxMailDriver?.() === true) return true;
@@ -2081,6 +2105,7 @@ export function attachSessionBridge(
   bag.flushMailboxMail = flushMailboxMail;
 
   const flushPendingAskWake = (): void => {
+    if (isPaused(shell.session)) return;
     if (bag.disposed || bag.turn.isProcessing || bag.turn.blockedGateCount > 0)
       return;
     if (mailboxMailDriveClaimed(bag.mailboxMailDriver)) return;
@@ -2110,6 +2135,7 @@ export function attachSessionBridge(
   bag.flushPendingAskWake = flushPendingAskWake;
 
   const flushOccupancyThenWake = (): void => {
+    if (isPaused(shell.session)) return;
     if (flushMailboxMail() || bag.turn.isProcessing) return;
     flushPendingAskWake();
   };
@@ -2148,9 +2174,11 @@ export function attachSessionBridge(
     applyShellInterrupt(shell);
     bag.port.interrupt();
     // The stop settles the turn without necessarily producing an idle event to
-    // drain against, so anything the operator had queued would sit there
-    // forever. Hand it over here instead: the host serialises it behind the
-    // agent rebuild the interrupt just started.
+    // drain against. On an operator PAUSE the drain gate (drainAtBoundary's
+    // isPaused check) keeps the held queue PENDING instead of handing it to a
+    // rebuilt agent — a later explicit new send clears the pause and the next
+    // boundary delivers it. Only non-operator drains (stall/expire aborts)
+    // fall through to the current handover behavior below.
     drainAtBoundary(shell, bag);
     // Clearing the last prompt is what stops the quota loop from replaying a
     // turn the operator (or the watchdog) deliberately stopped.
@@ -2163,7 +2191,10 @@ export function attachSessionBridge(
     bag.askWakeTurnArmed = false;
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();
-    flushOccupancyThenWake();
+    // Operator pause holds occupancy/ask-wake: a stashed mailbox or ask must
+    // not start a new primary until an explicit send. Stall/expire do not
+    // set paused, so they still flush here.
+    if (!isPaused(shell.session)) flushOccupancyThenWake();
   };
 
   /**
@@ -2451,6 +2482,10 @@ export function attachSessionBridge(
     },
     beginSystemContinuation: (text) => {
       if (bag.disposed) return;
+      // Occupancy that already claimed a latch can still call begin after an
+      // awaited collect. Operator pause must not start a primary; stall/expire
+      // do not set paused, so they still begin.
+      if (isPaused(shell.session)) return;
       const t = text.trim();
       if (t.length === 0) return;
       bag.lastSentMessage = t;

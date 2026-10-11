@@ -41,6 +41,7 @@ import { createReconnectRecoveryPresenter } from "./reconnect-recovery.js";
 import { applyStartupTheme } from "../theme-startup.js";
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
+import { isPaused } from "../delivery-queue.js";
 
 export async function runTUI(initialConfig: Config): Promise<number> {
   const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
@@ -233,6 +234,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
     state.host = host;
     services.hostHolder.instance = host;
+    // CL-10149: the pause flag lives on the shell session queue owned by the
+    // bridge. Mount a tiny observer the runner consults at the compaction
+    // continuation emit so it holds the continuation while paused without the
+    // runner reaching into the shell directly.
+    state.isPaused = () => isPaused(host.shell.session);
     state.presentCredentialRecovery = (pending) => {
       const opened = host.openCredentialRecovery({
         alternatives: pending.alternatives,

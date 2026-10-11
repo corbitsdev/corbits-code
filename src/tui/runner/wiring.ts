@@ -53,7 +53,9 @@ import {
   setEffortCycleHandler,
   setMentionSuggestionSource,
   setPromptRecognitionSource,
+  setShellStopAffordance,
   type AppShell,
+  type ShellStopAffordance,
 } from "../shell/internals.js";
 import {
   setPromptModelLabel,
@@ -156,20 +158,59 @@ export interface StopTeardownDeps {
 }
 
 /**
+ * Cancel live workers and drop fleet records, leaving tombstones so a later
+ * quit-path cancelAll is a no-op. Does not wipe the held delivery queue —
+ * stay-alive 2nd-press stop uses this so follow-ups stay pending.
+ */
+export async function cancelLiveWorkers(
+  deps: Omit<StopTeardownDeps, "bridge">,
+): Promise<void> {
+  await deps.subAgentSessions.cancelAll("Session closed");
+  deps.subAgentSessions.teardown("Session closed");
+  deps.fleetRecords?.clear();
+}
+
+/**
  * Stop teardown (CL-8016): cancel the workers, wipe the sessions (leaving
  * tombstones so a late send_input names the teardown), drop the mailbox
  * lanes that pin them, and clear the bridge queue so no wake-turn bound
  * outlives the sessions it was owed to. Exported so the stall-bound
  * regression test drives this exact production path instead of re-wiring
- * the three clears by hand.
+ * the three clears by hand. Quit / shutdown keep this wipe; stay-alive
+ * stop uses `cancelLiveWorkers` instead.
  */
 export async function cancelWorkersForStop(
   deps: StopTeardownDeps,
 ): Promise<void> {
-  await deps.subAgentSessions.cancelAll("Session closed");
-  deps.subAgentSessions.teardown("Session closed");
-  deps.fleetRecords?.clear();
+  await cancelLiveWorkers(deps);
   deps.bridge.clearQueuedDelivery();
+}
+
+/**
+ * Stop-teardown sources for the shell stop affordance (CL-10149 Phase 4).
+ * Live-worker count is the authoritative `liveFleetCount` over the session
+ * store (not the bridge-local mirror); the stop callback cancels workers
+ * and fleet records without wiping the held queue, so a 2nd-press stay-alive
+ * stop keeps pending follow-ups. Quit still goes through
+ * `cancelWorkersForStop` (wiring.ts shutdown path) and wipes. Extracted so
+ * the Phase 4 wiring test can drive the real closure against a harnessed
+ * store without a full runner harness.
+ */
+export function buildShellStopAffordance(deps: {
+  subAgentSessions: Pick<
+    RunnerServices["subAgentSessions"],
+    "list" | "cancelAll" | "teardown"
+  >;
+  toolset: { fleetRecords?: { clear: () => void } | undefined };
+}): ShellStopAffordance {
+  return {
+    liveWorkerCount: () => liveFleetCount(deps.subAgentSessions.list()),
+    onStopWorkers: () =>
+      cancelLiveWorkers({
+        subAgentSessions: deps.subAgentSessions,
+        fleetRecords: deps.toolset.fleetRecords,
+      }),
+  };
 }
 
 export function createFleetWakePublisher(
@@ -306,6 +347,17 @@ export function wirePostStartup(
   services.crashGuard.setDisposeHost(() => shutdownRuntime());
   setActiveDisposeHost(() => services.crashGuard.invokeDisposeHost());
 
+  // CL-10149 three-press: register the shell stop affordance so the 2nd Ctrl+C
+  // (with live sub-agents) stops workers while the app stays running. The
+  // runner owns the source of truth; the shell stays service-free. Stay-alive
+  // stop cancels workers without wiping the held queue; quit still wipes
+  // through cancelWorkersForStop. Tombstones keep a later quit-path cancelAll
+  // a no-op.
+  setShellStopAffordance(
+    hostOf(state).shell,
+    buildShellStopAffordance(services),
+  );
+
   // Harness inference.error events omit providerId; stamp the live catalog id
   // onto the stream map so transcript copy can identify known-xAI short 429s.
   state.stampProvider.fn = (id) =>
@@ -355,6 +407,7 @@ export function wirePostStartup(
       deferredDryEdge: true,
       openTasks: services.directorHolder.instance?.getTasks() ?? [],
       parentProcessing: false,
+      isParentProcessing: () => sessionBridge.turn.isProcessing,
       mailbox: services.toolset.fleetRecords,
       lanes: services.subAgentSessions.list(),
       ...(storage !== null

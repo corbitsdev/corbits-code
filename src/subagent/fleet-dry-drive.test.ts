@@ -680,6 +680,31 @@ describe("driveOpenTasksAfterFleetDry", () => {
     ).toBe(false);
   });
 
+  test("does not send if begin does not claim the parent turn", async () => {
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
+    const sends: string[] = [];
+    expect(
+      await driveOpenTasksAfterFleetDry({
+        previousRunning: 1,
+        running: 0,
+        openTasks: [openTask],
+        parentProcessing: false,
+        isParentProcessing: () => false,
+        mailbox: peekMailbox(records),
+        lanes: [],
+        beginSystemContinuation: () => undefined,
+        send: (prompt) => {
+          sends.push(prompt);
+          return ACCEPTED_DELIVERY;
+        },
+      }),
+    ).toBe(false);
+    expect(sends).toEqual([]);
+    expect(records.get("w1")?.collected).not.toBe(true);
+  });
+
   test("deferred dry edge after parentProcessing still collects and sends", async () => {
     const records = recordsOf({
       w1: { status: "done", report: "ok" },

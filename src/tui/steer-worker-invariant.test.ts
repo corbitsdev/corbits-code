@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";
 import { createAppShell } from "./shell/index";
 import { type Harness, withTestRenderer } from "./harness";
-import { badgeCount } from "./delivery-queue";
+import { badgeCount, isPaused } from "./delivery-queue";
 
 interface BridgeFixture {
   readonly shell: ReturnType<typeof createAppShell>;
@@ -157,15 +157,24 @@ describe("CL-6291 worker-alive invariants", () => {
     );
   });
 
-  test("Ctrl+C / doInterrupt still calls port.interrupt", async () => {
+  test("Ctrl+C / doInterrupt still calls port.interrupt and holds the queue paused", async () => {
     await withBridge({ wireKeys: true }, async ({ shell, port, bridge }, h) => {
       bridge.submit("kept", "steer");
       expect(badgeCount(shell.session)).toBe(1);
       port.clear();
+      // Operator first-press Ctrl+C pauses (CL-10149) instead of handing
+      // pending work to a rebuilt agent.
       h.pressKey("c", { ctrl: true });
       await h.renderOnce();
       expect(port.calls.some((c) => c.op === "interrupt")).toBe(true);
-      // Hard stop still hands pending over rather than discarding them.
+      expect(isPaused(shell.session)).toBe(true);
+      expect(badgeCount(shell.session)).toBe(1);
+      expect(
+        port.calls.flatMap((c) => (c.op === "deliver" ? [c.item.text] : [])),
+      ).toEqual([]);
+      // Hard stop keeps pending held; only an explicit new send releases it.
+      bridge.submit("fresh", "immediate");
+      bridge.handle({ type: "run", state: "idle" });
       expect(
         port.calls.flatMap((c) => (c.op === "deliver" ? [c.item.text] : [])),
       ).toEqual(["kept"]);

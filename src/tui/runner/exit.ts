@@ -379,7 +379,16 @@ export async function createRunLifecycle(
       // interrupt rebuild (generation bump + rebuild already queued) is
       // re-queued onto the replacement agent so consume-once cannot land on
       // the outgoing liveAgent.
-      if (continuationGate.shouldDeliver(event.seq)) {
+      // CL-10149 pause gate: while the operator holds the queue (first
+      // Ctrl+C), the continuation is NOT re-queued onto the rebuilt agent —
+      // that would be the visible auto-restart. It stays consume-once-intact
+      // and only fires after resume (an explicit new send clears the flag;
+      // the next boundary re-drives the emit). The observer is optional so
+      // tests build partial sessions without the shell mount.
+      if (
+        state.isPaused?.() !== true &&
+        continuationGate.shouldDeliver(event.seq)
+      ) {
         state.enqueueCompactionContinuation?.(() =>
           liveAgent(state).deliver(buildCompactionContinuationMessage()),
         );
@@ -560,7 +569,11 @@ export async function createRunLifecycle(
   // aborts the reactor mid-inference (the send signal only rejects the send
   // promise); that close cascades: operationController.abort → child
   // parent-abort forwarding → child abort. Do not add cancelAll here — fleet cancelAll is
-  // reserved for /clear (newSession) and shutdown.
+  // reserved for /clear (newSession), shutdown, and the explicit 2nd-press
+  // stop-workers gesture (see wiring.cancelWorkersForStop). This interrupt must
+  // stay cancelAll-free; the 2nd-press stop is a distinct caller that snapshots
+  // live sessions and leaves tombstones, so a later quit-path stop finds
+  // nothing live and is a no-op (no double cancel).
   // Close it, drain the old stream, and rebuild a fresh agent so the next send
   // works.
   const interrupt = (): void => {

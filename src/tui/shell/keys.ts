@@ -1,13 +1,15 @@
 /**
  * Key routing: paste guard, kill-ring chords, the onKey dispatcher body, Ctrl+C arming.
  */
+import { getLogger } from "@intx/log";
 import {
   ScrollBoxRenderable,
   type BaseRenderable,
   type KeyEvent,
   type MouseEvent,
 } from "@opentui/core";
-import { badgeCount } from "../delivery-queue.js";
+import { LOG_NAMESPACE_ROOT } from "../../branding.js";
+import { badgeCount, pause } from "../delivery-queue.js";
 
 import {
   type AppShell,
@@ -15,6 +17,7 @@ import {
   effortCycleHandlers,
   isSlashPopupOpen,
   type PrimaryOverlayKind,
+  getShellStopAffordance,
   shellExitHandlers,
   shellInternals,
 } from "./internals.js";
@@ -90,6 +93,14 @@ import {
 } from "../sent-message-history.js";
 import { EXPAND_KEY } from "../stream.js";
 
+const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
+
+function logStopWorkersFailure(error: unknown): void {
+  tuiLogger.warn("stop workers failed: {error}", {
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
+
 // Human keystrokes land tens of milliseconds apart at the fastest; a paste
 // replayed onto stdin without bracketed-paste framing lands effectively all
 // at once. 15ms is an empirical guess at a gap comfortably under normal
@@ -162,7 +173,22 @@ function isDecisionGate(shell: AppShell): boolean {
 /** Window in which a second Ctrl+C is read as "yes, quit". */
 export const CTRL_C_EXIT_WINDOW_MS = 2000;
 
-const ctrlCArmedAt = new WeakMap<AppShell, number>();
+/**
+ * Prefix of the count-aware 1st-press note (Phase 5) shown when sub-agents are
+ * live, inserted after the resolved live-worker count. Imported from keys.ts
+ * by callers that build the flash so the wording has exactly one home.
+ */
+export const N_SUBAGENT_RUNNING_NOTE_PREFIX = "sub-agent(s) running — ";
+
+/**
+ * Per-shell Ctrl+C arming slot. `at` is the window anchor; `state` extends the
+ * base two-state (unarmed/armed) machine with a third reachable state,
+ * STOPPED, recorded on the press that stops live sub-agents so the next press
+ * quits instead of double-stopping (see handleCtrlC).
+ */
+type CtrlCArmed = { at: number; state: "armed" | "stopped" };
+
+const ctrlCArmedAt = new WeakMap<AppShell, CtrlCArmed>();
 
 /**
  * Ctrl+C: interrupt / clear, and quit on a second press inside the window.
@@ -176,10 +202,35 @@ export function handleCtrlC(
   options?: FlashOptions,
 ): void {
   const armedAt = ctrlCArmedAt.get(shell);
-  if (armedAt !== undefined && now - armedAt <= CTRL_C_EXIT_WINDOW_MS) {
+  if (armedAt !== undefined && now - armedAt.at <= CTRL_C_EXIT_WINDOW_MS) {
     ctrlCArmedAt.delete(shell);
     const onExit = shellExitHandlers.get(shell);
     if (onExit !== undefined) {
+      // Three-press machine: a press that would previously exit (in-window)
+      // first asks whether live sub-agents exist to stop. An already-stopped
+      // shell, or one with no live workers, quits (two-press preserved); a
+      // shell with live workers is the STOP press -- stop the fleet, stay
+      // running, and quits only on the next press.
+      const { count, onStop } = readStopAffordance(shell);
+      const wasStopped = armedAt.state === "stopped";
+      if (!wasStopped && count > 0) {
+        // Stop press: do NOT quit. Record STOPPED at press time so a second
+        // simultaneous press cannot double-fire an async stop before it resolves.
+        ctrlCArmedAt.set(shell, { at: now, state: "stopped" });
+        setStatusFlash(shell, "press ctrl+c again to exit", {
+          ttlMs: CTRL_C_EXIT_WINDOW_MS,
+          ...(options?.schedule !== undefined
+            ? { schedule: options.schedule }
+            : {}),
+        });
+        try {
+          void Promise.resolve(onStop()).catch(logStopWorkersFailure);
+        } catch (error: unknown) {
+          logStopWorkersFailure(error);
+        }
+        return;
+      }
+      // Real quit (2nd press with no live workers, or 3rd press after stop).
       // Host teardown usually disposes; unlink here too so a stub/delayed
       // onExit cannot leave Corbits-created clipboard files behind.
       clearPendingAttachments(shell);
@@ -197,17 +248,58 @@ export function handleCtrlC(
     if (!hasPromptText) return;
   }
 
-  ctrlCArmedAt.set(shell, now);
+  ctrlCArmedAt.set(shell, { at: now, state: "armed" });
+
+  // First Ctrl+C is the operator PAUSE gesture (CL-10149): hold the queue so
+  // queued follow-ups / compaction continuations do not auto-drain onto a
+  // rebuilt agent. Set before interruptShell so the exclusive bridge path
+  // already observes the paused flag; an explicit new send later clears it.
+  shell.session = pause(shell.session);
 
   if (shell.session.run === "busy" || badgeCount(shell.session) > 0) {
     interruptShell(shell);
   }
   // The notice is exactly as true as the arming window is open, so it expires
-  // with it rather than waiting for some later flash to overwrite it.
-  setStatusFlash(shell, "press ctrl+c again to exit", {
+  // with it rather than waiting for some later flash to overwrite it. When
+  // live sub-agents exist the note is count-aware (Phase 5) so the operator
+  // knows the next press stops them rather than quitting; otherwise the plain
+  // two-press exit string is kept. Read fresh at press time so a fleet that
+  // drained before arming falls back to the plain string.
+  const { count } = readStopAffordance(shell);
+  const note =
+    count > 0
+      ? `${count} ${N_SUBAGENT_RUNNING_NOTE_PREFIX}press ctrl+c to stop, again to exit`
+      : "press ctrl+c again to exit";
+  setStatusFlash(shell, note, {
     ttlMs: CTRL_C_EXIT_WINDOW_MS,
     ...(options?.schedule !== undefined ? { schedule: options.schedule } : {}),
   });
+}
+
+/**
+ * Pure read of the registered stop affordance scalars backing the Ctrl+C
+ * three-press machine. This is the live source for both the stop-press branch
+ * and the count-aware note in `handleCtrlC`: an in-window press that finds
+ * live workers becomes a "stop the fleet, stay up" press (`state: "stopped"`),
+ * routing the quit off to a third press; the note's count also comes straight
+ * from here, so the operator sees that the next press stops the sub-agents
+ * rather than exiting. The shell stays service-free: it never constructs a
+ * worker-count itself, only mirrors what the runner registered. Defaults keep
+ * an unregistered shell on the plain two-press contract (count 0, no-op stop)
+ * so a runner that has not wired the affordance still quits on the second
+ * press.
+ */
+export function readStopAffordance(shell: AppShell): {
+  count: number;
+  onStop: () => void | Promise<void>;
+} {
+  const affordance = getShellStopAffordance(shell);
+  return {
+    count: affordance?.liveWorkerCount() ?? 0,
+    // Expression-bodied no-op (not an empty block) so oxlint's
+    // no-empty-function rule stays satisfied; still a pure identity no-op.
+    onStop: affordance?.onStopWorkers ?? (() => undefined),
+  };
 }
 
 /**

@@ -5,6 +5,7 @@ import {
   type SessionBridge,
   type TurnMonitorOptions,
 } from "../runtime-bridge.js";
+import { isPaused } from "../delivery-queue.js";
 import { withAppShell } from "../test-helpers.js";
 import {
   ASK_DIRECTOR_WAKE_PREFIX,
@@ -184,6 +185,9 @@ describe("stall-bound primary turn (CL-8016)", () => {
         expect(bridge.turnMarkers().map((marker) => marker.path)).toContain(
           "stall-abort:awaiting-first-token",
         );
+        // Stall-abort is a non-operator path (CL-10149): it must NOT set the
+        // operator pause flag, so it keeps the old drain semantics.
+        expect(isPaused(bridge.shell.session)).toBe(false);
         // ... the hung inference was interrupted before any new deliver ...
         expect(wakeDeliveriesAfterInterrupt(port)).toBe(0);
         // ... the queued operator message reached the port ...

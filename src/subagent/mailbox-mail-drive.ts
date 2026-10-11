@@ -179,6 +179,13 @@ async function driveMailboxMailAfterCollect(
       await digestCollectedReports(reports, args.writeBlob),
     );
     args.beginSystemContinuation(prompt);
+    // begin is a no-op while paused (and if disposed/empty). Do not send a
+    // primary, and release the delivering claim so a later explicit send can
+    // still deliver. The mailbox latch unclaims when this drive settles.
+    if (args.isParentProcessing?.() === false) {
+      releaseOccupancyDelivering(args.mailbox, ids);
+      return false;
+    }
   } catch {
     return fail();
   }

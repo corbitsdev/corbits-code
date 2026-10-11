@@ -15,9 +15,14 @@ import { createAppShell } from "./shell/index";
 import {
   isSlashPopupOpen,
   setShellExitHandler,
+  setShellStopAffordance,
   type AppShell,
 } from "./shell/internals";
-import { CTRL_C_EXIT_WINDOW_MS, handleCtrlC } from "./shell/keys";
+import {
+  CTRL_C_EXIT_WINDOW_MS,
+  handleCtrlC,
+  N_SUBAGENT_RUNNING_NOTE_PREFIX,
+} from "./shell/keys";
 import { addPendingAttachment, clearPendingAttachments } from "./shell/prompt";
 import { RUNTIME_FLASH_MS } from "./runtime-notices";
 
@@ -508,6 +513,127 @@ describe("Ctrl+C exit", () => {
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe("second-press stop state machine (three-press contract)", () => {
+    let stops = 0;
+    let exits = 0;
+    let count = 0;
+    let onStop: () => void = () => {
+      stops += 1;
+    };
+    let onExit: () => void = () => {
+      exits += 1;
+    };
+
+    function wireWorkers(shell: AppShell, n: number): void {
+      count = n;
+      stops = 0;
+      exits = 0;
+      setShellStopAffordance(shell, {
+        liveWorkerCount: () => count,
+        onStopWorkers: () => onStop(),
+      });
+      setShellExitHandler(shell, () => onExit());
+    }
+
+    test("no live workers: two presses quit, onStopWorkers never fires", async () => {
+      await withShell(async ({ shell }) => {
+        wireWorkers(shell, 0);
+        handleCtrlC(shell, 0);
+        expect(stops).toBe(0);
+        expect(exits).toBe(0);
+        handleCtrlC(shell, 1);
+        expect(exits).toBe(1);
+        expect(stops).toBe(0);
+      });
+    });
+
+    test("live workers: 2nd press stops (no quit), 3rd press quits", async () => {
+      await withShell(async ({ shell }) => {
+        wireWorkers(shell, 2);
+        handleCtrlC(shell, 0);
+        expect(exits).toBe(0);
+        handleCtrlC(shell, 1);
+        expect(stops).toBe(1);
+        expect(exits).toBe(0);
+        handleCtrlC(shell, 2);
+        expect(stops).toBe(1);
+        expect(exits).toBe(1);
+      });
+    });
+
+    test("window re-arm reads a fresh worker count", async () => {
+      await withShell(async ({ shell }) => {
+        // Two live workers on the 1st press arm.
+        wireWorkers(shell, 2);
+        handleCtrlC(shell, 0);
+        // Fleet drains to zero between presses; outside the window the press
+        // re-arms rather than exiting, but the next in-window press must quit.
+        count = 0;
+        handleCtrlC(shell, CTRL_C_EXIT_WINDOW_MS + 1);
+        expect(stops).toBe(0);
+        expect(exits).toBe(0);
+        handleCtrlC(shell, CTRL_C_EXIT_WINDOW_MS + 2);
+        expect(stops).toBe(0);
+        expect(exits).toBe(1);
+      });
+    });
+
+    test("rejecting onStopWorkers stays STOPPED without quitting", async () => {
+      await withShell(async ({ shell }) => {
+        count = 1;
+        stops = 0;
+        exits = 0;
+        setShellStopAffordance(shell, {
+          liveWorkerCount: () => count,
+          onStopWorkers: () => Promise.reject(new Error("cancelAll failed")),
+        });
+        setShellExitHandler(shell, () => onExit());
+        handleCtrlC(shell, 0);
+        handleCtrlC(shell, 1);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(exits).toBe(0);
+        handleCtrlC(shell, 2);
+        expect(exits).toBe(1);
+      });
+    });
+
+    test("single press pauses only: neither stops nor exits", async () => {
+      await withShell(async ({ shell }) => {
+        wireWorkers(shell, 2);
+        handleCtrlC(shell, 0);
+        expect(stops).toBe(0);
+        expect(exits).toBe(0);
+      });
+    });
+
+    test("count-aware note: 1st press names live workers, 2nd press resets to plain exit", async () => {
+      await withShell(async ({ shell }) => {
+        wireWorkers(shell, 3);
+        handleCtrlC(shell, 0);
+        // 1st press: the flash reuses the count-aware prefix and shows the live
+        // count, and is not just the plain exit string.
+        expect(shell.statusFlash).toContain(N_SUBAGENT_RUNNING_NOTE_PREFIX);
+        expect(shell.statusFlash).toContain("3");
+        expect(shell.statusFlash).not.toBe("press ctrl+c again to exit");
+        // 2nd press stops (no quit); the flash becomes the decided stop string.
+        handleCtrlC(shell, 1);
+        expect(stops).toBe(1);
+        expect(exits).toBe(0);
+        expect(shell.statusFlash).toBe("press ctrl+c again to exit");
+      });
+    });
+
+    test("no-worker note: 1st press keeps the plain exit string", async () => {
+      await withShell(async ({ shell }) => {
+        wireWorkers(shell, 0);
+        handleCtrlC(shell, 0);
+        expect(shell.statusFlash).toBe("press ctrl+c again to exit");
+        expect(shell.statusFlash).not.toContain(N_SUBAGENT_RUNNING_NOTE_PREFIX);
+      });
     });
   });
 });

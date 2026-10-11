@@ -27,7 +27,11 @@ import { withAppShell } from "./test-helpers";
 import { operatorCancelResult, wireGates } from "./gate-wire.js";
 import { acceptOverlaySelection } from "./shell/overlay-host.js";
 import { moveOverlaySelection } from "./shell/overlay-list.js";
-import { badgeCount, SESSION_IDENTITY_ABORT_REASON } from "./delivery-queue";
+import {
+  badgeCount,
+  isPaused,
+  SESSION_IDENTITY_ABORT_REASON,
+} from "./delivery-queue";
 import { LIVE_ACTIVITY_WORDS } from "./chrome-state";
 
 type RecordingPort = ReturnType<typeof createRecordingPort>;
@@ -248,7 +252,7 @@ describe("attachSessionBridge", () => {
     });
   });
 
-  test("Ctrl+C hits port.interrupt and keeps pending for the next turn", async () => {
+  test("Ctrl+C hits port.interrupt, pauses (CL-10149) and holds the queue", async () => {
     await withBridge(
       { run: "busy", wireKeys: true },
       async ({ h, shell, port, bridge }) => {
@@ -256,13 +260,23 @@ describe("attachSessionBridge", () => {
         bridge.submit("b", "steer");
         expect(badgeCount(shell.session)).toBe(2);
         port.clear();
+        // Operator first-press Ctrl+C routes through the pause gesture.
         h.pressKey("c", { ctrl: true });
         await h.renderOnce();
         expect(port.calls.some((c) => c.op === "interrupt")).toBe(true);
         expect(shell.session.interruptFlash).toBe(true);
         expect(shell.session.run).toBe("idle");
-        // Handed over, not thrown away — and handed over here rather than
-        // left waiting on an idle event the stop may never produce.
+        // First Ctrl+C is a PAUSE (CL-10149): the queue stays held, nothing
+        // auto-drains onto a rebuilt agent. Delivered only on an explicit send.
+        expect(isPaused(shell.session)).toBe(true);
+        expect(badgeCount(shell.session)).toBe(2);
+        expect(
+          port.calls.flatMap((c) => (c.op === "deliver" ? [c.item.text] : [])),
+        ).toEqual([]);
+        // An explicit new send clears the pause and the boundary drains the
+        // held items onto the fresh turn.
+        bridge.submit("fresh", "immediate");
+        bridge.handle({ type: "run", state: "idle" });
         expect(
           port.calls.flatMap((c) => (c.op === "deliver" ? [c.item.text] : [])),
         ).toEqual(["b", "a"]);
@@ -922,6 +936,13 @@ describe("same-turn retry after inference.error", () => {
 
       const text = shell.streamLog.map((r) => r.text).join("\n");
       expect(text).toContain("restart from here");
+      // Reinject interrupts are pause-oriented (CL-10149): the stop note reuses
+      // the pause wording ("pending kept"/"stopped" + the arming flash) and
+      // never says "restart from your message" anymore.
+      expect(text).toMatch(
+        /(pending kept|stopped).*press ctrl\+c again to exit/,
+      );
+      expect(text).not.toContain("restarting from your message");
       expect(errorRows(shell)).toEqual([]);
     });
   });

@@ -38,7 +38,7 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   {
     keys: "Ctrl+C",
     description:
-      "interrupt the run, or clear the prompt and attachments when idle; press twice to exit",
+      "pause a busy run and hold the queue, or clear the prompt and attachments when idle; Ctrl+C again to exit — with live sub-agents, a 2nd press stops them, a 3rd quits",
   },
   {
     keys: "Ctrl+G",

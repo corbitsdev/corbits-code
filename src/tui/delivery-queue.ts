@@ -221,6 +221,13 @@ export interface SessionQueueState {
   readonly interruptFlash: boolean;
   /** Monotonic id seed for queue items. */
   readonly nextId: number;
+  /**
+   * True after the operator pause gesture (first Ctrl+C). While paused the
+   * drain boundary holds the queue: follow-ups and compaction continuations
+   * stay PENDING and deliver only on an explicit new send (set by
+   * resumeForSend). The gate lives in the bridge (Phase 2), not here.
+   */
+  readonly paused: boolean;
 }
 
 export function createSessionQueue(run: RunState = "idle"): SessionQueueState {
@@ -229,6 +236,7 @@ export function createSessionQueue(run: RunState = "idle"): SessionQueueState {
     items: [],
     interruptFlash: false,
     nextId: 1,
+    paused: false,
   };
 }
 
@@ -321,6 +329,31 @@ export function clearInterruptFlash(
 ): SessionQueueState {
   if (!state.interruptFlash) return state;
   return { ...state, interruptFlash: false };
+}
+
+/**
+ * Operator pause (first Ctrl+C): stop the run and hold the queue. Follow-ups
+ * and compaction continuations stay PENDING; nothing drains while paused. The
+ * items array is untouched — pause never drops queued work (NG2).
+ */
+export function pause(state: SessionQueueState): SessionQueueState {
+  if (state.paused) return state;
+  return { ...state, paused: true };
+}
+
+/**
+ * Clear the pause on an explicit new send. The held follow-ups and compaction
+ * continuations remain intact and become deliverable again; only the flag
+ * changes here, the bridge gates the next drain.
+ */
+export function resumeForSend(state: SessionQueueState): SessionQueueState {
+  if (!state.paused) return state;
+  return { ...state, paused: false };
+}
+
+/** True while the queue is held after an operator pause gesture. */
+export function isPaused(state: SessionQueueState): boolean {
+  return state.paused;
 }
 
 /**
