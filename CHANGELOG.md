@@ -20,6 +20,20 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
+## [0.3.37] - 2026-10-11
+
+### What's Changed
+* chore(deps): drop unused @intx/hub-sessions pin by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1338
+* refactor(subagent): stop importing tui by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1363
+* fix(session): make latest symlink update race-safe by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1324
+* feat(tui): pause the queue on ctrl+c instead of resuming the run by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1358
+* refactor(comments): trim verbose comments across the codebase by @Gustav-Simonsson in https://github.com/corbitsdev/corbits-code/pull/1360
+* docs(agents): point infrastructure at interchange first by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1371
+* fix(subagent): read shutdown-with-report lanes as done, not cancelled by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1337
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.36...v0.3.37
+
 ## [0.3.35] - 2026-10-06
 
 ### What's Changed
