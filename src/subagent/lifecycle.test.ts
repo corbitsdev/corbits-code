@@ -22,10 +22,32 @@ describe("WorkerLifecycle projections", () => {
       [{ state: "failed", error: "boom" }, "failed"],
       [{ state: "cancelled", error: "stop" }, "cancelled"],
       [{ state: "shutdown" }, "cancelled"],
+      [{ state: "shutdown", report: "ok" }, "done"],
     ];
     for (const [lifecycle, status] of cases) {
       expect(projectStripStatus(lifecycle)).toBe(status);
     }
+  });
+
+  test("shutdown after completion reads done; a close error reads cancelled even with a salvage report", () => {
+    // CL-9924: close_agent after a completed report must not read as
+    // cancelled. Report presence alone is not enough — an interrupted run's
+    // salvage attaches via attachReport, so a shutdown that was closed
+    // mid-run/interrupted carries the close error and must stay cancelled.
+    expect(projectStripStatus({ state: "shutdown", report: "ok" })).toBe(
+      "done",
+    );
+    expect(
+      projectStripStatus({
+        state: "shutdown",
+        report: "salvage",
+        error: "Closed by close_agent",
+      }),
+    ).toBe("cancelled");
+    expect(
+      projectStripStatus({ state: "shutdown", error: "Closed by close_agent" }),
+    ).toBe("cancelled");
+    expect(projectStripStatus({ state: "shutdown" })).toBe("cancelled");
   });
 
   test("verb lifecycleStatus does not leak cancelled or failed", () => {

@@ -35,8 +35,17 @@ export function projectStripStatus(lifecycle: WorkerLifecycle): StripStatus {
     case "failed":
       return "failed";
     case "cancelled":
-    case "shutdown":
       return "cancelled";
+    case "shutdown":
+      // CL-9924: a shutdown that carries a completed report and no close
+      // error was closed after finishing — read it as done. A close error
+      // means the lane was closed mid-run / after interrupt / after cancel
+      // (closeOne stamps "Closed by close_agent" on live shutdowns, and
+      // attachReport's salvage never removes it), so report presence alone
+      // is not enough: interrupted-close salvage would otherwise read done.
+      return lifecycle.report !== undefined && lifecycle.error === undefined
+        ? "done"
+        : "cancelled";
   }
 }
 
