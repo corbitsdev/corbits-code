@@ -806,7 +806,6 @@ describe("wrapCompactorWithCompletenessGate", () => {
       payload: "working",
     });
     const inner = createPruningCompactor({
-      maxAnchorTurns: 0,
       summaryMaxChars: 500,
       // Pin a tiny tail budget so the fold covers the same older region the
       // old keepRecentTurns cut folded.
