@@ -757,9 +757,7 @@ export class CliHelpError extends Error {
 }
 
 /** Printed for `corbits --version` / `-V`. Matches `package.json` version. */
-export const CLI_VERSION_TEXT = `${COMMAND_NAME} v${
-  typeof pkg.version === "string" ? pkg.version : "0.0.0"
-}`;
+export const CLI_VERSION_TEXT = `${COMMAND_NAME} v${pkg.version}`;
 
 /**
  * Thrown when the operator asked for the CLI version. Entry points must print

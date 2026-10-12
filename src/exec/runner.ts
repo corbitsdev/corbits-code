@@ -646,9 +646,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
         });
       },
     });
-    const sessionMode: SessionMode =
-      resolveSessionMode(config.settings, localSettingsForMode) ??
-      "orchestrator";
+    const sessionMode: SessionMode = resolveSessionMode(
+      config.settings,
+      localSettingsForMode,
+    );
 
     const interactive = resolveExecInteractive({
       stdinTTY: input.isTTY,

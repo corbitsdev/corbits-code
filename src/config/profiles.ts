@@ -113,7 +113,7 @@ export async function resolveProfile(
       merged.summarizerTimeoutMs = projectProfile.summarizerTimeoutMs;
   }
 
-  const resolvedName = profileName ?? projectProfile?.profile;
+  const resolvedName = namedProfileName;
   if (resolvedName !== undefined) merged.profile = resolvedName;
 
   return merged;
