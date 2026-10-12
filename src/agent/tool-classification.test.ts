@@ -20,8 +20,6 @@ describe("AUTO_ALLOW_READ_TOOLS", () => {
         // Read-only skill discovery/loading needs no approval prompt.
         "skill_search",
         "use_skill",
-        // Workspace-inert network reads: docs fetches must not block where
-        // a grep does not (http/https-only + SSRF guard at the tool layer).
         "web_fetch",
         "web_search",
       ].sort(),
@@ -29,8 +27,6 @@ describe("AUTO_ALLOW_READ_TOOLS", () => {
   });
 
   test("excludes tools with their own, narrower auto-allow logic", () => {
-    // run_shell keeps its own policy (safe-command allowlist, install ask);
-    // web_fetch/web_search are plain allow-tier reads above.
     expect(AUTO_ALLOW_READ_TOOLS.has("run_shell")).toBe(false);
   });
 });

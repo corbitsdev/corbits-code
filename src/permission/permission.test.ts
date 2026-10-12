@@ -482,7 +482,6 @@ describe("classifyTool", () => {
     expect(classifyTool("read_file")).toBe("allow");
     expect(classifyTool("grep")).toBe("allow");
     expect(classifyTool("lsp")).toBe("allow");
-    // Workspace-inert network reads need no yolo and no prompt.
     expect(classifyTool("web_fetch")).toBe("allow");
     expect(classifyTool("web_search")).toBe("allow");
     expect(classifyTool("mcp__linear__list_teams")).toBe("allow");
