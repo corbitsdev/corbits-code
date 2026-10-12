@@ -31,8 +31,15 @@ export interface ContinuationRefreshOptions {
 const inFlightRefreshes = new Map<string, Promise<InferenceSource>>();
 
 // Wrapped directors, mapped back to their proxy, so a second application is a
-// no-op instead of stacking duplicate refreshes.
-const wrappedDirectors = new WeakMap<object, ReactorDirector>();
+// no-op instead of stacking duplicate refreshes. The entry also holds the
+// latest options: a re-wrap with a new source set must update what decide()
+// reads, not be silently dropped by the cache.
+interface WrappedDirectorEntry {
+  proxy: ReactorDirector;
+  options: ContinuationRefreshOptions;
+}
+
+const wrappedDirectors = new WeakMap<object, WrappedDirectorEntry>();
 
 async function stagedOAuthTokensFresh(
   provenance: OAuthCredentialProvenance,
@@ -125,7 +132,15 @@ export function withContinuationOAuthRefresh<TDirector extends ReactorDirector>(
   options: ContinuationRefreshOptions,
 ): TDirector {
   const cached = wrappedDirectors.get(inner);
-  if (cached !== undefined) return cached as TDirector;
+  if (cached !== undefined) {
+    // Second application is a no-op for the proxy, but not for the options:
+    // the caller may re-wrap the same director with a different source set,
+    // and decide() below reads entry.options at call time, so the latest
+    // wrap's sources win instead of the first wrap's.
+    cached.options = options;
+    return cached.proxy as TDirector;
+  }
+  const entry: WrappedDirectorEntry = { proxy: inner, options };
   const decide = async (
     event: Parameters<TDirector["decide"]>[0],
     state: Parameters<TDirector["decide"]>[1],
@@ -133,12 +148,12 @@ export function withContinuationOAuthRefresh<TDirector extends ReactorDirector>(
   ) => {
     const result = await inner.decide(event, state, capabilities);
     if (!returnsInferAction(result)) return result;
-    const agent = options.getAgent();
+    const agent = entry.options.getAgent();
     if (agent === null) return result;
     const fresh = await refreshInferenceSourceBundle(
-      options.sources,
-      options.defaultSource,
-      options.catalog,
+      entry.options.sources,
+      entry.options.defaultSource,
+      entry.options.catalog,
     );
     agent.setSources(fresh.sources, fresh.defaultSource);
     return result;
@@ -149,7 +164,8 @@ export function withContinuationOAuthRefresh<TDirector extends ReactorDirector>(
       return Reflect.get(target, property);
     },
   });
-  wrappedDirectors.set(inner, proxy);
-  wrappedDirectors.set(proxy, proxy);
+  entry.proxy = proxy;
+  wrappedDirectors.set(inner, entry);
+  wrappedDirectors.set(proxy, entry);
   return proxy;
 }
