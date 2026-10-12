@@ -14,7 +14,11 @@ import {
   OPENAI_API_BASE_URL,
   firstClassProviderById,
 } from "../../packages/first-class-providers/src/index.js";
-import { normalizeOpenAICompatibleBaseURL, type Settings } from "./settings.js";
+import {
+  normalizeOpenAICompatibleBaseURL,
+  type ProviderSettings,
+  type Settings,
+} from "./settings.js";
 import {
   resolveSessionEffort,
   type ReasoningEffort,
@@ -41,6 +45,19 @@ function catalogEntry(
   provider: string,
 ): ProviderCatalogEntry | undefined {
   return catalog.find((e) => e.name === provider);
+}
+
+// Resolve the API key to send for a provider: the catalog entry wins, then
+// the operator's settings row, else the field is omitted entirely.
+function apiKeyFor(
+  entry: ProviderCatalogEntry | undefined,
+  providerSettings: ProviderSettings | undefined,
+): { apiKey: string } | Record<string, never> {
+  return entry?.apiKey !== undefined
+    ? { apiKey: entry.apiKey }
+    : providerSettings?.apiKey !== undefined
+      ? { apiKey: providerSettings.apiKey }
+      : {};
 }
 
 // First-party OpenAI reasoning models reject `max_tokens` and require
@@ -129,11 +146,7 @@ export function buildInferenceSourceForRef(
   ) {
     return buildGoSource({
       id: ref.provider,
-      ...(entry?.apiKey !== undefined
-        ? { apiKey: entry.apiKey }
-        : providerSettings?.apiKey !== undefined
-          ? { apiKey: providerSettings.apiKey }
-          : {}),
+      ...apiKeyFor(entry, providerSettings),
       model: ref.model,
       sessionId: ctx.sessionId,
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),
@@ -147,11 +160,7 @@ export function buildInferenceSourceForRef(
   ) {
     return buildZenSource({
       id: ref.provider,
-      ...(entry?.apiKey !== undefined
-        ? { apiKey: entry.apiKey }
-        : providerSettings?.apiKey !== undefined
-          ? { apiKey: providerSettings.apiKey }
-          : {}),
+      ...apiKeyFor(entry, providerSettings),
       model: ref.model,
       sessionId: ctx.sessionId,
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),
@@ -161,11 +170,7 @@ export function buildInferenceSourceForRef(
     return buildAnthropicSource({
       id: ref.provider,
       baseURL,
-      ...(entry?.apiKey !== undefined
-        ? { apiKey: entry.apiKey }
-        : providerSettings?.apiKey !== undefined
-          ? { apiKey: providerSettings.apiKey }
-          : {}),
+      ...apiKeyFor(entry, providerSettings),
       model: ref.model,
     });
   }
@@ -173,11 +178,7 @@ export function buildInferenceSourceForRef(
     return buildBifrostSource({
       id: ref.provider,
       baseURL,
-      ...(entry?.apiKey !== undefined
-        ? { apiKey: entry.apiKey }
-        : providerSettings?.apiKey !== undefined
-          ? { apiKey: providerSettings.apiKey }
-          : {}),
+      ...apiKeyFor(entry, providerSettings),
       model: ref.model,
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),
     });
@@ -210,11 +211,7 @@ export function buildInferenceSourceForRef(
   return buildOpenAISource({
     id: ref.provider,
     baseURL,
-    ...(entry?.apiKey !== undefined
-      ? { apiKey: entry.apiKey }
-      : providerSettings?.apiKey !== undefined
-        ? { apiKey: providerSettings.apiKey }
-        : {}),
+    ...apiKeyFor(entry, providerSettings),
     model: ref.model,
     ...(customEffort !== undefined ? { reasoningEffort: customEffort } : {}),
     ...(maxTokens !== undefined ? { maxTokens } : {}),
