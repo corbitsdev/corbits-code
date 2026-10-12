@@ -1,0 +1,215 @@
+#!/usr/bin/env bun
+/**
+ * FIRST @corbits/evals eval: dispatch director routing (CL-10452).
+ *
+ * Exercises the real product dispatch director system prompt
+ * (`agents/dispatch/src/prompt.ts`, exported by `@corbits/code-agent-dispatch`)
+ * against brand-new routing requests. Each case is a user request that must be
+ * routed to one specialist; the checks and the per-check miss allowances gate
+ * the run through `evaluate()` from `@corbits/evals`.
+ *
+ * The run composes the dispatch card (unchanged) + the case request + a fixed
+ * reply-format stanza (harness glue so the routing decision is measurable),
+ * and calls a model. Defaults to local Ollama, matching the package's own
+ * examples; override with EVAL_OLLAMA_URL / EVAL_MODEL.
+ *
+ * Run:
+ *   bun scripts/eval-prompts-dispatch.ts
+ *   EVAL_MODEL=tev1:0.8b bun scripts/eval-prompts-dispatch.ts
+ *
+ * See evals/prompts/dispatch-routing/README.md for gates and calibration.
+ */
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { systemPrompt } from "@corbits/code-agent-dispatch";
+import { EvalFailure, evaluate, avoids, mentions, under } from "@corbits/evals";
+import type { Case, Run } from "@corbits/evals";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = join(HERE, "..");
+const CASES_PATH = join(
+  REPO_ROOT,
+  "evals/prompts/dispatch-routing/cases.jsonl",
+);
+const LAST_PATH = join(REPO_ROOT, "evals/prompts/dispatch-routing/last.json");
+
+const OLLAMA_URL = process.env.EVAL_OLLAMA_URL ?? "http://localhost:11434";
+const MODEL = process.env.EVAL_MODEL ?? "qwen3:0.6b";
+
+/** Harness glue appended after the case request; the dispatch card is verbatim. */
+const REPLY_FORMAT = `\n\n# Reply format
+Reply with exactly one line: the specialist you would spawn, one of: explorer, planner, coder, reviewer, designer, artist, warden, shakespeare, prober, qa-lead. Then a second line with a one-sentence brief.`;
+
+/** Route one request: dispatch card + request (+ reply format) through the model. */
+async function dispatchRoute(
+  input: string,
+  signal: AbortSignal,
+): Promise<string> {
+  const prompt = `${systemPrompt.build()}\n\n# Request\n${input}${REPLY_FORMAT}`;
+  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    signal,
+    body: JSON.stringify({
+      model: MODEL,
+      messages: [{ role: "system", content: prompt }],
+      stream: false,
+      options: { temperature: 0 },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`model call failed (${res.status}): ${await res.text()}`);
+  }
+  const data = (await res.json()) as {
+    message?: { content?: string };
+    error?: string;
+  };
+  if (data.error !== undefined) {
+    throw new Error(`model call failed: ${data.error}`);
+  }
+  const reply = data.message?.content?.trim() ?? "";
+  if (reply === "") {
+    throw new Error("model returned an empty reply");
+  }
+  return reply;
+}
+
+/** Per-case expected specialist and likely-wrong decoys (for humans; route gates). */
+interface RoutingExpect {
+  route: string;
+  decoys: readonly string[];
+}
+
+function loadCases(path: string): Promise<Case<string, RoutingExpect>[]> {
+  return readFile(path, "utf8").then((text) => {
+    const cases: Case<string, RoutingExpect>[] = [];
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]?.trim();
+      if (line === undefined || line === "") {
+        continue;
+      }
+      let raw: unknown;
+      try {
+        raw = JSON.parse(line);
+      } catch (cause) {
+        throw new Error(
+          `${path}:${i + 1}: invalid JSON (${(cause as Error).message})`,
+        );
+      }
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+        throw new Error(`${path}:${i + 1}: expected an object`);
+      }
+      const rec = raw as Record<string, unknown>;
+      const input = rec["input"];
+      if (typeof input !== "string") {
+        throw new Error(`${path}:${i + 1}: missing string "input"`);
+      }
+      const expect = rec["expect"];
+      if (
+        typeof expect !== "object" ||
+        expect === null ||
+        Array.isArray(expect)
+      ) {
+        throw new Error(`${path}:${i + 1}: missing object "expect"`);
+      }
+      const exp = expect as Record<string, unknown>;
+      const route = exp["route"];
+      const decoys = exp["decoys"];
+      if (
+        typeof route !== "string" ||
+        !Array.isArray(decoys) ||
+        !decoys.every((d) => typeof d === "string")
+      ) {
+        throw new Error(
+          `${path}:${i + 1}: expect needs string "route" and string[] "decoys"`,
+        );
+      }
+      const evalCase: Case<string, RoutingExpect> = {
+        input,
+        expect: { route, decoys: decoys as string[] },
+      };
+      const name = rec["name"];
+      if (typeof name === "string" && name !== "") {
+        evalCase.name = name;
+      }
+      cases.push(evalCase);
+    }
+    if (cases.length === 0) {
+      throw new Error(`${path}: no cases`);
+    }
+    return cases;
+  });
+}
+
+/** Fail-closed word list: never matches real output, so a missing expect fails. */
+const routeWords = (
+  run: Run<string, string, RoutingExpect>,
+): readonly string[] =>
+  run.expect === undefined ? ["__missing_expect__"] : [run.expect.route];
+
+/** The dispatch card says delegate by default and never DIY-map explorer work. */
+const DIY_PHRASES = [
+  "I will fix",
+  "I'll fix",
+  "I will implement",
+  "I'll implement",
+  "I can fix",
+  "I can implement",
+  "I'll write",
+  "I will write",
+  "I'll do it",
+  "I can do it",
+  "I'll handle",
+  "I will handle",
+  "I'm going to implement",
+] as const;
+
+async function main(): Promise<number> {
+  const cases = await loadCases(CASES_PATH);
+  const report = await evaluate<string, string, RoutingExpect>(
+    "dispatch-routing",
+    {
+      run: dispatchRoute,
+      cases,
+      checks: {
+        routes: mentions<string, string, RoutingExpect>(routeWords),
+        noDiy: avoids<string, string, RoutingExpect>(DIY_PHRASES),
+        fast: under({ ms: 120_000 }),
+      },
+      // Gates: calibrated to the local smoke model (qwen3:0.6b) so the harness
+      // trips only on a routing collapse; tighten when running a capable model.
+      // `last.json` (compare + save) is the regression/drop gate once a strong
+      // model baseline is stored.
+      allow: {
+        routes: { miss: 6, drop: 0 },
+        noDiy: { miss: 2, drop: 0 },
+        fast: 0,
+      },
+      compare: LAST_PATH,
+      save: LAST_PATH,
+      about: {
+        prompt: "agents/dispatch/src/prompt.ts (dispatch director)",
+        model: MODEL,
+        ollamaUrl: OLLAMA_URL,
+      },
+    },
+  );
+  console.log(report.markdown());
+  return 0;
+}
+
+main()
+  .then((code) => {
+    process.exitCode = code;
+  })
+  .catch((err: unknown) => {
+    if (err instanceof EvalFailure) {
+      console.log(err.report.markdown());
+      process.exitCode = 1;
+      return;
+    }
+    console.error(err);
+    process.exitCode = 1;
+  });

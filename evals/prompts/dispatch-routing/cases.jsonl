@@ -1,0 +1,9 @@
+{"name":"map-retry-backoff","input":"Where does the repo handle retry backoff? Find every call site and sketch the flow between them.","expect":{"route":"explorer","decoys":["coder","planner"]}}
+{"name":"plan-offline-mode","input":"We need offline mode. Write a build plan with phases, risks, and acceptance criteria.","expect":{"route":"planner","decoys":["coder","explorer"]}}
+{"name":"fix-token-refresh","input":"There's a bug in the login flow: the token refresh silently fails. Fix it and add a regression test.","expect":{"route":"coder","decoys":["explorer","reviewer"]}}
+{"name":"review-ship-diff","input":"Review the attached diff for correctness and edge cases before we ship it.","expect":{"route":"reviewer","decoys":["coder"]}}
+{"name":"design-settings-cramped","input":"The settings screen looks cramped. Update the design tokens and spacing rules.","expect":{"route":"designer","decoys":["coder","explorer"]}}
+{"name":"doc-storage-layer","input":"Write the architecture doc for the new storage layer, covering the write path and failure modes.","expect":{"route":"shakespeare","decoys":["explorer","planner"]}}
+{"name":"audit-permissions-boundary","input":"Audit the new permissions boundary for trust issues and secret exposure.","expect":{"route":"warden","decoys":["reviewer"]}}
+{"name":"probe-latency-percentiles","input":"Measure latency percentiles for the new model endpoint across 200 requests and report the distribution.","expect":{"route":"prober","decoys":["qa-lead","reviewer"]}}
+{"name":"qa-onboarding-run","input":"Run the CLI through the onboarding flow end to end and show it works with a pass/fail record.","expect":{"route":"qa-lead","decoys":["prober","coder"]}}
