@@ -675,7 +675,13 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
     // Stamp last* only on success: a failed /clear factory would otherwise
     // make the retry look like the same session and inherit stale extras.
     if (!inheritFromPrev) stickyFromStore = undefined;
-    const { storage, audit } = await createSessionStores(workdir);
+    // The session id is the store's stable owner identity: a resumed session
+    // recognizes the on-disk ownership marker as its own, so its rewrites
+    // (compaction) stay canonical on the shared transcript instead of being
+    // diverted as foreign.
+    const { storage, audit } = await createSessionStores(workdir, {
+      ownerId: sessionId,
+    });
     // Primary-only: workers never pass evidenceArchiveHolder, so they keep
     // plain storage without admission / authorize recording wraps.
     const archiveHolder = wiring.evidenceArchiveHolder;
