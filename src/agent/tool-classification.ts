@@ -31,15 +31,18 @@ export const SEARCH_QUERY_TOOLS: ReadonlySet<string> = new Set([
 
 /**
  * Tools that never need an approval prompt (cannot change the workspace):
- * the director's read surface minus run_shell/web_fetch/web_search, which
- * have their own narrower auto-allow rules, plus manage_tasks.
+ * the director's read surface minus run_shell, which has its own narrower
+ * auto-allow rules, plus manage_tasks.
+ * web_fetch/web_search are included deliberately: both are workspace-inert
+ * network reads (web_fetch is http/https-only with an SSRF guard at the
+ * tool layer; web_search is a keyless hosted query), so fetching docs must
+ * not block where a grep does not. Per-URL/per-query grant keying in
+ * buildRequests is untouched, so an explicit future restriction still scopes
+ * grants the same way.
  * SECURITY-RELEVANT: a tool added here is auto-approved everywhere; make
  * membership changes deliberately, not by accident.
  */
 export const AUTO_ALLOW_READ_TOOLS: ReadonlySet<string> = new Set([
-  ...DIRECTOR_READ_TOOLS.filter(
-    (tool) =>
-      tool !== "run_shell" && tool !== "web_fetch" && tool !== "web_search",
-  ),
+  ...DIRECTOR_READ_TOOLS.filter((tool) => tool !== "run_shell"),
   "manage_tasks",
 ]);

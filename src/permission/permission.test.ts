@@ -482,6 +482,9 @@ describe("classifyTool", () => {
     expect(classifyTool("read_file")).toBe("allow");
     expect(classifyTool("grep")).toBe("allow");
     expect(classifyTool("lsp")).toBe("allow");
+    // Workspace-inert network reads need no yolo and no prompt.
+    expect(classifyTool("web_fetch")).toBe("allow");
+    expect(classifyTool("web_search")).toBe("allow");
     expect(classifyTool("mcp__linear__list_teams")).toBe("allow");
     expect(classifyTool("mcp__linear__save_issue")).toBe("ask");
     expect(classifyTool("run_shell")).toBe("ask");
@@ -507,6 +510,8 @@ describe("classifyTool", () => {
   test("default. prefix and doubled catalog names classify like dispatch names", () => {
     expect(classifyTool("default.read_file")).toBe("allow");
     expect(classifyTool("read_file.read_file")).toBe("allow");
+    expect(classifyTool("default.web_fetch")).toBe("allow");
+    expect(classifyTool("web_search.web_search")).toBe("allow");
     expect(classifyTool("default.mcp__linear__list_teams")).toBe("allow");
     expect(classifyTool("default.mcp__linear__save_issue")).toBe("ask");
     expect(
@@ -608,6 +613,64 @@ describe("buildRequests", () => {
     // The raw identifier stays as the subject/pattern so approval matching is unaffected.
     expect(req.subject).toBe("mcp__acme__list_projects");
     expect(req.scopes[0]?.pattern).toBe("mcp__acme__list_projects");
+  });
+});
+
+describe("web_search/web_fetch auto-allow without yolo", () => {
+  const fetchCall = (id = "c"): ToolCall =>
+    toolCall("web_fetch", { url: "https://example.com/docs" }, id);
+  const searchCall = (id = "c"): ToolCall =>
+    toolCall("web_search", { query: "hono.dev web framework" }, id);
+
+  test("interactive gate allows both with no prompt", async () => {
+    const { gate, asked } = gatedPrompts({ allow: true });
+    expect(await gate.evaluate(fetchCall())).toEqual({ allowed: true });
+    expect(await gate.evaluate(searchCall())).toEqual({ allowed: true });
+    expect(asked.count).toBe(0);
+  });
+
+  test("auto-mode gate allows both with no prompt", async () => {
+    const { gate, asked } = gatedPrompts({ allow: true }, { auto: true });
+    expect(await gate.evaluate(fetchCall())).toEqual({ allowed: true });
+    expect(await gate.evaluate(searchCall())).toEqual({ allowed: true });
+    expect(asked.count).toBe(0);
+  });
+
+  test("headless gate allows both instead of denying", async () => {
+    let denied = 0;
+    const gate = createGate({
+      interactive: false,
+      onHeadlessDeny: () => {
+        denied++;
+      },
+    });
+    expect(await gate.evaluate(fetchCall())).toEqual({ allowed: true });
+    expect(await gate.evaluate(searchCall())).toEqual({ allowed: true });
+    expect(denied).toBe(0);
+  });
+
+  test("reactor path allows both without suspending", async () => {
+    const { gate, asked } = gatedPrompts(
+      { allow: true },
+      { reactorGated: true },
+    );
+    expect(await gate.authorizeCall(fetchCall())).toEqual({ effect: "allow" });
+    expect(await gate.authorizeCall(searchCall())).toEqual({ effect: "allow" });
+    expect(asked.count).toBe(0);
+  });
+
+  test("shell installs still ask: no prompt broadening", async () => {
+    const { gate, asked } = gatedPrompts(
+      { allow: true },
+      { reactorGated: true },
+    );
+    const verdict = await gate.authorizeCall(shellCall("npm install express"));
+    if (verdict.effect !== "ask")
+      throw new Error("expected npm install to still suspend for approval");
+    expect(asked.count).toBe(0);
+    const headless = createGate({ interactive: false });
+    const denied = await headless.evaluate(shellCall("npm install express"));
+    expect(denied.allowed).toBe(false);
   });
 });
 
@@ -1550,20 +1613,20 @@ describe("createPermissionGate", () => {
 
   // The reactor retries a denied ask-tier call with a fresh tool_call.id; the
   // retry must deny with the identical cached reason, or the loop never settles.
-  test("headless denies a same-URL web_fetch retry with the identical reason", async () => {
+  test("headless denies a same-path write_file retry with the identical reason", async () => {
     const gate = createGate({
       interactive: false,
     });
-    const fetch = (id: string, url: string) =>
+    const write = (id: string, path: string) =>
       gate.evaluate({
         id,
-        name: "web_fetch",
-        arguments: { url, format: "markdown" },
+        name: "write_file",
+        arguments: { path, content: "x" },
       });
-    const first = await fetch("call_0", "https://example.com/docs");
-    const retry = await fetch("call_1", "https://example.com/docs");
+    const first = await write("call_0", "src/docs.md");
+    const retry = await write("call_1", "src/docs.md");
     if (first.allowed || retry.allowed)
-      throw new Error("expected both web_fetch calls denied");
+      throw new Error("expected both write_file calls denied");
     expect(retry.reason).toBe(first.reason);
   });
 
@@ -1574,25 +1637,25 @@ describe("createPermissionGate", () => {
       { allow: false },
       { reactorGated: true },
     );
-    const args = { url: "https://example.com/docs", format: "markdown" };
-    const first = await gate.authorizeCall(toolCall("web_fetch", args));
+    const args = { path: "src/docs.md", content: "x" };
+    const first = await gate.authorizeCall(toolCall("write_file", args));
     if (first.effect !== "ask")
       throw new Error("expected the first call to suspend for approval");
     const outcome = await gate.resolveSuspended(first.request);
     expect(outcome?.allow).toBe(false);
     expect(asked.count).toBe(1);
-    const retry = await gate.authorizeCall(toolCall("web_fetch", args));
+    const retry = await gate.authorizeCall(toolCall("write_file", args));
     if (retry.effect !== "deny")
       throw new Error("expected the retry denied from denial memory");
     const { gate: middleware, asked: middlewareAsked } = gatedPrompts({
       allow: false,
     });
-    const verdict = await middleware.evaluate(toolCall("web_fetch", args));
+    const verdict = await middleware.evaluate(toolCall("write_file", args));
     if (verdict.allowed)
       throw new Error("expected the middleware call declined");
     expect(middlewareAsked.count).toBe(1);
     expect(retry.reason).toBe(verdict.reason);
-    const retryAgain = await gate.authorizeCall(toolCall("web_fetch", args));
+    const retryAgain = await gate.authorizeCall(toolCall("write_file", args));
     if (retryAgain.effect !== "deny")
       throw new Error("expected the second retry denied");
     expect(retryAgain.reason).toBe(retry.reason);
@@ -1600,21 +1663,23 @@ describe("createPermissionGate", () => {
   });
 
   test("aliased-name decline is cached: default. prefix retry denies without re-asking", async () => {
-    const args = { url: "https://example.com/docs", format: "markdown" };
+    const args = { path: "src/docs.md", content: "x" };
     const { gate: middleware, asked } = gatedPrompts({ allow: false });
     const first = await middleware.evaluate(
-      toolCall("default.web_fetch", args),
+      toolCall("default.write_file", args),
     );
     if (first.allowed) throw new Error("expected the aliased call declined");
     expect(asked.count).toBe(1);
     const aliasedRetry = await middleware.evaluate(
-      toolCall("default.web_fetch", args),
+      toolCall("default.write_file", args),
     );
     if (aliasedRetry.allowed)
       throw new Error("expected the aliased retry denied from denial memory");
     expect(asked.count).toBe(1);
     expect(aliasedRetry.reason).toBe(first.reason);
-    const catalogRetry = await middleware.evaluate(toolCall("web_fetch", args));
+    const catalogRetry = await middleware.evaluate(
+      toolCall("write_file", args),
+    );
     if (catalogRetry.allowed)
       throw new Error("expected the catalog retry denied from denial memory");
     expect(asked.count).toBe(1);
@@ -1625,7 +1690,7 @@ describe("createPermissionGate", () => {
       { reactorGated: true },
     );
     const suspended = await reactor.authorizeCall(
-      toolCall("default.web_fetch", args),
+      toolCall("default.write_file", args),
     );
     if (suspended.effect !== "ask")
       throw new Error("expected the aliased call to suspend for approval");
@@ -1633,7 +1698,7 @@ describe("createPermissionGate", () => {
     expect(outcome?.allow).toBe(false);
     expect(reactorAsked.count).toBe(1);
     const retry = await reactor.authorizeCall(
-      toolCall("default.web_fetch", args),
+      toolCall("default.write_file", args),
     );
     if (retry.effect !== "deny")
       throw new Error(
@@ -1654,14 +1719,14 @@ describe("createPermissionGate", () => {
         return { allow: false, message: APPROVAL_TIMEOUT_RESULT_TEXT };
       },
     });
-    const args = { url: "https://example.com/docs", format: "markdown" };
-    const first = await gate.authorizeCall(toolCall("web_fetch", args));
+    const args = { path: "src/docs.md", content: "x" };
+    const first = await gate.authorizeCall(toolCall("write_file", args));
     if (first.effect !== "ask")
       throw new Error("expected the first call to suspend for approval");
     const outcome = await gate.resolveSuspended(first.request);
     expect(outcome?.allow).toBe(false);
     expect(asked).toBe(1);
-    const retry = await gate.authorizeCall(toolCall("web_fetch", args));
+    const retry = await gate.authorizeCall(toolCall("write_file", args));
     if (retry.effect !== "ask")
       throw new Error("expected the retry to re-ask after a timeout");
     expect(asked).toBe(1);
@@ -1671,7 +1736,7 @@ describe("createPermissionGate", () => {
   // populates denial memory. Timeouts, aborts, and missing outcomes are never
   // cached — no decision was made, so a fresh-id retry re-asks.
   test("middleware-path timeout/abort/missing outcomes are not cached: retry re-asks", async () => {
-    const args = { url: "https://example.com/docs", format: "markdown" };
+    const args = { path: "src/docs.md", content: "x" };
     const outcomes: { name: string; outcome: ApprovalOutcome | undefined }[] = [
       {
         name: "timeout",
@@ -1694,35 +1759,35 @@ describe("createPermissionGate", () => {
           return outcome as ApprovalOutcome;
         },
       });
-      const first = await gate.evaluate(toolCall("web_fetch", args));
+      const first = await gate.evaluate(toolCall("write_file", args));
       if (first.allowed)
         throw new Error(`expected the first ${name} call denied`);
-      const retry = await gate.evaluate(toolCall("web_fetch", args));
+      const retry = await gate.evaluate(toolCall("write_file", args));
       if (retry.allowed)
         throw new Error(`expected the ${name} retry denied after re-asking`);
       expect(asked).toBe(2);
     }
   });
 
-  // Distinct URLs deny independently; reset() clears denial memory so the
+  // Distinct paths deny independently; reset() clears denial memory so the
   // next turn re-denies with no stale state.
-  test("headless denies distinct web_fetch URLs independently; reset clears denials", async () => {
+  test("headless denies distinct write_file paths independently; reset clears denials", async () => {
     const gate = createGate({
       interactive: false,
     });
-    const fetch = (id: string, url: string) =>
+    const write = (id: string, path: string) =>
       gate.evaluate({
         id,
-        name: "web_fetch",
-        arguments: { url, format: "markdown" },
+        name: "write_file",
+        arguments: { path, content: "x" },
       });
-    const first = await fetch("call_0", "https://example.com/first");
-    const other = await fetch("call_1", "https://example.com/second");
+    const first = await write("call_0", "src/first.md");
+    const other = await write("call_1", "src/second.md");
     if (first.allowed || other.allowed)
-      throw new Error("expected both web_fetch calls denied");
+      throw new Error("expected both write_file calls denied");
     gate.reset();
-    const again = await fetch("call_2", "https://example.com/first");
-    if (again.allowed) throw new Error("expected the re-fetch denied");
+    const again = await write("call_2", "src/first.md");
+    if (again.allowed) throw new Error("expected the re-write denied");
     expect(again.reason).toBe(first.reason);
   });
 
