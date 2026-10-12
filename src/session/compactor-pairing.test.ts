@@ -61,7 +61,6 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       // Pin a tiny tail budget so the fold covers the older region the old
       // keepRecentTurns cut.
       compactionShape: { tailBudgetTokens: 120 },
-      maxAnchorTurns: 2,
     });
     const { output } = await compactor.apply(turns, {} as never);
     expect(() => assertWellFormedToolSequence(output)).not.toThrow();
@@ -84,7 +83,6 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       // Pin a tiny tail budget so the fold covers the older region the old
       // keepRecentTurns cut.
       compactionShape: { tailBudgetTokens: 120 },
-      maxAnchorTurns: 2,
     });
     const { output } = await compactor.apply(turns, {} as never);
     expect(() => assertWellFormedToolSequence(output)).not.toThrow();
@@ -129,7 +127,6 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       // Pin a tiny tail budget so the fold covers the older region the old
       // keepRecentTurns cut.
       compactionShape: { tailBudgetTokens: 120 },
-      maxAnchorTurns: 2,
     });
     const { output } = await compactor.apply(turns, {} as never);
     const kept = output.find((t) =>
@@ -182,7 +179,6 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       // Pin a tiny tail budget so the fold covers the older region the old
       // keepRecentTurns cut.
       compactionShape: { tailBudgetTokens: 120 },
-      maxAnchorTurns: 2,
     });
     const { output } = await compactor.apply(turns, {} as never);
     const kept = output.find((t) =>
@@ -208,7 +204,7 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       ],
       timestamp: 1,
     };
-    const summary = buildTurnSummary([big], 2000, 0);
+    const summary = buildTurnSummary([big], 2000);
     const tokens = Number(summary.match(/Estimated tokens: ~(\d+)/)?.[1] ?? -1);
     // A 100KB text result is ~25000 tokens; the old String(content) bug yielded ~4.
     expect(tokens).toBeGreaterThan(20000);
@@ -285,7 +281,6 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
     const compactor = createPruningCompactor({
       // Whole transcript is the tail so stubbing still runs with no summarized region.
       compactionShape: TAIL_SWALLOWS_TRANSCRIPT,
-      maxAnchorTurns: 2,
     });
     const { output } = await compactor.apply(turns, {} as never);
 
@@ -317,7 +312,6 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
     ];
     const compactor = createPruningCompactor({
       compactionShape: TAIL_SWALLOWS_TRANSCRIPT,
-      maxAnchorTurns: 2,
     });
     const { output } = await compactor.apply(turns, {} as never);
 
@@ -345,7 +339,6 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
     // Newest pair + end fit the token budget; the older pair is summarized.
     const compactor = createPruningCompactor({
       compactionShape: { tailBudgetTokens: 80 },
-      maxAnchorTurns: 0,
     });
     const { output } = await compactor.apply(turns, {} as never);
     expect(resultText(output, "old")).toBeUndefined();
@@ -391,7 +384,6 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
     ];
     const compactor = createPruningCompactor({
       compactionShape: TAIL_SWALLOWS_TRANSCRIPT,
-      maxAnchorTurns: 2,
     });
     const { output } = await compactor.apply(turns, {} as never);
     expect(resultText(output, "r1")).toBe(body1);
@@ -438,7 +430,6 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
     ];
     const compactor = createPruningCompactor({
       compactionShape: TAIL_SWALLOWS_TRANSCRIPT,
-      maxAnchorTurns: 2,
     });
     const { output } = await compactor.apply(turns, {} as never);
     const older = resultText(output, "r1");
@@ -504,7 +495,6 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
       ];
       const compactor = createPruningCompactor({
         compactionShape: TAIL_SWALLOWS_TRANSCRIPT,
-        maxAnchorTurns: 2,
       });
       const { output } = await compactor.apply(turns, {} as never);
       const older = resultText(output, "q1");
@@ -531,7 +521,6 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
     ];
     const compactor = createPruningCompactor({
       compactionShape: TAIL_SWALLOWS_TRANSCRIPT,
-      maxAnchorTurns: 2,
     });
     const { output } = await compactor.apply(turns, {} as never);
     expect(resultText(output, "g1")).toBe(body1);
@@ -558,7 +547,6 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
     ];
     const compactor = createPruningCompactor({
       compactionShape: TAIL_SWALLOWS_TRANSCRIPT,
-      maxAnchorTurns: 2,
     });
     const { output } = await compactor.apply(turns, {} as never);
     expect(resultText(output, "sh1")).toBe(oldBody);
@@ -591,7 +579,6 @@ describe("CL-9489 budgeted tail does not ingest gap turns", () => {
     turns[turns.length - 1] = fatResult;
 
     const { output, record } = await createPruningCompactor({
-      maxAnchorTurns: 0,
       compactionShape: { tailBudgetTokens: 400 },
     }).apply(turns, {} as never);
 

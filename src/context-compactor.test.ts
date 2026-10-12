@@ -191,7 +191,6 @@ describe("createPruningCompactor — initiating task preservation", () => {
 
   test("keeps alternating roles when a tool_result user turn abuts a plain user turn", async () => {
     const compactor = smallCompactor({
-      maxAnchorTurns: 3,
       summaryMaxChars: 500,
     });
     const turns: ConversationTurn[] = [
@@ -255,7 +254,6 @@ describe("createPruningCompactor — image aging", () => {
 
   test("strips image bytes from an anchored (aged) turn but keeps its text", async () => {
     const compactor = smallCompactor({
-      maxAnchorTurns: 1,
       summaryMaxChars: 500,
     });
     const turns: ConversationTurn[] = [
@@ -421,7 +419,6 @@ describe("createPruningCompactor — error anchoring (CL-6906)", () => {
       ...padding(8, "after"),
     ];
     const compactor = smallCompactor({
-      maxAnchorTurns: 8,
       summaryMaxChars: 2000,
     });
     const { output } = await compactor.apply(turns, mockStrategyCtx);
@@ -467,7 +464,6 @@ describe("createPruningCompactor — error anchoring (CL-6906)", () => {
       ...padding(8, "after"),
     ];
     const compactor = smallCompactor({
-      maxAnchorTurns: 8,
       summaryMaxChars: 2000,
     });
     const { output, blobs } = await compactor.apply(turns, mockStrategyCtx);
@@ -527,7 +523,6 @@ describe("createPruningCompactor — error anchoring (CL-6906)", () => {
       ...padding(8, "after"),
     ];
     const compactor = smallCompactor({
-      maxAnchorTurns: 8,
       summaryMaxChars: 2000,
     });
     const { output, record } = await compactor.apply(turns, mockStrategyCtx);
@@ -654,7 +649,6 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
 
   test("second apply keeps the initiating task in the handoff, not as a live user turn", async () => {
     const compactor = smallCompactor({
-      maxAnchorTurns: 1,
       summaryMaxChars: 500,
     });
     const goal = "GOAL: migrate the auth module to opaque tokens";
@@ -759,7 +753,6 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
   test("empty-fold keep-set returns the input unchanged", async () => {
     const compactor = smallCompactor({
       tailBudgetTokens: 500,
-      maxAnchorTurns: 8,
       summaryMaxChars: 500,
     });
     const turns: ConversationTurn[] = [

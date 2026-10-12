@@ -49,8 +49,6 @@ export interface CompactorConfig {
   /** Previous fat handoff body: the next fold unions its files/commands and
    * full goal text rather than spine cuts. */
   readPriorHandoff?: () => Promise<string | undefined>;
-  // Kept for compatibility; the live fold keeps spine + token-capped tail.
-  maxAnchorTurns: number;
   /** Budgeted-tail shape (token budget, not turn-count floor). Missing
    * fields resolve against DEFAULT_TAIL_COMPACTION_SHAPE. */
   compactionShape?: Partial<CompactionShape>;
@@ -103,7 +101,6 @@ export const HARNESS_COMPACT_SPACER_MODEL = "harness";
 
 const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
   summaryMaxChars: 2000,
-  maxAnchorTurns: 8,
 };
 
 function extraInstructionParameter(
@@ -393,7 +390,7 @@ function buildPartnerIndex(
 }
 
 function isFoldableHandoffTurn(turn: ConversationTurn): boolean {
-  return isCompactedSummaryTurn(turn) || isCompactSpacerTurn(turn);
+  return isCompactedSummaryTurn(turn) || isHarnessCompactSpacer(turn);
 }
 
 function resultContentSize(
@@ -528,8 +525,8 @@ function coalesceAdjacentTextTurns(
       isPlainTextTurn(turn) &&
       !isCompactedSummaryTurn(prev) &&
       !isCompactedSummaryTurn(turn) &&
-      !isCompactSpacerTurn(prev) &&
-      !isCompactSpacerTurn(turn)
+      !isHarnessCompactSpacer(prev) &&
+      !isHarnessCompactSpacer(turn)
     ) {
       out[out.length - 1] = {
         ...prev,
@@ -602,10 +599,6 @@ export function isHarnessCompactSpacer(turn: ConversationTurn): boolean {
   if (text === undefined || !isCompactSpacerSentinel(text)) return false;
   if (turn.model === HARNESS_COMPACT_SPACER_MODEL) return true;
   return turn.model === undefined && text === LEGACY_COMPACT_SPACER_TEXT;
-}
-
-function isCompactSpacerTurn(turn: ConversationTurn): boolean {
-  return isHarnessCompactSpacer(turn);
 }
 
 function compactSpacerTurn(timestamp: number): ConversationTurn {
@@ -1131,7 +1124,6 @@ export function createPruningCompactor(
           version: this.version,
           parameters: {
             summaryMaxChars: cfg.summaryMaxChars,
-            maxAnchorTurns: cfg.maxAnchorTurns,
             compactionShape: shape,
             ...extraInstructionParameter(cfg),
           },
@@ -1173,7 +1165,6 @@ export function createPruningCompactor(
 export function buildTurnSummary(
   turns: ConversationTurn[],
   maxChars: number,
-  anchorCount = 0,
 ): string {
   const toolNames = new Set<string>();
   let totalTokens = 0;
@@ -1202,7 +1193,7 @@ export function buildTurnSummary(
   }
 
   const lines: string[] = [
-    `Turns compacted: ${turns.length}${anchorCount > 0 ? ` (${anchorCount} anchor turns preserved separately)` : ""}`,
+    `Turns compacted: ${turns.length}`,
     `Estimated tokens: ~${totalTokens}`,
     `Tools called: ${[...toolNames].sort().join(", ")}`,
     `Total tool calls: ${toolCallCount}`,
