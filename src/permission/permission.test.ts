@@ -19,7 +19,7 @@ import {
   stripCommentLines,
 } from "./command.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
-import { evaluateApprovals } from "./authz-grants.js";
+import { approvalCoversSubject } from "./authz-grants.js";
 import {
   classifyTool,
   buildRequests,
@@ -360,7 +360,7 @@ describe("matchesPattern directory-grant traversal (CL-8989)", () => {
   });
 });
 
-describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
+describe("approvalCoversSubject (@intx/authz evaluateGrants)", () => {
   const approvals: Approval[] = [
     { tool: "run_shell", pattern: "npm *" },
     { tool: "write_file", pattern: "src/*" },
@@ -374,7 +374,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
 
   test("allows package-compatible wildcard grants", async () => {
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "run_shell",
         subject: "npm test",
         approvals,
@@ -382,7 +382,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
       }),
     ).toBe(true);
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "run_shell",
         subject: "curl x",
         approvals,
@@ -390,7 +390,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
       }),
     ).toBe(false);
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "write_file",
         subject: "src/a.ts",
         approvals,
@@ -407,7 +407,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
     ];
     const workspace = { resolvedCwd: "/proj", roots: [] as string[] };
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "write_file",
         subject: "/proj/sub/nested/file.txt",
         approvals: dirApprovals,
@@ -420,7 +420,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
       "/proj/sub//../evil",
     ]) {
       expect(
-        await evaluateApprovals({
+        await approvalCoversSubject({
           tool: "write_file",
           subject,
           approvals: dirApprovals,
@@ -432,7 +432,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
 
   test("a grant for read_file covers default.read_file", async () => {
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "default.read_file",
         subject: "src/a.ts",
         approvals: [{ tool: "read_file", pattern: "src/*" }],
@@ -443,7 +443,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
 
   test("a grant for an MCP tool covers the default. prefixed name", async () => {
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "default.mcp__linear__save_issue",
         subject: "mcp__linear__save_issue",
         approvals: [
@@ -459,7 +459,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
 
   test("allows exact-escaped grants without treating * as a wildcard", async () => {
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "run_shell",
         subject: "rm -rf build/*",
         approvals,
@@ -467,7 +467,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
       }),
     ).toBe(true);
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "run_shell",
         subject: "rm -rf build/../../etc",
         approvals,
@@ -2643,7 +2643,7 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
       ).toBe(true);
     }
     // One call seeds the initial (empty) roots; the debounce window suppresses
-    // every forced refresh inside it.
+    // every later refresh inside it.
     expect(listCalls).toBe(1);
   });
 
@@ -2659,8 +2659,8 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
     const outside = mkdtempSync(join(tmpdir(), "corbits-window-"));
     expect(restriction.isRestricted(join(outside, "a.ts"), false)).toBe(true);
     expect(restriction.isRestricted(join(outside, "b.ts"), false)).toBe(true);
-    // A zero-width window makes the initial listing plus one forced refresh
-    // per check both eligible.
+    // A zero-width window makes the initial listing plus one refresh per check
+    // both eligible.
     expect(listCalls).toBeGreaterThan(1);
   });
 
@@ -2675,7 +2675,7 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
     };
     const provider = createWorktreeRootsProvider(repo, () => lister(), 0);
     expect(provider()).toEqual([removed]);
-    expect(provider(true)).toEqual([]);
+    expect(provider()).toEqual([]);
   });
 });
 

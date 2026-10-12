@@ -4,7 +4,7 @@ import { isToolOutputLike } from "../util/tool-output-uri.js";
 import { isArchiveLike } from "../session/compaction-archive.js";
 import { resolveWorkspacePath } from "../permission/path-restriction.js";
 import {
-  realpathOr,
+  realpathOrOriginal,
   type RootsProvider,
 } from "../permission/worktree-roots.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
@@ -47,9 +47,9 @@ function rootsForEscape(
   ) {
     return rootsProvider;
   }
-  return (refresh?: boolean) => [
-    ...rootsProvider(refresh),
-    ...trustedPluginRoots(refresh).map(realpathOr),
+  return () => [
+    ...rootsProvider(),
+    ...trustedPluginRoots().map(realpathOrOriginal),
   ];
 }
 

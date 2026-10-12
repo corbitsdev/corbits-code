@@ -1,7 +1,7 @@
 import { lstatSync, readlinkSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
-import type { RootsProvider } from "./worktree-roots.js";
+import { realpathOrOriginal, type RootsProvider } from "./worktree-roots.js";
 import { projectSessionsRoot } from "../session/project-key.js";
 
 // Paths the agent must not touch without explicit operator approval, even
@@ -25,14 +25,6 @@ export interface PathRestriction {
 }
 
 const LEGACY_STATE_DIR = ".agent-state";
-
-function realpathOr(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return path;
-  }
-}
 
 // Sentinel from realpathNearestOr for a path that exists but cannot be
 // resolved (dangling symlink or loop). Contains a NUL byte, which can never
@@ -154,10 +146,9 @@ function isResolvedPathInWorkspace(
   rootsProvider: RootsProvider,
 ): boolean {
   if (real === UNRESOLVABLE) return false;
-  const realCwd = realpathOr(resolve(cwd));
+  const realCwd = realpathOrOriginal(resolve(cwd));
   if (real === realCwd || real.startsWith(realCwd + sep)) return true;
   if (inKnownRoots(real, rootsProvider())) return true;
-  if (inKnownRoots(real, rootsProvider(true))) return true;
   return false;
 }
 
@@ -180,14 +171,14 @@ export function isPermittedSiblingWorktreePath(
   if (path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path)) return false;
 
   const abs = resolve(cwd, path);
-  const realParent = realpathOr(dirname(abs));
-  const realHome = realpathOr(resolve(home));
+  const realParent = realpathOrOriginal(dirname(abs));
+  const realHome = realpathOrOriginal(resolve(home));
   if (realParent === realHome) return false;
 
-  const knownRoots = [...rootsProvider(), ...rootsProvider(true)];
+  const knownRoots = rootsProvider();
   const trustedParents = new Set<string>([
-    realpathOr(resolve(cwd, "..")),
-    ...knownRoots.map((root) => realpathOr(dirname(root))),
+    realpathOrOriginal(resolve(cwd, "..")),
+    ...knownRoots.map((root) => realpathOrOriginal(dirname(root))),
   ]);
   return trustedParents.has(realParent);
 }
@@ -226,8 +217,8 @@ export function createPathRestriction(
     isRestricted: (path: string, isWrite: boolean): boolean => {
       const abs = resolve(cwd, path);
       const cacheKey = `${isWrite ? "w" : "r"}:${abs}`;
-      // Use realpathNearestOr rather than realpathOr: for a not-yet-created
-      // target, realpathOr returns the raw path unchanged — the same cache key
+      // Use realpathNearestOr rather than realpathOrOriginal: for a not-yet-created
+      // target, realpathOrOriginal returns the raw path unchanged — the same cache key
       // before and after a symlink retarget. realpathNearestOr resolves the
       // nearest existing ancestor, so the key changes when a symlink flips.
       const currentRealpath = realpathNearestOr(abs);

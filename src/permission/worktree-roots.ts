@@ -30,7 +30,7 @@ function gitWorktreeList(cwd: string): Promise<string> {
 // compares like with like. Exported so other permission-layer code comparing
 // a path against these roots (e.g. grant cwd matching in authz-grants.ts)
 // normalizes through the same function rather than reimplementing it.
-export function realpathOr(path: string): string {
+export function realpathOrOriginal(path: string): string {
   try {
     return realpathSync(path);
   } catch {
@@ -42,9 +42,11 @@ function parseWorktreePorcelain(stdout: string, cwd: string): string[] {
   const roots: string[] = [];
   for (const line of stdout.split("\n")) {
     if (line.startsWith("worktree "))
-      roots.push(realpathOr(resolve(line.slice("worktree ".length).trim())));
+      roots.push(
+        realpathOrOriginal(resolve(line.slice("worktree ".length).trim())),
+      );
   }
-  const self = realpathOr(resolve(cwd));
+  const self = realpathOrOriginal(resolve(cwd));
   return roots.filter((root) => root !== self);
 }
 
@@ -78,12 +80,10 @@ export function listWorktreeRootsSync(cwd: string): string[] {
   }
 }
 
-// Called with no argument to read the current best-known roots, or with
-// `true` to ask for a refresh before reading. A refresh request only actually
-// re-lists when the debounce window has elapsed since the last one — so a
-// burst of refresh requests (e.g. several foreign-path checks in a row)
-// shells out to git at most once per window.
-export type RootsProvider = (forceRefresh?: boolean) => readonly string[];
+// Called to read the current best-known roots; re-lists only when the debounce
+// window has elapsed since the last read, so a burst of checks (e.g. several
+// foreign-path checks in a row) shells out to git at most once per window.
+export type RootsProvider = () => readonly string[];
 
 const DEFAULT_DEBOUNCE_MS = 3000;
 
@@ -99,7 +99,7 @@ export function createWorktreeRootsProvider(
   let roots: string[] | undefined;
   let lastRefreshAt = -Infinity;
 
-  return (forceRefresh = false): readonly string[] => {
+  return (): readonly string[] => {
     if (roots === undefined) {
       roots = lister(cwd);
       lastRefreshAt = Date.now();
@@ -107,12 +107,10 @@ export function createWorktreeRootsProvider(
     }
     const now = Date.now();
     const due = now - lastRefreshAt >= debounceMs;
-    if (due || forceRefresh) {
-      if (due) {
-        lastRefreshAt = now;
-        // Replace the cache wholesale so roots git no longer lists are evicted.
-        roots = lister(cwd);
-      }
+    if (due) {
+      lastRefreshAt = now;
+      // Replace the cache wholesale so roots git no longer lists are evicted.
+      roots = lister(cwd);
     }
     return roots;
   };

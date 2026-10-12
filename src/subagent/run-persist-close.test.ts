@@ -153,7 +153,7 @@ describe("worker persist reaps leftover registry children", () => {
     const cwd = await tmpSubAgentCwd("corbits-worker-persist-reap-");
     const token = `ic_worker_persist_${randomUUID()}`;
     let registry: BackgroundShellRegistry | undefined;
-    const disposeReasons: string[] = [];
+    let disposeAllCalls = 0;
 
     await withMockedModuleDuring(
       import.meta.resolve("../shell/background-shell.js"),
@@ -165,9 +165,9 @@ describe("worker persist reaps leftover registry children", () => {
           const inner = real.createBackgroundShellRegistry(opts);
           const wrapped: BackgroundShellRegistry = {
             ...inner,
-            disposeAll: (reason: string) => {
-              disposeReasons.push(reason);
-              inner.disposeAll(reason);
+            disposeAll: () => {
+              disposeAllCalls += 1;
+              inner.disposeAll();
             },
           };
           registry = wrapped;
@@ -215,14 +215,14 @@ describe("worker persist reaps leftover registry children", () => {
                 }),
               );
               expect(result.agentRetained).toBe(true);
-              expect(disposeReasons).toEqual(["sub-agent closed"]);
+              expect(disposeAllCalls).toBe(1);
               const captured = defined(registry);
               expect(captured.runningCount()).toBe(0);
               if (process.platform !== "win32") {
                 await waitUntilGone(token);
               }
             } finally {
-              registry?.disposeAll("test done");
+              registry?.disposeAll();
               await handles
                 .peek()
                 ?.close(1000)

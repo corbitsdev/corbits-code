@@ -1527,7 +1527,7 @@ export async function createAgentToolset(
       const failures: unknown[] = [];
       // Kill live background process groups before the posix teardown so
       // reload/interrupt cannot leave orphans behind.
-      backgroundShells.disposeAll("session closed");
+      backgroundShells.disposeAll();
       try {
         await posixTools.dispose();
       } catch (err: unknown) {

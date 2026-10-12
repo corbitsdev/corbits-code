@@ -206,7 +206,7 @@ function bindRestrictedToProcessCwd(
 
 // Hard-deny and forced-ask checks a run_shell request must clear before grant
 // matching; no grant bypasses them. Shared by evaluate() and
-// isRequestCoveredByGrant (via segmentGuard), so a guard added here applies to
+// isRequestCoveredByApprovals (via segmentGuard), so a guard added here applies to
 // fresh requests and reconciliation alike.
 export function preGrantGuardReason(
   request: PermissionRequest,
@@ -252,7 +252,7 @@ export function preGrantGuardReason(
 // preGrantGuardReason sequence — so reconciliation never auto-approves
 // something evaluate() would still ask for or hard-deny. run_shell coverage
 // is per-segment; whole-string chain patterns never cover.
-export function isRequestCoveredByGrant(
+export function isRequestCoveredByApproval(
   request: PermissionRequest,
   approval: Approval,
   activeProviderModel: string | undefined,

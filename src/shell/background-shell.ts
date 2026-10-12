@@ -60,7 +60,7 @@ export interface BackgroundShellExit {
 export interface BackgroundShellRegistry {
   start: (args: StartBackgroundShellArgs) => { id: string } | { error: string };
   cancel: (id: string) => boolean;
-  disposeAll: (reason: string) => void;
+  disposeAll: () => void;
   runningCount: () => number;
 }
 
@@ -147,12 +147,11 @@ export function createBackgroundShellRegistry(
     return true;
   };
 
-  const disposeAll = (reason: string): void => {
+  const disposeAll = (): void => {
     for (const child of running.values()) killProcessTree(child);
     running.clear();
     // No onExit for disposed shells: the session is gone, so there is no later
     // turn to deliver to.
-    void reason;
   };
 
   return {

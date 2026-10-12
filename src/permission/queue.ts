@@ -1,7 +1,7 @@
 /**
  * Headless queued-approval reconciliation. When a grant widens mid-run, the
  * permission layer decides which already-queued requests it now covers and
- * settles them without a prompt (see isRequestCoveredByGrant in gate.ts,
+ * settles them without a prompt (see isRequestCoveredByApprovals in gate.ts,
  * which supplies the `covers` predicate this module drains against). A
  * rendering surface only enqueues its pending requests and dispatches
  * whatever settle calls come back — it never decides coverage itself.

@@ -288,7 +288,7 @@ describe("background run_shell (shellGuardPlugin)", () => {
     // The START call resolved while the child was still sleeping.
     expect(Date.now() - start).toBeLessThan(400);
     await recorder.waitFor(parsed.shell_id);
-    registry.disposeAll("test done");
+    registry.disposeAll();
   });
 
   test("without a registry wired, background fails closed and spawns nothing", async () => {
@@ -320,7 +320,7 @@ describe("background run_shell (shellGuardPlugin)", () => {
       neverAbort(),
     );
     expect(String(after.content).trim()).toBe(process.cwd());
-    registry.disposeAll("test done");
+    registry.disposeAll();
   });
 
   test("foreground run_shell is unchanged when background is unset", async () => {
@@ -333,7 +333,7 @@ describe("background run_shell (shellGuardPlugin)", () => {
     expect(result.isError).toBeUndefined();
     expect(String(result.content)).toContain("direct");
     expect(registry.runningCount()).toBe(0);
-    registry.disposeAll("test done");
+    registry.disposeAll();
   });
 
   test("background omitted timeout skips the foreground default", async () => {
@@ -362,7 +362,7 @@ describe("background run_shell (shellGuardPlugin)", () => {
     const exit = await recorder.waitFor(parsed.shell_id);
     expect(exit.timedOut).toBe(false);
     expect(exit.output).toContain("survived");
-    registry.disposeAll("test done");
+    registry.disposeAll();
   });
 
   test("an unwired shell-output feed spawns fine and paints no tail", async () => {

@@ -86,7 +86,7 @@ describe("background shell registry", () => {
     }
     const over = registry.start({ command: "sleep 30", cwd: tmpCwd });
     expect("error" in over).toBe(true);
-    registry.disposeAll("test done");
+    registry.disposeAll();
   });
 
   test("disposeAll kills running children without delivering an exit", async () => {
@@ -100,7 +100,7 @@ describe("background shell registry", () => {
       cwd: tmpCwd,
     });
     if ("error" in started) throw new Error(started.error);
-    registry.disposeAll("session closed");
+    registry.disposeAll();
     await waitUntilGone(token);
     expect(registry.runningCount()).toBe(0);
     expect(exits).toHaveLength(0);
@@ -126,7 +126,7 @@ describe("background shell registry", () => {
       expect(Date.now() - t0).toBeLessThan(2_000);
       expect(exit.exitCode).toBe(0);
     } finally {
-      registry.disposeAll("test done");
+      registry.disposeAll();
       spawnSync("pkill", ["-f", token]);
       await waitUntilGone(token);
     }

@@ -7,7 +7,7 @@ import {
 } from "../agent/canonical-tool-name.js";
 import type { Approval } from "./types.js";
 import { directoryGrantAllows, matchesPattern } from "./matcher.js";
-import { realpathOr } from "./worktree-roots.js";
+import { realpathOrOriginal } from "./worktree-roots.js";
 
 // Exact-escaped patterns (backslash before metacharacters) cannot round-trip
 // through @intx/authz matchPattern; they skip the package call and fall to
@@ -65,7 +65,7 @@ export function cwdMatchesGrant(
   if (requestCwd === undefined) return false;
   if (grantCwd !== workspace.resolvedCwd) return false;
   if (grantCwd === requestCwd) return true;
-  return workspace.roots.includes(realpathOr(requestCwd));
+  return workspace.roots.includes(realpathOrOriginal(requestCwd));
 }
 
 // Seeded grants enter in native key space: pure renames collapse onto the
@@ -84,8 +84,8 @@ export function normalizeSeededApprovals(
 }
 
 // Single owner for grant tool/providerModel/cwd scope coverage, independent
-// of pattern matching. Both live call sites (evaluateApprovals,
-// isRequestCoveredByGrant) delegate here so a scoping-dimension change lands
+// of pattern matching. Both live call sites (approvalCoversSubject,
+// isRequestCoveredByApprovals) delegate here so a scoping-dimension change lands
 // in one place.
 export function grantScopeMatches(
   approval: Approval,
@@ -164,11 +164,4 @@ export async function approvalCoversSubject(
 
   const decision = await evaluateGrants(grants, subject, action);
   return decision.effect === "allow";
-}
-
-// Grant-store evaluation entry point; delegates to approvalCoversSubject.
-export async function evaluateApprovals(
-  input: EvaluateApprovalsInput,
-): Promise<boolean> {
-  return approvalCoversSubject(input);
 }

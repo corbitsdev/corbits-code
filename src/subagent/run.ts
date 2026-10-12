@@ -1564,7 +1564,7 @@ async function runSubAgentInner(
     closeOnAbort = (): void => {
       // interrupt_agent is the keep-alive path: it never reaches here, so its
       // background children stay.
-      backgroundShells.disposeAll("parent abort");
+      backgroundShells.disposeAll();
       void (async () => {
         try {
           await agent?.close();
@@ -1592,7 +1592,7 @@ async function runSubAgentInner(
       ): Promise<void> => {
         if (!runController.signal.aborted)
           runController.abort(new Error("closed by close_agent"));
-        backgroundShells.disposeAll("closed by close_agent");
+        backgroundShells.disposeAll();
         try {
           await awaitBoundedTeardown(
             disposeSubAgentSession({
@@ -1896,7 +1896,7 @@ async function runSubAgentInner(
     // A persisted, cleanly-completed session skips teardown — it stays open
     // until close_agent (or a later failed/aborted run) tears it down.
     if (!persisting || !backgroundShellsMounted) {
-      backgroundShells.disposeAll("sub-agent closed");
+      backgroundShells.disposeAll();
     }
     if (!persisting) {
       // Bounded like close_agent: teardown wedged by a live shell descendant
