@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 import { findAll } from "./find-all.js";
+import { percentile } from "./percentile.js";
 
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -132,14 +133,6 @@ for (const file of files) {
 }
 
 runLengths.sort((a, b) => a - b);
-function percentile(p: number): number {
-  if (runLengths.length === 0) return 0;
-  const idx = Math.min(
-    runLengths.length - 1,
-    Math.floor((p / 100) * runLengths.length),
-  );
-  return runLengths[idx] as number;
-}
 
 console.log(
   JSON.stringify(
@@ -147,9 +140,9 @@ console.log(
       sessionFilesScanned: files.length,
       sessionsWithToolOnlyRun,
       totalToolOnlyRuns: runLengths.length,
-      runLengthP50: percentile(50),
-      runLengthP90: percentile(90),
-      runLengthP99: percentile(99),
+      runLengthP50: percentile(runLengths, 50),
+      runLengthP90: percentile(runLengths, 90),
+      runLengthP99: percentile(runLengths, 99),
       runLengthMax: runLengths[runLengths.length - 1] ?? 0,
       // Largest exact-repeat count observed per period; 1 means no repeat
       // beyond the base occurrence.

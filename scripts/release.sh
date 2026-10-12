@@ -47,7 +47,6 @@ TAP_REPO="corbitsdev/homebrew-tap"          # tap repo (formula)
 TAP_SLUG="corbitsdev/tap"                   # `brew tap' name of TAP_REPO
 BINARY="corbits"                            # CLI binary + tarball/deb stem
 BREW_FORMULA="corbits-code"                 # `brew install` name (file Formula/$BREW_FORMULA.rb)
-FORMULA="$BINARY"                           # legacy alias used in package paths
 DESC="Single-process coding agent CLI built on the Interchange runtime"
 DOC_FILES=(LICENSE.md README.md CHANGELOG.md GPLv2-AI-Exception.md GPL-2.0.txt)  # shipped with the binary
 
@@ -94,6 +93,9 @@ step()  { printf '\n\033[1;34m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
 info()  { printf '    %s\n' "$*"; }
 skip()  { printf '    \033[2m(skip) %s\033[0m\n' "$*"; }
 die()   { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+is_blank() {  # is_blank STRING — true when STRING is empty or only whitespace
+  [ -z "$(printf '%s' "$1" | sed '/^[[:space:]]*$/d')" ]
+}
 
 # Push a repo's HEAD (and optionally a ref) to origin. HTTPS remotes authenticate
 # via `gh auth git-credential` (token never lands in argv/URLs/process lists).
@@ -196,21 +198,27 @@ tar_root() {  # tar_root OUTPUT.tgz DIR PATH...
   fi
 }
 
+# First-party plugins ship next to the binary (discoverRepoPlugins execPath);
+# copy them into a package payload dir or a tarball staging dir.
+copy_plugins() {  # copy_plugins DEST_DIR
+  if [ -d "$ROOT/plugins" ]; then
+    cp -R "$ROOT/plugins" "$1/plugins"
+  fi
+}
+
 # Build a Debian package by hand: a .deb is an `ar` archive of debian-binary,
 # control.tar.gz, and data.tar.gz (in that order). `ar rcS` keeps that order
 # and skips the symbol table macOS `ar` would otherwise prepend.
 build_deb() {  # build_deb BINARY DEB-ARCH OUTPUT.deb
   local bin=$1 arch=$2 out=$3
   local wd; wd=$(mktemp -d)
-  mkdir -p "$wd/data/usr/bin" "$wd/data/usr/share/doc/$FORMULA" "$wd/ctrl"
-  install -m 0755 "$bin" "$wd/data/usr/bin/$FORMULA"
-  for f in "${DOC_FILES[@]}"; do cp "$ROOT/$f" "$wd/data/usr/share/doc/$FORMULA/"; done
-  if [ -d "$ROOT/plugins" ]; then
-    cp -R "$ROOT/plugins" "$wd/data/usr/bin/plugins"
-  fi
+  mkdir -p "$wd/data/usr/bin" "$wd/data/usr/share/doc/$BINARY" "$wd/ctrl"
+  install -m 0755 "$bin" "$wd/data/usr/bin/$BINARY"
+  for f in "${DOC_FILES[@]}"; do cp "$ROOT/$f" "$wd/data/usr/share/doc/$BINARY/"; done
+  copy_plugins "$wd/data/usr/bin"
   local kb; kb=$(( ( $(wc -c < "$bin") + 1023 ) / 1024 ))
   cat > "$wd/ctrl/control" <<EOF
-Package: $FORMULA
+Package: $BINARY
 Version: $VERSION
 Architecture: $arch
 Maintainer: $MAINTAINER
@@ -377,13 +385,14 @@ if [ -n "$NOTES_FILE" ]; then
 else
   [ -f CHANGELOG.md ] || die "CHANGELOG.md missing at repo root"
   SECTION=$(changelog_section "$VERSION")
-  if [ -n "$(printf '%s' "$SECTION" | sed '/^[[:space:]]*$/d')" ]; then
+  if ! is_blank "$SECTION"; then
     NOTES_SOURCE="CHANGELOG.md ## [$VERSION] (hand-written)"
   else
     info "no ## [$VERSION] section — generating notes from merged pull requests"
     SECTION=$(generate_notes) || die "gh could not generate release notes for $TAG"
-    [ -n "$(printf '%s' "$SECTION" | sed '/^[[:space:]]*$/d')" ] || \
+    if is_blank "$SECTION"; then
       die "GitHub returned empty release notes for $TAG"
+    fi
     # Deferred, not written here: the release commit step below refuses to run
     # on a dirty tree, so touching a tracked file during preflight would abort
     # every generated-notes release before it started.
@@ -432,7 +441,7 @@ else
     git add CHANGELOG.md
     info "wrote generated ## [$VERSION] section into CHANGELOG.md"
   fi
-  git commit -q -m "chore(release): $FORMULA $VERSION"
+  git commit -q -m "chore(release): $BINARY $VERSION"
   info "committed release $VERSION (PR and tag deferred until after build)"
 fi
 
@@ -441,23 +450,20 @@ step "Build standalone binaries and packages"
 mkdir -p "$STAGE"
 for entry in "${TARGETS[@]}"; do
   IFS='|' read -r label target kind debarch <<< "$entry"
-  pkg="$FORMULA-$VERSION-$label"
+  pkg="$BINARY-$VERSION-$label"
   tarball="$STAGE/$pkg.tar.gz"
   if [ -f "$tarball" ] && [ -f "$tarball.sha256" ]; then
     skip "$pkg.tar.gz already built"
   else
     info "compiling $label ($target)"
-    bin="$STAGE/$FORMULA-$label.bin"
+    bin="$STAGE/$BINARY-$label.bin"
     compile_bin "$target" "$bin"
     [ -s "$bin" ] || die "compile produced no binary for $label"
     smoke_bin "$label" "$bin"
     rm -rf "$STAGE/$pkg"; mkdir -p "$STAGE/$pkg"
-    cp "$bin" "$STAGE/$pkg/$FORMULA"; chmod 755 "$STAGE/$pkg/$FORMULA"
+    cp "$bin" "$STAGE/$pkg/$BINARY"; chmod 755 "$STAGE/$pkg/$BINARY"
     for f in "${DOC_FILES[@]}"; do cp "$ROOT/$f" "$STAGE/$pkg/"; done
-    # First-party plugins sit next to the binary (discoverRepoPlugins execPath).
-    if [ -d "$ROOT/plugins" ]; then
-      cp -R "$ROOT/plugins" "$STAGE/$pkg/plugins"
-    fi
+    copy_plugins "$STAGE/$pkg"
     tar -C "$STAGE" -czf "$tarball" "$pkg"
     ( cd "$STAGE" && shasum -a 256 "$pkg.tar.gz" > "$pkg.tar.gz.sha256" )
     rm -rf "$STAGE/$pkg"
@@ -466,11 +472,11 @@ for entry in "${TARGETS[@]}"; do
 
   # Debian package for the Linux targets.
   if [ "$kind" = "linux" ] && [ "$SKIP_DEB" != 1 ]; then
-    deb="$STAGE/${FORMULA}_${VERSION}_${debarch}.deb"
+    deb="$STAGE/${BINARY}_${VERSION}_${debarch}.deb"
     if [ -f "$deb" ] && [ -f "$deb.sha256" ]; then
       skip "$(basename "$deb") already built"
     else
-      bin="$STAGE/$FORMULA-$label.bin"
+      bin="$STAGE/$BINARY-$label.bin"
       [ -s "$bin" ] || {  # tarball was cached: recompile the raw binary for the deb
         info "recompiling $label for .deb"
         compile_bin "$target" "$bin"
@@ -482,7 +488,7 @@ for entry in "${TARGETS[@]}"; do
       info "packaged $(basename "$deb") ($(du -h "$deb" | cut -f1))"
     fi
   fi
-  rm -f "$STAGE/$FORMULA-$label.bin"
+  rm -f "$STAGE/$BINARY-$label.bin"
 done
 
 # ---- 4. land the release commit on main via PR, then tag ------------------
@@ -505,7 +511,7 @@ else
       --json number --jq '.[0].number // empty')
     if [ -z "$PR_NUM" ]; then
       gh pr create --repo "$MAIN_REPO" --head "$RELEASE_BRANCH" --base main \
-        --title "chore(release): $FORMULA $VERSION" \
+        --title "chore(release): $BINARY $VERSION" \
         --body "Version bump to $VERSION. Release notes are generated from the pull requests merged since the previous release." >/dev/null
       PR_NUM=$(gh pr list --repo "$MAIN_REPO" --head "$RELEASE_BRANCH" --state open \
         --json number --jq '.[0].number // empty')
@@ -541,10 +547,10 @@ if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; the
 else
   if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
     if [ "$DO_PUSH" = 1 ]; then
-      git tag -a "$TAG" -m "$FORMULA $VERSION" "origin/main"
+      git tag -a "$TAG" -m "$BINARY $VERSION" "origin/main"
       info "tagged $TAG at origin/main"
     else
-      git tag -a "$TAG" -m "$FORMULA $VERSION"
+      git tag -a "$TAG" -m "$BINARY $VERSION"
       info "tagged $TAG at HEAD (--no-push)"
     fi
   fi
