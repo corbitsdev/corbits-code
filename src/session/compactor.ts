@@ -647,10 +647,6 @@ function excerptTailText(
   };
 }
 
-// Test seam (CL-10535): total excerptTailTurn invocations since module load.
-// selectTail reuses the first excerpt per tail turn (closure estimates,
-// turnCost, and the emitted live copies share one cache), so a pass over N
-// tail turns adds exactly N to this counter.
 let excerptTailTurnCallCountValue = 0;
 export function excerptTailTurnCallCount(): number {
   return excerptTailTurnCallCountValue;
@@ -726,8 +722,6 @@ function lastAssistantToolCallIndex(
   return undefined;
 }
 
-// Token estimate over an already-excerpted live turn. Does not re-excerpt:
-// callers reuse the first excerptTailTurn result (CL-10535).
 function liveTurnTokens(live: ConversationTurn): number {
   let tokens = 0;
   for (const block of live.content) {
@@ -776,9 +770,6 @@ function selectTail(
   const budgetTokens = shape.tailBudgetTokens;
   const keepThinkingAt = lastAssistantToolCallIndex(turns);
 
-  // Excerpt results are cached per tail turn so each turn is excerpted at most
-  // once per pass: the closure token estimate, turnCost, and the emitted live
-  // copies all reuse the first excerpt (CL-10535).
   type ExcerptResult = ReturnType<typeof excerptTailTurn>;
   const excerptCache = new Map<number, ExcerptResult>();
   const excerptFor = (idx: number, turn: ConversationTurn): ExcerptResult => {

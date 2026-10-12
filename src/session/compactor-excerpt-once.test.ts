@@ -66,7 +66,7 @@ function liveResultText(turns: ConversationTurn[]): string {
     .join("\n");
 }
 
-describe("CL-10535 single excerpt per tail turn", () => {
+describe("excerpt once per tail turn", () => {
   test("compactor excerpts each tail turn exactly once with identical values", async () => {
     const dump = "z".repeat(12_000);
     const turns: ConversationTurn[] = [
@@ -80,8 +80,6 @@ describe("CL-10535 single excerpt per tail turn", () => {
 
     const before = excerptTailTurnCallCount();
     const result = await createPruningCompactor({
-      // Generous budget: every tail turn is a candidate, so a full pass
-      // must excerpt each turn exactly once.
       compactionShape: { tailBudgetTokens: 1_000_000 },
       summarize: async () => {
         throw new Error("must not invent a summary: nothing excluded");
@@ -90,13 +88,8 @@ describe("CL-10535 single excerpt per tail turn", () => {
 
     const calls = excerptTailTurnCallCount() - before;
 
-    // One excerptTailTurn call per tail turn — never the same turn twice
-    // (the closure estimate, turnCost, and emitted live copies share the
-    // first excerpt).
     expect(calls).toBe(turns.length);
 
-    // Values stay identical to the pre-fix behavior: the oversized outputs
-    // are still head+tail excerpted in the live tail.
     const live = liveResultText(result.output);
     expect(live.match(/\[tail-shortened \d+→/g)?.length ?? 0).toBe(3);
     expect(live).not.toContain(dump);
