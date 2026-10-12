@@ -33,7 +33,6 @@ describe("createEventStreamWriter", () => {
     });
     const second = await writer.append({ id: "fixed-id", type: "turn.done" });
 
-    // Event ids are UUIDv7 when the caller does not supply one.
     expect(isSessionId(first.id)).toBe(true);
     expect(first).toEqual({
       id: first.id,
@@ -66,7 +65,6 @@ describe("createEventStreamWriter", () => {
     expect(records.map((r) => r.id)).toEqual(ids);
     expect(records.map((r) => r.seq)).toEqual([0, 1, 2, 3, 4]);
 
-    // File order matches append order.
     const lines = rawLines(dir).map(
       (line) => JSON.parse(line) as { id: string },
     );
@@ -91,7 +89,6 @@ describe("createEventStreamWriter", () => {
       "turn-1",
     ]);
 
-    // Walk the chain from the tail back to the root through parentId.
     const byId = new Map(records.map((r) => [r.id, r]));
     const chain: string[] = [];
     let cursor: string | undefined = "turn-2";
@@ -111,7 +108,6 @@ describe("createEventStreamWriter", () => {
     await first.append({ id: "evt-2", type: "turn.done" });
     await first.flush();
 
-    // New writer on the same file: seq continues from the on-disk line count.
     const reopened = createEventStreamWriter(dir);
     const third = await reopened.append({ id: "evt-3", type: "turn.done" });
     expect(third.seq).toBe(2);
@@ -160,18 +156,15 @@ describe("createEventStreamWriter", () => {
     await writer.append({ id: "evt-1", type: "session.started" });
     await writer.flush();
 
-    // Simulate a crash mid-append: a partial line with no trailing newline.
     fs.appendFileSync(
       path.join(dir, EVENT_LOG_FILE),
       '{"id":"torn","type":"eve',
     );
 
-    // Reads drop the torn tail instead of throwing on it.
     const reader = createEventStreamWriter(dir);
     expect((await reader.readFrom(-1)).map((r) => r.id)).toEqual(["evt-1"]);
     expect(await reader.latestCursor()).toBe(0);
 
-    // The next append truncates the torn bytes and continues the seq.
     const reopened = createEventStreamWriter(dir);
     const next = await reopened.append({ id: "evt-2", type: "turn.done" });
     expect(next.seq).toBe(1);
@@ -280,7 +273,6 @@ describe("createEventStreamWriter", () => {
     );
     const writer = createEventStreamWriter(dir);
     expect(await writer.backfillFromLegacy()).toBe(2);
-    // A second run (e.g. after an interrupted first attempt) adds nothing.
     expect(await writer.backfillFromLegacy()).toBe(0);
 
     const records = await writer.readFrom(-1);
@@ -297,7 +289,6 @@ describe("createEventStreamWriter", () => {
     const writer = createEventStreamWriter(dir);
     expect(await writer.backfillFromLegacy()).toBe(2);
 
-    // Grow the legacy file; only the new line is backfilled.
     fs.appendFileSync(
       path.join(dir, "turns.jsonl"),
       '{"role":"user","text":"three"}\n',
@@ -326,7 +317,6 @@ describe("event stream flag gating", () => {
         flagEnv: { [SESSION_EVENT_LOG_ENV]: "true" },
       }),
     ).toBe(true);
-    // An explicit "off" env value wins over settings.
     for (const off of ["", "0", "false", "no", "off"]) {
       expect(
         isSessionEventLogEnabled({
@@ -347,7 +337,6 @@ describe("event stream flag gating", () => {
         flagEnv: { [SESSION_EVENT_LOG_ENV]: "off" },
       }),
     ).toBeNull();
-    // Nothing is created on disk while the flag is off.
     expect(fs.existsSync(path.join(dir, EVENT_LOG_FILE))).toBe(false);
   });
 
