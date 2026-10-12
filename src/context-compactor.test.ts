@@ -2,7 +2,7 @@ import { defined } from "../testkit/defined.js";
 import { describe, test, expect } from "bun:test";
 import {
   createPruningCompactor,
-  compactorNoOpFloor,
+  COMPACT_NOOP_FLOOR,
   buildTurnSummary,
   COMPACTED_PREFIX,
   COMPACT_SPACER_TEXT,
@@ -93,15 +93,15 @@ describe("createPruningCompactor", () => {
     expect(result.output).toBe(turns); // Same reference when no compaction needed
   });
 
-  test("compactorNoOpFloor names the exact turn count apply() no-ops on", async () => {
-    // The compaction governor derives its arming floor from this function so
+  test("COMPACT_NOOP_FLOOR names the exact turn count apply() no-ops on", async () => {
+    // The compaction governor derives its arming floor from this constant so
     // it never arms a compaction guaranteed to no-op; changing apply()'s
     // no-op condition without updating the floor breaks that guarantee
     // silently.
     const compactor = smallCompactor({
       summaryMaxChars: 500,
     });
-    const floor = compactorNoOpFloor();
+    const floor = COMPACT_NOOP_FLOOR;
 
     // Bodies exceed the pinned tail budget, so past-floor always has a folded
     // region while at-floor still no-ops on the count check alone.

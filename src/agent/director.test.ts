@@ -23,7 +23,7 @@ import { createPermissionGate } from "../permission/gate.js";
 import {
   COMPACT_SPACER_TEXT,
   LEGACY_COMPACT_SPACER_TEXT,
-  compactorNoOpFloor,
+  COMPACT_NOOP_FLOOR,
 } from "../session/compactor.js";
 import {
   INFERENCE_ABORT_INTERNAL_RECOVERY,
@@ -785,7 +785,7 @@ function makeToolErrorEvent(callId: string, content: string) {
 // One turn past the compactor's no-op floor (session/compactor.ts), so the
 // arming check finds history actually worth compacting.
 const longState = {
-  turns: Array.from({ length: compactorNoOpFloor() + 1 }, () => ({
+  turns: Array.from({ length: COMPACT_NOOP_FLOOR + 1 }, () => ({
     role: "user",
     content: [],
     timestamp: 0,

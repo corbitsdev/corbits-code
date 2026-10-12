@@ -112,9 +112,7 @@ function extraInstructionParameter(
 }
 
 // `apply` no-ops at or below this turn count: one turn cannot shrink.
-export function compactorNoOpFloor(): number {
-  return 1;
-}
+export const COMPACT_NOOP_FLOOR = 1;
 
 // Query tools dedup by full-argument identity: a later identical call
 // reflects newer workspace state, so older results are stale. run_shell is
@@ -884,7 +882,7 @@ export function createPruningCompactor(
       // Prior compacted summaries fold into the next handoff, not frozen.
       const shape = resolveCompactionShape(cfg.compactionShape);
 
-      if (turns.length <= compactorNoOpFloor()) {
+      if (turns.length <= COMPACT_NOOP_FLOOR) {
         return {
           output: turns,
           record: {
