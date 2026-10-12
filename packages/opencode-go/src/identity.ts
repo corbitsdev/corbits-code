@@ -3,6 +3,12 @@ import {
   OPENCODE_GO_PROVIDER_ID,
 } from "./constants.js";
 
+/** True when `host` is opencode.ai or a subdomain of it (case-insensitive). */
+export function hostMatchesOpencodeDotAi(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return normalized === "opencode.ai" || normalized.endsWith(".opencode.ai");
+}
+
 /**
  * True when the URL or base is the public OpenCode Go gateway.
  *
@@ -21,10 +27,7 @@ export function isOpenCodeGoURL(urlOrBase: string | undefined): boolean {
   if (trimmed.length === 0) return false;
   try {
     const url = new URL(trimmed);
-    if (
-      url.hostname !== "opencode.ai" &&
-      !url.hostname.endsWith(".opencode.ai")
-    ) {
+    if (!hostMatchesOpencodeDotAi(url.hostname)) {
       return false;
     }
     // Strip trailing slashes, then compare path segments case-insensitively.

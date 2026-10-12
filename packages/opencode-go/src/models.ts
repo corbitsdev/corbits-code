@@ -63,9 +63,10 @@ export const OPENCODE_GO_MODEL_IDS: readonly string[] = OPENCODE_GO_MODELS.map(
 
 export const OPENCODE_GO_DEFAULT_MODEL: GoModelId = "kimi-k2.7-code";
 
-const PROTOCOL_BY_ID = new Map<string, GoProtocol>(
-  OPENCODE_GO_MODELS.map((m) => [m.id, m.protocol]),
-);
+export const PROTOCOL_BY_ID: ReadonlyMap<string, GoProtocol> = new Map<
+  string,
+  GoProtocol
+>(OPENCODE_GO_MODELS.map((m) => [m.id, m.protocol]));
 
 export function protocolForGoModel(modelId: string): GoProtocol | undefined {
   return PROTOCOL_BY_ID.get(modelId);

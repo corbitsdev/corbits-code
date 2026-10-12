@@ -1,4 +1,5 @@
 import {
+  hostMatchesOpencodeDotAi,
   isKnownGoModel,
   isOpenCodeGoProvider,
 } from "../../packages/opencode-go/src/index.js";
@@ -25,10 +26,7 @@ export function isBareZenBaseURL(baseURL: string): boolean {
   if (BARE_ZEN_BASES.has(trimmed)) return true;
   try {
     const url = new URL(trimmed);
-    if (
-      url.hostname !== "opencode.ai" &&
-      !url.hostname.endsWith(".opencode.ai")
-    ) {
+    if (!hostMatchesOpencodeDotAi(url.hostname)) {
       return false;
     }
     const path = url.pathname.replace(/\/+$/, "");
