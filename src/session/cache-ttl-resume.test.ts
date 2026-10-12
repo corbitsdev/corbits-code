@@ -280,7 +280,7 @@ describe("resumed Anthropic cache write does not compact", () => {
       }),
       buildGoSource({
         id: "opencode-go",
-        model: "qwen3.7-max",
+        model: "minimax-m3",
         sessionId: "sess-go",
       }),
       buildAnthropicSource({

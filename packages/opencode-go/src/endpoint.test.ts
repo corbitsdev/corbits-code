@@ -16,12 +16,20 @@ describe("protocolForGoModel", () => {
     expect(protocolForGoModel("gpt-5.6-luna")).toBe("responses");
     expect(protocolForGoModel("muse-spark-1.3-contributor")).toBe("responses");
     expect(protocolForGoModel("muse-spark-1.2-contributor")).toBe("responses");
-    expect(protocolForGoModel("minimax-m3")).toBe("chat-completions");
-    expect(protocolForGoModel("minimax-m2.7")).toBe("chat-completions");
-    expect(protocolForGoModel("minimax-m2.5")).toBe("chat-completions");
-    expect(protocolForGoModel("qwen3.8-max")).toBe("chat-completions");
+    expect(protocolForGoModel("minimax-m3")).toBe("messages");
+    expect(protocolForGoModel("minimax-m2.7")).toBe("messages");
+    expect(protocolForGoModel("minimax-m2.5")).toBe("messages");
+    expect(protocolForGoModel("qwen3.8-max")).toBe("messages");
     expect(protocolForGoModel("grok-4.5")).toBe("responses");
-    expect(protocolForGoModel("qwen3.7-max")).toBe("messages");
+    expect(protocolForGoModel("grok-4.7")).toBe("responses");
+    expect(protocolForGoModel("gpt-6-luna")).toBe("responses");
+    expect(protocolForGoModel("claude-haiku-5-5")).toBe("messages");
+    expect(protocolForGoModel("qwen3.8-flash")).toBe("messages");
+    expect(protocolForGoModel("glm-5.3")).toBe("chat-completions");
+    expect(protocolForGoModel("deepseek-v4.1-flash")).toBe("chat-completions");
+    expect(protocolForGoModel("mimo-v2.6-flash")).toBe("chat-completions");
+    expect(protocolForGoModel("hy4-preview")).toBe("chat-completions");
+    expect(protocolForGoModel("space-bunny")).toBe("chat-completions");
   });
 
   test("returns undefined for unknown models", () => {
@@ -30,7 +38,7 @@ describe("protocolForGoModel", () => {
 
   test("catalog covers chat-completions and messages at minimum", () => {
     const protocols = new Set(
-      ["kimi-k2.7-code", "gpt-5.6-luna", "qwen3.7-max"].map((id) =>
+      ["kimi-k2.7-code", "gpt-5.6-luna", "minimax-m3"].map((id) =>
         protocolForGoModel(id),
       ),
     );
@@ -68,33 +76,50 @@ describe("resolveGoEndpoint", () => {
   });
 
   test("routes messages models to anthropic base", () => {
-    const ep = resolveGoEndpoint("qwen3.7-max");
-    expect(ep.adapter).toBe("anthropic");
-    expect(ep.protocol).toBe("messages");
-    expect(ep.baseURL).toBe("https://opencode.ai/zen/go");
+    for (const id of [
+      "minimax-m3",
+      "minimax-m2.7",
+      "minimax-m2.5",
+      "qwen3.8-max",
+      "qwen3.8-flash",
+      "claude-haiku-5-5",
+      "qwen3.7-max",
+    ]) {
+      const ep = resolveGoEndpoint(id);
+      expect(ep.adapter).toBe("anthropic");
+      expect(ep.protocol).toBe("messages");
+      expect(ep.baseURL).toBe("https://opencode.ai/zen/go");
+    }
   });
 
-  test("routes MiniMax models to openai-compatible base (CL-10534)", () => {
-    for (const id of ["minimax-m3", "minimax-m2.7", "minimax-m2.5"]) {
+  test("routes responses models to openai-responses adapter (live Go docs)", () => {
+    for (const id of ["grok-4.7", "grok-4.6", "grok-4.5", "gpt-6-luna"]) {
+      const ep = resolveGoEndpoint(id);
+      expect(ep.adapter).toBe("openai-responses");
+      expect(ep.protocol).toBe("responses");
+      expect(ep.baseURL).toContain("/zen/go/v1");
+    }
+  });
+
+  test("routes new chat-completions models to openai-compatible base (live Go docs)", () => {
+    for (const id of [
+      "glm-5.3-flash",
+      "glm-5.3",
+      "longcat-2.0",
+      "longcat-2.5-preview-free",
+      "step-5-preview-free",
+      "deepseek-v4.1-flash",
+      "deepseek-v4-flash-vision-exp",
+      "mimo-v2.6-flash",
+      "mimo-v2.6-pro",
+      "hy4-preview",
+      "space-bunny",
+    ]) {
       const ep = resolveGoEndpoint(id);
       expect(ep.adapter).toBe("openai-compatible");
       expect(ep.protocol).toBe("chat-completions");
       expect(ep.baseURL).toContain("/zen/go/v1");
     }
-  });
-
-  test("routes grok-4.5 to openai-responses adapter (CL-10534)", () => {
-    const ep = resolveGoEndpoint("grok-4.5");
-    expect(ep.adapter).toBe("openai-responses");
-    expect(ep.protocol).toBe("responses");
-    expect(ep.baseURL).toContain("/zen/go/v1");
-  });
-
-  test("routes qwen3.8-max to openai-compatible base (CL-10534)", () => {
-    const ep = resolveGoEndpoint("qwen3.8-max");
-    expect(ep.adapter).toBe("openai-compatible");
-    expect(ep.protocol).toBe("chat-completions");
-    expect(ep.baseURL).toContain("/zen/go/v1");
   });
 
   test("unknown models default to chat-completions", () => {
@@ -163,8 +188,9 @@ describe("buildGoCatalogEntry", () => {
     const entry = buildGoCatalogEntry();
     expect(entry.name).toBe("opencode-go");
     expect(entry.models.length).toBeGreaterThan(0);
-    expect(entry.protocols["minimax-m3"]).toBe("chat-completions");
-    expect(entry.protocols["qwen3.7-max"]).toBe("messages");
+    expect(entry.protocols["minimax-m3"]).toBe("messages");
+    expect(entry.protocols["qwen3.8-max"]).toBe("messages");
+    expect(entry.protocols["grok-4.5"]).toBe("responses");
     expect(entry.protocols["kimi-k2.7-code"]).toBe("chat-completions");
   });
 });

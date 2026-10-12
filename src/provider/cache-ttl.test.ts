@@ -115,7 +115,7 @@ describe("anthropic cache-write stamp", () => {
       }),
       buildGoSource({
         id: "opencode-go",
-        model: "qwen3.7-max",
+        model: "minimax-m3",
         sessionId: "sess-go",
       }),
       buildAnthropicSource({
