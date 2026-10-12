@@ -2,11 +2,7 @@
 // Selectable ids come from live GET /zen/go/v1/models in the host; this
 // packaged list is used when that fetch has not succeeded. Protocol
 // routing stays here. Live ids absent from PROTOCOL_BY_ID use Chat Completions.
-//
-// Protocol per id mirrors the Go gateway endpoint table
-// (https://opencode.ai/docs/go/#endpoints, verified 11/10/2026). The Go
-// gateway is NOT protocol-identical to the Zen gateway: MiniMax and Qwen3.8
-// Max speak the Anthropic Messages API on Go but Chat Completions on Zen.
+// MiniMax and Qwen3.8 Max are messages on Go, unlike Zen chat-completions.
 
 export type GoProtocol = "chat-completions" | "responses" | "messages";
 
@@ -17,7 +13,6 @@ interface GoModel {
 }
 
 export const OPENCODE_GO_MODELS = [
-  // OpenAI Responses API
   { id: "grok-4.7", name: "Grok 4.7", protocol: "responses" },
   { id: "grok-4.6", name: "Grok 4.6", protocol: "responses" },
   { id: "grok-4.5", name: "Grok 4.5", protocol: "responses" },
@@ -33,7 +28,6 @@ export const OPENCODE_GO_MODELS = [
     name: "Muse Spark 1.2 Contributor",
     protocol: "responses",
   },
-  // Anthropic Messages API
   { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", protocol: "messages" },
   { id: "minimax-m3", name: "MiniMax M3", protocol: "messages" },
   { id: "minimax-m2.7", name: "MiniMax M2.7", protocol: "messages" },
@@ -43,7 +37,6 @@ export const OPENCODE_GO_MODELS = [
   { id: "qwen3.7-max", name: "Qwen3.7 Max", protocol: "messages" },
   { id: "qwen3.7-plus", name: "Qwen3.7 Plus", protocol: "messages" },
   { id: "qwen3.6-plus", name: "Qwen3.6 Plus", protocol: "messages" },
-  // OpenAI Chat Completions API
   { id: "glm-5.3-flash", name: "GLM-5.3-Flash", protocol: "chat-completions" },
   { id: "glm-5.3", name: "GLM-5.3", protocol: "chat-completions" },
   { id: "glm-5.2", name: "GLM-5.2", protocol: "chat-completions" },
