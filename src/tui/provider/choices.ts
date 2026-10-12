@@ -207,10 +207,7 @@ export function providerChoices(): readonly ProviderChoice[] {
         if (seeded === undefined) continue;
         const choice = choiceFromDef(seeded);
         if (choice !== null) {
-          // A chooser whose paths resolve to the same catalog kind (Meta Sign
-          // In vs Meta API key, both `meta`) would otherwise put two rows
-          // under one id — the second row becomes unreachable with arrows.
-          // Give it a distinct pick-list row id while keeping the catalog id.
+          // A shared catalog id would hide the second row from arrow keys.
           const rowId = pushedRowIds.has(choice.rowId)
             ? `${def.id}/${path.id}`
             : choice.rowId;
@@ -317,8 +314,6 @@ export function addProviderSelectorChoices(
     const connected =
       choice.oauth !== null && !choice.custom && accountCount > 0;
     return {
-      // The pick-list row id so two chooser rows sharing a catalog kind stay
-      // distinct in the Alt+A selector too.
       id: choice.rowId,
       label: connected
         ? `${choice.label.split(" — ")[0]} · ${accountCount} connected`

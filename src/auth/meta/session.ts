@@ -20,10 +20,6 @@ import {
 } from "../token-session-boundary.js";
 import { META_REFRESH_SKEW_MS } from "./constants.js";
 
-// Raised when a Meta profile cannot yield a usable access token: it is gone,
-// or its identity token has been revoked/expired (401/403 on re-mint). Carries
-// the profile name so the TUI can name the affected profile in a re-login
-// prompt.
 export class MetaAuthError extends Error {
   readonly profile: string;
   readonly reason: "missing" | "refresh-failed";

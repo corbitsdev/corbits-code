@@ -98,7 +98,6 @@ function stagedLoginStarter(
   opts: {
     onStart?: (input: StagedLoginInput) => void;
     deniedStarts?: number;
-    /** Emit a device_code event via `notify` on the first start (Meta flow). */
     emitDeviceCode?: boolean;
   } = {},
 ): {
@@ -358,8 +357,6 @@ describe("provider setup pure helpers", () => {
       { name: "codex/default" },
     ]);
     expect(rows.map((r) => r.id)).toContain(CUSTOM_CHOICE_ID);
-    // Alt+A rows are keyed by the pick-list row id (two Meta rows stay
-    // distinct), which mirrors the onboarding list.
     expect(rows.map((r) => r.id)).toEqual(choices.map((c) => c.rowId));
     const openai = rows.find((r) => r.id === "openai");
     const codex = rows.find((r) => r.id === "codex");
@@ -496,7 +493,6 @@ async function mountConfig(
   return { done, harness };
 }
 
-/** Recording clipboard port for the Meta device-flow copy test. */
 function recordingClipboard(): {
   clipboard: { writeText: (t: string) => void; writes: string[] };
 } {
@@ -1258,7 +1254,6 @@ describe("runProviderSetup sign-in", () => {
     await pickRow(harness, PROVIDER_IDS, "meta/api");
     await flush(harness);
     expect(harness.captureCharFrame()).toContain("step 2 of 4");
-    // Instance name step, then key — not the login step.
     harness.pressKey("Enter");
     await harness.renderOnce();
     type(harness, "LLM|test-key");

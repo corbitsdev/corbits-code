@@ -108,8 +108,6 @@ export async function runProviderSetup(
 
   const choices = providerChoices();
   const initialRows = providerChoiceRows(choices);
-  // The Meta device flow auto-copies its verification URI. Tests inject a
-  // recording port; production writes through the renderer's system clipboard.
   const clipboard = config.clipboard ?? createSystemClipboard(renderer);
   const state: SetupState = {
     config,

@@ -339,8 +339,7 @@ export type ProviderCatalogEntry = Omit<
   // xAI/Grok OAuth profile. Still routes through openai-compatible; the
   // marker only controls token refresh and persistence.
   xaiProfile?: string;
-  // Set when this entry is a Meta (Muse) OAuth profile. Routes to the
-  // "meta-responses" adapter; the marker controls token refresh/persistence.
+  // Routes to the meta-responses adapter, not openai-compatible.
   metaProfile?: string;
   // Bifrost virtual key: sources use provider "bifrost" so the adapter
   // injects the x-bf-vk header; also enables /models auto-discovery scoped
@@ -428,11 +427,6 @@ export function buildXaiSource(fields: {
   };
 }
 
-// Build the InferenceSource for a Meta (Muse) OAuth profile. Routes to the
-// "meta" Responses adapter (Meta's Model API speaks the Responses protocol
-// natively at META_BASE_URL). The minted key is registered in the credential
-// cell under the source id; refresh re-mints it from the stored identity
-// token (see getValidMetaToken).
 export function buildMetaSource(fields: {
   id: string;
   profile: string;
@@ -459,11 +453,6 @@ export function buildMetaSource(fields: {
   };
 }
 
-// Build the InferenceSource for a Meta Model API key (the Meta chooser's
-// "API key" path, a hand-named meta/<slug>, or a bare `meta` settings row).
-// The endpoint speaks the Responses protocol, so the source rides the same
-// "meta" adapter as the OAuth profiles — only the credential provenance
-// differs: a plain key is api-key provenance, never an OAuth profile.
 export function buildMetaApiKeySource(fields: {
   id: string;
   apiKey?: string;

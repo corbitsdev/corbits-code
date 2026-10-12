@@ -20,7 +20,6 @@ describe("isMetaTokenExpired", () => {
   });
 
   test("expired within the refresh skew window", () => {
-    // 4 minutes before expiry is inside the 5-minute skew, so treated as expired.
     expect(
       isMetaTokenExpired(
         { access: "a", refresh: "r", expiresAt: 1_000_000 },

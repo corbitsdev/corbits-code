@@ -35,13 +35,8 @@ export type OAuthKind = FirstClassOAuthProvider;
  * except the key; the custom row carries nothing and opens the manual form.
  */
 export interface ProviderChoice {
-  /** Catalog/settings kind this choice resolves to (e.g. "meta" for both Meta paths). */
   readonly id: string;
-  /**
-   * Pick-list row id. Defaults to `id`; a chooser whose paths both resolve to
-   * the same catalog kind (Meta Sign In vs Meta API key, both `meta`) must
-   * give the second row a distinct row id so it is reachable with arrows.
-   */
+  /** Second row is unreachable if this collapses to the shared catalog id. */
   readonly rowId: string;
   readonly label: string;
   readonly baseURL: string;
@@ -145,10 +140,6 @@ export interface ProviderSetupConfig {
   readonly showTelemetryNotice: boolean;
   /** Renderer factory override for headless mounting in tests. */
   readonly createRenderer?: () => Promise<CliRenderer>;
-  /**
-   * Clipboard port for the Meta device flow. Defaults to a system clipboard
-   * over the renderer (or a recording stub in tests).
-   */
   readonly clipboard?: ClipboardPort;
   /** Login driver override so tests need neither a browser nor a port. */
   readonly startLogin?: OAuthLoginStarter;
@@ -199,17 +190,13 @@ export interface SetupState {
   loginAbort: AbortController | null;
   loginHandle: OAuthLoginStart | null;
   loginTimer: ReturnType<typeof setTimeout> | null;
-  // Lets the provider step report an abandoned sign-in instead of a silent list.
-  /** Transient status flash (e.g. the Meta device-flow clipboard result). */
   statusFlash: string | null;
   statusFlashTimer: ReturnType<typeof setTimeout> | null;
-  /** Device-flow code shown to the operator (Meta): verification URI + user code. */
   deviceCode: {
     verificationUri: string;
     userCode: string;
   } | null;
-  // Carried back to the provider step so an abandoned sign-in says so there
-  // rather than dropping the operator on a silent list.
+  // Lets the provider step report an abandoned sign-in instead of a silent list.
   loginCancelled: boolean;
   // Bumped per start/abandon so a late resolution never moves the screen.
   loginAttempt: number;
