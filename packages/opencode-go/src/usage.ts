@@ -99,6 +99,20 @@ export async function fetchGoUsage(
   }
 }
 
+function formatUsagePercent(w: GoUsageWindow): string {
+  if (w.usagePercent !== undefined) return `${Math.round(w.usagePercent)}%`;
+  if (w.usageDollars !== undefined && w.limitDollars !== undefined) {
+    return `$${w.usageDollars.toFixed(2)}/$${w.limitDollars.toFixed(0)}`;
+  }
+  return "ok";
+}
+
+function usageWindowLabel(usage: GoUsage): string {
+  if (usage.rolling5h !== undefined) return "5h";
+  if (usage.weekly !== undefined) return "week";
+  return "month";
+}
+
 export function formatGoUsage(usage: GoUsage): string {
   if (usage.status !== "ok") {
     if (usage.status === "unavailable") return "Go usage unavailable";
@@ -109,17 +123,5 @@ export function formatGoUsage(usage: GoUsage): string {
   }
   const w = usage.rolling5h ?? usage.weekly ?? usage.monthly;
   if (w === undefined) return "Go usage ok";
-  const pct =
-    w.usagePercent !== undefined
-      ? `${Math.round(w.usagePercent)}%`
-      : w.usageDollars !== undefined && w.limitDollars !== undefined
-        ? `$${w.usageDollars.toFixed(2)}/$${w.limitDollars.toFixed(0)}`
-        : "ok";
-  const window =
-    usage.rolling5h !== undefined
-      ? "5h"
-      : usage.weekly !== undefined
-        ? "week"
-        : "month";
-  return `Go ${window} ${pct}`;
+  return `Go ${usageWindowLabel(usage)} ${formatUsagePercent(w)}`;
 }

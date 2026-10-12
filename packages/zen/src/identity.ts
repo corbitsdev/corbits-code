@@ -3,11 +3,7 @@
 // helpers; Go's own URL and id keep matching Go first, never Zen.
 
 import { ZEN_DISPLAY_NAME, ZEN_PROVIDER_ID } from "./constants.js";
-
-function hostMatchesOpencodeDotAi(host: string): boolean {
-  const normalized = host.trim().toLowerCase();
-  return normalized === "opencode.ai" || normalized.endsWith(".opencode.ai");
-}
+import { hostMatchesOpencodeDotAi } from "../../opencode-go/src/index.js";
 
 /**
  * Match a bare Zen base URL: an opencode.ai URL whose first path segment is

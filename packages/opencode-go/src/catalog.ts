@@ -7,7 +7,7 @@ import {
 import {
   OPENCODE_GO_DEFAULT_MODEL,
   OPENCODE_GO_MODEL_IDS,
-  OPENCODE_GO_MODELS,
+  PROTOCOL_BY_ID,
   type GoProtocol,
 } from "./models.js";
 
@@ -23,10 +23,8 @@ interface GoCatalogEntry {
 }
 
 export function buildGoCatalogEntry(): GoCatalogEntry {
-  const protocols: Record<string, GoProtocol> = {};
-  for (const m of OPENCODE_GO_MODELS) {
-    protocols[m.id] = m.protocol;
-  }
+  const protocols: Record<string, GoProtocol> =
+    Object.fromEntries(PROTOCOL_BY_ID);
   return {
     name: OPENCODE_GO_PROVIDER_ID,
     displayName: OPENCODE_GO_DISPLAY_NAME,

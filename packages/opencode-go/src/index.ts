@@ -19,5 +19,6 @@ export {
   isOpenCodeGoProvider,
   isOpenCodeGoProviderId,
   isOpenCodeGoURL,
+  hostMatchesOpencodeDotAi,
 } from "./identity.js";
 export { parseGoAPIError } from "./errors.js";

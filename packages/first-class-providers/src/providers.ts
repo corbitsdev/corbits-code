@@ -164,11 +164,6 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
   },
 ] as const;
 
-/** Connect-list rows (same as FIRST_CLASS_PROVIDERS; explicit export for hosts). */
-export function connectListProviders(): readonly FirstClassProviderDef[] {
-  return FIRST_CLASS_PROVIDERS;
-}
-
 export function firstClassProviderById(
   id: string,
 ): FirstClassProviderDef | undefined {

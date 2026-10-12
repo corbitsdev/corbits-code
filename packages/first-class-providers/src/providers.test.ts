@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   FIRST_CLASS_PROVIDERS,
-  connectListProviders,
   firstClassPathAsProvider,
   firstClassProviderById,
 } from "./providers.js";
@@ -19,10 +18,6 @@ describe("FIRST_CLASS_PROVIDERS", () => {
       "ollama",
       "custom",
     ]);
-  });
-
-  test("connectListProviders matches FIRST_CLASS_PROVIDERS", () => {
-    expect(connectListProviders()).toBe(FIRST_CLASS_PROVIDERS);
   });
 
   test("has no separate Codex connect row", () => {
