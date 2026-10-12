@@ -12,7 +12,7 @@ import { join } from "node:path";
 import type { ToolCall } from "@intx/types/runtime";
 import {
   createPermissionGate,
-  isRequestCoveredByGrant,
+  isRequestCoveredByApproval,
   preGrantGuardReason,
 } from "./gate.js";
 import { createPathRestriction } from "./path-restriction.js";
@@ -27,7 +27,7 @@ const shellCall = (command: string): ToolCall => ({
 });
 
 // Every pre-grant guard, keyed to a command that trips it.
-// isRequestCoveredByGrant must refuse to cover each of these even when a
+// isRequestCoveredByApproval must refuse to cover each of these even when a
 // grant would otherwise match verbatim. The secret/restricted-path cases
 // queue and could be auto-approved by reconciliation once a broad grant
 // lands; the shell-authz hard-denies are unreachable today (evaluate()
@@ -44,7 +44,7 @@ const GUARD_CASES: { name: string; command: string }[] = [
   { name: "restricted path target", command: "cat /etc/passwd" },
 ];
 
-describe("preGrantGuardReason / isRequestCoveredByGrant guard parity", () => {
+describe("preGrantGuardReason / isRequestCoveredByApproval guard parity", () => {
   const cwd = mkdtempSync(join(tmpdir(), "gate-guard-"));
   const isRestricted = createPathRestriction(
     cwd,
@@ -63,7 +63,7 @@ describe("preGrantGuardReason / isRequestCoveredByGrant guard parity", () => {
       expect(preGrantGuardReason(request, isRestricted)).not.toBeUndefined();
     });
 
-    test(`${name}: isRequestCoveredByGrant refuses an otherwise-matching grant`, () => {
+    test(`${name}: isRequestCoveredByApproval refuses an otherwise-matching grant`, () => {
       const request: PermissionRequest = {
         tool: "run_shell",
         action: "Run",
@@ -73,7 +73,7 @@ describe("preGrantGuardReason / isRequestCoveredByGrant guard parity", () => {
       };
       const grant: Approval = { tool: "run_shell", pattern: command };
       expect(
-        isRequestCoveredByGrant(request, grant, undefined, isRestricted, {
+        isRequestCoveredByApproval(request, grant, undefined, isRestricted, {
           resolvedCwd: cwd,
           roots: [],
         }),
@@ -104,7 +104,7 @@ describe("preGrantGuardReason / isRequestCoveredByGrant guard parity", () => {
     expect(preGrantGuardReason(request, isRestricted)).toBeUndefined();
     const grant: Approval = { tool: "run_shell", pattern: "npm test" };
     expect(
-      isRequestCoveredByGrant(request, grant, undefined, isRestricted, {
+      isRequestCoveredByApproval(request, grant, undefined, isRestricted, {
         resolvedCwd: cwd,
         roots: [],
       }),
@@ -265,7 +265,7 @@ describe("lone-& bypass at the gate (CL-7781)", () => {
   const workspace = { resolvedCwd: cwd, roots: [] as string[] };
   const grant: Approval = { tool: "run_shell", pattern: "bun test *" };
   const covered = (subject: string): boolean =>
-    isRequestCoveredByGrant(
+    isRequestCoveredByApproval(
       { tool: "run_shell", action: "Run", subject, scopes: [], cwd },
       grant,
       undefined,
@@ -319,7 +319,7 @@ describe("grant coverage rebinds relative paths to the request process cwd", () 
     };
     const grant: Approval = { tool: "run_shell", pattern: "cat *" };
     expect(
-      isRequestCoveredByGrant(request, grant, undefined, sessionRestricted, {
+      isRequestCoveredByApproval(request, grant, undefined, sessionRestricted, {
         resolvedCwd: sessionCwd,
         roots: [],
       }),
@@ -337,7 +337,7 @@ describe("grant coverage rebinds relative paths to the request process cwd", () 
     };
     const grant: Approval = { tool: "run_shell", pattern: "cat *" };
     expect(
-      isRequestCoveredByGrant(request, grant, undefined, sessionRestricted, {
+      isRequestCoveredByApproval(request, grant, undefined, sessionRestricted, {
         resolvedCwd: sessionCwd,
         roots: [],
       }),

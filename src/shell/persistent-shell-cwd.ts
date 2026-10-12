@@ -108,13 +108,7 @@ export function assertShellCwdUsable(cwd: string): void {
     if (!st.isDirectory()) {
       throw new Error(missingShellCwdMessage(cwd));
     }
-  } catch (err) {
-    if (
-      err instanceof Error &&
-      err.message.startsWith("Shell working directory")
-    ) {
-      throw err;
-    }
+  } catch {
     throw new Error(missingShellCwdMessage(cwd));
   }
 }

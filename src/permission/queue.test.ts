@@ -4,7 +4,7 @@ import {
   createPermissionRequestQueue,
   wirePermissionGrantReconciliation,
 } from "./queue.js";
-import { isRequestCoveredByGrant } from "./gate.js";
+import { isRequestCoveredByApproval } from "./gate.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider } from "./worktree-roots.js";
 import type { Approval, ApprovalOutcome, PermissionRequest } from "./types.js";
@@ -33,7 +33,7 @@ function coversFor(
   const isRestricted = createPathRestriction(cwd, rootsProvider).isRestricted;
   const workspace = { resolvedCwd: cwd, roots: rootsProvider() };
   return (r) =>
-    isRequestCoveredByGrant(
+    isRequestCoveredByApproval(
       r,
       approval,
       activeProviderModel,

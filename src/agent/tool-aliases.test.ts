@@ -13,7 +13,7 @@ import {
   withAuthzParityDefinitions,
   WIRE_TO_ENGINE,
 } from "./tool-aliases.js";
-import { evaluateApprovals } from "../permission/authz-grants.js";
+import { approvalCoversSubject } from "../permission/authz-grants.js";
 
 const noWorkspace = { resolvedCwd: "/repo", roots: ["/repo"] };
 
@@ -55,7 +55,7 @@ describe("one advertised posix set", () => {
 describe("grant aliases", () => {
   test("a grant stored as run_shell covers bash", async () => {
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "bash",
         subject: "npm test",
         approvals: [{ tool: "run_shell", pattern: "npm *" }],
@@ -66,7 +66,7 @@ describe("grant aliases", () => {
 
   test("a grant stored as bash matches a run_shell request after canonicalize", async () => {
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "run_shell",
         subject: "npm test",
         approvals: [{ tool: "bash", pattern: "npm *" }],
@@ -77,7 +77,7 @@ describe("grant aliases", () => {
 
   test("pure renames stay bidirectional: read covers read_file and vice versa", async () => {
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "read_file",
         subject: "src/a.ts",
         approvals: [{ tool: "read", pattern: "src/*" }],
@@ -85,7 +85,7 @@ describe("grant aliases", () => {
       }),
     ).toBe(true);
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "read",
         subject: "src/a.ts",
         approvals: [{ tool: "read_file", pattern: "src/*" }],
@@ -102,7 +102,7 @@ describe("grant aliases", () => {
   // update_plan keys, so that replay path is unreachable.
   test("a stored update_plan grant does not cover manage_tasks", async () => {
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "manage_tasks",
         subject: "manage_tasks",
         approvals: [{ tool: "update_plan", pattern: "*" }],
@@ -113,7 +113,7 @@ describe("grant aliases", () => {
 
   test("a stored manage_tasks grant covers manage_tasks", async () => {
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "manage_tasks",
         subject: "manage_tasks",
         approvals: [{ tool: "manage_tasks", pattern: "*" }],

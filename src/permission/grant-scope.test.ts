@@ -3,20 +3,19 @@ import type { ToolCall } from "@intx/types/runtime";
 import type { Approval, PermissionRequest } from "./types.js";
 import {
   approvalCoversSubject,
-  evaluateApprovals,
   grantScopeMatches,
   normalizeSeededApprovals,
   cwdMatchesGrant,
   type GrantWorkspace,
 } from "./authz-grants.js";
-import { createPermissionGate, isRequestCoveredByGrant } from "./gate.js";
+import { createPermissionGate, isRequestCoveredByApproval } from "./gate.js";
 import { createPermissionRequestQueue } from "./queue.js";
 import { buildRequests } from "./classify.js";
 
-// approvalCoversSubject is the single grant-evaluation owner; evaluateApprovals
-// delegates to it and isRequestCoveredByGrant must agree on scope. Driving
-// the same grant+request pairs through all three catches a call site that
-// reimplements the check with subtly different semantics.
+// approvalCoversSubject is the single grant-evaluation owner;
+// isRequestCoveredByApproval must agree on scope. Driving the same grant+request
+// pairs through both catches a call site that reimplements the check with
+// subtly different semantics.
 describe("grant tool/providerModel/cwd scoping agrees across call sites", () => {
   const workspace: GrantWorkspace = { resolvedCwd: "/proj", roots: ["/proj"] };
   const noopRestricted = () => false;
@@ -70,7 +69,7 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
           scopes: [],
           ...(req.cwd !== undefined ? { cwd: req.cwd } : {}),
         };
-        const viaGate = isRequestCoveredByGrant(
+        const viaGate = isRequestCoveredByApproval(
           request,
           grant,
           req.activeProviderModel,
@@ -151,7 +150,7 @@ describe("normalizeSeededApprovals", () => {
 
 // mintGrant decomposes a chain scope into one grant per real segment; a grant
 // patterned on the full chain is legacy shape and never replays, because
-// evaluate() and isRequestCoveredByGrant both match per segment only.
+// evaluate() and isRequestCoveredByApproval both match per segment only.
 describe("a scope-mismatched grant never replays a multi-segment chain", () => {
   const full = "npm i && curl x";
   const shellCall = (command: string): ToolCall => ({
@@ -247,7 +246,7 @@ describe("legacy whole-string chain grants are explicitly rejected", () => {
     expect(asked).toBe(1);
   });
 
-  test("isRequestCoveredByGrant refuses a legacy full-chain pattern", () => {
+  test("isRequestCoveredByApproval refuses a legacy full-chain pattern", () => {
     const request: PermissionRequest = {
       tool: "run_shell",
       action: "Run",
@@ -256,7 +255,7 @@ describe("legacy whole-string chain grants are explicitly rejected", () => {
       cwd: "/proj",
     };
     expect(
-      isRequestCoveredByGrant(
+      isRequestCoveredByApproval(
         request,
         { tool: "run_shell", pattern: full },
         undefined,
@@ -275,7 +274,7 @@ describe("legacy whole-string chain grants are explicitly rejected", () => {
       cwd: "/proj",
     };
     expect(
-      isRequestCoveredByGrant(
+      isRequestCoveredByApproval(
         request,
         { tool: "run_shell", pattern: "npm i" },
         undefined,
@@ -429,9 +428,9 @@ describe("foreign grant cwd matching request cwd under a different workspace is 
   });
 
   test("both live call sites refuse a foreign grant replaying into /proj's workspace", async () => {
-    // evaluateApprovals
+    // approvalCoversSubject
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "run_shell",
         subject: "npm test",
         approvals: [foreignGrant],
@@ -440,7 +439,7 @@ describe("foreign grant cwd matching request cwd under a different workspace is 
       }),
     ).toBe(false);
 
-    // isRequestCoveredByGrant (request cwd coincides with the foreign grant's cwd)
+    // isRequestCoveredByApproval (request cwd coincides with the foreign grant's cwd)
     const request: PermissionRequest = {
       tool: "run_shell",
       action: "Run",
@@ -449,7 +448,7 @@ describe("foreign grant cwd matching request cwd under a different workspace is 
       cwd: "/foreign",
     };
     expect(
-      isRequestCoveredByGrant(
+      isRequestCoveredByApproval(
         request,
         foreignGrant,
         undefined,
@@ -461,7 +460,7 @@ describe("foreign grant cwd matching request cwd under a different workspace is 
 
   test("the same grant with its own workspace still replays the session root", async () => {
     expect(
-      await evaluateApprovals({
+      await approvalCoversSubject({
         tool: "run_shell",
         subject: "npm test",
         approvals: [ownGrant],
