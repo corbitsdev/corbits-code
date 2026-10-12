@@ -782,6 +782,20 @@ export interface MarkdownSplit {
   readonly gapRows: number;
 }
 
+/** Build a split whose live tail starts at `firstContent`; one blank line
+ * between the frozen boundary and the live tail collapses to a single gap row. */
+function settledSplit(
+  frozen: string,
+  rest: string[],
+  firstContent: number,
+): MarkdownSplit {
+  return {
+    frozen,
+    live: rest.slice(firstContent).join("\n"),
+    gapRows: firstContent > 0 ? 1 : 0,
+  };
+}
+
 export function splitAtSettledHeading(text: string): MarkdownSplit | null {
   const lines = text.split("\n");
   const insideFence = fencedLineMask(lines);
@@ -797,11 +811,11 @@ export function splitAtSettledHeading(text: string): MarkdownSplit | null {
   const firstContent = rest.findIndex((line) => line.trim().length > 0);
   // Heading closed but nothing has started under it yet.
   if (firstContent === -1) return null;
-  return {
-    frozen: lines.slice(0, boundary + 1).join("\n"),
-    live: rest.slice(firstContent).join("\n"),
-    gapRows: firstContent > 0 ? 1 : 0,
-  };
+  return settledSplit(
+    lines.slice(0, boundary + 1).join("\n"),
+    rest,
+    firstContent,
+  );
 }
 
 /**
@@ -870,11 +884,11 @@ export function splitAtSettledBlock(withheld: string): MarkdownSplit | null {
     const rest = lines.slice(boundary + 1);
     const firstContent = rest.findIndex((entry) => entry.trim().length > 0);
     if (firstContent === -1) continue;
-    return {
-      frozen: lines.slice(0, boundary + 1).join("\n"),
-      live: rest.slice(firstContent).join("\n"),
-      gapRows: firstContent > 0 ? 1 : 0,
-    };
+    return settledSplit(
+      lines.slice(0, boundary + 1).join("\n"),
+      rest,
+      firstContent,
+    );
   }
   return null;
 }

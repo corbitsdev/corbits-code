@@ -39,8 +39,18 @@ export async function listPathSuggestions(
     // prefix as filter (the `@` alone case, like `ls`).
     const lastSlash = rest.lastIndexOf("/");
     const hasSlash = lastSlash !== -1;
-    const dir = endsWithSep ? rest || "." : hasSlash ? dirname(rest) : ".";
-    const fragment = endsWithSep ? "" : hasSlash ? basename(rest) : rest;
+    let dir: string;
+    let fragment: string;
+    if (endsWithSep) {
+      dir = rest || ".";
+      fragment = "";
+    } else if (hasSlash) {
+      dir = dirname(rest);
+      fragment = basename(rest);
+    } else {
+      dir = ".";
+      fragment = rest;
+    }
     const realDir = await resolveDirectory(dir, base);
     if (realDir === null) return [];
 
@@ -56,16 +66,22 @@ export async function listPathSuggestions(
       // Reconstruct the path the user would type: bare fragments are shown
       // relative to cwd (dirPrefix ""), and home-relative results keep the
       // `~/` form so the completion inserts text the submit path expands.
-      const innerPrefix = endsWithSep
-        ? rest
-        : hasSlash
-          ? rest.slice(0, rest.length - fragment.length)
-          : "";
-      const dirPrefix = homeRelative
-        ? `~/${innerPrefix}`
-        : endsWithSep
-          ? prefix
-          : innerPrefix;
+      let innerPrefix: string;
+      if (endsWithSep) {
+        innerPrefix = rest;
+      } else if (hasSlash) {
+        innerPrefix = rest.slice(0, rest.length - fragment.length);
+      } else {
+        innerPrefix = "";
+      }
+      let dirPrefix: string;
+      if (homeRelative) {
+        dirPrefix = `~/${innerPrefix}`;
+      } else if (endsWithSep) {
+        dirPrefix = prefix;
+      } else {
+        dirPrefix = innerPrefix;
+      }
       matched.push(dirPrefix + entry.name + (entry.isDirectory() ? "/" : ""));
     }
 
