@@ -1,24 +1,4 @@
 #!/usr/bin/env bun
-/**
- * FIRST @corbits/evals eval: dispatch director routing (CL-10452).
- *
- * Exercises the real product dispatch director system prompt
- * (`agents/dispatch/src/prompt.ts`, exported by `@corbits/code-agent-dispatch`)
- * against brand-new routing requests. Each case is a user request that must be
- * routed to one specialist; the checks and the per-check miss allowances gate
- * the run through `evaluate()` from `@corbits/evals`.
- *
- * The run composes the dispatch card (unchanged) + the case request + a fixed
- * reply-format stanza (harness glue so the routing decision is measurable),
- * and calls a model. Defaults to local Ollama, matching the package's own
- * examples; override with EVAL_OLLAMA_URL / EVAL_MODEL.
- *
- * Run:
- *   bun scripts/eval-prompts-dispatch.ts
- *   EVAL_MODEL=tev1:0.8b bun scripts/eval-prompts-dispatch.ts
- *
- * See evals/prompts/dispatch-routing/README.md for gates and calibration.
- */
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,11 +17,9 @@ const LAST_PATH = join(REPO_ROOT, "evals/prompts/dispatch-routing/last.json");
 const OLLAMA_URL = process.env.EVAL_OLLAMA_URL ?? "http://localhost:11434";
 const MODEL = process.env.EVAL_MODEL ?? "qwen3:0.6b";
 
-/** Harness glue appended after the case request; the dispatch card is verbatim. */
 const REPLY_FORMAT = `\n\n# Reply format
 Reply with exactly one line: the specialist you would spawn, one of: explorer, planner, coder, reviewer, designer, artist, warden, shakespeare, prober, qa-lead. Then a second line with a one-sentence brief.`;
 
-/** Route one request: dispatch card + request (+ reply format) through the model. */
 async function dispatchRoute(
   input: string,
   signal: AbortSignal,
@@ -75,7 +53,6 @@ async function dispatchRoute(
   return reply;
 }
 
-/** Per-case expected specialist and likely-wrong decoys (for humans; route gates). */
 interface RoutingExpect {
   route: string;
   decoys: readonly string[];
@@ -143,13 +120,11 @@ function loadCases(path: string): Promise<Case<string, RoutingExpect>[]> {
   });
 }
 
-/** Fail-closed word list: never matches real output, so a missing expect fails. */
 const routeWords = (
   run: Run<string, string, RoutingExpect>,
 ): readonly string[] =>
   run.expect === undefined ? ["__missing_expect__"] : [run.expect.route];
 
-/** The dispatch card says delegate by default and never DIY-map explorer work. */
 const DIY_PHRASES = [
   "I will fix",
   "I'll fix",
@@ -178,10 +153,6 @@ async function main(): Promise<number> {
         noDiy: avoids<string, string, RoutingExpect>(DIY_PHRASES),
         fast: under({ ms: 120_000 }),
       },
-      // Gates: calibrated to the local smoke model (qwen3:0.6b) so the harness
-      // trips only on a routing collapse; tighten when running a capable model.
-      // `last.json` (compare + save) is the regression/drop gate once a strong
-      // model baseline is stored.
       allow: {
         routes: { miss: 6, drop: 0 },
         noDiy: { miss: 2, drop: 0 },
