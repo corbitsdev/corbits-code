@@ -136,7 +136,6 @@ export function noticeText(shell: AppShell): string {
       shell.inFlightTool,
       shell.lockupNowMs,
     ),
-    interrupt: shell.session.interruptFlash,
     pinned: !isTranscriptFollowing(shell),
     flash: shell.statusFlash,
     attachments: shell.pendingAttachments.length,

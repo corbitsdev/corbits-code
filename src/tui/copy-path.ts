@@ -6,6 +6,7 @@
 
 import { diffPlainText } from "./diff.js";
 import type { StreamRow } from "./stream.js";
+import { abbreviate } from "./tool-formatter.js";
 
 export type CopyKind = "message" | "tool" | "diff" | "system";
 
@@ -70,11 +71,6 @@ export function createRecordingClipboard(): ClipboardPort & {
       writes.push(text);
     },
   };
-}
-
-function oneLine(text: string, max = 56): string {
-  const collapsed = text.replace(/\s+/g, " ").trim();
-  return collapsed.length > max ? `${collapsed.slice(0, max - 1)}…` : collapsed;
 }
 
 /**
@@ -154,7 +150,7 @@ export function buildCopyTargets(log: readonly StreamRow[]): CopyTarget[] {
     targets.push({
       id: `row-${i}`,
       label: copyRowLabel(row),
-      preview: oneLine(payload.text),
+      preview: abbreviate(payload.text, 56),
       text: payload.text,
     });
   }

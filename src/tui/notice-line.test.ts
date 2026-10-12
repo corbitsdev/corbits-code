@@ -8,7 +8,6 @@ import {
 
 const state = (over: Partial<NoticeState> = {}): NoticeState => ({
   waitingOn: null,
-  interrupt: false,
   pinned: false,
   flash: null,
   attachments: 0,

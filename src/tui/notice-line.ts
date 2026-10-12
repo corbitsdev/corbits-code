@@ -25,7 +25,6 @@ export interface NoticeState {
    * Gated by `resolveWaitingOn`; this field only controls wording.
    */
   readonly waitingOn: string | null;
-  readonly interrupt: boolean;
   /** Transcript scrolled off the tail (non-default follow state). */
   readonly pinned: boolean;
   /** Transient feedback (copy result, attach failure, exit arming). */

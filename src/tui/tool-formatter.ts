@@ -147,8 +147,8 @@ export function describeToolCall(
       const subject = description.length > 0 ? description : prompt;
       const first = agentName?.[0];
       const display =
-        first != null && agentName !== undefined
-          ? first.toUpperCase() + agentName.slice(1)
+        first != null
+          ? first.toUpperCase() + (agentName ?? "").slice(1)
           : "Worker";
       // Collapsed row uses the abbreviated subject; Alt+E expands to the full text.
       return {
