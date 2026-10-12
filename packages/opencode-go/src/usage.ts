@@ -99,7 +99,7 @@ export async function fetchGoUsage(
   }
 }
 
-function formatUsagePercent(w: GoUsageWindow): string {
+function formatWindowUsage(w: GoUsageWindow): string {
   if (w.usagePercent !== undefined) return `${Math.round(w.usagePercent)}%`;
   if (w.usageDollars !== undefined && w.limitDollars !== undefined) {
     return `$${w.usageDollars.toFixed(2)}/$${w.limitDollars.toFixed(0)}`;
@@ -123,5 +123,5 @@ export function formatGoUsage(usage: GoUsage): string {
   }
   const w = usage.rolling5h ?? usage.weekly ?? usage.monthly;
   if (w === undefined) return "Go usage ok";
-  return `Go ${usageWindowLabel(usage)} ${formatUsagePercent(w)}`;
+  return `Go ${usageWindowLabel(usage)} ${formatWindowUsage(w)}`;
 }
