@@ -59,14 +59,26 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "agent", "director"]);
 // (mount, description edit, reorder) drops the next turn's cache hit. The
 // digest stays deterministic — it only moves when discovery grows the set.
 // Hashed: MCP descriptions are arbitrary server text, not log material.
+//
+// Memoized per array identity: the director owns stable tool arrays and swaps
+// them wholesale (constructor, updateToolDefinitions) without in-place
+// mutation, so the same reference always means the same content and a new
+// reference (tools changed) misses the WeakMap and recomputes. A WeakMap also
+// avoids retaining arrays the director has dropped.
+const toolSetDigestCache = new WeakMap<readonly ToolDefinition[], string>();
+
 export function toolSetDigest(tools: readonly ToolDefinition[]): string {
+  const cached = toolSetDigestCache.get(tools);
+  if (cached !== undefined) return cached;
   const shape = tools
     .map(
       (t) =>
         `${t.name}:${t.description ?? ""}:${JSON.stringify(t.inputSchema ?? null)}`,
     )
     .join("|");
-  return createHash("sha256").update(shape).digest("hex").slice(0, 12);
+  const digest = createHash("sha256").update(shape).digest("hex").slice(0, 12);
+  toolSetDigestCache.set(tools, digest);
+  return digest;
 }
 
 function isInternalRecoveryAbort(
