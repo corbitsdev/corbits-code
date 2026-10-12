@@ -12,7 +12,7 @@ interface GoModel {
 }
 
 export const OPENCODE_GO_MODELS = [
-  { id: "grok-4.5", name: "Grok 4.5", protocol: "chat-completions" },
+  { id: "grok-4.5", name: "Grok 4.5", protocol: "responses" },
   { id: "gpt-5.6-luna", name: "GPT 5.6 Luna", protocol: "responses" },
   {
     id: "muse-spark-1.3-contributor",
@@ -45,10 +45,10 @@ export const OPENCODE_GO_MODELS = [
   },
   { id: "mimo-v2.5", name: "MiMo-V2.5", protocol: "chat-completions" },
   { id: "mimo-v2.5-pro", name: "MiMo-V2.5-Pro", protocol: "chat-completions" },
-  { id: "minimax-m3", name: "MiniMax M3", protocol: "messages" },
-  { id: "minimax-m2.7", name: "MiniMax M2.7", protocol: "messages" },
-  { id: "minimax-m2.5", name: "MiniMax M2.5", protocol: "messages" },
-  { id: "qwen3.8-max", name: "Qwen3.8 Max", protocol: "messages" },
+  { id: "minimax-m3", name: "MiniMax M3", protocol: "chat-completions" },
+  { id: "minimax-m2.7", name: "MiniMax M2.7", protocol: "chat-completions" },
+  { id: "minimax-m2.5", name: "MiniMax M2.5", protocol: "chat-completions" },
+  { id: "qwen3.8-max", name: "Qwen3.8 Max", protocol: "chat-completions" },
   { id: "qwen3.7-max", name: "Qwen3.7 Max", protocol: "messages" },
   { id: "qwen3.7-plus", name: "Qwen3.7 Plus", protocol: "messages" },
   { id: "qwen3.6-plus", name: "Qwen3.6 Plus", protocol: "messages" },
