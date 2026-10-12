@@ -1,10 +1,16 @@
 #!/usr/bin/env bun
-import { readFile } from "node:fs/promises";
+import { copyFile, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { systemPrompt } from "@corbits/code-agent-dispatch";
-import { EvalFailure, evaluate, avoids, mentions, under } from "@corbits/evals";
-import type { Case, Run } from "@corbits/evals";
+import { EvalFailure, evaluate, avoids, under } from "@corbits/evals";
+import type {
+  Case,
+  CheckValue,
+  EvaluateOptions,
+  Report,
+  Run,
+} from "@corbits/evals";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..");
@@ -13,9 +19,15 @@ const CASES_PATH = join(
   "evals/prompts/dispatch-routing/cases.jsonl",
 );
 const LAST_PATH = join(REPO_ROOT, "evals/prompts/dispatch-routing/last.json");
+const BASELINE_PATH = join(
+  REPO_ROOT,
+  "evals/prompts/dispatch-routing/baseline.json",
+);
 
 const OLLAMA_URL = process.env.EVAL_OLLAMA_URL ?? "http://localhost:11434";
 const MODEL = process.env.EVAL_MODEL ?? "qwen3:0.6b";
+
+export const ROUTE_BUDGET_MS = 120_000;
 
 const REPLY_FORMAT = `\n\n# Reply format
 Reply with exactly one line: the specialist you would spawn, one of: explorer, planner, coder, reviewer, designer, artist, warden, shakespeare, prober, qa-lead. Then a second line with a one-sentence brief.`;
@@ -120,10 +132,37 @@ function loadCases(path: string): Promise<Case<string, RoutingExpect>[]> {
   });
 }
 
-const routeWords = (
+export function routeLine(output: string): string {
+  const line = output.split(/\r?\n/, 1)[0] ?? "";
+  return line.trim();
+}
+
+function chosenRoute(output: string): string {
+  return routeLine(output).toLowerCase();
+}
+
+export function routesCheck(
   run: Run<string, string, RoutingExpect>,
-): readonly string[] =>
-  run.expect === undefined ? ["__missing_expect__"] : [run.expect.route];
+): CheckValue {
+  const expected = run.expect;
+  if (expected === undefined) {
+    return { pass: false, value: 0, explanation: "case has no expect" };
+  }
+  const chosen = chosenRoute(run.output);
+  const route = expected.route.trim().toLowerCase();
+  const decoys = expected.decoys.map((decoy) => decoy.trim().toLowerCase());
+  if (decoys.includes(chosen)) {
+    return { pass: false, value: 0, explanation: `decoy route: ${chosen}` };
+  }
+  if (chosen !== route) {
+    return {
+      pass: false,
+      value: 0,
+      explanation: `expected ${route}, got ${chosen === "" ? "(empty)" : chosen}`,
+    };
+  }
+  return true;
+}
 
 const DIY_PHRASES = [
   "I will fix",
@@ -141,46 +180,82 @@ const DIY_PHRASES = [
   "I'm going to implement",
 ] as const;
 
-async function main(): Promise<number> {
-  const cases = await loadCases(CASES_PATH);
-  const report = await evaluate<string, string, RoutingExpect>(
-    "dispatch-routing",
-    {
-      run: dispatchRoute,
-      cases,
+const diyOnText = avoids<string, string, RoutingExpect>(DIY_PHRASES);
+
+export function noDiyCheck(
+  run: Run<string, string, RoutingExpect>,
+): CheckValue | Promise<CheckValue> {
+  return diyOnText({ ...run, output: routeLine(run.output) });
+}
+
+const DISPATCH_EVAL = "dispatch-routing";
+
+type DispatchEvaluate = (
+  name: string,
+  options: EvaluateOptions<string, string, RoutingExpect>,
+) => Promise<Report<string, string, RoutingExpect>>;
+
+export async function evaluateRouting(args: {
+  cases: readonly Case<string, RoutingExpect>[];
+  run: (input: string, signal: AbortSignal) => Promise<string>;
+  lastPath: string;
+  baselinePath: string;
+  evaluateFn?: DispatchEvaluate;
+}): Promise<number> {
+  const evaluateFn: DispatchEvaluate =
+    args.evaluateFn ?? ((name, options) => evaluate(name, options));
+  try {
+    const report = await evaluateFn(DISPATCH_EVAL, {
+      run: args.run,
+      cases: args.cases,
       checks: {
-        routes: mentions<string, string, RoutingExpect>(routeWords),
-        noDiy: avoids<string, string, RoutingExpect>(DIY_PHRASES),
-        fast: under({ ms: 120_000 }),
+        routes: routesCheck,
+        noDiy: noDiyCheck,
+        fast: under({ ms: ROUTE_BUDGET_MS }),
       },
       allow: {
         routes: { miss: 6, drop: 0 },
         noDiy: { miss: 2, drop: 0 },
         fast: 0,
       },
-      compare: LAST_PATH,
-      save: LAST_PATH,
+      compare: args.baselinePath,
+      save: args.lastPath,
+      timeout: ROUTE_BUDGET_MS,
       about: {
         prompt: "agents/dispatch/src/prompt.ts (dispatch director)",
         model: MODEL,
         ollamaUrl: OLLAMA_URL,
       },
-    },
-  );
-  console.log(report.markdown());
-  return 0;
-}
-
-main()
-  .then((code) => {
-    process.exitCode = code;
-  })
-  .catch((err: unknown) => {
+    });
+    await copyFile(args.lastPath, args.baselinePath);
+    console.log(report.markdown());
+    return 0;
+  } catch (err: unknown) {
     if (err instanceof EvalFailure) {
       console.log(err.report.markdown());
-      process.exitCode = 1;
-      return;
+      return 1;
     }
-    console.error(err);
-    process.exitCode = 1;
+    throw err;
+  }
+}
+
+async function main(): Promise<number> {
+  const cases = await loadCases(CASES_PATH);
+  return evaluateRouting({
+    cases,
+    run: dispatchRoute,
+    lastPath: LAST_PATH,
+    baselinePath: BASELINE_PATH,
   });
+}
+
+if (import.meta.main) {
+  main()
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((err: unknown) => {
+      console.error(err);
+      process.exitCode = 1;
+    });
+}
