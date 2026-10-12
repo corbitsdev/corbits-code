@@ -6,7 +6,7 @@ import type {
   ReactorState,
 } from "@intx/types/runtime";
 import { createCorbitsRetryPolicy } from "../agent/retry-policy.js";
-import { compactorNoOpFloor } from "../session/compactor.js";
+import { COMPACT_NOOP_FLOOR } from "../session/compactor.js";
 import { SubAgentDirector } from "./nudge-director.js";
 import type { AdmissionQueue } from "./admission.js";
 import { createTestCapabilities } from "./director-test-harness.js";
@@ -19,7 +19,7 @@ import {
 
 const state = { turns: [] } as unknown as ReactorState;
 const longState = {
-  turns: Array.from({ length: compactorNoOpFloor() + 1 }, () => ({
+  turns: Array.from({ length: COMPACT_NOOP_FLOOR + 1 }, () => ({
     role: "user",
     content: [],
     timestamp: 0,

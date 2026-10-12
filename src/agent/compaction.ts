@@ -14,7 +14,7 @@ import {
 } from "../provider/context-window.js";
 import {
   assistantTextIsCompactSpacerEcho,
-  compactorNoOpFloor,
+  COMPACT_NOOP_FLOOR,
   isCompactSpacerEchoTurn,
 } from "../session/compactor.js";
 import {
@@ -24,9 +24,9 @@ import {
 import { onTurnBoundary } from "./reactor-events.js";
 
 const COMPACTOR_NAME = "pruning-compactor";
-// Compactor no-op floor, from the same helper so it cannot drift; arming
+// Compactor no-op floor, shared from the compactor so it cannot drift; arming
 // at or below spends a cycle that shrinks nothing.
-const MIN_TURNS_TO_COMPACT = compactorNoOpFloor();
+const MIN_TURNS_TO_COMPACT = COMPACT_NOOP_FLOOR;
 // Cap overflow retries so an unshrinkable history cannot loop forever;
 // cleared once usage drops back under the watermark.
 const MAX_OVERFLOW_RECOVERIES = 2;

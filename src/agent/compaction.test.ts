@@ -24,7 +24,7 @@ import {
 import {
   COMPACT_SPACER_TEXT,
   LEGACY_COMPACT_SPACER_TEXT,
-  compactorNoOpFloor,
+  COMPACT_NOOP_FLOOR,
 } from "../session/compactor.js";
 import { buildSummaryPrompt } from "../session/summarizer.js";
 
@@ -509,7 +509,7 @@ describe("compaction governor", () => {
 
   test("never arms at the exact turn count createPruningCompactor no-ops on", () => {
     // The compactor's own no-op floor; arming at or below it spends a cycle that shrinks nothing.
-    const floor = compactorNoOpFloor();
+    const floor = COMPACT_NOOP_FLOOR;
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(
       inferenceDone(overThreshold),
@@ -521,7 +521,7 @@ describe("compaction governor", () => {
   });
 
   test("arms one turn past the floor createPruningCompactor no-ops on", () => {
-    const floor = compactorNoOpFloor();
+    const floor = COMPACT_NOOP_FLOOR;
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(
       inferenceDone(overThreshold),
