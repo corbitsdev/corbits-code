@@ -60,25 +60,19 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "agent", "director"]);
 // digest stays deterministic — it only moves when discovery grows the set.
 // Hashed: MCP descriptions are arbitrary server text, not log material.
 //
-// Memoized per array identity: the director owns stable tool arrays and swaps
-// them wholesale (constructor, updateToolDefinitions) without in-place
-// mutation, so the same reference always means the same content and a new
-// reference (tools changed) misses the WeakMap and recomputes. A WeakMap also
-// avoids retaining arrays the director has dropped.
-const toolSetDigestCache = new WeakMap<readonly ToolDefinition[], string>();
-
+// Pure by design: the memoization lives on the director (_toolSetDigest), the
+// only production caller, so the module keeps no per-array state. Callers swap
+// tool arrays wholesale (constructor, updateToolDefinitions) without in-place
+// mutation; mutating an installed array in place would leave the director's
+// cached digest stale.
 export function toolSetDigest(tools: readonly ToolDefinition[]): string {
-  const cached = toolSetDigestCache.get(tools);
-  if (cached !== undefined) return cached;
   const shape = tools
     .map(
       (t) =>
         `${t.name}:${t.description ?? ""}:${JSON.stringify(t.inputSchema ?? null)}`,
     )
     .join("|");
-  const digest = createHash("sha256").update(shape).digest("hex").slice(0, 12);
-  toolSetDigestCache.set(tools, digest);
-  return digest;
+  return createHash("sha256").update(shape).digest("hex").slice(0, 12);
 }
 
 function isInternalRecoveryAbort(
@@ -487,6 +481,13 @@ class ChatDirectorImpl extends DefaultDirector {
   private readonly askOperatorCalls = new Set<string>();
   private readonly _systemPrompt: string;
   private _toolDefinitions: ToolDefinition[];
+  // Digest of the installed _toolDefinitions, stored when the array is set so
+  // updateToolDefinitions can compare an incoming set without re-hashing the
+  // current one. One slot per director — the digest is only consumed by the
+  // next update on this instance, never by shared/static context (all
+  // production call sites are here). Stale only if a caller mutates the
+  // installed array in place; callers swap arrays wholesale instead.
+  private _toolSetDigest: string | undefined;
   private inactivityTimeoutMs: number | undefined;
   private totalTimeoutMs: number | undefined;
   // Host-owned live object, attached via setWorkflowCoordinator — never a
@@ -711,9 +712,13 @@ class ChatDirectorImpl extends DefaultDirector {
   }
 
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
-    const before = toolSetDigest(this._toolDefinitions);
+    // The stored digest covers the current set (installed by the constructor
+    // or a prior update); only the very first update has to hash it, and the
+    // fallback runs once per director.
+    const before = this._toolSetDigest ?? toolSetDigest(this._toolDefinitions);
     const after = toolSetDigest(toolDefinitions);
     this._toolDefinitions = toolDefinitions;
+    this._toolSetDigest = after;
     if (before === after) return;
     logger.debug`tool-set-changed count=${String(this._toolDefinitions.length)} before=${before} after=${after}`;
   }
