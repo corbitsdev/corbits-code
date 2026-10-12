@@ -16,21 +16,11 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 import { findAll } from "./find-all.js";
+import { percentile } from "./percentile.js";
 import {
   APPROVAL_LOG_FILE,
   type ApprovalRecord,
 } from "../src/permission/approval-log.js";
-
-function percentile(sorted: readonly number[], p: number): number {
-  if (sorted.length === 0) return 0;
-  const index = Math.min(
-    sorted.length - 1,
-    Math.floor((p / 100) * sorted.length),
-  );
-  const value = sorted[index];
-  if (value === undefined) return 0;
-  return value;
-}
 
 interface Bucket {
   count: number;

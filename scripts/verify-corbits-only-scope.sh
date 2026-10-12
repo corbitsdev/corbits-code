@@ -13,11 +13,6 @@ changed="$(
   } | sed '/^$/d' | LC_ALL=C sort -u
 )"
 
-if [ -z "$changed" ]; then
-  echo "OK: no forbidden path changes detected."
-  exit 0
-fi
-
 violations="$(printf '%s\n' "$changed" | grep -E "$forbidden" || true)"
 if [ -n "$violations" ]; then
   echo "SCOPE VIOLATION: changes under vendor/ are not allowed for this wave."
