@@ -598,30 +598,26 @@ describe("createSessionStores", () => {
   });
 });
 
-describe("concurrent sessions write disjoint transcripts (CL-10372)", () => {
+describe("concurrent sessions write disjoint transcripts", () => {
   test("a second session sharing the dir never overwrites the first session's turns", async () => {
     const dir = tempDir();
     const storeA = await createOptimizedContextStore(dir);
     const storeB = await createOptimizedContextStore(dir);
 
-    // Session A lands a 107-record transcript (the ticket's verified size).
     const turnsA = Array.from({ length: 107 }, (_, i) => turn(`a-${i}`));
     await storeA.writeTurns([...turnsA]);
     await storeA.writeMetadata(EMPTY_CHECKPOINT_METADATA);
     await storeA.commit({ message: "session A" });
 
-    // Session B starts concurrently on the same dir with its own transcript.
     const turnsB = Array.from({ length: 7 }, (_, i) => turn(`b-${i}`));
     await storeB.writeTurns([...turnsB]);
     await storeB.writeMetadata(EMPTY_CHECKPOINT_METADATA);
     await storeB.commit({ message: "session B" });
 
-    // A's transcript must survive intact: no overwrite.
     expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
       turnTexts(turnsA),
     );
 
-    // B's records must survive in a disjoint, versioned file: no lost records.
     const versioned = versionedTurnsFiles(dir);
     expect(versioned.length).toBeGreaterThan(0);
     const bOnDisk = versioned.flatMap((name) =>
@@ -629,7 +625,6 @@ describe("concurrent sessions write disjoint transcripts (CL-10372)", () => {
     );
     expect(bOnDisk).toEqual(turnTexts(turnsB));
 
-    // Disjoint: every record from both sessions survives exactly once.
     const all = [
       ...turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE))),
       ...bOnDisk,
@@ -637,13 +632,11 @@ describe("concurrent sessions write disjoint transcripts (CL-10372)", () => {
     expect(new Set(all).size).toBe(turnsA.length + turnsB.length);
   });
 
-  test("same-session resume with a differing first prompt keeps writing turns.jsonl (CL-10372 regression)", async () => {
+  test("same-session resume with a differing first prompt keeps writing turns.jsonl", async () => {
     const dir = tempDir();
 
-    // Owner session lands a committed transcript, then is resumed by a fresh
-    // store in a new process (the reactor writes the materialized prompt in
-    // pre-inference BEFORE any writeTurns; the prompt legitimately differs
-    // from the on-disk turns when context transforms / ephemeral turns apply).
+    // Reactor writes the prompt before writeTurns; that prompt may differ
+    // from on-disk turns.
     const owner = await createOptimizedContextStore(dir);
     const live = [turn("a"), turn("b")];
     await owner.writeTurns([...live]);
@@ -657,8 +650,6 @@ describe("concurrent sessions write disjoint transcripts (CL-10372)", () => {
     await resumed.writeMetadata(EMPTY_CHECKPOINT_METADATA);
     await resumed.commit({ message: "resume append" });
 
-    // No versioned base: this store is the session owner resuming, so it
-    // keeps owning turns.jsonl and the new turn is visible to load().
     expect(versionedTurnsFiles(dir)).toEqual([]);
     expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
       turnTexts(next),
@@ -676,9 +667,6 @@ describe("concurrent sessions write disjoint transcripts (CL-10372)", () => {
     await owner.writeMetadata(EMPTY_CHECKPOINT_METADATA);
     await owner.commit({ message: "owner" });
 
-    // The same session resumes (same owner id) and its FIRST write is a
-    // compaction that replaces the head. Ownership is by marker, not content
-    // shape: this is the owner, so the rewrite is canonical on turns.jsonl.
     const resumed = await createOptimizedContextStore(dir, {
       ownerId: "session-S",
     });
@@ -716,8 +704,6 @@ describe("concurrent sessions write disjoint transcripts (CL-10372)", () => {
       })(),
     ]);
 
-    // The dir lock serializes the first writes: exactly one store owns the
-    // shared base and the other lands in a single disjoint versioned file.
     const shared = turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)));
     const versioned = versionedTurnsFiles(dir);
     expect(versioned).toHaveLength(1);
@@ -744,12 +730,8 @@ describe("concurrent sessions write disjoint transcripts (CL-10372)", () => {
 
     const foreign = await createOptimizedContextStore(dir);
     await foreign.writeTurns([turn("x"), turn("y")]);
-    // Simulated crash before commit: the divert is staged in memory only, so
-    // no versioned file may exist on disk yet.
     expect(versionedTurnsFiles(dir)).toEqual([]);
 
-    // A later plain resume (prefix-extension, no stable id) sees no orphan
-    // and keeps the shared transcript canonical.
     const resumed = await createOptimizedContextStore(dir);
     await resumed.writeTurns([turn("a"), turn("b"), turn("c")]);
     await resumed.writeMetadata(EMPTY_CHECKPOINT_METADATA);

@@ -34,7 +34,6 @@ const MANIFEST_FILE = "manifest.jsonl";
 const METADATA_FILE = "metadata.json";
 const TOOL_OUTPUT_DIR = "tool-output";
 const EVIDENCE_ARCHIVE_DIR = "evidence-archive";
-/** Per-session ownership marker: records which store authored the shared base. */
 const OWNER_MARKER_FILE = "session-owner.json";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "session", "context-store"]);
@@ -87,13 +86,8 @@ function sanitizeCallId(callId: string): string {
 }
 
 /**
- * Unique versioned base name for a transcript file (e.g.
- * `turns-1730000000000-a1b2c3d4e5f6....jsonl`). A store whose transcript is
- * foreign to the on-disk owner writes to one of these instead of the shared
- * base, so concurrent sessions keep disjoint files. The `-<epoch>-<uuid>`
- * infix never collides with the numbered segment pattern (`turns-0001.jsonl`),
- * so the base readers ignore these by design. The UUID suffix keeps names
- * unique even when two diverts happen within the same millisecond.
+ * Epoch+uuid avoids numbered segments (`turns-0001.jsonl`) that base
+ * readers treat as live history.
  */
 export function versionedBaseName(baseName: string): string {
   const dot = baseName.lastIndexOf(".");
@@ -360,12 +354,6 @@ async function readBaseTurnsFromDisk(dir: string): Promise<ConversationTurn[]> {
   return parseSegmentTurns(text, true, TURNS_FILE, true);
 }
 
-/**
- * Ownership marker for the shared base. Absent on a fresh/legacy dir; once a
- * store writes the shared base first it claims the dir with its owner token,
- * so a later store can tell "I authored this transcript" from "a foreign
- * store did" without guessing from content shape.
- */
 async function readOwnerMarker(
   dir: string,
 ): Promise<{ ownerId: string } | null> {
@@ -567,15 +555,8 @@ export interface SessionStores {
 export interface SessionStoreOptions {
   signer?: CommitSigner;
   /**
-   * Stable identity of the session this store belongs to (e.g. the session
-   * id). Stores with the same id on one dir are the same session: resuming
-   * stores recognize the on-disk ownership marker as their own, so their
-   * rewrites (compaction) stay canonical on the shared base. Stores with
-   * different (or no) ids are foreign to each other and divert to disjoint
-   * versioned files instead of clobbering the shared transcript. When omitted
-   * the store uses a per-instance random token, so any two stores on one dir
-   * are treated as foreign unless the incoming transcript extends the on-disk
-   * history (a plain resume).
+   * Same id shares the marker; omit for a random token, foreign unless the
+   * transcript extends history.
    */
   ownerId?: string;
 }
@@ -594,13 +575,7 @@ export async function createSessionStores(
   const base = await createIsogitStore(dir, signer);
   const pendingBlobFilepaths = new Set<string>();
   const pendingSegmentPaths = new Set<string>();
-  // Stable per-session owner token (the caller's session id, or a random
-  // per-instance token). The on-disk ownership marker is compared against it
-  // to tell "I authored this transcript" from "a foreign store did".
   const ownerToken = opts?.ownerId ?? globalThis.crypto.randomUUID();
-  // Base file each writer owns. A store that detects a foreign on-disk owner
-  // (a concurrent session sharing the dir) switches both bases to disjoint
-  // versioned names so its writes never clobber the other session.
   let turnsBaseName = TURNS_FILE;
   let promptBaseName = PROMPT_FILE;
   let versionedBase: string | null = null;
@@ -667,9 +642,7 @@ export async function createSessionStores(
       liveTurnRefs = [...turns];
       return;
     }
-    // Fresh-store first write: the ownership decision and the first write are
-    // serialized per dir so two concurrent fresh stores cannot both claim the
-    // shared base (one becomes owner, the other diverts instead of racing).
+    // First claim is per-dir so two fresh stores cannot both own the base.
     await withResolvedDirLock(dir, async () => {
       if (liveTurnRefs !== null) {
         if (refPrefixLength(liveTurnRefs, turns) < liveTurnRefs.length) {
@@ -682,7 +655,6 @@ export async function createSessionStores(
       }
       const marker = await readOwnerMarker(dir);
       if (marker === null) {
-        // No owner yet: this store claims the shared base.
         await writeOwnerMarker(dir, ownerToken);
         await writeSegmented(writeTurnsSegmented, turns);
         liveTurnRefs = [...turns];
@@ -690,31 +662,23 @@ export async function createSessionStores(
       }
       const live = await loadLiveTurnsFromDisk();
       if (marker.ownerId === ownerToken) {
-        // This store is the session owner (resuming with a stable id): any
-        // rewrite, including a compaction that replaces history, is canonical
-        // on the shared base — never divert an owner's own rewrite.
+        // Matching owner keeps compaction on the shared base, not a divert.
         await writeSegmented(writeTurnsSegmented, turns);
         liveTurnRefs = [...turns];
         return;
       }
       if (live.length > 0 && contentPrefixLength(live, turns) < live.length) {
-        // The on-disk transcript was authored by a foreign store and this
-        // store's transcript is not an extension of it: rewriting the shared
-        // base would clobber the other session's records. Divert to a
-        // disjoint versioned base; the write is staged and lands at commit so
-        // a crash before then leaves no orphaned versioned file.
+        // Stage until commit so a crash leaves no orphaned versioned file.
         divertToVersionedBases();
         unpublishedRewrite = [...turns];
         return;
       }
-      // Foreign marker but the incoming transcript extends the on-disk history
-      // (a plain resume without a stable id): continue the shared base.
+      // Prefix extension with no stable id resumes the shared base.
       await writeSegmented(writeTurnsSegmented, turns);
       liveTurnRefs = [...turns];
     });
   }
 
-  /** Live turns from disk for a fresh store (base + extra segments). */
   async function loadLiveTurnsFromDisk(): Promise<ConversationTurn[]> {
     const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
     let baseTurns: ConversationTurn[];
@@ -782,20 +746,11 @@ export async function createSessionStores(
       }
     }
     if (versionedBase !== null && liveTurnRefs === null) {
-      // A divert is staged but has not landed at commit yet. No versioned
-      // file may be written before commit — a crash would orphan it — so the
-      // prompt snapshot is deferred to the next cycle (after the commit, the
-      // versioned base exists and liveTurnRefs is set).
+      // No versioned file before commit; a crash would orphan it.
       return;
     }
     if (live === null || !promptEqualsLiveTurns(live, turns)) {
-      // The prompt is a materialized snapshot and legitimately differs from
-      // the live turns on a normal resume (context transforms, ephemeral
-      // turns, summaries), so a differing prompt alone never proves a foreign
-      // store. Ownership is decided by writeTurns: only a foreign owner with a
-      // divergent transcript diverts to versioned bases, and
-      // writePromptSegmented is rebound with it. Prompt writes therefore stay
-      // on the shared base unless that divert already happened.
+      // A differing prompt is normal on resume and must not divert.
       await writeSegmented(writePromptSegmented, turns);
       return;
     }
