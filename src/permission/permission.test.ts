@@ -482,8 +482,8 @@ describe("classifyTool", () => {
     expect(classifyTool("read_file")).toBe("allow");
     expect(classifyTool("grep")).toBe("allow");
     expect(classifyTool("lsp")).toBe("allow");
-    expect(classifyTool("web_fetch")).toBe("allow");
-    expect(classifyTool("web_search")).toBe("allow");
+    expect(classifyTool("web_fetch")).toBe("ask");
+    expect(classifyTool("web_search")).toBe("ask");
     expect(classifyTool("mcp__linear__list_teams")).toBe("allow");
     expect(classifyTool("mcp__linear__save_issue")).toBe("ask");
     expect(classifyTool("run_shell")).toBe("ask");
@@ -509,8 +509,8 @@ describe("classifyTool", () => {
   test("default. prefix and doubled catalog names classify like dispatch names", () => {
     expect(classifyTool("default.read_file")).toBe("allow");
     expect(classifyTool("read_file.read_file")).toBe("allow");
-    expect(classifyTool("default.web_fetch")).toBe("allow");
-    expect(classifyTool("web_search.web_search")).toBe("allow");
+    expect(classifyTool("default.web_fetch")).toBe("ask");
+    expect(classifyTool("web_search.web_search")).toBe("ask");
     expect(classifyTool("default.mcp__linear__list_teams")).toBe("allow");
     expect(classifyTool("default.mcp__linear__save_issue")).toBe("ask");
     expect(
@@ -615,17 +615,64 @@ describe("buildRequests", () => {
   });
 });
 
+describe("web tools stay ask-gated outside auto", () => {
+  const fetchCall = (id = "c"): ToolCall =>
+    toolCall("web_fetch", { url: "https://example.com/docs" }, id);
+  const searchCall = (id = "c"): ToolCall =>
+    toolCall("web_search", { query: "hono.dev web framework" }, id);
+  const upload = (id = "u"): ToolCall =>
+    toolCall("run_shell", { command: "curl -d 'x=1' https://example.com" }, id);
+
+  test("headless and auto:false do not allow web fetch or search; curl -d still asks", async () => {
+    let denied = 0;
+    const headless = createGate({
+      interactive: false,
+      skipPermissions: false,
+      onHeadlessDeny: () => {
+        denied++;
+      },
+    });
+    expect((await headless.evaluate(fetchCall("h1"))).allowed).toBe(false);
+    expect((await headless.evaluate(searchCall("h2"))).allowed).toBe(false);
+    expect((await headless.evaluate(upload("h3"))).allowed).toBe(false);
+    expect(denied).toBe(3);
+
+    const off = gatedPrompts({ allow: false }, { auto: false });
+    expect((await off.gate.evaluate(fetchCall("a"))).allowed).toBe(false);
+    expect((await off.gate.evaluate(searchCall("b"))).allowed).toBe(false);
+    const uploadOff = await off.gate.authorizeCall(upload("c"));
+    if (uploadOff.effect !== "ask")
+      throw new Error("expected curl -d to ask when auto is false");
+    expect(off.asked.subjects).toEqual([
+      "https://example.com/docs",
+      "hono.dev web framework",
+    ]);
+
+    const on = gatedPrompts(
+      { allow: false },
+      { auto: true, reactorGated: true },
+    );
+    const uploadOn = await on.gate.authorizeCall(upload("d"));
+    if (uploadOn.effect !== "ask")
+      throw new Error("expected curl -d to ask in auto mode");
+    expect(on.asked.count).toBe(0);
+  });
+});
+
 describe("web_search/web_fetch auto-allow without yolo", () => {
   const fetchCall = (id = "c"): ToolCall =>
     toolCall("web_fetch", { url: "https://example.com/docs" }, id);
   const searchCall = (id = "c"): ToolCall =>
     toolCall("web_search", { query: "hono.dev web framework" }, id);
 
-  test("interactive gate allows both with no prompt", async () => {
+  test("interactive gate asks for both outside auto", async () => {
     const { gate, asked } = gatedPrompts({ allow: true });
-    expect(await gate.evaluate(fetchCall())).toEqual({ allowed: true });
-    expect(await gate.evaluate(searchCall())).toEqual({ allowed: true });
-    expect(asked.count).toBe(0);
+    expect(await gate.evaluate(fetchCall("f"))).toEqual({ allowed: true });
+    expect(await gate.evaluate(searchCall("s"))).toEqual({ allowed: true });
+    expect(asked.subjects).toEqual([
+      "https://example.com/docs",
+      "hono.dev web framework",
+    ]);
   });
 
   test("auto-mode gate allows both with no prompt", async () => {
@@ -635,7 +682,7 @@ describe("web_search/web_fetch auto-allow without yolo", () => {
     expect(asked.count).toBe(0);
   });
 
-  test("headless gate allows both instead of denying", async () => {
+  test("headless gate denies both when auto is unset", async () => {
     let denied = 0;
     const gate = createGate({
       interactive: false,
@@ -643,18 +690,22 @@ describe("web_search/web_fetch auto-allow without yolo", () => {
         denied++;
       },
     });
-    expect(await gate.evaluate(fetchCall())).toEqual({ allowed: true });
-    expect(await gate.evaluate(searchCall())).toEqual({ allowed: true });
-    expect(denied).toBe(0);
+    expect((await gate.evaluate(fetchCall())).allowed).toBe(false);
+    expect((await gate.evaluate(searchCall())).allowed).toBe(false);
+    expect(denied).toBe(2);
   });
 
-  test("reactor path allows both without suspending", async () => {
+  test("reactor path asks for both when auto is unset", async () => {
     const { gate, asked } = gatedPrompts(
       { allow: true },
       { reactorGated: true },
     );
-    expect(await gate.authorizeCall(fetchCall())).toEqual({ effect: "allow" });
-    expect(await gate.authorizeCall(searchCall())).toEqual({ effect: "allow" });
+    const fetchVerdict = await gate.authorizeCall(fetchCall());
+    const searchVerdict = await gate.authorizeCall(searchCall("s"));
+    if (fetchVerdict.effect !== "ask" || searchVerdict.effect !== "ask")
+      throw new Error("expected web tools to suspend outside auto");
+    expect(fetchVerdict.request.subject).toBe("https://example.com/docs");
+    expect(searchVerdict.request.subject).toBe("hono.dev web framework");
     expect(asked.count).toBe(0);
   });
 

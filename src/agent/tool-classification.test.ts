@@ -20,14 +20,14 @@ describe("AUTO_ALLOW_READ_TOOLS", () => {
         // Read-only skill discovery/loading needs no approval prompt.
         "skill_search",
         "use_skill",
-        "web_fetch",
-        "web_search",
       ].sort(),
     );
   });
 
   test("excludes tools with their own, narrower auto-allow logic", () => {
-    expect(AUTO_ALLOW_READ_TOOLS.has("run_shell")).toBe(false);
+    for (const tool of ["run_shell", "web_fetch", "web_search"]) {
+      expect(AUTO_ALLOW_READ_TOOLS.has(tool)).toBe(false);
+    }
   });
 });
 
