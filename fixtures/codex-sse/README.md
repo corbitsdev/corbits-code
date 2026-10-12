@@ -15,6 +15,7 @@ or user content — placeholders only.
 | `failed.json`                           | `response.failed` with error message                                   |
 | `error.json`                            | Top-level stream `error` event                                         |
 | `lifecycle-ignored.json`                | `response.created` / `in_progress` / content_part / `*.done` envelopes |
+| `parallel-tools-arguments-on-done.json` | Parallel function_calls whose arguments arrive only on `*.done`        |
 
 Loaded by `src/provider/codex-responses-sse.test.ts`.
 
