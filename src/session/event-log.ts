@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile, truncate } from "node:fs/promises";
 import { join } from "node:path";
 
 import { generateSessionId } from "./index.js";
+import { listSegmentFiles } from "./incremental-jsonl.js";
 import { withResolvedDirLock } from "./session-dir-lock.js";
 
 export const EVENT_LOG_FILE = "event-log.jsonl";
@@ -86,6 +87,16 @@ function completeLines(raw: string): string[] {
   return split.filter((line) => line.length > 0);
 }
 
+function legacyPayload(
+  parsed: unknown,
+  legacyKey: string,
+): Record<string, unknown> {
+  if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+    return { ...(parsed as Record<string, unknown>), legacyKey };
+  }
+  return { record: parsed, legacyKey };
+}
+
 function parseRecordLine(line: string): EventStreamRecord {
   return JSON.parse(line) as EventStreamRecord;
 }
@@ -103,8 +114,9 @@ async function readRawOrEmpty(filePath: string): Promise<string> {
 async function dropTornTail(filePath: string, raw: string): Promise<string> {
   if (raw.length === 0 || raw.endsWith("\n")) return raw;
   const lastNl = raw.lastIndexOf("\n");
-  await truncate(filePath, lastNl + 1);
-  return raw.slice(0, lastNl + 1);
+  const kept = raw.slice(0, lastNl + 1);
+  await truncate(filePath, Buffer.byteLength(kept));
+  return kept;
 }
 
 export function createEventStreamWriter(
@@ -147,15 +159,19 @@ export function createEventStreamWriter(
 
   const append = (event: AppendEventInput): Promise<EventStreamRecord> => {
     const run = withResolvedDirLock(dir, () => appendLocked(event));
-    pending = run.then(
-      () => undefined,
-      () => undefined,
-    );
+    pending = run.then(() => undefined);
+    void pending.catch(() => undefined);
     return run;
   };
 
   const flush = async (): Promise<void> => {
-    await pending;
+    const current = pending;
+    try {
+      await current;
+    } catch (err) {
+      if (pending === current) pending = Promise.resolve();
+      throw err;
+    }
   };
 
   const readAll = async (): Promise<EventStreamRecord[]> => {
@@ -195,14 +211,8 @@ export function createEventStreamWriter(
 
   const backfillFromLegacy = (): Promise<number> =>
     withResolvedDirLock(dir, async () => {
-      let raw: string;
-      try {
-        raw = await readFile(join(dir, "turns.jsonl"), "utf8");
-      } catch (err) {
-        if (isENOENT(err)) return 0;
-        throw err;
-      }
-      // Content hash, not position, so a partial re-run cannot duplicate lines.
+      const names = await listSegmentFiles(dir, "turns.jsonl");
+      if (names.length === 0) return 0;
       const records = await readAll();
       const existingKeys = new Set<string>();
       for (const record of records) {
@@ -213,25 +223,32 @@ export function createEventStreamWriter(
       }
       let lastId = records[records.length - 1]?.id;
       let count = 0;
-      for (const line of raw.split("\n")) {
-        if (line.length === 0) continue;
-        const key = hashLine(line);
-        if (existingKeys.has(key)) continue;
-        let record: unknown;
-        try {
-          record = JSON.parse(line);
-        } catch {
-          continue;
+      const occurrences = new Map<string, number>();
+      for (const name of names) {
+        const raw = await readFile(join(dir, name), "utf8");
+        for (const line of raw.split("\n")) {
+          if (line.length === 0) continue;
+          const hash = hashLine(line);
+          const index = occurrences.get(hash) ?? 0;
+          occurrences.set(hash, index + 1);
+          const key = `${hash}:${index}`;
+          if (existingKeys.has(key)) continue;
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          const event: AppendEventInput = {
+            type: "turn.legacy",
+            payload: legacyPayload(parsed, key),
+          };
+          if (lastId !== undefined) event.parentId = lastId;
+          const appended = await appendLocked(event);
+          existingKeys.add(key);
+          lastId = appended.id;
+          count += 1;
         }
-        const event: AppendEventInput = {
-          type: "turn.legacy",
-          payload: { record, legacyKey: key },
-        };
-        if (lastId !== undefined) event.parentId = lastId;
-        const appended = await appendLocked(event);
-        existingKeys.add(key);
-        lastId = appended.id;
-        count += 1;
       }
       return count;
     });

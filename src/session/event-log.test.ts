@@ -174,6 +174,40 @@ describe("createEventStreamWriter", () => {
     expect(records.map((r) => r.seq)).toEqual([0, 1]);
   });
 
+  test("a non-ASCII line plus a torn tail stays two parseable records with distinct seqs", async () => {
+    const dir = tempDir();
+    const writer = createEventStreamWriter(dir);
+    await writer.append({
+      id: "evt-1",
+      type: "session.started",
+      payload: { text: "é" },
+    });
+    await writer.flush();
+
+    fs.appendFileSync(
+      path.join(dir, EVENT_LOG_FILE),
+      '{"id":"torn","type":"eve',
+    );
+
+    const reopened = createEventStreamWriter(dir);
+    const next = await reopened.append({ id: "evt-2", type: "turn.done" });
+    expect(next.seq).toBe(1);
+
+    const lines = rawLines(dir);
+    expect(lines).toHaveLength(2);
+    const parsed = lines.map(
+      (line) => JSON.parse(line) as { id: string; seq: number },
+    );
+    expect(parsed.map((record) => record.id)).toEqual(["evt-1", "evt-2"]);
+    expect(parsed.map((record) => record.seq)).toEqual([0, 1]);
+
+    const records = await reopened.readFrom(-1);
+    expect(records.map((r) => r.id)).toEqual(["evt-1", "evt-2"]);
+    expect(records.map((r) => r.seq)).toEqual([0, 1]);
+    const again = await reopened.append({ id: "evt-3", type: "turn.done" });
+    expect(again.seq).toBe(2);
+  });
+
   test("readFrom returns only events past the cursor", async () => {
     const dir = tempDir();
     const writer = createEventStreamWriter(dir);
@@ -253,10 +287,7 @@ describe("createEventStreamWriter", () => {
     }
     expect(first.parentId).toBeUndefined();
     expect(second.parentId).toBe(first.id);
-    expect((first.payload as { record: unknown }).record).toEqual({
-      role: "user",
-      text: "one",
-    });
+    expect(first.payload).toMatchObject({ role: "user", text: "one" });
   });
 
   test("backfillFromLegacy returns 0 when turns.jsonl is absent", async () => {
@@ -297,6 +328,59 @@ describe("createEventStreamWriter", () => {
 
     const records = await writer.readFrom(-1);
     expect(records).toHaveLength(3);
+  });
+
+  test("backfillFromLegacy keeps identical lines and does not duplicate them on re-run", async () => {
+    const dir = tempDir();
+    const line = '{"role":"user","text":"same"}\n';
+    fs.writeFileSync(path.join(dir, "turns.jsonl"), line + line);
+    const writer = createEventStreamWriter(dir);
+    expect(await writer.backfillFromLegacy()).toBe(2);
+    expect(await writer.backfillFromLegacy()).toBe(0);
+    expect(await writer.readFrom(-1)).toHaveLength(2);
+  });
+
+  test("backfillFromLegacy includes rolled turn segments in order", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(
+      path.join(dir, "turns.jsonl"),
+      '{"role":"user","text":"one"}\n',
+    );
+    fs.writeFileSync(
+      path.join(dir, "turns-0001.jsonl"),
+      '{"role":"user","text":"two"}\n',
+    );
+    const writer = createEventStreamWriter(dir);
+    expect(await writer.backfillFromLegacy()).toBe(2);
+    const records = await writer.readFrom(-1);
+    expect(
+      records.map((record) => (record.payload as { text?: string }).text),
+    ).toEqual(["one", "two"]);
+  });
+
+  test("backfillFromLegacy stores user text where projectPrompt reads it", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(
+      path.join(dir, "turns.jsonl"),
+      '{"role":"user","text":"one"}\n',
+    );
+    const writer = createEventStreamWriter(dir);
+    expect(await writer.backfillFromLegacy()).toBe(1);
+    expect(await writer.projectPrompt()).toBe("one");
+  });
+
+  test("flush rejects when the append it covers rejects", async () => {
+    const dir = tempDir();
+    const writer = createEventStreamWriter(dir);
+    const payload: { self?: unknown } = {};
+    payload.self = payload;
+    const appending = writer.append({ type: "event", payload });
+    const flushing = writer.flush();
+    const settled = await Promise.allSettled([appending, flushing]);
+    expect(settled[0]?.status).toBe("rejected");
+    expect(settled[1]?.status).toBe("rejected");
+    await expect(appending).rejects.toThrow(TypeError);
+    await expect(flushing).rejects.toThrow(TypeError);
   });
 });
 
