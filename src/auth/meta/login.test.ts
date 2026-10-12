@@ -103,7 +103,6 @@ describe("startMetaLogin (device flow)", () => {
           expires_in: 1800,
         });
       }
-      // Token poll parks until the caller aborts, then rejects like real fetch.
       return new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener(
           "abort",

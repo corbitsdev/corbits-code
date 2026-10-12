@@ -148,11 +148,7 @@ export function buildInferenceSourceForRef(
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),
     });
   }
-  // Meta Model API key rows (the Meta chooser's "API key" path, a hand-named
-  // meta/<slug>, or a bare `meta` row) also speak the Responses protocol at
-  // META_BASE_URL — never the openai-compatible /chat/completions fallback
-  // below. They have no metaProfile marker, so route them to the same
-  // meta-responses adapter as the OAuth profiles.
+  // No metaProfile on API-key rows; do not fall through to chat completions.
   if (
     ref.provider === "meta" ||
     (entry?.metaProfile === undefined && isMetaProviderName(ref.provider))

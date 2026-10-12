@@ -256,9 +256,6 @@ export function createLoginFlow(
             verificationUri: event.verificationUri,
             userCode: event.userCode,
           };
-          // The URL is already on the clipboard when the device-code box
-          // paints "open the url, enter the code" — the operator only has to
-          // paste. A failed write flashes so it is never silently missing.
           const flash = (message: string): void => {
             state.statusFlash = message;
             if (state.statusFlashTimer !== null)
