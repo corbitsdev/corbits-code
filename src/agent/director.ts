@@ -59,12 +59,6 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "agent", "director"]);
 // (mount, description edit, reorder) drops the next turn's cache hit. The
 // digest stays deterministic — it only moves when discovery grows the set.
 // Hashed: MCP descriptions are arbitrary server text, not log material.
-//
-// Pure by design: the memoization lives on the director (_toolSetDigest), the
-// only production caller, so the module keeps no per-array state. Callers swap
-// tool arrays wholesale (constructor, updateToolDefinitions) without in-place
-// mutation; mutating an installed array in place would leave the director's
-// cached digest stale.
 export function toolSetDigest(tools: readonly ToolDefinition[]): string {
   const shape = tools
     .map(
@@ -481,12 +475,6 @@ class ChatDirectorImpl extends DefaultDirector {
   private readonly askOperatorCalls = new Set<string>();
   private readonly _systemPrompt: string;
   private _toolDefinitions: ToolDefinition[];
-  // Digest of the installed _toolDefinitions, stored when the array is set so
-  // updateToolDefinitions can compare an incoming set without re-hashing the
-  // current one. One slot per director — the digest is only consumed by the
-  // next update on this instance, never by shared/static context (all
-  // production call sites are here). Stale only if a caller mutates the
-  // installed array in place; callers swap arrays wholesale instead.
   private _toolSetDigest: string | undefined;
   private inactivityTimeoutMs: number | undefined;
   private totalTimeoutMs: number | undefined;
@@ -712,9 +700,6 @@ class ChatDirectorImpl extends DefaultDirector {
   }
 
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
-    // The stored digest covers the current set (installed by the constructor
-    // or a prior update); only the very first update has to hash it, and the
-    // fallback runs once per director.
     const before = this._toolSetDigest ?? toolSetDigest(this._toolDefinitions);
     const after = toolSetDigest(toolDefinitions);
     this._toolDefinitions = toolDefinitions;
