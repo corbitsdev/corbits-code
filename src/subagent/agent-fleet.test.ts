@@ -1470,7 +1470,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     expect(fleetRecords.peek(worker.id)?.status).toBe("interrupted");
   });
 
-  test("completeAfterInterrupt attaches the followup reply to the interrupted lane", () => {
+  test("completeAfterInterrupt attaches the followup reply to the interrupted lane", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
     const worker = sessions.start({
@@ -1488,6 +1488,76 @@ describe("interrupt_agent unblocks wait_agents", () => {
     // passes in must surface to the parent through peek/wait.
     expect(fleetRecords.peek(worker.id)?.status).toBe("interrupted");
     expect(fleetRecords.peek(worker.id)?.report).toBe("followup reply");
+    expect(fleetRecords.peek(worker.id)?.collected).toBeUndefined();
+
+    // wait_agents delivers the reply exactly once; the bodyHanded guard
+    // omits it on redelivery so a repeat wait cannot hand the same reply
+    // out twice.
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+    const first = await callFleetTool(wait, {
+      targets: [worker.id],
+      timeout_ms: 1000,
+    });
+    expect(first.timed_out).toBe(false);
+    const firstResults = first.results as {
+      agent_id: string;
+      status: string;
+      report?: string;
+    }[];
+    expect(defined(firstResults[0])).toEqual({
+      agent_id: worker.id,
+      status: "interrupted",
+      report: "followup reply",
+    });
+    expect(fleetRecords.peek(worker.id)?.bodyHanded).toBe(true);
+
+    const second = await callFleetTool(wait, {
+      targets: [worker.id],
+      timeout_ms: 1000,
+    });
+    expect(second.timed_out).toBe(false);
+    const secondResults = second.results as {
+      agent_id: string;
+      status: string;
+      report?: string;
+    }[];
+    expect(defined(secondResults[0])).toEqual({
+      agent_id: worker.id,
+      status: "interrupted",
+    });
+  });
+
+  test("tombstone releases a stored followup reply from the lane", () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const worker = sessions.start({
+      description: "looping",
+      agentId: "explorer",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    fleetRecords.register(worker.id);
+    fleetRecords.noteFollowup(worker.id);
+    fleetRecords.interrupt(worker.id);
+    fleetRecords.completeAfterInterrupt(worker.id, "followup reply");
+    // Dropping the session makes the lane tombstone; tombstone is permanent
+    // and the record is kept, so the reply must be released from the
+    // overlay instead of lingering behind its hidden projection.
+    sessions.clear();
+    expect(sessions.get(worker.id)).toBeUndefined();
+    const snap = fleetRecords.peek(worker.id);
+    expect(snap?.status).toBe("interrupted");
+    expect(snap?.tombstoned).toBe(true);
+    expect(snap?.report).toBeUndefined();
+    // Heap-truth check: the projection gate alone would hide a retained
+    // reply; the overlay itself must carry nothing.
+    const overlay = (
+      fleetRecords as unknown as {
+        records: Map<string, { report?: string }>;
+      }
+    ).records.get(worker.id);
+    expect(overlay?.report).toBeUndefined();
   });
 
   test("rejected send_input followup clears the lane so wait collects interrupted salvage", async () => {

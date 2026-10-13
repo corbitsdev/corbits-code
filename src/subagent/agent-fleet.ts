@@ -446,6 +446,10 @@ class FleetMailbox {
       overlay.tombstoned = true;
       overlay.hint = RECOVERY_HINT;
       overlay.frozenStatus = this.projectedStatus(id, overlay);
+      // Tombstone is permanent, so nothing can consume the stored reply
+      // later — releasing it here keeps the lane's heap holding nothing
+      // beyond the projection.
+      delete overlay.report;
       if (overlay.pinHeld === true) {
         overlay.pinHeld = false;
         this.sessions.unpin(id);
@@ -472,8 +476,8 @@ class FleetMailbox {
       ...(overlay.bodyHanded === true ? { bodyHanded: true } : {}),
       ...(overlay.tombstoned === true ? { tombstoned: true } : {}),
       ...(overlay.hint !== undefined ? { hint: overlay.hint } : {}),
-      // A tombstone already compacted the payload; the overlay reply goes
-      // with it so compaction keeps bounding memory.
+      // Tombstone already released the overlay reply (see above); it is
+      // hidden here too so a pre-existing tombstone never projects a reply.
       ...(overlay.tombstoned !== true && overlay.report !== undefined
         ? { report: overlay.report }
         : {}),
@@ -530,6 +534,9 @@ class FleetMailbox {
       victim.frozenStatus = this.projectedStatus(victimId, victim);
       victim.tombstoned = true;
       victim.hint = RECOVERY_HINT;
+      // Tombstone is permanent, so the stored reply has no later consumer —
+      // same release as the snapshot tombstone path.
+      delete victim.report;
       if (victim.pinHeld === true) {
         victim.pinHeld = false;
         this.sessions?.unpin(victimId);
