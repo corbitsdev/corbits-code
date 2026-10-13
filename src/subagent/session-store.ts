@@ -29,6 +29,17 @@ import type {
   VerifiedOutcome,
 } from "./escalation-policy.js";
 import { deriveTerminalOutcome } from "./escalation-policy.js";
+import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import {
+  classifySubAgentFailure,
+  failureClassForStopReason,
+  isSubAgentLoopGuardError,
+  recoveryFor,
+  type SubAgentFailureClass,
+  type SubAgentFailureInput,
+  type SubAgentFailureRecord,
+  type SubAgentHandoffState,
+} from "./terminal-failure.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "session-store"]);
 
@@ -45,6 +56,9 @@ async function invokeCloseBounded(
     throw err;
   }
 }
+
+/** resume_agent's awaits the backstop close, so a handler may be async. */
+type FollowupFailHandler = (error: unknown) => void | Promise<void>;
 
 export type SubAgentSessionStatus = "running" | "done" | "failed" | "cancelled";
 
@@ -140,6 +154,11 @@ export interface SubAgentSession {
   /** Canonical tool names hard-required at dispatch. Verified pre-spawn; the
    * mount re-checks and fails a stale snapshot if one went missing. */
   requiresTools?: readonly string[];
+  /**
+   * Typed record of a terminal non-clean outcome. Written once, in the same
+   * mutation that makes the outcome observable; absent while the lane is live.
+   */
+  failure?: SubAgentFailureRecord;
 }
 
 export interface StartSessionInput {
@@ -175,6 +194,7 @@ export interface SubAgentSessionStoreOptions {
   createId?: () => string;
   /** When set, resume/followup inference is admitted through this queue. */
   admission?: AdmissionQueue;
+  backstopCloseDeadlineMs?: number;
 }
 
 export interface SubAgentSessionStore {
@@ -195,7 +215,11 @@ export interface SubAgentSessionStore {
     report: string,
     opts?: { agentRetained?: boolean; stopReason?: ForcedStopReason },
   ): void;
-  fail(id: string, error: string): void;
+  fail(
+    id: string,
+    error: string,
+    failure?: SubAgentFailureInput,
+  ): Promise<void>;
   // Register the live abort handle so cancel() stops the child reactor
   // (agent.close), not just flips status.
   registerCancel(id: string, abort: () => void): void;
@@ -233,7 +257,7 @@ export interface SubAgentSessionStore {
     opts?: {
       onStart?: () => void;
       onReply?: (reply: string) => void;
-      onFail?: (error: unknown) => void;
+      onFail?: FollowupFailHandler;
     },
   ):
     | { ok: true; status: "running" | "queued" }
@@ -260,7 +284,7 @@ export interface SubAgentSessionStore {
       interrupt?: boolean;
       onFollowupReply?: (reply: string) => void;
       onStart?: () => void;
-      onFail?: (error: unknown) => void;
+      onFail?: FollowupFailHandler;
     },
   ):
     | { ok: true; status: AgentLifecycleStatus }
@@ -494,6 +518,8 @@ export function createSubAgentSessionStore(
   const now = options.now ?? (() => Date.now());
   const createId = options.createId ?? defaultCreateId;
   const admission = options.admission;
+  const backstopCloseDeadlineMs =
+    options.backstopCloseDeadlineMs ?? DEFAULT_CLOSE_DEADLINE_MS;
 
   // Insertion order: older first. list() returns a snapshot in that order.
   const sessions = new Map<string, StoredSession>();
@@ -527,7 +553,7 @@ export function createSubAgentSessionStore(
     failLifecycle: "completed" | "interrupted";
     onStart?: () => void;
     onReply?: (reply: string) => void;
-    onFail?: (error: unknown) => void;
+    onFail?: FollowupFailHandler;
   }
   // Overlapping interrupt-steers queue FIFO per session. The head launches
   // when the live run settles (attachReport handoff or complete()'s
@@ -553,11 +579,13 @@ export function createSubAgentSessionStore(
       .join(", ");
     for (const stashed of queue) {
       try {
-        stashed.onFail?.(
+        const settled = stashed.onFail?.(
           new Error(
             `send_input steer "${steerPreview(stashed.message)}" dropped (${reason})`,
           ),
         );
+        // A drop has no caller to wait on an async handler.
+        if (settled !== undefined) void settled.catch(() => undefined);
       } catch {
         // A throwing onFail must not break session settlement.
       }
@@ -590,6 +618,20 @@ export function createSubAgentSessionStore(
       deniedCall?: WorkerDeniedCallEnvelope;
     }
   >();
+  // CL-10202: answering an ask deletes it, so without this trace a failure
+  // could not tell "answered but never consumed" from "never asked". Scoped
+  // to the current turn: start and every follow-up turn reset it.
+  const handoffTraces = new Map<string, "submitted" | "delivered">();
+  // Handoff as it stood just before a terminal transition cancelled the
+  // pending ask, consumed when the failure record is written.
+  const terminalHandoffs = new Map<string, SubAgentHandoffState>();
+  // Sessions whose ask cancellation or grant invalidation threw during the
+  // current terminal transition.
+  const releaseFaults = new Set<string>();
+  const pendingFailures = new Map<string, SubAgentFailureInput>();
+  // A failure on a follow-up turn is never recovery-eligible: the spawn-time
+  // brief no longer describes the work the session was doing.
+  const followupTurns = new Set<string>();
   const listeners = new Set<() => void>();
   // Tombstones for pruneRetained-evicted sessions, insertion-ordered so the
   // oldest drops first past MAX_EVICTED_TOMBSTONES. Lets resume_agent report
@@ -686,12 +728,14 @@ export function createSubAgentSessionStore(
         getProcessWorkerGrantStore().invalidateSession(id, reason);
       } catch {
         // Grant invalidation must not throw into settle/interrupt paths.
+        releaseFaults.add(id);
       }
     }
     try {
       pending.reject(new Error(reason));
     } catch {
       // Reject must not throw into settle/interrupt paths.
+      releaseFaults.add(id);
     }
     if (!silent) notify();
     return true;
@@ -705,9 +749,111 @@ export function createSubAgentSessionStore(
     }
   };
 
+  const currentHandoff = (id: string): SubAgentHandoffState =>
+    pendingAsks.has(id) ? "unavailable" : (handoffTraces.get(id) ?? "none");
+
+  const clearTurnTraces = (): void => {
+    handoffTraces.clear();
+    terminalHandoffs.clear();
+    releaseFaults.clear();
+    pendingFailures.clear();
+    followupTurns.clear();
+  };
+
+  const resetTurnTrace = (id: string): void => {
+    handoffTraces.delete(id);
+    terminalHandoffs.delete(id);
+    releaseFaults.delete(id);
+    pendingFailures.delete(id);
+  };
+
+  // Every terminal transition cancels the pending ask here first, which
+  // deletes it; capture the handoff before that so the record can say an ask
+  // was still open.
   const settleCancelsAsks = (id: string, reason: string): void => {
+    terminalHandoffs.set(id, currentHandoff(id));
+    releaseFaults.delete(id);
     cancelAskInternal(id, reason);
     cancelDescendantAsks(id, reason);
+  };
+
+  const FORCED_STOP_REASONS: ReadonlySet<string> = new Set<ForcedStopReason>([
+    "cancelled",
+    "deadline",
+    "stalled",
+    "incomplete-report",
+    "interrupted",
+  ]);
+
+  const forcedStopClass = (
+    session: StoredSession,
+  ): SubAgentFailureClass | undefined => {
+    const reason = session.stopReason;
+    return reason !== undefined && FORCED_STOP_REASONS.has(reason)
+      ? failureClassForStopReason(reason as ForcedStopReason)
+      : undefined;
+  };
+
+  const terminalFailureClass = (
+    session: StoredSession,
+  ): SubAgentFailureClass | undefined => {
+    switch (session.lifecycle.state) {
+      case "failed":
+        return pendingFailures.get(session.id)?.failure_class ?? "error";
+      case "cancelled":
+        return "cancelled";
+      case "interrupted": {
+        // A rejected follow-up restores the lane to interrupted so
+        // resume_agent can retry, but the cause still decides the class.
+        const followupFailure = pendingFailures.get(session.id);
+        if (followupFailure !== undefined) return followupFailure.failure_class;
+        return forcedStopClass(session);
+      }
+      case "completed":
+      case "shutdown":
+        return forcedStopClass(session);
+      default:
+        return undefined;
+    }
+  };
+
+  // CL-10202: runs inside every mutation, before subscribers are notified,
+  // so no observer can see a terminal non-clean lane without its record. A
+  // record never coexists with a live lane: an interrupted worker that
+  // resumes starts a new attempt.
+  const reconcileTerminalRecord = (session: StoredSession): void => {
+    const state = session.lifecycle.state;
+    if (state === "pending_init" || state === "running") {
+      delete session.failure;
+      return;
+    }
+    if (session.failure !== undefined) return;
+    const id = session.id;
+    const failureClass = terminalFailureClass(session);
+    if (failureClass !== undefined) {
+      const attempt = 1;
+      const teardownFailed = pendingFailures.get(id)?.teardownFailed === true;
+      session.failure = Object.freeze({
+        agent_id: id,
+        failure_class: failureClass,
+        failed_at: new Date(session.finishedAt ?? now()).toISOString(),
+        recovery: Object.freeze(
+          recoveryFor({
+            failureClass,
+            attempt,
+            followupTurn: followupTurns.has(id),
+            cause: pendingFailures.get(id)?.cause,
+          }),
+        ),
+        attempt,
+        handoff: terminalHandoffs.get(id) ?? currentHandoff(id),
+        cleanup:
+          teardownFailed || releaseFaults.has(id) ? "partial" : "released",
+      });
+    }
+    terminalHandoffs.delete(id);
+    releaseFaults.delete(id);
+    pendingFailures.delete(id);
   };
 
   // Invariant: a non-live lifecycle never coexists with a run-in-flight
@@ -747,6 +893,7 @@ export function createSubAgentSessionStore(
       content: capText(`Cancelled: ${reason}`, maxEntryChars),
     });
     cancelHandles.delete(session.id);
+    reconcileTerminalRecord(session);
     // closeHandles are owned by releaseHandles / closeOne — dropping them
     // here would skip teardown for a retained mid-turn session. No
     // enforceSettledRunInvariant here: after cancel the marker is the live
@@ -792,17 +939,20 @@ export function createSubAgentSessionStore(
   // descendant cannot stall the eviction caller) and cancel. Called on every
   // record drop, so a retained-but-idle session's agent is never simply
   // forgotten.
+  const detachClose = (id: string): Promise<void> | undefined => {
+    const close = closeHandles.get(id);
+    if (close === undefined) return undefined;
+    closeHandles.delete(id);
+    return invokeCloseBounded(close, backstopCloseDeadlineMs);
+  };
+
   const releaseHandles = (id: string): void => {
     cancelAskInternal(id, "session handles released");
-    const close = closeHandles.get(id);
-    if (close !== undefined) {
-      closeHandles.delete(id);
-      void close(DEFAULT_CLOSE_DEADLINE_MS).catch((err: unknown) => {
-        log.warn("session close during handle release failed: {error}", {
-          error: errorMessage(err),
-        });
+    void detachClose(id)?.catch((err: unknown) => {
+      log.warn("session close during handle release failed: {error}", {
+        error: errorMessage(err),
       });
-    }
+    });
     cancelHandles.delete(id);
     interruptHandles.delete(id);
     followupHandles.delete(id);
@@ -918,6 +1068,7 @@ export function createSubAgentSessionStore(
     const session = sessions.get(id);
     if (session === undefined) return;
     fn(session);
+    reconcileTerminalRecord(session);
     enforceSettledRunInvariant(id);
     session.lastActivityAt = now();
     bumpRevision(id);
@@ -930,6 +1081,8 @@ export function createSubAgentSessionStore(
   // strip state it started from so resume_agent can retry. interrupt_agent's
   // stamp wins over that restore — never rewrite interrupted to completed.
   const beginFollowupTurn = (id: string): void => {
+    resetTurnTrace(id);
+    followupTurns.add(id);
     runInFlight.add(id);
     mutate(id, (s) => {
       s.lifecycle = { state: "running" };
@@ -979,6 +1132,9 @@ export function createSubAgentSessionStore(
       ) {
         return;
       }
+      // endFollowupTurn just restored the lane, which stamped an interrupted
+      // record in the same synchronous transition; the failure supersedes it.
+      delete session.failure;
       session.lifecycle = { state: "failed", error };
       session.finishedAt = now();
       session.lastActivityAt = now();
@@ -1053,12 +1209,12 @@ export function createSubAgentSessionStore(
     }
     pruneRetained();
   };
-  const settleFollowupFailure = (
+  const settleFollowupFailure = async (
     id: string,
     err: unknown,
     failLifecycle: "completed" | "interrupted",
-    onFail?: (error: unknown) => void,
-  ): void => {
+    onFail?: FollowupFailHandler,
+  ): Promise<void> => {
     // A failed steer hands off to the next queued steer; the lane stays live
     // across the handoff so no observer sees a gap between turns, and only
     // the last settlement restores it.
@@ -1067,7 +1223,7 @@ export function createSubAgentSessionStore(
       (stashedFollowups.get(id)?.length ?? 0) > 0
     ) {
       try {
-        onFail?.(err);
+        await onFail?.(err);
       } catch {
         // A throwing onFail must not break the handoff to the next steer.
       }
@@ -1080,7 +1236,9 @@ export function createSubAgentSessionStore(
     }
     runInFlight.delete(id);
     try {
-      onFail?.(err);
+      // Awaited so a fail() still closing the worker lands before the lane is
+      // restored below; a restored completed lane would drop that failure.
+      await onFail?.(err);
     } catch {
       // A throwing onFail must not break session settlement.
     }
@@ -1096,7 +1254,16 @@ export function createSubAgentSessionStore(
       log.error("followup rejected for closed agent {id}", { id });
       return;
     }
+    // Only the interrupted restore stamps a record of its own; a completed
+    // restore stays a clean lane, as before.
+    if (failLifecycle === "interrupted") {
+      pendingFailures.set(id, {
+        failure_class: classifySubAgentFailure(err),
+        ...(isSubAgentLoopGuardError(err) ? { cause: err.cause } : {}),
+      });
+    }
     endFollowupTurn(id, failLifecycle);
+    pendingFailures.delete(id);
     log.error("followup turn failed for {id}: {error}", {
       id,
       error: errorMessage(err),
@@ -1109,7 +1276,7 @@ export function createSubAgentSessionStore(
     opts?: {
       onStart?: () => void;
       onReply?: (reply: string) => void;
-      onFail?: (error: unknown) => void;
+      onFail?: FollowupFailHandler;
     },
   ): AdmissionStatus => {
     const followup = followupHandles.get(id);
@@ -1131,9 +1298,9 @@ export function createSubAgentSessionStore(
         .then((reply) => {
           settleFollowupReply(id, reply, opts?.onReply);
         })
-        .catch((err: unknown) => {
-          settleFollowupFailure(id, err, failLifecycle, opts?.onFail);
-        })
+        .catch((err: unknown) =>
+          settleFollowupFailure(id, err, failLifecycle, opts?.onFail),
+        )
         .finally(() => {
           if (takesSlot) queue?.release(id);
         });
@@ -1182,6 +1349,8 @@ export function createSubAgentSessionStore(
     const next = queue?.shift();
     if (queue !== undefined && queue.length === 0) stashedFollowups.delete(id);
     if (next === undefined) return false;
+    resetTurnTrace(id);
+    followupTurns.add(id);
     const followup = followupHandles.get(id);
     // The follow-up handle can only be gone if teardown raced the handoff;
     // then no follow-up can inherit the run, so drop the queue loudly and
@@ -1206,7 +1375,7 @@ export function createSubAgentSessionStore(
           settleFollowupReply(id, reply, next.onReply);
         },
         (err: unknown) => {
-          settleFollowupFailure(id, err, next.failLifecycle, next.onFail);
+          void settleFollowupFailure(id, err, next.failLifecycle, next.onFail);
         },
       );
     });
@@ -1250,6 +1419,8 @@ export function createSubAgentSessionStore(
       dropStashedFollowups(id, "session replaced");
       pinCounts.delete(id);
       runInFlight.delete(id);
+      resetTurnTrace(id);
+      followupTurns.delete(id);
       forgetRevision(id);
       const session: StoredSession = {
         id,
@@ -1462,6 +1633,18 @@ export function createSubAgentSessionStore(
               maxEntryChars,
             );
             const isError = result.isError === true;
+            // The answered ask_director call returning is the only proof
+            // the worker consumed the parent's answer.
+            const callName =
+              session.outstandingTools.find((c) => c.callId === callId)?.name ??
+              name;
+            if (
+              !isError &&
+              handoffTraces.get(id) === "submitted" &&
+              canonicalToolName(callName) === "ask_director"
+            ) {
+              handoffTraces.set(id, "delivered");
+            }
             pushEntry(session, {
               kind: "tool_result",
               callId,
@@ -1547,7 +1730,12 @@ export function createSubAgentSessionStore(
       }
     },
 
-    fail(id: string, error: string): void {
+    fail(
+      id: string,
+      error: string,
+      failure?: SubAgentFailureInput,
+    ): Promise<void> {
+      if (failure !== undefined) pendingFailures.set(id, failure);
       settleCancelsAsks(id, "session failed");
       mutate(id, (session) => {
         if (
@@ -1573,6 +1761,8 @@ export function createSubAgentSessionStore(
         releaseHandles(id);
         pruneCompleted();
       });
+      pendingFailures.delete(id);
+      return Promise.resolve();
     },
 
     registerCancel(id: string, abort: () => void): void {
@@ -1746,7 +1936,7 @@ export function createSubAgentSessionStore(
         interrupt?: boolean;
         onFollowupReply?: (reply: string) => void;
         onStart?: () => void;
-        onFail?: (error: unknown) => void;
+        onFail?: FollowupFailHandler;
       },
     ):
       | { ok: true; status: AgentLifecycleStatus }
@@ -1824,6 +2014,7 @@ export function createSubAgentSessionStore(
         const pending = pendingAsks.get(id);
         if (pending !== undefined) {
           pendingAsks.delete(id);
+          handoffTraces.set(id, "submitted");
           pending.resolve(message);
           notify();
         }
@@ -1886,6 +2077,7 @@ export function createSubAgentSessionStore(
       const pending = pendingAsks.get(id);
       if (pending === undefined) return false;
       pendingAsks.delete(id);
+      handoffTraces.set(id, "submitted");
       pending.resolve(answer);
       notify();
       return true;
@@ -2067,7 +2259,7 @@ export function createSubAgentSessionStore(
       opts?: {
         onStart?: () => void;
         onReply?: (reply: string) => void;
-        onFail?: (error: unknown) => void;
+        onFail?: FollowupFailHandler;
       },
     ):
       | { ok: true; status: "running" | "queued" }
@@ -2299,6 +2491,7 @@ export function createSubAgentSessionStore(
       revisions.clear();
       snapshotCache.clear();
       evicted.clear();
+      clearTurnTraces();
       try {
         getProcessWorkerGrantStore().invalidateAll("store cleared");
       } catch {
@@ -2341,6 +2534,7 @@ export function createSubAgentSessionStore(
       runInFlight.clear();
       revisions.clear();
       snapshotCache.clear();
+      clearTurnTraces();
       try {
         getProcessWorkerGrantStore().invalidateAll(reason);
       } catch {
@@ -2394,6 +2588,7 @@ function cloneSession(
     ...(session.requiresTools !== undefined
       ? { requiresTools: [...session.requiresTools] }
       : {}),
+    ...(session.failure !== undefined ? { failure: session.failure } : {}),
   };
 }
 
