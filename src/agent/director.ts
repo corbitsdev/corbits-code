@@ -475,6 +475,7 @@ class ChatDirectorImpl extends DefaultDirector {
   private readonly askOperatorCalls = new Set<string>();
   private readonly _systemPrompt: string;
   private _toolDefinitions: ToolDefinition[];
+  private _toolSetDigest: string | undefined;
   private inactivityTimeoutMs: number | undefined;
   private totalTimeoutMs: number | undefined;
   // Host-owned live object, attached via setWorkflowCoordinator — never a
@@ -699,9 +700,10 @@ class ChatDirectorImpl extends DefaultDirector {
   }
 
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
-    const before = toolSetDigest(this._toolDefinitions);
+    const before = this._toolSetDigest ?? toolSetDigest(this._toolDefinitions);
     const after = toolSetDigest(toolDefinitions);
     this._toolDefinitions = toolDefinitions;
+    this._toolSetDigest = after;
     if (before === after) return;
     logger.debug`tool-set-changed count=${String(this._toolDefinitions.length)} before=${before} after=${after}`;
   }
