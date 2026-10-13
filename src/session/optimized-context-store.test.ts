@@ -744,6 +744,376 @@ describe("concurrent sessions write disjoint transcripts", () => {
     ]);
   });
 
+  test("markerless foreign turns stay off the shared log", async () => {
+    const dir = tempDir();
+    const sessionA = await createOptimizedContextStore(dir, {
+      ownerId: "session-A",
+    });
+    const turnsA = [
+      turn("a-0"),
+      turn("a-1"),
+      turn("a-2"),
+      turn("a-3"),
+      turn("a-4"),
+    ];
+    await sessionA.writeTurns([...turnsA]);
+    await sessionA.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await sessionA.commit({ message: "session A" });
+    fs.unlinkSync(path.join(dir, "session-owner.json"));
+
+    const sessionB = await createOptimizedContextStore(dir, {
+      ownerId: "session-B",
+    });
+    const turnsB = [turn("b-0"), turn("b-1"), turn("b-2")];
+    await sessionB.writeTurns([...turnsB]);
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
+      turnTexts(turnsA),
+    );
+    expect(versionedTurnsFiles(dir)).toEqual([]);
+
+    await sessionB.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await sessionB.commit({ message: "session B" });
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
+      turnTexts(turnsA),
+    );
+    const versioned = versionedTurnsFiles(dir);
+    expect(versioned).toHaveLength(1);
+    expect(
+      turnTexts(readTurnsFromFile(path.join(dir, defined(versioned[0])))),
+    ).toEqual(turnTexts(turnsB));
+  });
+
+  test("markerless resume can still extend the shared log", async () => {
+    const dir = tempDir();
+    const sessionA = await createOptimizedContextStore(dir);
+    const turnsA = [turn("a"), turn("b")];
+    await sessionA.writeTurns([...turnsA]);
+    await sessionA.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await sessionA.commit({ message: "session A" });
+    fs.unlinkSync(path.join(dir, "session-owner.json"));
+
+    const resumed = await createOptimizedContextStore(dir);
+    const next = [...turnsA, turn("c")];
+    await resumed.writeTurns([...next]);
+    await resumed.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await resumed.commit({ message: "resume" });
+    expect(versionedTurnsFiles(dir)).toEqual([]);
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
+      turnTexts(next),
+    );
+  });
+
+  test("compaction without an owner id stays on the live transcript", async () => {
+    const dir = tempDir();
+    const first = await createOptimizedContextStore(dir);
+    const original = [turn("a"), turn("b"), turn("c"), turn("d")];
+    await first.writeTurns([...original]);
+    await first.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await first.commit({ message: "original" });
+
+    const second = await createOptimizedContextStore(dir);
+    const compacted = [turn("[Compacted prior context]"), turn("c"), turn("d")];
+    await second.writeTurns([...compacted]);
+    await second.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await second.commit({ message: "compact" });
+
+    expect(versionedTurnsFiles(dir)).toEqual([]);
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
+      turnTexts(compacted),
+    );
+    expect(turnTexts((await second.load()).turns)).toEqual(
+      turnTexts(compacted),
+    );
+    expect(turnTexts((await loadRecentTurns(dir, 10)).turns)).toEqual(
+      turnTexts(compacted),
+    );
+  });
+
+  test("a foreign transcript without an owner id still diverts", async () => {
+    const dir = tempDir();
+    const first = await createOptimizedContextStore(dir);
+    const original = [turn("a"), turn("b"), turn("c"), turn("d")];
+    await first.writeTurns([...original]);
+    await first.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await first.commit({ message: "original" });
+
+    const second = await createOptimizedContextStore(dir);
+    const foreign = [turn("x"), turn("y")];
+    await second.writeTurns([...foreign]);
+    await second.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await second.commit({ message: "foreign" });
+
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
+      turnTexts(original),
+    );
+    const versioned = versionedTurnsFiles(dir);
+    expect(versioned).toHaveLength(1);
+    expect(
+      turnTexts(readTurnsFromFile(path.join(dir, defined(versioned[0])))),
+    ).toEqual(turnTexts(foreign));
+    expect(turnTexts((await loadRecentTurns(dir, 10)).turns)).toEqual(
+      turnTexts(original),
+    );
+  });
+
+  test("an owner id can compact a markerless transcript in place", async () => {
+    const dir = tempDir();
+    const legacy = await createOptimizedContextStore(dir);
+    const original = [turn("a"), turn("b"), turn("c"), turn("d")];
+    await legacy.writeTurns([...original]);
+    await legacy.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await legacy.commit({ message: "legacy" });
+    fs.unlinkSync(path.join(dir, "session-owner.json"));
+
+    const upgraded = await createOptimizedContextStore(dir, {
+      ownerId: "session-S",
+    });
+    const compacted = [turn("[Compacted prior context]"), turn("c"), turn("d")];
+    await upgraded.writeTurns([...compacted]);
+    await upgraded.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await upgraded.commit({ message: "upgrade compact" });
+
+    expect(versionedTurnsFiles(dir)).toEqual([]);
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
+      turnTexts(compacted),
+    );
+    expect(turnTexts((await upgraded.load()).turns)).toEqual(
+      turnTexts(compacted),
+    );
+  });
+
+  test("a foreign prefix extension is kept when the owner compacts", async () => {
+    const dir = tempDir();
+    const sessionA = await createOptimizedContextStore(dir, {
+      ownerId: "session-A",
+    });
+    await sessionA.writeTurns([turn("a"), turn("b")]);
+    await sessionA.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await sessionA.commit({ message: "session A" });
+
+    const sessionB = await createOptimizedContextStore(dir, {
+      ownerId: "session-B",
+    });
+    await sessionB.writeTurns([turn("a"), turn("b"), turn("from-B")]);
+    await sessionB.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await sessionB.commit({ message: "session B" });
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual([
+      "a",
+      "b",
+    ]);
+
+    const sessionA2 = await createOptimizedContextStore(dir, {
+      ownerId: "session-A",
+    });
+    await sessionA2.writeTurns([turn("[Compacted prior context]"), turn("b")]);
+    await sessionA2.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await sessionA2.commit({ message: "compact" });
+
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual([
+      "[Compacted prior context]",
+      "b",
+    ]);
+    const preserved = versionedTurnsFiles(dir).flatMap((name) =>
+      turnTexts(readTurnsFromFile(path.join(dir, name))),
+    );
+    expect(preserved).toContain("from-B");
+  });
+
+  test("a foreign write after an empty owned file is not discarded", async () => {
+    const dir = tempDir();
+    const sessionA = await createOptimizedContextStore(dir, {
+      ownerId: "session-A",
+    });
+    await sessionA.writeTurns([turn("seed")]);
+    fs.unlinkSync(path.join(dir, TURNS_FILE));
+
+    const sessionB = await createOptimizedContextStore(dir, {
+      ownerId: "session-B",
+    });
+    await sessionB.writeTurns([turn("a"), turn("b"), turn("from-B")]);
+    await sessionB.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await sessionB.commit({ message: "session B" });
+
+    const resumed = await createOptimizedContextStore(dir, {
+      ownerId: "session-A",
+    });
+    await resumed.writeTurns([turn("[Compacted prior context]"), turn("b")]);
+    await resumed.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await resumed.commit({ message: "compact" });
+
+    const preserved = versionedTurnsFiles(dir).flatMap((name) =>
+      turnTexts(readTurnsFromFile(path.join(dir, name))),
+    );
+    expect(preserved).toContain("from-B");
+    expect(turnTexts((await resumed.load()).turns)).not.toContain("from-B");
+  });
+
+  test("a prompt is not written to the shared file before ownership is decided", async () => {
+    const dir = tempDir();
+    const promptFile = "prompt.jsonl";
+    const sessionA = await createOptimizedContextStore(dir, {
+      ownerId: "session-A",
+    });
+    await sessionA.writeTurns([turn("a"), turn("b")]);
+    await sessionA.writePrompt([turn("a"), turn("b"), turn("ephemeral-A")]);
+    await sessionA.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await sessionA.commit({ message: "session A" });
+    const promptPath = path.join(dir, promptFile);
+    const ownedPrompt = fs.readFileSync(promptPath, "utf8");
+
+    const sessionB = await createOptimizedContextStore(dir, {
+      ownerId: "session-B",
+    });
+    await sessionB.writePrompt([turn("foreign-prompt")]);
+    expect(fs.readFileSync(promptPath, "utf8")).toBe(ownedPrompt);
+    await sessionB.writeTurns([turn("x"), turn("y")]);
+    expect(fs.readFileSync(promptPath, "utf8")).toBe(ownedPrompt);
+    await sessionB.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await sessionB.commit({ message: "session B" });
+
+    expect(fs.readFileSync(promptPath, "utf8")).toBe(ownedPrompt);
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual([
+      "a",
+      "b",
+    ]);
+    const versionedPrompts = fs
+      .readdirSync(dir)
+      .filter((name) => /^prompt-\d+-[0-9a-f]+\.jsonl$/.test(name));
+    expect(versionedPrompts).toHaveLength(1);
+    expect(
+      fs.readFileSync(path.join(dir, defined(versionedPrompts[0])), "utf8"),
+    ).toContain("foreign-prompt");
+  });
+
+  test(
+    "two processes cannot both claim an empty session directory",
+    async () => {
+      const workerPath = path.join(
+        os.tmpdir(),
+        `claim-worker-${process.pid}.ts`,
+      );
+      const storeModule = path.join(
+        import.meta.dir,
+        "optimized-context-store.ts",
+      );
+      fs.writeFileSync(
+        workerPath,
+        `import fs from "node:fs";
+import { createOptimizedContextStore } from ${JSON.stringify(storeModule)};
+
+const dir = process.env.CLAIM_DIR;
+const ownerId = process.env.CLAIM_OWNER;
+const label = process.env.CLAIM_LABEL;
+if (dir === undefined || ownerId === undefined || label === undefined) {
+  throw new Error("missing claim env");
+}
+const turn = (text) => ({ role: "user", content: [{ type: "text", text }], timestamp: 1 });
+await fs.promises.writeFile(dir + "/ready-" + ownerId, "");
+while (!fs.existsSync(dir + "/go")) {
+  await Bun.sleep(5);
+}
+const store = await createOptimizedContextStore(dir, { ownerId });
+const turns = Array.from({ length: 30 }, (_, i) => turn(label + "-" + i));
+await store.writeTurns(turns);
+await store.writeMetadata({
+  pendingOperations: [],
+  tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+});
+const lockPath = dir + "/commit.lock";
+for (;;) {
+  try {
+    const handle = await fs.promises.open(lockPath, "wx");
+    await handle.close();
+    break;
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") {
+      await Bun.sleep(10);
+      continue;
+    }
+    throw cause;
+  }
+}
+try {
+  await store.commit({ message: label });
+} finally {
+  await fs.promises.unlink(lockPath).catch(() => undefined);
+}
+`,
+      );
+
+      try {
+        for (let attempt = 0; attempt < 6; attempt++) {
+          const dir = tempDir();
+          const seed = await createOptimizedContextStore(dir, {
+            ownerId: "seed",
+          });
+          await seed.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+          await seed.commit({ message: "init" });
+
+          const spawnClaim = (ownerId: string, label: string) =>
+            Bun.spawn(["bun", workerPath], {
+              cwd: path.resolve(import.meta.dir, "../.."),
+              env: {
+                ...process.env,
+                CLAIM_DIR: dir,
+                CLAIM_OWNER: ownerId,
+                CLAIM_LABEL: label,
+              },
+              stdout: "pipe",
+              stderr: "pipe",
+            });
+          const procA = spawnClaim("owner-A", "A");
+          const procB = spawnClaim("owner-B", "B");
+          const readyA = path.join(dir, "ready-owner-A");
+          const readyB = path.join(dir, "ready-owner-B");
+          const deadline = Date.now() + 15_000;
+          while (
+            (!fs.existsSync(readyA) || !fs.existsSync(readyB)) &&
+            Date.now() < deadline
+          ) {
+            await Bun.sleep(5);
+          }
+          fs.writeFileSync(path.join(dir, "go"), "");
+          const [codeA, codeB, errA, errB] = await Promise.all([
+            procA.exited,
+            procB.exited,
+            new Response(procA.stderr).text(),
+            new Response(procB.stderr).text(),
+          ]);
+          if (codeA !== 0 || codeB !== 0) {
+            throw new Error(
+              `claim workers failed (${codeA}, ${codeB})\n${errA}\n${errB}`,
+            );
+          }
+          const shared = turnTexts(
+            readTurnsFromFile(path.join(dir, TURNS_FILE)),
+          );
+          const versioned = versionedTurnsFiles(dir);
+          expect(versioned).toHaveLength(1);
+          const other = turnTexts(
+            readTurnsFromFile(path.join(dir, defined(versioned[0]))),
+          );
+          const sharedLabel = shared[0]?.split("-")[0];
+          const otherLabel = other[0]?.split("-")[0];
+          expect(new Set([sharedLabel, otherLabel])).toEqual(
+            new Set(["A", "B"]),
+          );
+          expect(shared).toHaveLength(30);
+          expect(other).toHaveLength(30);
+          expect(
+            shared.every((text) => text.startsWith(`${sharedLabel}-`)),
+          ).toBe(true);
+          expect(other.every((text) => text.startsWith(`${otherLabel}-`))).toBe(
+            true,
+          );
+        }
+      } finally {
+        fs.unlinkSync(workerPath);
+      }
+    },
+    { timeout: 60_000 },
+  );
+
   test("versioned base names are unique even within the same millisecond", () => {
     const names = Array.from({ length: 100 }, () =>
       versionedBaseName(TURNS_FILE),
@@ -872,6 +1242,51 @@ describe("createOptimizedContextStore unpublished rewrite", () => {
       "[Compacted prior context]",
       "keep-b",
     ]);
+  });
+
+  test("a failed commit does not publish a same-owner compaction", async () => {
+    const dir = tempDir();
+    const owner = await createOptimizedContextStore(dir, {
+      ownerId: "session-S",
+    });
+    const original = [turn("keep-a"), turn("keep-b"), turn("drop-me")];
+    await owner.writeTurns([...original]);
+    await owner.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const published = await owner.commit({ message: "published original" });
+
+    const resumed = await createOptimizedContextStore(dir, {
+      ownerId: "session-S",
+    });
+    await resumed.writeTurns([
+      turn("[Compacted prior context]"),
+      turn("keep-b"),
+    ]);
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
+      turnTexts(original),
+    );
+
+    const objectsDir = path.join(dir, ".git", "objects");
+    const objectsHeld = `${objectsDir}.held`;
+    fs.renameSync(objectsDir, objectsHeld);
+    fs.writeFileSync(objectsDir, "held");
+    try {
+      await expect(
+        resumed.commit({ message: "publish compact" }),
+      ).rejects.toThrow();
+    } finally {
+      fs.unlinkSync(objectsDir);
+      fs.renameSync(objectsHeld, objectsDir);
+    }
+
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
+      turnTexts(original),
+    );
+    expect(turnTexts((await resumed.load()).turns)).toEqual(
+      turnTexts(original),
+    );
+    expect(turnTexts(await resumed.readAt(published.hash))).toEqual(
+      turnTexts(original),
+    );
   });
 
   test("append writeTurns is still visible before commit", async () => {

@@ -376,14 +376,82 @@ async function readOwnerMarker(
   }
 }
 
-async function writeOwnerMarker(dir: string, ownerId: string): Promise<void> {
+async function tryCreateOwnerMarker(
+  dir: string,
+  ownerId: string,
+): Promise<boolean> {
   const full = path.join(dir, OWNER_MARKER_FILE);
-  const tmp = `${full}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
-  await fs.promises.writeFile(
-    tmp,
-    JSON.stringify({ ownerId, createdAt: Date.now() }),
+  try {
+    await fs.promises.writeFile(
+      full,
+      JSON.stringify({ ownerId, createdAt: Date.now() }),
+      { encoding: "utf8", flag: "wx" },
+    );
+    return true;
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") {
+      return false;
+    }
+    throw cause;
+  }
+}
+
+const COMPACTED_TURN_PREFIX = "[Compacted prior context]";
+
+function firstTurnText(turn: ConversationTurn): string | undefined {
+  for (const block of turn.content) {
+    if (block.type === "text") return block.text;
+  }
+  return undefined;
+}
+
+function isCompactionMarker(turn: ConversationTurn): boolean {
+  const text = firstTurnText(turn);
+  if (text === undefined) return false;
+  return (
+    text.startsWith(COMPACTED_TURN_PREFIX) ||
+    text === "[compact]" ||
+    text === "[compaction]"
   );
-  await fs.promises.rename(tmp, full);
+}
+
+function sameTurnContent(a: ConversationTurn, b: ConversationTurn): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function isCompactionOf(
+  live: readonly ConversationTurn[],
+  next: readonly ConversationTurn[],
+): boolean {
+  if (live.length === 0 || next.length === 0) return false;
+  let head = 0;
+  while (head < next.length) {
+    const turn = next[head];
+    if (turn === undefined || !isCompactionMarker(turn)) break;
+    head++;
+  }
+  if (head === 0) return false;
+  const rest = next.slice(head);
+  if (rest.length === 0) return true;
+  const max = Math.min(live.length, rest.length);
+  for (let kept = max; kept >= 1; kept--) {
+    const start = live.length - kept;
+    let matched = true;
+    for (let index = 0; index < kept; index++) {
+      const liveTurn = live[start + index];
+      const restTurn = rest[index];
+      if (
+        liveTurn === undefined ||
+        restTurn === undefined ||
+        !sameTurnContent(liveTurn, restTurn)
+      ) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) return true;
+  }
+  return false;
 }
 
 async function listIndexPaths(dir: string): Promise<Set<string>> {
@@ -555,8 +623,8 @@ export interface SessionStores {
 export interface SessionStoreOptions {
   signer?: CommitSigner;
   /**
-   * Same id shares the marker; omit for a random token, foreign unless the
-   * transcript extends history.
+   * Same id shares the marker. Omit for a random token: a prefix extension or
+   * a compaction of the on-disk transcript stays on the shared log.
    */
   ownerId?: string;
 }
@@ -576,6 +644,7 @@ export async function createSessionStores(
   const pendingBlobFilepaths = new Set<string>();
   const pendingSegmentPaths = new Set<string>();
   const ownerToken = opts?.ownerId ?? globalThis.crypto.randomUUID();
+  const explicitOwnerId = opts?.ownerId;
   let turnsBaseName = TURNS_FILE;
   let promptBaseName = PROMPT_FILE;
   let versionedBase: string | null = null;
@@ -583,6 +652,8 @@ export async function createSessionStores(
   let writePromptSegmented = createSegmentedJSONLWriter(dir, PROMPT_FILE);
   let liveTurnRefs: readonly ConversationTurn[] | null = null;
   let unpublishedRewrite: ConversationTurn[] | null = null;
+  let pendingPrompt: ConversationTurn[] | null = null;
+  let stagedPrompt: ConversationTurn[] | null = null;
 
   function divertToVersionedBases(): void {
     if (versionedBase !== null) return;
@@ -626,6 +697,81 @@ export async function createSessionStores(
     for (const filepath of modifiedPaths) pendingSegmentPaths.add(filepath);
   }
 
+  async function readLiveTurns(): Promise<ConversationTurn[]> {
+    const basePresent = await pathExists(path.join(dir, TURNS_FILE));
+    const extraPresent = await pathExists(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+    );
+    if (!basePresent && !extraPresent) return [];
+    return loadLiveTurnsFromDisk();
+  }
+
+  async function resolveFirstWrite(
+    turns: readonly ConversationTurn[],
+  ): Promise<"append" | "rewrite" | "divert"> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const marker = await readOwnerMarker(dir);
+      if (marker !== null && marker.ownerId === ownerToken) {
+        const live = await readLiveTurns();
+        return contentPrefixLength(live, turns) === live.length
+          ? "append"
+          : "rewrite";
+      }
+      if (
+        marker !== null &&
+        explicitOwnerId !== undefined &&
+        marker.ownerId !== ownerToken
+      ) {
+        return "divert";
+      }
+      const live = await readLiveTurns();
+      if (marker !== null && live.length === 0) return "divert";
+      if (
+        live.length === 0 ||
+        contentPrefixLength(live, turns) === live.length
+      ) {
+        if (marker === null && !(await tryCreateOwnerMarker(dir, ownerToken))) {
+          continue;
+        }
+        return "append";
+      }
+      if (isCompactionOf(live, turns)) {
+        if (marker === null && !(await tryCreateOwnerMarker(dir, ownerToken))) {
+          continue;
+        }
+        return "rewrite";
+      }
+      return "divert";
+    }
+    return "divert";
+  }
+
+  async function queuePrompt(
+    turns: readonly ConversationTurn[],
+  ): Promise<void> {
+    if (versionedBase !== null && liveTurnRefs === null) {
+      stagedPrompt = [...turns];
+      pendingPrompt = null;
+      return;
+    }
+    if (
+      liveTurnRefs === null &&
+      unpublishedRewrite === null &&
+      versionedBase === null
+    ) {
+      pendingPrompt = [...turns];
+      return;
+    }
+    await writePromptIfDiffered(turns);
+  }
+
+  async function flushPendingPrompt(): Promise<void> {
+    if (pendingPrompt === null) return;
+    const prompt = pendingPrompt;
+    pendingPrompt = null;
+    await writePromptIfDiffered(prompt);
+  }
+
   async function writeTurnsLiveOrStage(
     turns: readonly ConversationTurn[],
   ): Promise<void> {
@@ -642,8 +788,11 @@ export async function createSessionStores(
       liveTurnRefs = [...turns];
       return;
     }
-    // First claim is per-dir so two fresh stores cannot both own the base.
     await withResolvedDirLock(dir, async () => {
+      if (unpublishedRewrite !== null) {
+        unpublishedRewrite = [...turns];
+        return;
+      }
       if (liveTurnRefs !== null) {
         if (refPrefixLength(liveTurnRefs, turns) < liveTurnRefs.length) {
           unpublishedRewrite = [...turns];
@@ -653,29 +802,24 @@ export async function createSessionStores(
         liveTurnRefs = [...turns];
         return;
       }
-      const marker = await readOwnerMarker(dir);
-      if (marker === null) {
-        await writeOwnerMarker(dir, ownerToken);
-        await writeSegmented(writeTurnsSegmented, turns);
-        liveTurnRefs = [...turns];
-        return;
-      }
-      const live = await loadLiveTurnsFromDisk();
-      if (marker.ownerId === ownerToken) {
-        // Matching owner keeps compaction on the shared base, not a divert.
-        await writeSegmented(writeTurnsSegmented, turns);
-        liveTurnRefs = [...turns];
-        return;
-      }
-      if (live.length > 0 && contentPrefixLength(live, turns) < live.length) {
-        // Stage until commit so a crash leaves no orphaned versioned file.
+      const decision = await resolveFirstWrite(turns);
+      if (decision === "divert") {
         divertToVersionedBases();
         unpublishedRewrite = [...turns];
+        if (pendingPrompt !== null) {
+          stagedPrompt = pendingPrompt;
+          pendingPrompt = null;
+        }
         return;
       }
-      // Prefix extension with no stable id resumes the shared base.
+      if (decision === "rewrite") {
+        unpublishedRewrite = [...turns];
+        await flushPendingPrompt();
+        return;
+      }
       await writeSegmented(writeTurnsSegmented, turns);
       liveTurnRefs = [...turns];
+      await flushPendingPrompt();
     });
   }
 
@@ -879,7 +1023,7 @@ export async function createSessionStores(
     readBlob: (key, signal) => base.readBlob(key, signal),
     // Skipped identical snapshots fall back to live turns; load() never reads
     // prompt.jsonl.
-    writePrompt: (turns) => writePromptIfDiffered(turns),
+    writePrompt: (turns) => queuePrompt(turns),
     writeResponse: (turn, signal) => base.writeResponse(turn, signal),
     writeManifest: (records, signal) => base.writeManifest(records, signal),
     writeTurns: (turns) => writeTurnsLiveOrStage(turns),
@@ -893,7 +1037,30 @@ export async function createSessionStores(
     },
     async commit(options, signal) {
       return withResolvedDirLock(dir, async () => {
+        if (
+          pendingPrompt !== null &&
+          versionedBase === null &&
+          unpublishedRewrite === null &&
+          liveTurnRefs === null
+        ) {
+          const marker = await readOwnerMarker(dir);
+          if (
+            marker !== null &&
+            explicitOwnerId !== undefined &&
+            marker.ownerId !== ownerToken
+          ) {
+            divertToVersionedBases();
+            stagedPrompt = pendingPrompt;
+            pendingPrompt = null;
+          } else {
+            const prompt = pendingPrompt;
+            pendingPrompt = null;
+            await writePromptIfDiffered(prompt);
+          }
+        }
+
         const stagedRewrite = unpublishedRewrite;
+        const promptToPublish = stagedPrompt;
         // The staged rewrite lands on the working-tree segments before the git
         // operations below; snapshot them so a failed commit can restore the
         // published generation. The rewrite stays staged so a retry can still
@@ -902,12 +1069,22 @@ export async function createSessionStores(
           stagedRewrite === null
             ? null
             : await snapshotTurnSegments(dir, turnsBaseName);
-        const headBefore = stagedRewrite === null ? null : await headOid(dir);
+        const promptSnapshot =
+          promptToPublish === null
+            ? null
+            : await snapshotTurnSegments(dir, promptBaseName);
+        const headBefore =
+          stagedRewrite === null && promptToPublish === null
+            ? null
+            : await headOid(dir);
         let extraPaths: string[] = [];
 
         try {
           if (stagedRewrite !== null) {
             await writeSegmented(writeTurnsSegmented, stagedRewrite);
+          }
+          if (promptToPublish !== null) {
+            await writeSegmented(writePromptSegmented, promptToPublish);
           }
           const toAdd: string[] = [];
           const toRemove: string[] = [];
@@ -978,10 +1155,11 @@ export async function createSessionStores(
             liveTurnRefs = stagedRewrite;
             unpublishedRewrite = null;
           }
+          if (promptToPublish !== null) stagedPrompt = null;
           return committed;
         } catch (cause) {
           await resetIndexPaths(dir, extraPaths);
-          if (segmentSnapshot !== null) {
+          if (segmentSnapshot !== null || promptSnapshot !== null) {
             // Restore the published generation unless the commit actually
             // landed despite throwing (a ref write or post-commit check can
             // fail after HEAD moved), in which case the on-disk rewrite
@@ -990,19 +1168,44 @@ export async function createSessionStores(
             const landed =
               headBefore !== null && headNow !== null && headNow !== headBefore;
             if (!landed) {
-              try {
-                await restoreTurnSegments(dir, segmentSnapshot, turnsBaseName);
-              } catch {
-                // A partial restore must not mask the real commit error.
+              if (segmentSnapshot !== null) {
+                try {
+                  await restoreTurnSegments(
+                    dir,
+                    segmentSnapshot,
+                    turnsBaseName,
+                  );
+                } catch {
+                  // A partial restore must not mask the real commit error.
+                }
+              }
+              if (promptSnapshot !== null) {
+                try {
+                  await restoreTurnSegments(
+                    dir,
+                    promptSnapshot,
+                    promptBaseName,
+                  );
+                } catch {
+                  // A partial restore must not mask the real commit error.
+                }
               }
             }
             // Drop the writer's stale in-memory state so a retry rewrites from
             // scratch.
-            writeTurnsSegmented = createSegmentedJSONLWriter(
-              dir,
-              turnsBaseName,
-            );
-            liveTurnRefs = null;
+            if (segmentSnapshot !== null) {
+              writeTurnsSegmented = createSegmentedJSONLWriter(
+                dir,
+                turnsBaseName,
+              );
+              liveTurnRefs = null;
+            }
+            if (promptSnapshot !== null) {
+              writePromptSegmented = createSegmentedJSONLWriter(
+                dir,
+                promptBaseName,
+              );
+            }
           }
           throw cause;
         }
