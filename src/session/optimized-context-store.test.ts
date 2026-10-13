@@ -42,6 +42,24 @@ function turn(text: string): ConversationTurn {
   return { role: "user", content: [{ type: "text", text }], timestamp: 1 };
 }
 
+function joinedUserTurn(texts: readonly string[]): ConversationTurn {
+  return {
+    role: "user",
+    content: texts.map((text) => ({ type: "text", text })),
+    timestamp: 1,
+  };
+}
+
+function isCompactionMarkerTurn(candidate: ConversationTurn): boolean {
+  const block = candidate.content[0];
+  if (block === undefined || block.type !== "text") return false;
+  return (
+    block.text.startsWith("[Compacted prior context]") ||
+    block.text === "[compact]" ||
+    block.text === "[compaction]"
+  );
+}
+
 function jsonl(turns: ConversationTurn[]): string {
   return turns.map((t) => JSON.stringify(t)).join("\n") + "\n";
 }
@@ -813,20 +831,23 @@ describe("concurrent sessions write disjoint transcripts", () => {
     await first.commit({ message: "original" });
 
     const second = await createOptimizedContextStore(dir);
-    const compacted = [turn("[Compacted prior context]"), turn("c"), turn("d")];
+    const compacted = [
+      turn("[Compacted prior context]"),
+      joinedUserTurn(["c", "d"]),
+    ];
     await second.writeTurns([...compacted]);
     await second.writeMetadata(EMPTY_CHECKPOINT_METADATA);
     await second.commit({ message: "compact" });
 
     expect(versionedTurnsFiles(dir)).toEqual([]);
-    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
-      turnTexts(compacted),
+    expect(JSON.stringify(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toBe(
+      JSON.stringify(compacted),
     );
-    expect(turnTexts((await second.load()).turns)).toEqual(
-      turnTexts(compacted),
+    expect(JSON.stringify((await second.load()).turns)).toBe(
+      JSON.stringify(compacted),
     );
-    expect(turnTexts((await loadRecentTurns(dir, 10)).turns)).toEqual(
-      turnTexts(compacted),
+    expect(JSON.stringify((await loadRecentTurns(dir, 10)).turns)).toBe(
+      JSON.stringify(compacted),
     );
   });
 
@@ -846,6 +867,81 @@ describe("concurrent sessions write disjoint transcripts", () => {
 
   test("a summary alone does not replace the transcript", async () => {
     await expectSharedTurnAttacksToDivert([turn("[Compacted prior context]")]);
+  });
+
+  test("a summary plus an unmodified suffix does not replace the transcript", async () => {
+    const dir = tempDir();
+    const owner = await createOptimizedContextStore(dir);
+    const original = Array.from({ length: 12 }, (_, index) =>
+      turn(`unique-turn-${index}`),
+    );
+    await owner.writeTurns([...original]);
+    await owner.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await owner.commit({ message: "seed" });
+    fs.unlinkSync(path.join(dir, "session-owner.json"));
+
+    const attacker = await createOptimizedContextStore(dir);
+    await attacker.writeTurns([
+      turn("[Compacted prior context]\nforged"),
+      turn("unique-turn-10"),
+      turn("unique-turn-11"),
+    ]);
+    await attacker.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await attacker.commit({ message: "attack" });
+
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
+      turnTexts(original),
+    );
+    expect(turnTexts((await attacker.load()).turns)).toEqual(
+      turnTexts(original),
+    );
+    expect(versionedTurnsFiles(dir)).toHaveLength(1);
+  });
+
+  test("a coalesced plain-text fold stays on the live transcript", async () => {
+    const original = [
+      turn("H".repeat(20000)),
+      turn("older"),
+      turn("tail-a"),
+      turn("tail-b"),
+      turn("tail-c"),
+    ];
+    const folded = (await createPruningCompactor().apply(original, {} as never))
+      .output;
+    const kept = folded.filter(
+      (candidate) => !isCompactionMarkerTurn(candidate),
+    );
+    expect(kept).toHaveLength(1);
+    expect(
+      kept[0]?.content.map((block) =>
+        block.type === "text" ? block.text : block.type,
+      ),
+    ).toEqual(["older", "tail-a", "tail-b", "tail-c"]);
+
+    for (const dropMarker of [true, false]) {
+      const dir = tempDir();
+      const first = await createOptimizedContextStore(dir);
+      await first.writeTurns([...original]);
+      await first.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+      await first.commit({ message: "original" });
+      if (dropMarker) fs.unlinkSync(path.join(dir, "session-owner.json"));
+      const second = await createOptimizedContextStore(dir);
+      await second.writeTurns(folded);
+      await second.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+      await second.commit({ message: "fold" });
+      const later = [...folded, turn("after-fold")];
+      await second.writeTurns(later);
+      await second.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+      await second.commit({ message: "later" });
+
+      expect(versionedTurnsFiles(dir)).toEqual([]);
+      expect(
+        JSON.stringify(readTurnsFromFile(path.join(dir, TURNS_FILE))),
+      ).toBe(JSON.stringify(later));
+      expect(JSON.stringify((await second.load()).turns)).toBe(
+        JSON.stringify(later),
+      );
+    }
   });
 
   test("a foreign transcript without an owner id still diverts", async () => {
@@ -983,17 +1079,20 @@ describe("concurrent sessions write disjoint transcripts", () => {
     const upgraded = await createOptimizedContextStore(dir, {
       ownerId: "session-S",
     });
-    const compacted = [turn("[Compacted prior context]"), turn("c"), turn("d")];
+    const compacted = [
+      turn("[Compacted prior context]"),
+      joinedUserTurn(["c", "d"]),
+    ];
     await upgraded.writeTurns([...compacted]);
     await upgraded.writeMetadata(EMPTY_CHECKPOINT_METADATA);
     await upgraded.commit({ message: "upgrade compact" });
 
     expect(versionedTurnsFiles(dir)).toEqual([]);
-    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
-      turnTexts(compacted),
+    expect(JSON.stringify(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toBe(
+      JSON.stringify(compacted),
     );
-    expect(turnTexts((await upgraded.load()).turns)).toEqual(
-      turnTexts(compacted),
+    expect(JSON.stringify((await upgraded.load()).turns)).toBe(
+      JSON.stringify(compacted),
     );
   });
 

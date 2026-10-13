@@ -555,14 +555,6 @@ function blocksProject(
   return true;
 }
 
-function turnText(turn: ConversationTurn): string {
-  let text = "";
-  for (const block of turn.content) {
-    if (block.type === "text") text += block.text;
-  }
-  return text;
-}
-
 function isPlainTextTurn(turn: ConversationTurn): boolean {
   return !turn.content.some(
     (block) => block.type === "tool_call" || block.type === "tool_result",
@@ -580,49 +572,62 @@ function projectsFrom(
   return blocksProject(source.content, out.content);
 }
 
-function coalescedProjects(
-  first: ConversationTurn,
-  second: ConversationTurn,
+function sameTurnBody(a: ConversationTurn, b: ConversationTurn): boolean {
+  return (
+    a.role === b.role && JSON.stringify(a.content) === JSON.stringify(b.content)
+  );
+}
+
+function coalescedSpan(
+  live: readonly ConversationTurn[],
+  end: number,
   out: ConversationTurn,
-): boolean {
-  if (first.role !== out.role || second.role !== out.role) return false;
-  if (
-    !isPlainTextTurn(first) ||
-    !isPlainTextTurn(second) ||
-    !isPlainTextTurn(out)
-  ) {
-    return false;
+): number {
+  if (!isPlainTextTurn(out)) return 0;
+  const target = JSON.stringify(out.content);
+  const parts: ConversationTurn["content"][number][] = [];
+  for (let start = end - 1; start >= 0; start--) {
+    const source = live[start];
+    if (
+      source === undefined ||
+      source.role !== out.role ||
+      !isPlainTextTurn(source)
+    ) {
+      return 0;
+    }
+    parts.unshift(...source.content);
+    const span = end - start;
+    if (span >= 2 && JSON.stringify(parts) === target) return span;
+    if (parts.length > out.content.length) return 0;
   }
-  return turnText(out) === turnText(first) + turnText(second);
+  return 0;
 }
 
 function tailProjectsFrom(
   live: readonly ConversationTurn[],
   rest: readonly ConversationTurn[],
 ): boolean {
-  if (rest.length < 2 || rest.length > live.length) return false;
+  if (rest.length === 0 || rest.length > live.length) return false;
   let cursor = live.length;
+  let mutated = false;
   for (let index = rest.length - 1; index >= 0; index--) {
     const out = rest[index];
     if (out === undefined || cursor <= 0) return false;
     const candidate = live[cursor - 1];
     if (candidate !== undefined && projectsFrom(candidate, out)) {
+      if (!sameTurnBody(candidate, out)) mutated = true;
       cursor--;
       continue;
     }
-    const earlier = live[cursor - 2];
-    const later = live[cursor - 1];
-    if (
-      earlier !== undefined &&
-      later !== undefined &&
-      coalescedProjects(earlier, later, out)
-    ) {
-      cursor -= 2;
+    const span = coalescedSpan(live, cursor, out);
+    if (span >= 2) {
+      mutated = true;
+      cursor -= span;
       continue;
     }
     return false;
   }
-  return cursor > 0;
+  return cursor > 0 && mutated;
 }
 
 function isCompactionOf(
