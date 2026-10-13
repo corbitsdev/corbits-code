@@ -343,7 +343,23 @@ describe("provider setup pure helpers", () => {
     expect(suggestMetaOAuthProfileSlug([], ["meta/default"])).toBe("default-2");
     expect(suggestMetaOAuthProfileSlug([], [])).toBe("default");
     expect(metaOAuthSlugBlockedByApiKey("work", ["meta/work"])).toBe(true);
-    expect(metaOAuthSlugBlockedByApiKey("work", ["meta-api/work"])).toBe(false);
+    expect(metaOAuthSlugBlockedByApiKey("work", ["meta-api/work"])).toBe(true);
+  });
+
+  test("an existing Meta OAuth profile is not treated as an API key", () => {
+    expect(metaOAuthSlugBlockedByApiKey("work", ["meta/work"], ["work"])).toBe(
+      false,
+    );
+    expect(
+      metaOAuthSlugBlockedByApiKey("work", [
+        { name: "meta/work", apiKey: "identity-token", metaProfile: "work" },
+      ]),
+    ).toBe(false);
+    expect(
+      metaOAuthSlugBlockedByApiKey("work", [
+        { name: "meta/work", apiKey: "LLM|pasted" },
+      ]),
+    ).toBe(true);
   });
 
   test("the pick-list ends with custom and every known provider is launchable", () => {
