@@ -99,4 +99,33 @@ describe("pendingAskWakeText", () => {
     expect(text).toContain("stalled");
     expect(text).toContain("send_input");
   });
+
+  test("an assessed wake keeps the worker's question plus the policy facts (SF5)", () => {
+    const text = pendingAskWakeText({
+      sessionId: "a1",
+      agentId: "builder",
+      description: "Build the thing",
+      question: "Which branch should I target?",
+      questionId: "q1",
+      assessment: {
+        policyVersion: "1",
+        classification: "director_resolvable",
+        blockedOutcome: "cannot choose a target branch",
+        unavailableDirectorPath: "the director has no branch map",
+        permittedAlternatives: [
+          {
+            attempted: "checked the branch list",
+            result: "ambiguous",
+            comparableConfidence: false,
+          },
+        ],
+        minimumAddition: "a branch decision",
+        declineConsequence: "implementation stays on the current branch",
+      },
+    });
+    expect(text).toContain("Which branch should I target?");
+    expect(text).toContain("Worker decision required (director_resolvable)");
+    expect(text).toContain("Minimum authority/decision:");
+    expect(text).toContain("send_input");
+  });
 });

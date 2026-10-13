@@ -19,6 +19,7 @@ import {
   type SubAgentSessionStore,
 } from "../../subagent/session-store.js";
 import { cancelWorkersForStop, createFleetStallPollTick } from "./wiring.js";
+import { DIRECTOR_RESOLVABLE_ESCALATION } from "../../../testkit/escalation.js";
 
 // A silent primary turn (wake sent, inference never starts) must not freeze
 // the queue and parked questions forever: the stall poll aborts it past the
@@ -59,6 +60,7 @@ function parkWorker(store: SubAgentSessionStore, tag: string): ParkedWorker {
   const registered = store.registerAsk(session.id, {
     question: worker.wake.question,
     questionId: worker.wake.questionId,
+    assessment: DIRECTOR_RESOLVABLE_ESCALATION,
     resolve: (answer: string) => {
       worker.resolved.push(answer);
     },

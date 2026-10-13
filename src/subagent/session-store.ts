@@ -22,6 +22,13 @@ import {
   type WorkerDeniedCallEnvelope,
 } from "../permission/worker-grant.js";
 import type { AdmissionQueue, AdmissionStatus } from "./admission.js";
+import type {
+  EscalationAssessment,
+  EscalationResolution,
+  TerminalOutcome,
+  VerifiedOutcome,
+} from "./escalation-policy.js";
+import { deriveTerminalOutcome } from "./escalation-policy.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "session-store"]);
 
@@ -77,6 +84,11 @@ export interface OutstandingToolCall {
   preview: string | null;
 }
 
+// Routine asks bypass the question cap, so a chatty worker could otherwise grow
+// this audit log for the life of the session. Recent entries are enough to
+// audit what the worker was told to continue with.
+export const ROUTINE_EVALUATIONS_MAX = 50;
+
 export interface SubAgentSession {
   id: string;
   description: string;
@@ -88,6 +100,10 @@ export interface SubAgentSession {
    * independently. */
   lifecycle: WorkerLifecycle;
   toolNames: string[];
+  /** Durable policy outcome; never inferred from report Markdown. */
+  terminalOutcome?: TerminalOutcome;
+  /** Routine escalation evaluations kept for audit, newest ROUTINE_EVALUATIONS_MAX only. */
+  routineEvaluations?: readonly EscalationAssessment[];
   // Oldest outstanding call; its start clock separates wedged from busy.
   // Derived from `outstandingTools`; never assign directly.
   currentToolName: string | null;
@@ -257,6 +273,7 @@ export interface SubAgentSessionStore {
     ask: {
       question: string;
       questionId: string;
+      assessment: EscalationAssessment;
       /** Grant requestId quoted from the deny reason: binds this ask to
        * its own denial instead of the session's first pending envelope. */
       grantRequestId?: string;
@@ -265,12 +282,34 @@ export interface SubAgentSessionStore {
     },
   ): boolean;
   resolveAsk(id: string, answer: string): boolean;
+  resolveEscalationAsk(
+    id: string,
+    resolution: EscalationResolution,
+    note?: string,
+  ): boolean;
+  /** Records a routine evaluation for audit without registering or waking. */
+  recordRoutineEvaluation(
+    id: string,
+    assessment: EscalationAssessment,
+  ): boolean;
+  /**
+   * Replaces a `verification_blocked` terminal outcome only after the worker
+   * explicitly reports a successful verification through the typed contract.
+   * Refuses when no blocked outcome exists, so a decision grant can never
+   * silently clear a blocker.
+   *
+   * No production caller yet: the runtime has no typed "worker verified"
+   * signal to drive it, so a blocked outcome stays blocked until CL-10568
+   * picks one.
+   */
+  reportVerifiedOutcome(id: string, outcome: VerifiedOutcome): boolean;
   cancelAsk(id: string, reason?: string): boolean;
   hasPendingAsk(id: string): boolean;
   peekAsk(id: string):
     | {
         question: string;
         questionId: string;
+        assessment?: EscalationAssessment;
         deniedCall?: WorkerDeniedCallEnvelope;
       }
     | undefined;
@@ -538,6 +577,7 @@ export function createSubAgentSessionStore(
     {
       question: string;
       questionId: string;
+      assessment: EscalationAssessment;
       resolve: (answer: string) => void;
       reject: (reason: unknown) => void;
       // Registration clock for the ask deadline: an ask parked past the bound
@@ -1803,6 +1843,7 @@ export function createSubAgentSessionStore(
       ask: {
         question: string;
         questionId: string;
+        assessment: EscalationAssessment;
         /** Grant requestId quoted from the deny reason: binds this ask to
          * its own denial instead of the session's first pending envelope. */
         grantRequestId?: string;
@@ -1830,12 +1871,13 @@ export function createSubAgentSessionStore(
       } catch {
         // Envelope attach must not fail ask registration.
       }
-      pendingAsks.set(
-        id,
-        deniedCall !== undefined
-          ? { ...ask, askedAt: now(), deniedCall }
-          : { ...ask, askedAt: now() },
-      );
+      // Every ask carries its assessment, so peekAsk and the wake surface
+      // policy facts for all of them.
+      pendingAsks.set(id, {
+        ...ask,
+        askedAt: now(),
+        ...(deniedCall !== undefined ? { deniedCall } : {}),
+      });
       mutate(id, () => undefined);
       return true;
     },
@@ -1846,6 +1888,64 @@ export function createSubAgentSessionStore(
       pendingAsks.delete(id);
       pending.resolve(answer);
       notify();
+      return true;
+    },
+
+    resolveEscalationAsk(
+      id: string,
+      resolution: EscalationResolution,
+      note?: string,
+    ): boolean {
+      const pending = pendingAsks.get(id);
+      if (pending === undefined) return false;
+      // CL-8016: asks expire on a deadline, so a late answer meant for an
+      // earlier question must never settle a newer one.
+      if (pending.questionId !== resolution.questionId) return false;
+      pendingAsks.delete(id);
+      const terminalOutcome = deriveTerminalOutcome(
+        pending.assessment,
+        resolution,
+      );
+      let notified = false;
+      if (terminalOutcome !== undefined) {
+        // mutate() notifies; keep the settlement to exactly one subscriber wake.
+        mutate(id, (session) => {
+          session.terminalOutcome = terminalOutcome;
+        });
+        notified = true;
+      }
+      pending.resolve(
+        note === undefined
+          ? resolution.answer
+          : `${note}\n${resolution.answer}`,
+      );
+      if (!notified) notify();
+      return true;
+    },
+
+    recordRoutineEvaluation(
+      id: string,
+      assessment: EscalationAssessment,
+    ): boolean {
+      const session = sessions.get(id);
+      if (session === undefined) return false;
+      mutate(id, (target) => {
+        target.routineEvaluations = [
+          ...(target.routineEvaluations ?? []),
+          assessment,
+        ].slice(-ROUTINE_EVALUATIONS_MAX);
+      });
+      return true;
+    },
+
+    reportVerifiedOutcome(id: string, outcome: VerifiedOutcome): boolean {
+      const session = sessions.get(id);
+      if (session === undefined) return false;
+      if (session.terminalOutcome?.kind !== "verification_blocked")
+        return false;
+      mutate(id, (target) => {
+        target.terminalOutcome = outcome;
+      });
       return true;
     },
 
@@ -1861,6 +1961,7 @@ export function createSubAgentSessionStore(
       | {
           question: string;
           questionId: string;
+          assessment?: EscalationAssessment;
           deniedCall?: WorkerDeniedCallEnvelope;
         }
       | undefined {
@@ -1869,6 +1970,7 @@ export function createSubAgentSessionStore(
       return {
         question: pending.question,
         questionId: pending.questionId,
+        assessment: pending.assessment,
         ...(pending.deniedCall !== undefined
           ? { deniedCall: pending.deniedCall }
           : {}),
@@ -2278,6 +2380,12 @@ function cloneSession(
     ...(session.error !== undefined ? { error: session.error } : {}),
     ...(session.stopReason !== undefined
       ? { stopReason: session.stopReason }
+      : {}),
+    ...(session.terminalOutcome !== undefined
+      ? { terminalOutcome: session.terminalOutcome }
+      : {}),
+    ...(session.routineEvaluations !== undefined
+      ? { routineEvaluations: [...session.routineEvaluations] }
       : {}),
     ...(session.parentSessionId !== undefined
       ? { parentSessionId: session.parentSessionId }

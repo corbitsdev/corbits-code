@@ -26,6 +26,7 @@ import {
   createLeftoverSend,
   createSessionOperationQueue,
 } from "../delivery-queue.js";
+import { DIRECTOR_RESOLVABLE_ESCALATION } from "../../../testkit/escalation.js";
 
 test("failed reset releases publication without flushing partially cancelled workers", () => {
   const store = createSubAgentSessionStore();
@@ -45,6 +46,7 @@ test("failed reset releases publication without flushing partially cancelled wor
     store.registerAsk("old", {
       question: "Old question?",
       questionId: "old-question",
+      assessment: DIRECTOR_RESOLVABLE_ESCALATION,
       resolve: () => undefined,
       reject: () => undefined,
     });
@@ -199,6 +201,7 @@ for (const phase of ["settled", "prequeued", "deferred"] as const) {
           store.registerAsk(id, {
             question: `question ${id}`,
             questionId: `question-${id}`,
+            assessment: DIRECTOR_RESOLVABLE_ESCALATION,
             resolve: () => undefined,
             reject: () => undefined,
           });
@@ -305,6 +308,7 @@ for (const removal of [
           store.registerAsk(worker.id, {
             question: "Which port?",
             questionId: "q1",
+            assessment: DIRECTOR_RESOLVABLE_ESCALATION,
             resolve: () => undefined,
             reject: () => undefined,
           });
@@ -393,6 +397,7 @@ test("same catalog workers answer by session, reconcile one resolution and repla
         store.registerAsk(id, {
           question: questionId,
           questionId,
+          assessment: DIRECTOR_RESOLVABLE_ESCALATION,
           resolve: (answer) => {
             answers.push(`${id}:${answer}`);
           },
@@ -485,6 +490,7 @@ test("yield wait does not stamp; sending pendingAskWakeText gates list_agents", 
         store.registerAsk(worker.id, {
           question: "Which port?",
           questionId: "q1",
+          assessment: DIRECTOR_RESOLVABLE_ESCALATION,
           resolve: () => undefined,
           reject: () => undefined,
         });
@@ -592,6 +598,7 @@ async function withStripRig(fn: (rig: StripRig) => Promise<void>) {
         store.registerAsk(id, {
           question,
           questionId,
+          assessment: DIRECTOR_RESOLVABLE_ESCALATION,
           resolve: (answer) => {
             answers.push(`${id}:${answer}`);
           },
@@ -636,7 +643,9 @@ test("the strip follows agent-ask snapshots while the wake reaches the director 
       park("worker-session", "q1", "Which destination path should I use?");
       const parked = await stripText(h);
       expect(parked).toContain("WORKER WAITING");
-      expect(parked).toContain("Which destination path should I use?");
+      // The panel summary leads with the question; the strip may truncate the
+      // trailing facts (and the final "?") at narrow widths.
+      expect(parked).toContain("Which destination path should I use");
       expect(toPrimary).toEqual([]);
 
       // The primary settles: the wake goes to the director, the strip stays.

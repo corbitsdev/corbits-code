@@ -14,7 +14,10 @@
  * shell/chrome.ts; the row budget lives in geometry (zone `worker_wait`).
  */
 
+import { isDeepStrictEqual } from "node:util";
+
 import type { PendingAskWake } from "../subagent/fleet-report.js";
+import type { EscalationAssessment } from "../subagent/escalation-policy.js";
 import { stripTerminalControlSequences } from "../util/control-char-strip.js";
 import { sliceToWidth, stringWidth } from "./view/height.js";
 
@@ -26,6 +29,8 @@ export interface WorkerWaitItem {
   readonly agentId: string;
   readonly description: string;
   readonly question: string;
+  /** Immutable policy detail for this live question; display only. */
+  readonly assessment?: EscalationAssessment;
 }
 
 export interface WorkerWaitState {
@@ -42,11 +47,14 @@ function identityKey(sessionId: string, questionId: string): string {
 }
 
 function sameItem(a: WorkerWaitItem, b: WorkerWaitItem): boolean {
+  // Compared by value: a snapshot that round-trips serialization carries an
+  // equal but distinct object, and that must not repaint the strip.
   return (
     a.key === b.key &&
     a.agentId === b.agentId &&
     a.description === b.description &&
-    a.question === b.question
+    a.question === b.question &&
+    isDeepStrictEqual(a.assessment, b.assessment)
   );
 }
 
@@ -74,6 +82,7 @@ export function reduceWorkerWait(
       agentId: ask.agentId,
       description: ask.description,
       question: ask.question,
+      ...(ask.assessment === undefined ? {} : { assessment: ask.assessment }),
     });
   }
   const items = [...bySession.values()];
@@ -126,6 +135,24 @@ export interface WorkerWaitPart {
  */
 export function oneLinePreview(text: string): string {
   return stripTerminalControlSequences(text).replace(/\s+/g, " ").trim();
+}
+
+/** Concise assessed-decision detail for the live panel; it never routes or resolves. */
+export function workerWaitDecisionSummary(item: WorkerWaitItem): string {
+  const assessment = item.assessment;
+  if (assessment === undefined) return item.question;
+  const recommendation = assessment.recommendation ?? assessment.safeDefault;
+  return [
+    item.question,
+    `classification: ${assessment.classification}`,
+    `outcome: ${assessment.blockedOutcome}`,
+    `minimum: ${assessment.minimumAuthority ?? assessment.minimumAddition}`,
+    `consequence: ${assessment.declineConsequence}`,
+    ...(recommendation === undefined
+      ? []
+      : [`recommendation: ${recommendation}`]),
+    `target: ${item.sessionId}`,
+  ].join("; ");
 }
 
 const MARK = "◆";
@@ -201,7 +228,7 @@ export function composeWorkerWaitLine(
   if (item === null || width <= 0) return [];
   const agentId = oneLinePreview(item.agentId);
   const description = oneLinePreview(item.description);
-  const question = oneLinePreview(item.question);
+  const question = oneLinePreview(workerWaitDecisionSummary(item));
   const requesterFull =
     description.length > 0 && description !== agentId
       ? agentId.length > 0
