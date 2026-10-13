@@ -12,6 +12,7 @@ import {
   versionedBaseName,
 } from "./optimized-context-store.js";
 import { segmentFileName, listSegmentFiles } from "./incremental-jsonl.js";
+import { createPruningCompactor } from "./compactor.js";
 
 const TURNS_FILE = "turns.jsonl";
 
@@ -854,6 +855,102 @@ describe("concurrent sessions write disjoint transcripts", () => {
     expect(turnTexts((await loadRecentTurns(dir, 10)).turns)).toEqual(
       turnTexts(original),
     );
+  });
+
+  test("a pruned compaction stays on the live transcript", async () => {
+    const readCall = (id: string): ConversationTurn => ({
+      role: "assistant",
+      content: [
+        {
+          type: "tool_call",
+          id,
+          name: "read_file",
+          arguments: { path: "src/hot.ts" },
+        },
+      ],
+      timestamp: 1,
+    });
+    const readResult = (id: string, text: string): ConversationTurn => ({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          callId: id,
+          content: [{ type: "text", text }],
+        },
+      ],
+      timestamp: 1,
+    });
+    const original: ConversationTurn[] = [
+      turn("start the migration and keep the auth notes"),
+      turn("constraint: do not rewrite the session log"),
+      readCall("old-a"),
+      readResult("old-a", `FOLD_${"c".repeat(8000)}`),
+      readCall("old-b"),
+      readResult("old-b", `FOLD_${"d".repeat(8000)}`),
+      readCall("old-c"),
+      readResult("old-c", `FOLD_${"e".repeat(8000)}`),
+      readCall("r1"),
+      readResult("r1", `OLD_${"a".repeat(3000)}`),
+      readCall("r2"),
+      readResult("r2", `NEW_${"b".repeat(3000)}`),
+      turn("continue from the latest read"),
+    ];
+    const folded = (await createPruningCompactor().apply(original, {} as never))
+      .output;
+    const unequal = folded.filter(
+      (candidate) =>
+        !original.some(
+          (source) => JSON.stringify(source) === JSON.stringify(candidate),
+        ),
+    );
+    expect(unequal.length).toBeGreaterThan(0);
+    const foldedText = JSON.stringify(folded);
+    expect(foldedText).toContain("[tail-shortened ");
+    expect(foldedText).toContain("omitted from context");
+    expect(
+      folded.some((candidate) =>
+        candidate.content.some(
+          (block) =>
+            block.type === "text" &&
+            block.text.startsWith("[Compacted prior context]"),
+        ),
+      ),
+    ).toBe(true);
+
+    const publish = async (
+      ownerId: string | undefined,
+      dropMarker: boolean,
+    ): Promise<void> => {
+      const dir = tempDir();
+      const first = await createOptimizedContextStore(dir);
+      await first.writeTurns([...original]);
+      await first.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+      await first.commit({ message: "original" });
+      if (dropMarker) fs.unlinkSync(path.join(dir, "session-owner.json"));
+      const second = await createOptimizedContextStore(
+        dir,
+        ownerId === undefined ? undefined : { ownerId },
+      );
+      await second.writeTurns(folded);
+      await second.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+      await second.commit({ message: "fold" });
+      const later = [...folded, turn("after-fold")];
+      await second.writeTurns(later);
+      await second.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+      await second.commit({ message: "later" });
+
+      expect(versionedTurnsFiles(dir)).toEqual([]);
+      expect(
+        JSON.stringify(readTurnsFromFile(path.join(dir, TURNS_FILE))),
+      ).toBe(JSON.stringify(later));
+      expect(JSON.stringify((await second.load()).turns)).toBe(
+        JSON.stringify(later),
+      );
+    };
+
+    await publish(undefined, false);
+    await publish("session-S", true);
   });
 
   test("an owner id can compact a markerless transcript in place", async () => {

@@ -397,6 +397,9 @@ async function tryCreateOwnerMarker(
 }
 
 const COMPACTED_TURN_PREFIX = "[Compacted prior context]";
+const THINKING_ONLY_OMITTED = "[thinking-only turn omitted]";
+const EXCERPT_MARKER = "\n[tail-shortened ";
+const EXCERPT_CLOSE = "full text remains in the archived transcript]";
 
 function firstTurnText(turn: ConversationTurn): string | undefined {
   for (const block of turn.content) {
@@ -415,8 +418,214 @@ function isCompactionMarker(turn: ConversationTurn): boolean {
   );
 }
 
+function isSummaryTurn(turn: ConversationTurn): boolean {
+  const text = firstTurnText(turn);
+  return text !== undefined && text.startsWith(COMPACTED_TURN_PREFIX);
+}
+
 function sameTurnContent(a: ConversationTurn, b: ConversationTurn): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function joinedBlockText(
+  content: readonly { type: string; text?: string }[],
+): string {
+  let text = "";
+  for (const part of content) {
+    if (part.type === "text" && part.text !== undefined) text += part.text;
+  }
+  return text;
+}
+
+function isExcerptText(original: string, excerpted: string): boolean {
+  const at = excerpted.indexOf(EXCERPT_MARKER);
+  if (at < 0) return false;
+  const head = excerpted.slice(0, at);
+  if (head.length === 0 || !original.startsWith(head)) return false;
+  const close = excerpted.indexOf(EXCERPT_CLOSE);
+  if (close < 0) return false;
+  let tail = excerpted.slice(close + EXCERPT_CLOSE.length);
+  if (tail.startsWith("\n")) tail = tail.slice(1);
+  if (tail.length === 0) return head.length < original.length;
+  return original.endsWith(tail) && head.length + tail.length < original.length;
+}
+
+function isOmissionStub(stub: string): boolean {
+  return (
+    /\[.+ — \d+ chars omitted from context; source unchanged\./.test(stub) ||
+    /\[.+ — \d+ chars, omitted\]/.test(stub)
+  );
+}
+
+function toolCallIds(turn: ConversationTurn): string[] {
+  const ids: string[] = [];
+  for (const block of turn.content) {
+    if (block.type === "tool_call") ids.push(block.id);
+  }
+  return ids;
+}
+
+function resultCallIds(turn: ConversationTurn): string[] {
+  const ids: string[] = [];
+  for (const block of turn.content) {
+    if (block.type === "tool_result") ids.push(block.callId);
+  }
+  return ids;
+}
+
+function sameIdList(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index++) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function resultProjects(
+  source: Extract<ConversationTurn["content"][number], { type: "tool_result" }>,
+  out: Extract<ConversationTurn["content"][number], { type: "tool_result" }>,
+): boolean {
+  if (source.callId !== out.callId) return false;
+  if ((source.isError === true) !== (out.isError === true)) return false;
+  if (JSON.stringify(source.content) === JSON.stringify(out.content))
+    return true;
+  const sourceText = joinedBlockText(source.content);
+  const outText = joinedBlockText(out.content);
+  const stub = out.content[0];
+  if (
+    out.content.length === 1 &&
+    stub !== undefined &&
+    stub.type === "text" &&
+    isOmissionStub(outText)
+  ) {
+    return sourceText.length > 0;
+  }
+  if (source.content.length !== out.content.length) return false;
+  for (let index = 0; index < source.content.length; index++) {
+    const sourcePart = source.content[index];
+    const outPart = out.content[index];
+    if (sourcePart === undefined || outPart === undefined) return false;
+    if (sourcePart.type !== outPart.type) return false;
+    if (sourcePart.type === "text" && outPart.type === "text") {
+      if (sourcePart.text === outPart.text) continue;
+      if (isExcerptText(sourcePart.text, outPart.text)) continue;
+      return false;
+    }
+    if (JSON.stringify(sourcePart) !== JSON.stringify(outPart)) return false;
+  }
+  return true;
+}
+
+function blocksProject(
+  source: ConversationTurn["content"],
+  out: ConversationTurn["content"],
+): boolean {
+  const sourceBlocks = source.filter(
+    (block) => block.type !== "thinking" && block.type !== "redacted_thinking",
+  );
+  if (
+    sourceBlocks.length === 0 &&
+    out.length === 1 &&
+    out[0]?.type === "text" &&
+    out[0].text === THINKING_ONLY_OMITTED
+  ) {
+    return source.some(
+      (block) =>
+        block.type === "thinking" || block.type === "redacted_thinking",
+    );
+  }
+  if (sourceBlocks.length !== out.length) return false;
+  for (let index = 0; index < sourceBlocks.length; index++) {
+    const sourceBlock = sourceBlocks[index];
+    const outBlock = out[index];
+    if (sourceBlock === undefined || outBlock === undefined) return false;
+    if (JSON.stringify(sourceBlock) === JSON.stringify(outBlock)) continue;
+    if (
+      sourceBlock.type === "tool_result" &&
+      outBlock.type === "tool_result" &&
+      resultProjects(sourceBlock, outBlock)
+    ) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+function turnText(turn: ConversationTurn): string {
+  let text = "";
+  for (const block of turn.content) {
+    if (block.type === "text") text += block.text;
+  }
+  return text;
+}
+
+function isPlainTextTurn(turn: ConversationTurn): boolean {
+  return !turn.content.some(
+    (block) => block.type === "tool_call" || block.type === "tool_result",
+  );
+}
+
+function projectsFrom(
+  source: ConversationTurn,
+  out: ConversationTurn,
+): boolean {
+  if (sameTurnContent(source, out)) return true;
+  if (source.role !== out.role) return false;
+  if (!sameIdList(toolCallIds(source), toolCallIds(out))) return false;
+  if (!sameIdList(resultCallIds(source), resultCallIds(out))) return false;
+  return blocksProject(source.content, out.content);
+}
+
+function coalescedProjects(
+  first: ConversationTurn,
+  second: ConversationTurn,
+  out: ConversationTurn,
+): boolean {
+  if (first.role !== out.role || second.role !== out.role) return false;
+  if (
+    !isPlainTextTurn(first) ||
+    !isPlainTextTurn(second) ||
+    !isPlainTextTurn(out)
+  ) {
+    return false;
+  }
+  return turnText(out) === turnText(first) + turnText(second);
+}
+
+function tailProjectsFrom(
+  live: readonly ConversationTurn[],
+  rest: readonly ConversationTurn[],
+): boolean {
+  if (rest.length > live.length) return false;
+  let cursor = 0;
+  for (const out of rest) {
+    let found = false;
+    while (cursor < live.length) {
+      const candidate = live[cursor];
+      if (candidate !== undefined && projectsFrom(candidate, out)) {
+        cursor++;
+        found = true;
+        break;
+      }
+      const next = live[cursor + 1];
+      if (
+        candidate !== undefined &&
+        next !== undefined &&
+        coalescedProjects(candidate, next, out)
+      ) {
+        cursor += 2;
+        found = true;
+        break;
+      }
+      cursor++;
+    }
+    if (!found) return false;
+  }
+  return true;
 }
 
 function isCompactionOf(
@@ -424,34 +633,18 @@ function isCompactionOf(
   next: readonly ConversationTurn[],
 ): boolean {
   if (live.length === 0 || next.length === 0) return false;
-  let head = 0;
-  while (head < next.length) {
-    const turn = next[head];
-    if (turn === undefined || !isCompactionMarker(turn)) break;
-    head++;
-  }
-  if (head === 0) return false;
-  const rest = next.slice(head);
-  if (rest.length === 0) return true;
-  const max = Math.min(live.length, rest.length);
-  for (let kept = max; kept >= 1; kept--) {
-    const start = live.length - kept;
-    let matched = true;
-    for (let index = 0; index < kept; index++) {
-      const liveTurn = live[start + index];
-      const restTurn = rest[index];
-      if (
-        liveTurn === undefined ||
-        restTurn === undefined ||
-        !sameTurnContent(liveTurn, restTurn)
-      ) {
-        matched = false;
-        break;
-      }
+  let sawSummary = false;
+  const rest: ConversationTurn[] = [];
+  for (const turn of next) {
+    if (isCompactionMarker(turn)) {
+      if (isSummaryTurn(turn)) sawSummary = true;
+      continue;
     }
-    if (matched) return true;
+    rest.push(turn);
   }
-  return false;
+  if (!sawSummary) return false;
+  if (rest.length === 0) return true;
+  return tailProjectsFrom(live, rest);
 }
 
 async function listIndexPaths(dir: string): Promise<Set<string>> {
