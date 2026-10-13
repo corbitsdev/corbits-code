@@ -93,12 +93,38 @@ export function suggestMetaOAuthProfileSlug(
   ]);
 }
 
-/** True when `slug` is already an API-key instance, not an OAuth profile. */
+/** True when `slug` names an API-key row, not an OAuth profile. */
 export function metaOAuthSlugBlockedByApiKey(
   slug: string,
-  existingProviderNames: readonly string[],
+  rows: readonly (
+    | string
+    | {
+        readonly name: string;
+        readonly apiKey?: string;
+        readonly metaProfile?: string;
+      }
+  )[],
+  authProfiles: readonly string[] = [],
 ): boolean {
-  return instanceSlugsForKind("meta", existingProviderNames).includes(slug);
+  if (authProfiles.includes(slug)) return false;
+  for (const row of rows) {
+    if (typeof row !== "string" && row.metaProfile === slug) return false;
+  }
+  const names = rows.map((row) => (typeof row === "string" ? row : row.name));
+  if (instanceSlugsForKind("meta-api", names).includes(slug)) return true;
+  for (const row of rows) {
+    const name = typeof row === "string" ? row : row.name;
+    if (!instanceSlugsForKind("meta", [name]).includes(slug)) continue;
+    if (typeof row !== "string" && row.metaProfile !== undefined) continue;
+    if (
+      typeof row !== "string" &&
+      (typeof row.apiKey !== "string" || row.apiKey.length === 0)
+    ) {
+      continue;
+    }
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -450,7 +476,7 @@ export function createAccountNameFlow(
       if (state.settled || attempt !== state.oauthNameAttempt) return;
       if (
         state.choice?.oauth === "meta" &&
-        metaOAuthSlugBlockedByApiKey(slug, state.existingProviderNames)
+        metaOAuthSlugBlockedByApiKey(slug, state.existingProviderNames, names)
       ) {
         state.oauthProfileError = "that name is an API key";
         state.oauthProfileConfirmPending = false;
