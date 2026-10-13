@@ -830,6 +830,24 @@ describe("concurrent sessions write disjoint transcripts", () => {
     );
   });
 
+  test("a summary plus one shared turn does not replace the transcript", async () => {
+    await expectSharedTurnAttacksToDivert([
+      turn("[Compacted prior context]"),
+      turn("ok"),
+    ]);
+  });
+
+  test("a summary plus one middle turn does not replace the transcript", async () => {
+    await expectSharedTurnAttacksToDivert([
+      turn("[Compacted prior context]"),
+      turn("middle"),
+    ]);
+  });
+
+  test("a summary alone does not replace the transcript", async () => {
+    await expectSharedTurnAttacksToDivert([turn("[Compacted prior context]")]);
+  });
+
   test("a foreign transcript without an owner id still diverts", async () => {
     const dir = tempDir();
     const first = await createOptimizedContextStore(dir);
@@ -1226,6 +1244,45 @@ function versionedTurnsFiles(dir: string): string[] {
   return fs
     .readdirSync(dir)
     .filter((name) => /^turns-\d+-[0-9a-f]+\.jsonl$/.test(name));
+}
+
+function fiveTurnsEndingOk(): ConversationTurn[] {
+  return [
+    turn("alpha"),
+    turn("middle"),
+    turn("gamma"),
+    turn("delta"),
+    turn("ok"),
+  ];
+}
+
+async function expectSharedTurnAttacksToDivert(
+  attack: readonly ConversationTurn[],
+): Promise<void> {
+  for (const markerless of [true, false]) {
+    const dir = tempDir();
+    const owner = await createOptimizedContextStore(dir, {
+      ownerId: "session-owner",
+    });
+    const original = fiveTurnsEndingOk();
+    await owner.writeTurns([...original]);
+    await owner.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await owner.commit({ message: "seed" });
+    if (markerless) fs.unlinkSync(path.join(dir, "session-owner.json"));
+
+    const attacker = await createOptimizedContextStore(dir);
+    await attacker.writeTurns([...attack]);
+    await attacker.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await attacker.commit({ message: "attack" });
+
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
+      turnTexts(original),
+    );
+    expect(turnTexts((await attacker.load()).turns)).toEqual(
+      turnTexts(original),
+    );
+    expect(versionedTurnsFiles(dir)).toHaveLength(1);
+  }
 }
 
 function readTurnsFromFile(fullPath: string): ConversationTurn[] {

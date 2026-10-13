@@ -600,32 +600,29 @@ function tailProjectsFrom(
   live: readonly ConversationTurn[],
   rest: readonly ConversationTurn[],
 ): boolean {
-  if (rest.length > live.length) return false;
-  let cursor = 0;
-  for (const out of rest) {
-    let found = false;
-    while (cursor < live.length) {
-      const candidate = live[cursor];
-      if (candidate !== undefined && projectsFrom(candidate, out)) {
-        cursor++;
-        found = true;
-        break;
-      }
-      const next = live[cursor + 1];
-      if (
-        candidate !== undefined &&
-        next !== undefined &&
-        coalescedProjects(candidate, next, out)
-      ) {
-        cursor += 2;
-        found = true;
-        break;
-      }
-      cursor++;
+  if (rest.length < 2 || rest.length > live.length) return false;
+  let cursor = live.length;
+  for (let index = rest.length - 1; index >= 0; index--) {
+    const out = rest[index];
+    if (out === undefined || cursor <= 0) return false;
+    const candidate = live[cursor - 1];
+    if (candidate !== undefined && projectsFrom(candidate, out)) {
+      cursor--;
+      continue;
     }
-    if (!found) return false;
+    const earlier = live[cursor - 2];
+    const later = live[cursor - 1];
+    if (
+      earlier !== undefined &&
+      later !== undefined &&
+      coalescedProjects(earlier, later, out)
+    ) {
+      cursor -= 2;
+      continue;
+    }
+    return false;
   }
-  return true;
+  return cursor > 0;
 }
 
 function isCompactionOf(
@@ -643,7 +640,6 @@ function isCompactionOf(
     rest.push(turn);
   }
   if (!sawSummary) return false;
-  if (rest.length === 0) return true;
   return tailProjectsFrom(live, rest);
 }
 
