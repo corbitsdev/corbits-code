@@ -376,14 +376,276 @@ async function readOwnerMarker(
   }
 }
 
-async function writeOwnerMarker(dir: string, ownerId: string): Promise<void> {
+async function tryCreateOwnerMarker(
+  dir: string,
+  ownerId: string,
+): Promise<boolean> {
   const full = path.join(dir, OWNER_MARKER_FILE);
-  const tmp = `${full}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
-  await fs.promises.writeFile(
-    tmp,
-    JSON.stringify({ ownerId, createdAt: Date.now() }),
+  try {
+    await fs.promises.writeFile(
+      full,
+      JSON.stringify({ ownerId, createdAt: Date.now() }),
+      { encoding: "utf8", flag: "wx" },
+    );
+    return true;
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") {
+      return false;
+    }
+    throw cause;
+  }
+}
+
+const COMPACTED_TURN_PREFIX = "[Compacted prior context]";
+const THINKING_ONLY_OMITTED = "[thinking-only turn omitted]";
+const EXCERPT_MARKER = "\n[tail-shortened ";
+const EXCERPT_CLOSE = "full text remains in the archived transcript]";
+
+function firstTurnText(turn: ConversationTurn): string | undefined {
+  for (const block of turn.content) {
+    if (block.type === "text") return block.text;
+  }
+  return undefined;
+}
+
+function isCompactionMarker(turn: ConversationTurn): boolean {
+  const text = firstTurnText(turn);
+  if (text === undefined) return false;
+  return (
+    text.startsWith(COMPACTED_TURN_PREFIX) ||
+    text === "[compact]" ||
+    text === "[compaction]"
   );
-  await fs.promises.rename(tmp, full);
+}
+
+function isSummaryTurn(turn: ConversationTurn): boolean {
+  const text = firstTurnText(turn);
+  return text !== undefined && text.startsWith(COMPACTED_TURN_PREFIX);
+}
+
+function sameTurnContent(a: ConversationTurn, b: ConversationTurn): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function joinedBlockText(
+  content: readonly { type: string; text?: string }[],
+): string {
+  let text = "";
+  for (const part of content) {
+    if (part.type === "text" && part.text !== undefined) text += part.text;
+  }
+  return text;
+}
+
+function isExcerptText(original: string, excerpted: string): boolean {
+  const at = excerpted.indexOf(EXCERPT_MARKER);
+  if (at < 0) return false;
+  const head = excerpted.slice(0, at);
+  if (head.length === 0 || !original.startsWith(head)) return false;
+  const close = excerpted.indexOf(EXCERPT_CLOSE);
+  if (close < 0) return false;
+  let tail = excerpted.slice(close + EXCERPT_CLOSE.length);
+  if (tail.startsWith("\n")) tail = tail.slice(1);
+  if (tail.length === 0) return head.length < original.length;
+  return original.endsWith(tail) && head.length + tail.length < original.length;
+}
+
+function isOmissionStub(stub: string): boolean {
+  return (
+    /\[.+ — \d+ chars omitted from context; source unchanged\./.test(stub) ||
+    /\[.+ — \d+ chars, omitted\]/.test(stub)
+  );
+}
+
+function toolCallIds(turn: ConversationTurn): string[] {
+  const ids: string[] = [];
+  for (const block of turn.content) {
+    if (block.type === "tool_call") ids.push(block.id);
+  }
+  return ids;
+}
+
+function resultCallIds(turn: ConversationTurn): string[] {
+  const ids: string[] = [];
+  for (const block of turn.content) {
+    if (block.type === "tool_result") ids.push(block.callId);
+  }
+  return ids;
+}
+
+function sameIdList(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index++) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function resultProjects(
+  source: Extract<ConversationTurn["content"][number], { type: "tool_result" }>,
+  out: Extract<ConversationTurn["content"][number], { type: "tool_result" }>,
+): boolean {
+  if (source.callId !== out.callId) return false;
+  if ((source.isError === true) !== (out.isError === true)) return false;
+  if (JSON.stringify(source.content) === JSON.stringify(out.content))
+    return true;
+  const sourceText = joinedBlockText(source.content);
+  const outText = joinedBlockText(out.content);
+  const stub = out.content[0];
+  if (
+    out.content.length === 1 &&
+    stub !== undefined &&
+    stub.type === "text" &&
+    isOmissionStub(outText)
+  ) {
+    return sourceText.length > 0;
+  }
+  if (source.content.length !== out.content.length) return false;
+  for (let index = 0; index < source.content.length; index++) {
+    const sourcePart = source.content[index];
+    const outPart = out.content[index];
+    if (sourcePart === undefined || outPart === undefined) return false;
+    if (sourcePart.type !== outPart.type) return false;
+    if (sourcePart.type === "text" && outPart.type === "text") {
+      if (sourcePart.text === outPart.text) continue;
+      if (isExcerptText(sourcePart.text, outPart.text)) continue;
+      return false;
+    }
+    if (JSON.stringify(sourcePart) !== JSON.stringify(outPart)) return false;
+  }
+  return true;
+}
+
+function blocksProject(
+  source: ConversationTurn["content"],
+  out: ConversationTurn["content"],
+): boolean {
+  const sourceBlocks = source.filter(
+    (block) => block.type !== "thinking" && block.type !== "redacted_thinking",
+  );
+  if (
+    sourceBlocks.length === 0 &&
+    out.length === 1 &&
+    out[0]?.type === "text" &&
+    out[0].text === THINKING_ONLY_OMITTED
+  ) {
+    return source.some(
+      (block) =>
+        block.type === "thinking" || block.type === "redacted_thinking",
+    );
+  }
+  if (sourceBlocks.length !== out.length) return false;
+  for (let index = 0; index < sourceBlocks.length; index++) {
+    const sourceBlock = sourceBlocks[index];
+    const outBlock = out[index];
+    if (sourceBlock === undefined || outBlock === undefined) return false;
+    if (JSON.stringify(sourceBlock) === JSON.stringify(outBlock)) continue;
+    if (
+      sourceBlock.type === "tool_result" &&
+      outBlock.type === "tool_result" &&
+      resultProjects(sourceBlock, outBlock)
+    ) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+function isPlainTextTurn(turn: ConversationTurn): boolean {
+  return !turn.content.some(
+    (block) => block.type === "tool_call" || block.type === "tool_result",
+  );
+}
+
+function projectsFrom(
+  source: ConversationTurn,
+  out: ConversationTurn,
+): boolean {
+  if (sameTurnContent(source, out)) return true;
+  if (source.role !== out.role) return false;
+  if (!sameIdList(toolCallIds(source), toolCallIds(out))) return false;
+  if (!sameIdList(resultCallIds(source), resultCallIds(out))) return false;
+  return blocksProject(source.content, out.content);
+}
+
+function sameTurnBody(a: ConversationTurn, b: ConversationTurn): boolean {
+  return (
+    a.role === b.role && JSON.stringify(a.content) === JSON.stringify(b.content)
+  );
+}
+
+function coalescedSpan(
+  live: readonly ConversationTurn[],
+  end: number,
+  out: ConversationTurn,
+): number {
+  if (!isPlainTextTurn(out)) return 0;
+  const target = JSON.stringify(out.content);
+  const parts: ConversationTurn["content"][number][] = [];
+  for (let start = end - 1; start >= 0; start--) {
+    const source = live[start];
+    if (
+      source === undefined ||
+      source.role !== out.role ||
+      !isPlainTextTurn(source)
+    ) {
+      return 0;
+    }
+    parts.unshift(...source.content);
+    const span = end - start;
+    if (span >= 2 && JSON.stringify(parts) === target) return span;
+    if (parts.length > out.content.length) return 0;
+  }
+  return 0;
+}
+
+function tailProjectsFrom(
+  live: readonly ConversationTurn[],
+  rest: readonly ConversationTurn[],
+): boolean {
+  if (rest.length === 0 || rest.length > live.length) return false;
+  let cursor = live.length;
+  let mutated = false;
+  for (let index = rest.length - 1; index >= 0; index--) {
+    const out = rest[index];
+    if (out === undefined || cursor <= 0) return false;
+    const candidate = live[cursor - 1];
+    if (candidate !== undefined && projectsFrom(candidate, out)) {
+      if (!sameTurnBody(candidate, out)) mutated = true;
+      cursor--;
+      continue;
+    }
+    const span = coalescedSpan(live, cursor, out);
+    if (span >= 2) {
+      mutated = true;
+      cursor -= span;
+      continue;
+    }
+    return false;
+  }
+  return cursor > 0 && mutated;
+}
+
+function isCompactionOf(
+  live: readonly ConversationTurn[],
+  next: readonly ConversationTurn[],
+): boolean {
+  if (live.length === 0 || next.length === 0) return false;
+  let sawSummary = false;
+  const rest: ConversationTurn[] = [];
+  for (const turn of next) {
+    if (isCompactionMarker(turn)) {
+      if (isSummaryTurn(turn)) sawSummary = true;
+      continue;
+    }
+    rest.push(turn);
+  }
+  if (!sawSummary) return false;
+  return tailProjectsFrom(live, rest);
 }
 
 async function listIndexPaths(dir: string): Promise<Set<string>> {
@@ -555,8 +817,8 @@ export interface SessionStores {
 export interface SessionStoreOptions {
   signer?: CommitSigner;
   /**
-   * Same id shares the marker; omit for a random token, foreign unless the
-   * transcript extends history.
+   * Same id shares the marker. Omit for a random token: a prefix extension or
+   * a compaction of the on-disk transcript stays on the shared log.
    */
   ownerId?: string;
 }
@@ -576,6 +838,7 @@ export async function createSessionStores(
   const pendingBlobFilepaths = new Set<string>();
   const pendingSegmentPaths = new Set<string>();
   const ownerToken = opts?.ownerId ?? globalThis.crypto.randomUUID();
+  const explicitOwnerId = opts?.ownerId;
   let turnsBaseName = TURNS_FILE;
   let promptBaseName = PROMPT_FILE;
   let versionedBase: string | null = null;
@@ -583,6 +846,8 @@ export async function createSessionStores(
   let writePromptSegmented = createSegmentedJSONLWriter(dir, PROMPT_FILE);
   let liveTurnRefs: readonly ConversationTurn[] | null = null;
   let unpublishedRewrite: ConversationTurn[] | null = null;
+  let pendingPrompt: ConversationTurn[] | null = null;
+  let stagedPrompt: ConversationTurn[] | null = null;
 
   function divertToVersionedBases(): void {
     if (versionedBase !== null) return;
@@ -626,6 +891,81 @@ export async function createSessionStores(
     for (const filepath of modifiedPaths) pendingSegmentPaths.add(filepath);
   }
 
+  async function readLiveTurns(): Promise<ConversationTurn[]> {
+    const basePresent = await pathExists(path.join(dir, TURNS_FILE));
+    const extraPresent = await pathExists(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+    );
+    if (!basePresent && !extraPresent) return [];
+    return loadLiveTurnsFromDisk();
+  }
+
+  async function resolveFirstWrite(
+    turns: readonly ConversationTurn[],
+  ): Promise<"append" | "rewrite" | "divert"> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const marker = await readOwnerMarker(dir);
+      if (marker !== null && marker.ownerId === ownerToken) {
+        const live = await readLiveTurns();
+        return contentPrefixLength(live, turns) === live.length
+          ? "append"
+          : "rewrite";
+      }
+      if (
+        marker !== null &&
+        explicitOwnerId !== undefined &&
+        marker.ownerId !== ownerToken
+      ) {
+        return "divert";
+      }
+      const live = await readLiveTurns();
+      if (marker !== null && live.length === 0) return "divert";
+      if (
+        live.length === 0 ||
+        contentPrefixLength(live, turns) === live.length
+      ) {
+        if (marker === null && !(await tryCreateOwnerMarker(dir, ownerToken))) {
+          continue;
+        }
+        return "append";
+      }
+      if (isCompactionOf(live, turns)) {
+        if (marker === null && !(await tryCreateOwnerMarker(dir, ownerToken))) {
+          continue;
+        }
+        return "rewrite";
+      }
+      return "divert";
+    }
+    return "divert";
+  }
+
+  async function queuePrompt(
+    turns: readonly ConversationTurn[],
+  ): Promise<void> {
+    if (versionedBase !== null && liveTurnRefs === null) {
+      stagedPrompt = [...turns];
+      pendingPrompt = null;
+      return;
+    }
+    if (
+      liveTurnRefs === null &&
+      unpublishedRewrite === null &&
+      versionedBase === null
+    ) {
+      pendingPrompt = [...turns];
+      return;
+    }
+    await writePromptIfDiffered(turns);
+  }
+
+  async function flushPendingPrompt(): Promise<void> {
+    if (pendingPrompt === null) return;
+    const prompt = pendingPrompt;
+    pendingPrompt = null;
+    await writePromptIfDiffered(prompt);
+  }
+
   async function writeTurnsLiveOrStage(
     turns: readonly ConversationTurn[],
   ): Promise<void> {
@@ -642,8 +982,11 @@ export async function createSessionStores(
       liveTurnRefs = [...turns];
       return;
     }
-    // First claim is per-dir so two fresh stores cannot both own the base.
     await withResolvedDirLock(dir, async () => {
+      if (unpublishedRewrite !== null) {
+        unpublishedRewrite = [...turns];
+        return;
+      }
       if (liveTurnRefs !== null) {
         if (refPrefixLength(liveTurnRefs, turns) < liveTurnRefs.length) {
           unpublishedRewrite = [...turns];
@@ -653,29 +996,24 @@ export async function createSessionStores(
         liveTurnRefs = [...turns];
         return;
       }
-      const marker = await readOwnerMarker(dir);
-      if (marker === null) {
-        await writeOwnerMarker(dir, ownerToken);
-        await writeSegmented(writeTurnsSegmented, turns);
-        liveTurnRefs = [...turns];
-        return;
-      }
-      const live = await loadLiveTurnsFromDisk();
-      if (marker.ownerId === ownerToken) {
-        // Matching owner keeps compaction on the shared base, not a divert.
-        await writeSegmented(writeTurnsSegmented, turns);
-        liveTurnRefs = [...turns];
-        return;
-      }
-      if (live.length > 0 && contentPrefixLength(live, turns) < live.length) {
-        // Stage until commit so a crash leaves no orphaned versioned file.
+      const decision = await resolveFirstWrite(turns);
+      if (decision === "divert") {
         divertToVersionedBases();
         unpublishedRewrite = [...turns];
+        if (pendingPrompt !== null) {
+          stagedPrompt = pendingPrompt;
+          pendingPrompt = null;
+        }
         return;
       }
-      // Prefix extension with no stable id resumes the shared base.
+      if (decision === "rewrite") {
+        unpublishedRewrite = [...turns];
+        await flushPendingPrompt();
+        return;
+      }
       await writeSegmented(writeTurnsSegmented, turns);
       liveTurnRefs = [...turns];
+      await flushPendingPrompt();
     });
   }
 
@@ -879,7 +1217,7 @@ export async function createSessionStores(
     readBlob: (key, signal) => base.readBlob(key, signal),
     // Skipped identical snapshots fall back to live turns; load() never reads
     // prompt.jsonl.
-    writePrompt: (turns) => writePromptIfDiffered(turns),
+    writePrompt: (turns) => queuePrompt(turns),
     writeResponse: (turn, signal) => base.writeResponse(turn, signal),
     writeManifest: (records, signal) => base.writeManifest(records, signal),
     writeTurns: (turns) => writeTurnsLiveOrStage(turns),
@@ -893,7 +1231,30 @@ export async function createSessionStores(
     },
     async commit(options, signal) {
       return withResolvedDirLock(dir, async () => {
+        if (
+          pendingPrompt !== null &&
+          versionedBase === null &&
+          unpublishedRewrite === null &&
+          liveTurnRefs === null
+        ) {
+          const marker = await readOwnerMarker(dir);
+          if (
+            marker !== null &&
+            explicitOwnerId !== undefined &&
+            marker.ownerId !== ownerToken
+          ) {
+            divertToVersionedBases();
+            stagedPrompt = pendingPrompt;
+            pendingPrompt = null;
+          } else {
+            const prompt = pendingPrompt;
+            pendingPrompt = null;
+            await writePromptIfDiffered(prompt);
+          }
+        }
+
         const stagedRewrite = unpublishedRewrite;
+        const promptToPublish = stagedPrompt;
         // The staged rewrite lands on the working-tree segments before the git
         // operations below; snapshot them so a failed commit can restore the
         // published generation. The rewrite stays staged so a retry can still
@@ -902,12 +1263,22 @@ export async function createSessionStores(
           stagedRewrite === null
             ? null
             : await snapshotTurnSegments(dir, turnsBaseName);
-        const headBefore = stagedRewrite === null ? null : await headOid(dir);
+        const promptSnapshot =
+          promptToPublish === null
+            ? null
+            : await snapshotTurnSegments(dir, promptBaseName);
+        const headBefore =
+          stagedRewrite === null && promptToPublish === null
+            ? null
+            : await headOid(dir);
         let extraPaths: string[] = [];
 
         try {
           if (stagedRewrite !== null) {
             await writeSegmented(writeTurnsSegmented, stagedRewrite);
+          }
+          if (promptToPublish !== null) {
+            await writeSegmented(writePromptSegmented, promptToPublish);
           }
           const toAdd: string[] = [];
           const toRemove: string[] = [];
@@ -978,10 +1349,11 @@ export async function createSessionStores(
             liveTurnRefs = stagedRewrite;
             unpublishedRewrite = null;
           }
+          if (promptToPublish !== null) stagedPrompt = null;
           return committed;
         } catch (cause) {
           await resetIndexPaths(dir, extraPaths);
-          if (segmentSnapshot !== null) {
+          if (segmentSnapshot !== null || promptSnapshot !== null) {
             // Restore the published generation unless the commit actually
             // landed despite throwing (a ref write or post-commit check can
             // fail after HEAD moved), in which case the on-disk rewrite
@@ -990,19 +1362,44 @@ export async function createSessionStores(
             const landed =
               headBefore !== null && headNow !== null && headNow !== headBefore;
             if (!landed) {
-              try {
-                await restoreTurnSegments(dir, segmentSnapshot, turnsBaseName);
-              } catch {
-                // A partial restore must not mask the real commit error.
+              if (segmentSnapshot !== null) {
+                try {
+                  await restoreTurnSegments(
+                    dir,
+                    segmentSnapshot,
+                    turnsBaseName,
+                  );
+                } catch {
+                  // A partial restore must not mask the real commit error.
+                }
+              }
+              if (promptSnapshot !== null) {
+                try {
+                  await restoreTurnSegments(
+                    dir,
+                    promptSnapshot,
+                    promptBaseName,
+                  );
+                } catch {
+                  // A partial restore must not mask the real commit error.
+                }
               }
             }
             // Drop the writer's stale in-memory state so a retry rewrites from
             // scratch.
-            writeTurnsSegmented = createSegmentedJSONLWriter(
-              dir,
-              turnsBaseName,
-            );
-            liveTurnRefs = null;
+            if (segmentSnapshot !== null) {
+              writeTurnsSegmented = createSegmentedJSONLWriter(
+                dir,
+                turnsBaseName,
+              );
+              liveTurnRefs = null;
+            }
+            if (promptSnapshot !== null) {
+              writePromptSegmented = createSegmentedJSONLWriter(
+                dir,
+                promptBaseName,
+              );
+            }
           }
           throw cause;
         }
