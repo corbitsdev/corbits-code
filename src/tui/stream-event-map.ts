@@ -20,7 +20,10 @@ import type { PendingAskWake } from "../subagent/fleet-report.js";
 
 /** Canonical inbound events the bridge understands (fixtures + mapped reactor). */
 export type BridgeInboundEvent =
-  | { readonly type: "user"; readonly text: string }
+  | {
+      readonly type: "user";
+      readonly text: string;
+    }
   | { readonly type: "assistant"; readonly text: string }
   | { readonly type: "assistant.delta"; readonly text: string }
   | { readonly type: "thinking.delta"; readonly text: string }
@@ -73,6 +76,7 @@ export interface ReactorLikeEvent {
  * production mapper (avoids collisions like tool.done vs tool_result). */
 export const PRODUCTION_REACTOR_TYPES: ReadonlySet<string> = new Set([
   "message.received",
+  "message.run.started",
   "inference.start",
   "inference.done",
   "inference.retry",
@@ -349,7 +353,12 @@ function mapEvent(
       ) {
         return disarmed;
       }
-      return [...disarmed, { type: operator ? "user" : "system", text: full }];
+      return [
+        ...disarmed,
+        operator
+          ? { type: "user", text: full }
+          : { type: "system", text: full },
+      ];
     }
 
     case "inference.start": {

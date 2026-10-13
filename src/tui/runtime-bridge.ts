@@ -107,6 +107,14 @@ import {
 } from "../subagent/fleet-report.js";
 import { isPromiseLike } from "../subagent/fleet-dry-drive.js";
 import { mailboxMailDriveClaimed } from "../subagent/mailbox-mail-drive.js";
+import { isOperatorOriginated } from "../agent/message-provenance.js";
+import {
+  NO_QUEUED_INPUT,
+  acceptQueuedInput,
+  clearQueuedInput,
+  consumeQueuedInput,
+  type QueuedInputState,
+} from "./queued-input.js";
 
 /** spawn_agent dispatch tool; its row gets live progress. */
 const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
@@ -202,6 +210,12 @@ export interface SessionBridge {
   /** Drop queued items, echoes, and fleet hold so a rotation cannot drain
    * into the new reactor. */
   clearQueuedDelivery: () => void;
+  /** Starts exact identity correlation before an operator delivery can echo. */
+  beginQueuedInputDelivery: (messageId: string) => void;
+  /** Records an operator message only after its final delivery result is accepted. */
+  recordAcceptedInput: (messageId: string) => void;
+  /** Drops exact identity correlation when a delivery does not settle accepted. */
+  discardQueuedInputDelivery: (messageId: string) => void;
   /** True only while draining steers at a live parent tool.boundary (or
    * inference.done with tools still outstanding); other drains send. */
   readonly parentCycleLive: boolean;
@@ -413,6 +427,16 @@ export interface BridgeBag {
   /** Prompts already echoed locally; else `message.received` replay shows
    * each twice. */
   pendingEchoes: string[];
+  queuedInput: QueuedInputState;
+  /** Exact in-flight operator deliveries, including receives that precede acceptance. */
+  pendingQueuedInputDeliveries: Map<string, "awaiting" | "received" | "read">;
+  /**
+   * Generation captured when each pending delivery began. Bumped by
+   * `clearQueuedDelivery`, interrupt, and dispose so a stale accept is
+   * ignored instead of painting a row.
+   */
+  queuedInputBegunAt: Map<string, number>;
+  queuedInputGeneration: number;
   /** Popped for delivery but unsettled: a second boundary cannot redispatch
    * them; rejection can restore. */
   pendingDeliveries: Map<string, QueueItem>;
@@ -658,6 +682,62 @@ function consumePendingEchoEvent(
   if (event.type !== "message.received") return false;
   const content = messageReceivedContent(event);
   return content !== undefined && consumeEcho(bag, content);
+}
+
+function consumeAcceptedInputEvent(
+  shell: AppShell,
+  bag: BridgeBag,
+  event: { readonly type: string; readonly data?: unknown },
+): void {
+  if (event.type === "message.received") {
+    const data = event.data;
+    if (data === null || typeof data !== "object" || Array.isArray(data))
+      return;
+    const message = (data as { readonly message?: unknown }).message;
+    if (
+      message === null ||
+      typeof message !== "object" ||
+      Array.isArray(message)
+    )
+      return;
+    const flags = (message as { readonly flags?: unknown }).flags;
+    if (!Array.isArray(flags) || !isOperatorOriginated(flags)) return;
+    const headers = (message as { readonly headers?: unknown }).headers;
+    if (
+      headers === null ||
+      typeof headers !== "object" ||
+      Array.isArray(headers)
+    )
+      return;
+    const messageId = (headers as { readonly messageId?: unknown }).messageId;
+    if (typeof messageId !== "string") return;
+    // Receipt only: a mid-run steer is accepted before its receive, a send is
+    // received before its accept. Mark the pending delivery but never consume
+    // the ledger here — the read signal is message.run.started.
+    const pendingDelivery = bag.pendingQueuedInputDeliveries.get(messageId);
+    if (pendingDelivery !== undefined) {
+      bag.pendingQueuedInputDeliveries.set(messageId, "received");
+    }
+    return;
+  }
+  if (event.type !== "message.run.started") return;
+  const data = event.data;
+  if (data === null || typeof data !== "object" || Array.isArray(data)) return;
+  const messageId = (data as { readonly messageId?: unknown }).messageId;
+  if (typeof messageId !== "string") return;
+  // The reactor dequeued the message and opened its run: the director is
+  // about to read it. Mark the pending delivery read so a later accept (send
+  // path) never paints, then consume the ledger entry (a no-op for ids that
+  // never entered it — no operator-flag check is needed here).
+  const pendingDelivery = bag.pendingQueuedInputDeliveries.get(messageId);
+  if (pendingDelivery !== undefined) {
+    bag.pendingQueuedInputDeliveries.set(messageId, "read");
+  }
+  const next = consumeQueuedInput(bag.queuedInput, messageId);
+  if (next === bag.queuedInput) return;
+  bag.queuedInput = next;
+  shell.queuedInput = next;
+  paintChrome(shell);
 }
 
 function openRowContent(
@@ -1372,6 +1452,10 @@ export function attachSessionBridge(
     port: resolvePort(handlers),
     openRow: null,
     pendingEchoes: [],
+    queuedInput: NO_QUEUED_INPUT,
+    pendingQueuedInputDeliveries: new Map(),
+    queuedInputBegunAt: new Map(),
+    queuedInputGeneration: 0,
     pendingDeliveries: new Map(),
     pendingPromptRecoveries: [],
     mapCtx: createStreamMapContext(),
@@ -1634,6 +1718,7 @@ export function attachSessionBridge(
     }
     // Reactor-shaped types always map first (avoids tool.done name collision).
     if (PRODUCTION_REACTOR_TYPES.has(event.type)) {
+      consumeAcceptedInputEvent(shell, bag, event);
       if (consumePendingEchoEvent(bag, event)) {
         // The echo skips the mapper so it cannot expire a recovery handoff,
         // but still starts a new turn.
@@ -1786,12 +1871,14 @@ export function attachSessionBridge(
     bag.turn = turnStateOnSubmit(bag.turn, now());
     paintChrome(shell);
     paintPhase();
-    // Harness turns are not composer input: /feedback must never consume them.
+    // Harness turns are not composer input: /feedback must never consume them,
+    // and they must never enter the queued-input ledger as operator input.
     bag.port.deliver({
       id: crypto.randomUUID(),
       text,
       kind: "queue",
       enqueuedAt: now(),
+      operatorOriginated: false,
     });
   };
   const flushMailboxMail = (): boolean => {
@@ -1857,6 +1944,16 @@ export function attachSessionBridge(
     }
   };
 
+  /** Drop accepted-but-unread input. Keep `queuedInputBegunAt` so a stale
+   * accept from a delivery that began before this clear is still recognized
+   * as stale by the generation check in `recordAcceptedInput`. */
+  const clearQueuedInputLedger = (): void => {
+    bag.queuedInput = clearQueuedInput(bag.queuedInput);
+    bag.pendingQueuedInputDeliveries.clear();
+    bag.queuedInputGeneration += 1;
+    shell.queuedInput = bag.queuedInput;
+  };
+
   /** Shared abort for Ctrl+C, monitor tick, and the fleet-poll stall bound:
    * interrupt the hung inference, then flush occupancy. */
   const abortInFlightAndHandoff = (): void => {
@@ -1866,6 +1963,10 @@ export function attachSessionBridge(
     // inference.start cannot roll back the stop.
     bag.mapCtx.errorRollbackArmed = false;
     bag.attemptRow = null;
+    for (const messageId of bag.queuedInput.messageIds) {
+      bag.queuedInputBegunAt.set(messageId, bag.queuedInputGeneration);
+    }
+    clearQueuedInputLedger();
     applyShellInterrupt(shell);
     bag.port.interrupt();
     // The stop settles the turn without necessarily producing an idle event to
@@ -1924,6 +2025,7 @@ export function attachSessionBridge(
     shell.session = createSessionQueue("idle");
     recordLastSent(null);
     bag.pendingEchoes.length = 0;
+    clearQueuedInputLedger();
     bag.pendingDeliveries.clear();
     bag.pendingPromptRecoveries.length = 0;
     bag.liveFleet = 0;
@@ -2110,6 +2212,33 @@ export function attachSessionBridge(
     submit,
     interrupt: doInterrupt,
     clearQueuedDelivery,
+    beginQueuedInputDelivery: (messageId) => {
+      if (bag.disposed || messageId.length === 0) return;
+      bag.pendingQueuedInputDeliveries.set(messageId, "awaiting");
+      bag.queuedInputBegunAt.set(messageId, bag.queuedInputGeneration);
+    },
+    recordAcceptedInput: (messageId) => {
+      if (bag.disposed) return;
+      const begunAt = bag.queuedInputBegunAt.get(messageId);
+      bag.queuedInputBegunAt.delete(messageId);
+      if (begunAt !== undefined && begunAt !== bag.queuedInputGeneration) {
+        // Stale accept from a cleared session (/clear or /new): inert.
+        bag.pendingQueuedInputDeliveries.delete(messageId);
+        return;
+      }
+      const pendingDelivery = bag.pendingQueuedInputDeliveries.get(messageId);
+      bag.pendingQueuedInputDeliveries.delete(messageId);
+      if (pendingDelivery === "read") return;
+      const next = acceptQueuedInput(bag.queuedInput, messageId);
+      if (next === bag.queuedInput) return;
+      bag.queuedInput = next;
+      shell.queuedInput = next;
+      paintChrome(shell);
+    },
+    discardQueuedInputDelivery: (messageId) => {
+      bag.pendingQueuedInputDeliveries.delete(messageId);
+      bag.queuedInputBegunAt.delete(messageId);
+    },
     setSuspendedApprovalRecovery: (recovery) => {
       bag.suspendedApprovalRecovery = recovery;
     },
@@ -2199,6 +2328,11 @@ export function attachSessionBridge(
       bag.disposed = true;
       recordLastSent(null);
       bag.pendingDeliveries.clear();
+      bag.queuedInput = clearQueuedInput(bag.queuedInput);
+      bag.pendingQueuedInputDeliveries.clear();
+      bag.queuedInputBegunAt.clear();
+      bag.queuedInputGeneration += 1;
+      shell.queuedInput = bag.queuedInput;
       bag.pendingPromptRecoveries.length = 0;
       bag.pendingAskWake.clear();
       clearWorkerWait(shell);

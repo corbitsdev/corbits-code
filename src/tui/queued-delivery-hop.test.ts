@@ -3,12 +3,15 @@
  * Agent.deliver (deliverSteer); leftover / fleet-hold / interrupt use send.
  */
 import { describe, expect, test } from "bun:test";
+import { type Agent } from "@intx/agent";
+import type { InboundMessage } from "@intx/types/runtime";
 import { attachSessionBridge, type SessionBridge } from "./runtime-bridge";
 import { createLiveSessionPort } from "./live-session-port";
 import { createAppShell } from "./shell/index";
 import { withTestRenderer } from "./harness";
 import {
   badgeCount,
+  createDeliveryGeneration,
   createLiveSteerDeliver,
   createSessionOperationQueue,
   pause,
@@ -17,6 +20,13 @@ import {
   type DeliverySettle,
   type QueueItem,
 } from "./delivery-queue.js";
+import { isOperatorOriginated } from "../agent/message-provenance.js";
+import { createDeliverRouting } from "./runner/submit.js";
+import type {
+  InferenceAttemptIdentity,
+  RunnerServices,
+  RunnerState,
+} from "./runner/state.js";
 
 type Shell = ReturnType<typeof createAppShell>;
 
@@ -461,5 +471,244 @@ describe("closed-target recovery", () => {
       expect(shell.prompt.value).toBe("steer the ship");
       expect(recoveryNotices(shell)).toHaveLength(1);
     });
+  });
+});
+
+function received(messageId: string) {
+  return {
+    type: "message.received",
+    data: {
+      message: {
+        content: "same text",
+        flags: ["operator-originated"],
+        headers: { messageId },
+      },
+    },
+  };
+}
+
+function started(messageId: string) {
+  return { type: "message.run.started", data: { messageId } };
+}
+
+describe("queued-input ledger through the runner observer", () => {
+  /**
+   * Wire the real `createDeliverRouting` (submit.ts) onto a bridge, binding
+   * the accepted-input observers the mounted host installs, so a drained
+   * steer/follow-up exercises the full submit-to-observer path.
+   */
+  function withDeliverRoutingBridge(
+    results: AgentDeliveryResult[],
+    fn: (ctx: {
+      shell: Shell;
+      bridge: SessionBridge;
+      awaitTail: () => Promise<void>;
+      bumpGeneration: () => void;
+    }) => void | Promise<void>,
+  ): Promise<void> {
+    return withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const bridgeRef: { current: SessionBridge | undefined } = {
+          current: undefined,
+        };
+        const sessionOps = createSessionOperationQueue();
+        const deliveryGeneration = createDeliveryGeneration();
+        const begin = (messageId: string): void => {
+          bridgeRef.current?.beginQueuedInputDelivery(messageId);
+        };
+        const accept = (messageId: string): void => {
+          bridgeRef.current?.recordAcceptedInput(messageId);
+        };
+        const discard = (messageId: string): void => {
+          bridgeRef.current?.discardQueuedInputDelivery(messageId);
+        };
+        const sendWithAttemptIdentity = async (
+          message: InboundMessage,
+        ): Promise<AgentDeliveryResult> => {
+          const isOperatorMessage = isOperatorOriginated(message.flags);
+          const messageId = message.headers.messageId;
+          if (isOperatorMessage && typeof messageId === "string")
+            begin(messageId);
+          const next = results.shift() ?? { status: "accepted" };
+          if (isOperatorMessage && typeof messageId === "string") {
+            if (next.status === "accepted") accept(messageId);
+            else discard(messageId);
+          }
+          return next;
+        };
+        const state = {
+          config: { cwd: "/tmp" },
+          currentAgent: {
+            deliver: () => undefined,
+          },
+          fatalBuildError: null,
+          sendWithAttemptIdentity,
+          enqueueAgentDeliver: (
+            deliverToLiveAgent: () => void,
+            onSettle?: (result: AgentDeliveryResult) => void,
+          ): void => {
+            const stillCurrent = deliveryGeneration.capture();
+            void sessionOps.enqueue(async () => {
+              if (!stillCurrent()) {
+                onSettle?.({
+                  status: "not-delivered",
+                  reason: "superseded",
+                  detail: "session identity changed before delivery",
+                });
+                return;
+              }
+              deliverToLiveAgent();
+              const next = results.shift() ?? { status: "accepted" };
+              onSettle?.(next);
+            });
+          },
+          beginAcceptedInputObserver: begin,
+          acceptedInputObserver: accept,
+          discardAcceptedInputObserver: discard,
+          host: {
+            get bridge() {
+              return bridgeRef.current;
+            },
+          },
+        } as unknown as RunnerState;
+        const services = {
+          sessionOps,
+          deliveryGeneration,
+        } as unknown as RunnerServices;
+        const live = {
+          attemptIdentity: (): InferenceAttemptIdentity => ({
+            providerId: "probe",
+          }),
+          agentProxy: state.currentAgent as unknown as Agent,
+        };
+        const bridge = attachSessionBridge(
+          shell,
+          createLiveSessionPort({
+            send: () => undefined,
+            interrupt: () => undefined,
+            deliver: createDeliverRouting(state, services, live),
+          }),
+        );
+        bridgeRef.current = bridge;
+        try {
+          await fn({
+            shell,
+            bridge,
+            awaitTail: () => sessionOps.awaitTail(),
+            bumpGeneration: () => deliveryGeneration.bump(),
+          });
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  }
+
+  test("drain-accepted live steer adds exactly one ledger entry through the observer", async () => {
+    await withDeliverRoutingBridge(
+      [{ status: "accepted" }],
+      async ({ shell, bridge, awaitTail }) => {
+        bridge.submit("asap", "steer");
+        expect(badgeCount(shell.session)).toBe(1);
+        bridge.handle({
+          type: "tool.start",
+          data: { call: { id: "c1", name: "run_shell" } },
+        });
+        bridge.handle({ type: "inference.done", data: {} });
+        await awaitTail();
+        expect(shell.queuedInput.messageIds).toHaveLength(1);
+        expect(shell.queuedInputRow.visible).toBe(true);
+        const messageId = shell.queuedInput.messageIds[0];
+        expect(messageId).toBeDefined();
+        if (messageId === undefined) return;
+        // Receipt alone never consumes; message.run.started is the read signal.
+        bridge.handle(received(messageId));
+        expect(shell.queuedInput.messageIds).toEqual([messageId]);
+        bridge.handle(started(messageId));
+        expect(shell.queuedInput.messageIds).toEqual([]);
+        expect(shell.queuedInputRow.visible).toBe(false);
+      },
+    );
+  });
+
+  test("drain-accepted leftover send adds exactly one ledger entry", async () => {
+    await withDeliverRoutingBridge(
+      [{ status: "accepted" }],
+      async ({ shell, bridge, awaitTail }) => {
+        bridge.submit("leftover", "steer");
+        bridge.handle({ type: "inference.start", data: {} });
+        bridge.handle({ type: "inference.text.delta", data: { token: "hi" } });
+        bridge.handle({ type: "inference.done", data: {} });
+        await awaitTail();
+        expect(shell.queuedInput.messageIds).toHaveLength(1);
+        expect(shell.queuedInputRow.visible).toBe(true);
+      },
+    );
+  });
+
+  test("agent-closed delivery never enters the ledger", async () => {
+    await withDeliverRoutingBridge(
+      [
+        {
+          status: "not-delivered",
+          reason: "agent-closed",
+          detail: "agent is closed",
+        },
+      ],
+      async ({ shell, bridge, awaitTail }) => {
+        bridge.submit("asap", "steer");
+        bridge.handle({
+          type: "tool.start",
+          data: { call: { id: "c1", name: "run_shell" } },
+        });
+        bridge.handle({ type: "inference.done", data: {} });
+        await awaitTail();
+        expect(shell.queuedInput.messageIds).toEqual([]);
+        expect(shell.queuedInputRow.visible).toBe(false);
+      },
+    );
+  });
+
+  test("uncertain delivery never enters the ledger", async () => {
+    await withDeliverRoutingBridge(
+      [{ status: "uncertain", detail: "connection reset" }],
+      async ({ shell, bridge, awaitTail }) => {
+        bridge.submit("asap", "steer");
+        bridge.handle({
+          type: "tool.start",
+          data: { call: { id: "c1", name: "run_shell" } },
+        });
+        bridge.handle({ type: "inference.done", data: {} });
+        await awaitTail();
+        expect(shell.queuedInput.messageIds).toEqual([]);
+        expect(shell.queuedInputRow.visible).toBe(false);
+      },
+    );
+  });
+
+  test("superseded delivery (generation bump) never enters the ledger", async () => {
+    await withDeliverRoutingBridge(
+      [],
+      async ({ shell, bridge, awaitTail, bumpGeneration }) => {
+        bridge.submit("asap", "steer");
+        bridge.handle({
+          type: "tool.start",
+          data: { call: { id: "c1", name: "run_shell" } },
+        });
+        bridge.handle({ type: "inference.done", data: {} });
+        // The session rotates while the deliver is queued: the stale hop drops.
+        bumpGeneration();
+        await awaitTail();
+        expect(shell.queuedInput.messageIds).toEqual([]);
+        expect(shell.queuedInputRow.visible).toBe(false);
+      },
+    );
   });
 });

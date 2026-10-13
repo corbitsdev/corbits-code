@@ -39,6 +39,15 @@ describe("mapProductionEvent", () => {
     ).toEqual([{ type: "system", text: "hello" }]);
   });
 
+  test("message.run.started reaches the bridge without painting a row", () => {
+    expect(
+      mapProductionEvent({
+        type: "message.run.started",
+        data: { messageId: "<m1@local>" },
+      }),
+    ).toEqual([]);
+  });
+
   test("background shell exit message.received → system", () => {
     const message = buildShellBackgroundMessage({
       id: "sh_1",

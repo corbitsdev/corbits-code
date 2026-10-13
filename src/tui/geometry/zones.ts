@@ -10,6 +10,7 @@ const ZONE_IDS = [
   "pending",
   "worker_wait",
   "input_required",
+  "queued_input",
   "prompt",
   "task",
   "agents",
@@ -95,6 +96,13 @@ export const ZONE_REGISTRY: Readonly<Record<ZoneId, ZoneDeclaration>> = {
   },
   input_required: {
     id: "input_required",
+    min: 0,
+    max: 1,
+    idleDefault: 0,
+    alwaysOn: false,
+  },
+  queued_input: {
+    id: "queued_input",
     min: 0,
     max: 1,
     idleDefault: 0,
@@ -212,6 +220,7 @@ export const COLLAPSE_ORDER = [
   // Pending items are the operator's own queued words: cut late, after every
   // banner and strip.
   "pending",
+  "queued_input",
   // A parked worker is standing state the operator cannot see anywhere else
   // once the wake turn scrolls away, so its single row is cut late.
   "worker_wait",
@@ -239,6 +248,7 @@ export const PAINT_ORDER = [
   "pending",
   "worker_wait",
   "input_required",
+  "queued_input",
   "prompt",
 ] as const satisfies readonly ZoneId[];
 

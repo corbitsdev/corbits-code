@@ -305,6 +305,12 @@ export interface RunnerState {
     send?: (message: InboundMessage) => Promise<SendResult>,
     presentFailureNotice?: boolean,
   ) => Promise<AgentDeliveryResult>;
+  /** Bound by the mounted host; receives only accepted operator message ids. */
+  acceptedInputObserver?: (messageId: string) => void;
+  /** Bound by the mounted host before an operator delivery can echo. */
+  beginAcceptedInputObserver?: (messageId: string) => void;
+  /** Bound by the mounted host when an operator delivery does not settle accepted. */
+  discardAcceptedInputObserver?: (messageId: string) => void;
   sendUserPrompt?: (
     text: string,
     pending: readonly PendingImageAttachment[],

@@ -29,8 +29,9 @@ terminal with nothing optional showing, the transcript floor is 12 rows
 (`IDLE_TRANSCRIPT_FLOOR`); with an inset overlay open the floor drops to 8 rows (`OVERLAY_TRANSCRIPT_FLOOR`) so the log stays glanceable
 underneath a permission prompt. When space is scarce, collapse follows a
 fixed order — transient banners first, then settings/plugin notices, then
-task/agents strips, then progress, then the INPUT REQUIRED strip (the last
-optional row), then the prompt itself shrinks one
+task/agents strips, then progress, then the operator's own queued drafts
+(pending), then the QUEUED INPUT strip, then WORKER WAITING, then INPUT
+REQUIRED (the last optional row), then the prompt itself shrinks one
 row at a time down to its 3-row base — never the transcript
 (`COLLAPSE_ORDER` in `zones.ts`).
 
@@ -311,10 +312,14 @@ clocks.
 ### WORKER WAITING strip
 
 While any root worker is parked on `ask_director`, a one-row **WORKER
-WAITING** strip sits directly on the prompt box (zone `worker_wait`):
+WAITING** strip sits on the prompt box (zone `worker_wait`). When the INPUT
+REQUIRED or QUEUED INPUT strips are also visible, they stack between it and
+the prompt box, in that order:
 
 ```
 ◆ WORKER WAITING · director reply needed (send_input) · builder (copy assets): Which destination path should I use? (+1 more)
+◆ INPUT REQUIRED · operator answer needed · Which environment should I deploy to?
+◆ QUEUED INPUT · 1
 ```
 
 It names the worker, previews its question, and says the director owns the
@@ -354,8 +359,34 @@ dispose clears every item (`src/tui/operator-input-required.ts`, fed from
 question shows at a time, with `(+N more)` for the rest. At narrow widths the
 question truncates and then drops first, then the routing copy. Below 26
 cells the `(+N more)` count is sliced away (cut at 25, gone at 16), leaving
-only the label. When WORKER WAITING is also showing, it sits directly above
-this strip.
+only the label. WORKER WAITING, when showing, sits directly above this
+strip, and QUEUED INPUT sits directly below it.
+
+### QUEUED INPUT strip
+
+While an operator-originated message has been accepted by the live agent but
+not yet read by the director, a one-row **QUEUED INPUT** strip sits directly
+on the prompt box (zone `queued_input`):
+
+```
+◆ QUEUED INPUT · 1
+```
+
+It counts accepted-but-unread operator input (mid-run steers and sent
+follow-ups) while the runtime owns the message but the director has not yet
+dequeued it. It is display only: no routing, mailbox ordering, transcript
+row, echo, or recovery behavior changes. The strip reads the accepted-input
+ledger and nothing else (`src/tui/queued-input.ts`, painted by `paintChrome`
+in `shell/chrome.ts`). An item's identity is the inbound message's header
+`messageId`: it enters when the delivery hop reports `accepted`, and it
+leaves on the reactor's `message.run.started` event, which fires at the
+moment the message is dequeued for the director. A message whose read signal
+arrived before its acceptance (the send path) never paints. Worker wakes and
+other harness-originated text never enter the ledger, so they never paint
+this strip. `/clear` and `/new` clear it with the session, and a stale
+acceptance from a cleared session is ignored. The row is one line, never
+consumes or edits the prompt, and collapses before WORKER WAITING under
+height pressure.
 
 ### Transcript spawn_agent rows (history anchors)
 

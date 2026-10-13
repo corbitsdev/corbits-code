@@ -75,6 +75,7 @@ import {
 import { armMarkdownLinks } from "../url-links.js";
 import { NO_WORKER_WAIT } from "../worker-wait.js";
 import { NO_OPERATOR_INPUT_REQUIRED } from "../operator-input-required.js";
+import { NO_QUEUED_INPUT } from "../queued-input.js";
 import {
   createShellKeyHandlers,
   routePromptWheelToTranscript,
@@ -269,6 +270,13 @@ export function createAppShell(
     fg: UI.textDim,
     visible: layout.heights.worker_wait > 0,
   });
+  const queuedInputRow = new TextRenderable(ctx, {
+    id: "shell-queued-input",
+    height: Math.max(1, layout.heights.queued_input),
+    content: "",
+    fg: UI.textDim,
+    visible: layout.heights.queued_input > 0,
+  });
 
   const inputRequiredRow = new TextRenderable(ctx, {
     id: "shell-input-required",
@@ -339,6 +347,7 @@ export function createAppShell(
   root.add(pendingBox);
   root.add(workerWaitRow);
   root.add(inputRequiredRow);
+  root.add(queuedInputRow);
   root.add(promptBox);
   root.add(landingBelow);
   root.add(bottomPad);
@@ -445,6 +454,7 @@ export function createAppShell(
     pendingBox,
     workerWaitRow,
     inputRequiredRow,
+    queuedInputRow,
     layout,
     focus: createFocusState(),
     session,
@@ -471,6 +481,7 @@ export function createAppShell(
     pluginNeedsAttention: false,
     workerWait: NO_WORKER_WAIT,
     operatorInputRequired: NO_OPERATOR_INPUT_REQUIRED,
+    queuedInput: NO_QUEUED_INPUT,
     lockupNowMs: 0,
     inFlightTool: null,
     lockupAnimating: false,

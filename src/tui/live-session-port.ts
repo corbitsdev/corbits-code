@@ -29,6 +29,7 @@ export interface LiveSessionPortDeps {
     kind: QueueKind,
     attachments?: readonly PendingImageAttachment[],
     settle?: DeliverySettle,
+    operatorOriginated?: boolean,
   ) => void;
 }
 
@@ -57,7 +58,13 @@ export function createLiveSessionPort(deps: LiveSessionPortDeps): SessionPort {
       deps.interrupt();
     },
     deliver: (item: QueueItem, settle?: DeliverySettle): void => {
-      deps.deliver(item.text, item.kind, item.attachments, settle);
+      deps.deliver(
+        item.text,
+        item.kind,
+        item.attachments,
+        settle,
+        item.operatorOriginated,
+      );
     },
   };
 }
