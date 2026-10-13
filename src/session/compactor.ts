@@ -647,6 +647,11 @@ function excerptTailText(
   };
 }
 
+let excerptTailTurnCallCountValue = 0;
+export function excerptTailTurnCallCount(): number {
+  return excerptTailTurnCallCountValue;
+}
+
 // Excerpted live copy of a tail turn: thinking/redacted_thinking drop except
 // on the last assistant with a tool_call (Anthropic continuation needs the
 // unmodified thinking+signature on that tool_use). Whole blocks drop so
@@ -658,6 +663,7 @@ function excerptTailTurn(
   shape: CompactionShape,
   keepThinking = false,
 ): { turn: ConversationTurn; shortenedOutputs: number; changed: boolean } {
+  excerptTailTurnCallCountValue += 1;
   let shortenedOutputs = 0;
   let changed = false;
   const content = turn.content.flatMap((block): ConversationTurn["content"] => {
@@ -716,12 +722,7 @@ function lastAssistantToolCallIndex(
   return undefined;
 }
 
-function excerptedTurnTokens(
-  turn: ConversationTurn,
-  shape: CompactionShape,
-  keepThinking = false,
-): number {
-  const { turn: live } = excerptTailTurn(turn, shape, keepThinking);
+function liveTurnTokens(live: ConversationTurn): number {
   let tokens = 0;
   for (const block of live.content) {
     tokens += estimateContentBlockTokens(block);
@@ -769,18 +770,24 @@ function selectTail(
   const budgetTokens = shape.tailBudgetTokens;
   const keepThinkingAt = lastAssistantToolCallIndex(turns);
 
+  type ExcerptResult = ReturnType<typeof excerptTailTurn>;
+  const excerptCache = new Map<number, ExcerptResult>();
+  const excerptFor = (idx: number, turn: ConversationTurn): ExcerptResult => {
+    let result = excerptCache.get(idx);
+    if (result === undefined) {
+      result = excerptTailTurn(turn, shape, idx === keepThinkingAt);
+      excerptCache.set(idx, result);
+    }
+    return result;
+  };
+
   const turnCost = (idx: number): { tokens: number; shortened: number } => {
     const turn = turns[idx];
     if (turn === undefined) return { tokens: 0, shortened: 0 };
-    const keepThinking = idx === keepThinkingAt;
-    const {
-      turn: live,
-      shortenedOutputs,
-      changed,
-    } = excerptTailTurn(turn, shape, keepThinking);
+    const { turn: live, shortenedOutputs, changed } = excerptFor(idx, turn);
     if (changed) excerpted.set(idx, live);
     return {
-      tokens: excerptedTurnTokens(turn, shape, keepThinking),
+      tokens: liveTurnTokens(live),
       shortened: shortenedOutputs,
     };
   };
@@ -836,7 +843,7 @@ function selectTail(
     for (const idx of closure) {
       const t = turns[idx];
       if (t === undefined || isFoldableHandoffTurn(t)) continue;
-      closureTokens += excerptedTurnTokens(t, shape, idx === keepThinkingAt);
+      closureTokens += liveTurnTokens(excerptFor(idx, t).turn);
     }
     if (picked.size > 0 && usedTokens + closureTokens > budgetTokens) break;
     for (const idx of closure) pick(idx);
