@@ -30,6 +30,7 @@ import {
   exitOverlayAnswerMode,
   handleOverlayAnswerKey,
   notifyOverlayClosed,
+  stopDecisionGate,
 } from "./overlay-host.js";
 import {
   applyFocus,
@@ -413,9 +414,7 @@ export function createShellKeyHandlers(
       // way Esc does, then interrupts the turn, which drops queued gates too.
       if (key.ctrl && key.name === "c" && isDecisionGate(shell)) {
         key.preventDefault();
-        abortOverlayHostReservations(shell);
-        closeInsetOverlay(shell);
-        interruptShell(shell);
+        stopDecisionGate(shell);
         return;
       }
       // Checked before the filter handlers: an opener pressed again closes,
