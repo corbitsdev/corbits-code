@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { copyFile, readFile } from "node:fs/promises";
+import { access, copyFile, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { systemPrompt } from "@corbits/code-agent-dispatch";
@@ -195,6 +195,15 @@ type DispatchEvaluate = (
   options: EvaluateOptions<string, string, RoutingExpect>,
 ) => Promise<Report<string, string, RoutingExpect>>;
 
+async function baselinePresent(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function evaluateRouting(args: {
   cases: readonly Case<string, RoutingExpect>[];
   run: (input: string, signal: AbortSignal) => Promise<string>;
@@ -202,6 +211,7 @@ export async function evaluateRouting(args: {
   baselinePath: string;
   evaluateFn?: DispatchEvaluate;
 }): Promise<number> {
+  const hadBaseline = await baselinePresent(args.baselinePath);
   const evaluateFn: DispatchEvaluate =
     args.evaluateFn ?? ((name, options) => evaluate(name, options));
   try {
@@ -227,8 +237,18 @@ export async function evaluateRouting(args: {
         ollamaUrl: OLLAMA_URL,
       },
     });
-    await copyFile(args.lastPath, args.baselinePath);
     console.log(report.markdown());
+    const routeMisses = report.checks["routes"]?.missed;
+    if (!hadBaseline) {
+      console.error(
+        `eval "${DISPATCH_EVAL}" failed: no baseline at ${args.baselinePath}`,
+      );
+      return 1;
+    }
+    if (routeMisses !== 0) {
+      return 0;
+    }
+    await copyFile(args.lastPath, args.baselinePath);
     return 0;
   } catch (err: unknown) {
     if (err instanceof EvalFailure) {

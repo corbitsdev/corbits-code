@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -214,6 +214,34 @@ describe("drop baseline", () => {
       expect(await readFile(lastPath, "utf8")).toBe(
         await readFile(baselinePath, "utf8"),
       );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a missing baseline fails closed and is not created", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dispatch-routing-"));
+    const baselinePath = join(dir, "baseline.json");
+    const lastPath = join(dir, "last.json");
+    const run = async () => "reviewer\nI refuse.";
+    try {
+      const first = await evaluateRouting({
+        cases: [coderCase],
+        run,
+        lastPath,
+        baselinePath,
+      });
+      expect(first).not.toBe(0);
+      await expect(access(baselinePath)).rejects.toThrow();
+
+      const second = await evaluateRouting({
+        cases: [coderCase],
+        run,
+        lastPath,
+        baselinePath,
+      });
+      expect(second).not.toBe(0);
+      await expect(access(baselinePath)).rejects.toThrow();
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
