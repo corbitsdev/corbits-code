@@ -34,6 +34,7 @@ const MANIFEST_FILE = "manifest.jsonl";
 const METADATA_FILE = "metadata.json";
 const TOOL_OUTPUT_DIR = "tool-output";
 const EVIDENCE_ARCHIVE_DIR = "evidence-archive";
+const OWNER_MARKER_FILE = "session-owner.json";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "session", "context-store"]);
 
@@ -82,6 +83,18 @@ function sanitizeCallId(callId: string): string {
     );
   }
   return callId.replace(UNSAFE_FILENAME_CHARS, "_");
+}
+
+/**
+ * Epoch+uuid avoids numbered segments (`turns-0001.jsonl`) that base
+ * readers treat as live history.
+ */
+export function versionedBaseName(baseName: string): string {
+  const dot = baseName.lastIndexOf(".");
+  const stem = dot === -1 ? baseName : baseName.slice(0, dot);
+  const ext = dot === -1 ? "" : baseName.slice(dot);
+  const uuid = globalThis.crypto.randomUUID().replaceAll("-", "");
+  return `${stem}-${Date.now()}-${uuid}${ext}`;
 }
 
 /**
@@ -341,6 +354,38 @@ async function readBaseTurnsFromDisk(dir: string): Promise<ConversationTurn[]> {
   return parseSegmentTurns(text, true, TURNS_FILE, true);
 }
 
+async function readOwnerMarker(
+  dir: string,
+): Promise<{ ownerId: string } | null> {
+  try {
+    const raw = await fs.promises.readFile(
+      path.join(dir, OWNER_MARKER_FILE),
+      "utf-8",
+    );
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof (parsed as { ownerId?: unknown }).ownerId === "string"
+    ) {
+      return { ownerId: (parsed as { ownerId: string }).ownerId };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeOwnerMarker(dir: string, ownerId: string): Promise<void> {
+  const full = path.join(dir, OWNER_MARKER_FILE);
+  const tmp = `${full}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
+  await fs.promises.writeFile(
+    tmp,
+    JSON.stringify({ ownerId, createdAt: Date.now() }),
+  );
+  await fs.promises.rename(tmp, full);
+}
+
 async function listIndexPaths(dir: string): Promise<Set<string>> {
   return new Set(await git.listFiles({ fs, dir }));
 }
@@ -395,11 +440,14 @@ async function headOid(dir: string): Promise<string | null> {
  * Captured before a staged rewrite lands so a failed commit can restore the
  * published generation.
  */
-async function snapshotTurnSegments(dir: string): Promise<Map<string, string>> {
+async function snapshotTurnSegments(
+  dir: string,
+  baseName: string,
+): Promise<Map<string, string>> {
   const snapshot = new Map<string, string>();
-  const highest = await highestSegmentIndex(dir, TURNS_FILE);
+  const highest = await highestSegmentIndex(dir, baseName);
   for (let index = 0; index <= highest; index++) {
-    const name = segmentFileName(TURNS_FILE, index);
+    const name = segmentFileName(baseName, index);
     try {
       snapshot.set(
         name,
@@ -421,11 +469,12 @@ async function snapshotTurnSegments(dir: string): Promise<Map<string, string>> {
 async function restoreTurnSegments(
   dir: string,
   snapshot: ReadonlyMap<string, string>,
+  baseName: string,
 ): Promise<void> {
   const names = new Set<string>(snapshot.keys());
-  const highest = await highestSegmentIndex(dir, TURNS_FILE);
+  const highest = await highestSegmentIndex(dir, baseName);
   for (let index = 0; index <= highest; index++) {
-    names.add(segmentFileName(TURNS_FILE, index));
+    names.add(segmentFileName(baseName, index));
   }
   for (const name of names) {
     const full = path.join(dir, name);
@@ -503,6 +552,15 @@ export interface SessionStores {
   audit: AuditStore;
 }
 
+export interface SessionStoreOptions {
+  signer?: CommitSigner;
+  /**
+   * Same id shares the marker; omit for a random token, foreign unless the
+   * transcript extends history.
+   */
+  ownerId?: string;
+}
+
 /**
  * Interchange git-store wrapper that avoids O(session length) work per
  * checkpoint: turns and prompts write as rolling segments so only the active
@@ -511,16 +569,29 @@ export interface SessionStores {
  */
 export async function createSessionStores(
   dir: string,
-  opts?: { signer?: CommitSigner },
+  opts?: SessionStoreOptions,
 ): Promise<SessionStores> {
   const signer = opts?.signer ?? (await loadOrCreateCommitSigner(dir));
   const base = await createIsogitStore(dir, signer);
   const pendingBlobFilepaths = new Set<string>();
   const pendingSegmentPaths = new Set<string>();
+  const ownerToken = opts?.ownerId ?? globalThis.crypto.randomUUID();
+  let turnsBaseName = TURNS_FILE;
+  let promptBaseName = PROMPT_FILE;
+  let versionedBase: string | null = null;
   let writeTurnsSegmented = createSegmentedJSONLWriter(dir, TURNS_FILE);
   let writePromptSegmented = createSegmentedJSONLWriter(dir, PROMPT_FILE);
   let liveTurnRefs: readonly ConversationTurn[] | null = null;
   let unpublishedRewrite: ConversationTurn[] | null = null;
+
+  function divertToVersionedBases(): void {
+    if (versionedBase !== null) return;
+    versionedBase = versionedBaseName(TURNS_FILE);
+    turnsBaseName = versionedBase;
+    writeTurnsSegmented = createSegmentedJSONLWriter(dir, turnsBaseName);
+    promptBaseName = versionedBaseName(PROMPT_FILE);
+    writePromptSegmented = createSegmentedJSONLWriter(dir, promptBaseName);
+  }
 
   function refPrefixLength(
     prev: readonly ConversationTurn[],
@@ -571,6 +642,44 @@ export async function createSessionStores(
       liveTurnRefs = [...turns];
       return;
     }
+    // First claim is per-dir so two fresh stores cannot both own the base.
+    await withResolvedDirLock(dir, async () => {
+      if (liveTurnRefs !== null) {
+        if (refPrefixLength(liveTurnRefs, turns) < liveTurnRefs.length) {
+          unpublishedRewrite = [...turns];
+          return;
+        }
+        await writeSegmented(writeTurnsSegmented, turns);
+        liveTurnRefs = [...turns];
+        return;
+      }
+      const marker = await readOwnerMarker(dir);
+      if (marker === null) {
+        await writeOwnerMarker(dir, ownerToken);
+        await writeSegmented(writeTurnsSegmented, turns);
+        liveTurnRefs = [...turns];
+        return;
+      }
+      const live = await loadLiveTurnsFromDisk();
+      if (marker.ownerId === ownerToken) {
+        // Matching owner keeps compaction on the shared base, not a divert.
+        await writeSegmented(writeTurnsSegmented, turns);
+        liveTurnRefs = [...turns];
+        return;
+      }
+      if (live.length > 0 && contentPrefixLength(live, turns) < live.length) {
+        // Stage until commit so a crash leaves no orphaned versioned file.
+        divertToVersionedBases();
+        unpublishedRewrite = [...turns];
+        return;
+      }
+      // Prefix extension with no stable id resumes the shared base.
+      await writeSegmented(writeTurnsSegmented, turns);
+      liveTurnRefs = [...turns];
+    });
+  }
+
+  async function loadLiveTurnsFromDisk(): Promise<ConversationTurn[]> {
     const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
     let baseTurns: ConversationTurn[];
     try {
@@ -585,16 +694,9 @@ export async function createSessionStores(
       );
       baseTurns = await readBaseTurnsFromDisk(dir);
     }
-    const live =
-      extraTexts.length === 0
-        ? baseTurns
-        : await loadTurnsWithoutMalformedToolSequence(baseTurns, extraTexts);
-    if (live.length > 0 && contentPrefixLength(live, turns) < live.length) {
-      unpublishedRewrite = [...turns];
-      return;
-    }
-    await writeSegmented(writeTurnsSegmented, turns);
-    liveTurnRefs = [...turns];
+    return extraTexts.length === 0
+      ? baseTurns
+      : await loadTurnsWithoutMalformedToolSequence(baseTurns, extraTexts);
   }
 
   function promptEqualsLiveTurns(
@@ -643,23 +745,28 @@ export async function createSessionStores(
         live = null;
       }
     }
+    if (versionedBase !== null && liveTurnRefs === null) {
+      // No versioned file before commit; a crash would orphan it.
+      return;
+    }
     if (live === null || !promptEqualsLiveTurns(live, turns)) {
+      // A differing prompt is normal on resume and must not divert.
       await writeSegmented(writePromptSegmented, turns);
       return;
     }
     // Identical: converge disk to no prompt segment so a stale snapshot
     // cannot linger; removals join pendingSegmentPaths for commit staging.
-    const highest = await highestSegmentIndex(dir, PROMPT_FILE);
+    const highest = await highestSegmentIndex(dir, promptBaseName);
     let removed = false;
     for (let index = 0; index <= highest; index++) {
-      const name = segmentFileName(PROMPT_FILE, index);
+      const name = segmentFileName(promptBaseName, index);
       if (!(await pathExists(path.join(dir, name)))) continue;
       await fs.promises.unlink(path.join(dir, name));
       pendingSegmentPaths.add(name);
       removed = true;
     }
     if (removed) {
-      writePromptSegmented = createSegmentedJSONLWriter(dir, PROMPT_FILE);
+      writePromptSegmented = createSegmentedJSONLWriter(dir, promptBaseName);
     }
   }
 
@@ -792,7 +899,9 @@ export async function createSessionStores(
         // published generation. The rewrite stays staged so a retry can still
         // publish it.
         const segmentSnapshot =
-          stagedRewrite === null ? null : await snapshotTurnSegments(dir);
+          stagedRewrite === null
+            ? null
+            : await snapshotTurnSegments(dir, turnsBaseName);
         const headBefore = stagedRewrite === null ? null : await headOid(dir);
         let extraPaths: string[] = [];
 
@@ -814,8 +923,8 @@ export async function createSessionStores(
 
           // Disk is the source of truth for which segments stay tracked after a
           // rewrite or heal, even when pendingSegmentPaths was lost.
-          await reconcileSegmentStaging(dir, TURNS_FILE, toAdd, toRemove);
-          await reconcileSegmentStaging(dir, PROMPT_FILE, toAdd, toRemove);
+          await reconcileSegmentStaging(dir, turnsBaseName, toAdd, toRemove);
+          await reconcileSegmentStaging(dir, promptBaseName, toAdd, toRemove);
 
           if (await pathExists(path.join(dir, EVIDENCE_ARCHIVE_DIR))) {
             toAdd.push(EVIDENCE_ARCHIVE_DIR);
@@ -882,14 +991,17 @@ export async function createSessionStores(
               headBefore !== null && headNow !== null && headNow !== headBefore;
             if (!landed) {
               try {
-                await restoreTurnSegments(dir, segmentSnapshot);
+                await restoreTurnSegments(dir, segmentSnapshot, turnsBaseName);
               } catch {
                 // A partial restore must not mask the real commit error.
               }
             }
             // Drop the writer's stale in-memory state so a retry rewrites from
             // scratch.
-            writeTurnsSegmented = createSegmentedJSONLWriter(dir, TURNS_FILE);
+            writeTurnsSegmented = createSegmentedJSONLWriter(
+              dir,
+              turnsBaseName,
+            );
             liveTurnRefs = null;
           }
           throw cause;
@@ -909,7 +1021,7 @@ export async function createSessionStores(
 
 export async function createOptimizedContextStore(
   dir: string,
-  opts?: { signer?: CommitSigner },
+  opts?: SessionStoreOptions,
 ): Promise<ContextStore> {
   const { storage } = await createSessionStores(dir, opts);
   return storage;

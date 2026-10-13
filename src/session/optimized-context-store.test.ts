@@ -9,6 +9,7 @@ import {
   createOptimizedContextStore,
   createSessionStores,
   loadRecentTurns,
+  versionedBaseName,
 } from "./optimized-context-store.js";
 import { segmentFileName, listSegmentFiles } from "./incremental-jsonl.js";
 
@@ -596,6 +597,177 @@ describe("createSessionStores", () => {
     expect(typeof audit.loadErrors).toBe("function");
   });
 });
+
+describe("concurrent sessions write disjoint transcripts", () => {
+  test("a second session sharing the dir never overwrites the first session's turns", async () => {
+    const dir = tempDir();
+    const storeA = await createOptimizedContextStore(dir);
+    const storeB = await createOptimizedContextStore(dir);
+
+    const turnsA = Array.from({ length: 107 }, (_, i) => turn(`a-${i}`));
+    await storeA.writeTurns([...turnsA]);
+    await storeA.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await storeA.commit({ message: "session A" });
+
+    const turnsB = Array.from({ length: 7 }, (_, i) => turn(`b-${i}`));
+    await storeB.writeTurns([...turnsB]);
+    await storeB.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await storeB.commit({ message: "session B" });
+
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
+      turnTexts(turnsA),
+    );
+
+    const versioned = versionedTurnsFiles(dir);
+    expect(versioned.length).toBeGreaterThan(0);
+    const bOnDisk = versioned.flatMap((name) =>
+      turnTexts(readTurnsFromFile(path.join(dir, name))),
+    );
+    expect(bOnDisk).toEqual(turnTexts(turnsB));
+
+    const all = [
+      ...turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE))),
+      ...bOnDisk,
+    ];
+    expect(new Set(all).size).toBe(turnsA.length + turnsB.length);
+  });
+
+  test("same-session resume with a differing first prompt keeps writing turns.jsonl", async () => {
+    const dir = tempDir();
+
+    // Reactor writes the prompt before writeTurns; that prompt may differ
+    // from on-disk turns.
+    const owner = await createOptimizedContextStore(dir);
+    const live = [turn("a"), turn("b")];
+    await owner.writeTurns([...live]);
+    await owner.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await owner.commit({ message: "owner" });
+
+    const resumed = await createOptimizedContextStore(dir);
+    await resumed.writePrompt([turn("a"), turn("b"), turn("ephemeral")]);
+    const next = [...live, turn("c")];
+    await resumed.writeTurns([...next]);
+    await resumed.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await resumed.commit({ message: "resume append" });
+
+    expect(versionedTurnsFiles(dir)).toEqual([]);
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
+      turnTexts(next),
+    );
+    expect(turnTexts((await resumed.load()).turns)).toEqual(turnTexts(next));
+  });
+
+  test("same-session compaction rewrite on resume is canonical, not diverted", async () => {
+    const dir = tempDir();
+    const owner = await createOptimizedContextStore(dir, {
+      ownerId: "session-S",
+    });
+    const original = [turn("a"), turn("b"), turn("c"), turn("d")];
+    await owner.writeTurns([...original]);
+    await owner.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await owner.commit({ message: "owner" });
+
+    const resumed = await createOptimizedContextStore(dir, {
+      ownerId: "session-S",
+    });
+    const compacted = [turn("[Compacted prior context]"), turn("c"), turn("d")];
+    await resumed.writeTurns([...compacted]);
+    await resumed.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await resumed.commit({ message: "resume compact" });
+
+    expect(versionedTurnsFiles(dir)).toEqual([]);
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual(
+      turnTexts(compacted),
+    );
+    expect(turnTexts((await resumed.load()).turns)).toEqual(
+      turnTexts(compacted),
+    );
+  });
+
+  test("interleaved first writes cannot both claim the shared base", async () => {
+    const dir = tempDir();
+    const storeA = await createOptimizedContextStore(dir);
+    const storeB = await createOptimizedContextStore(dir);
+    const turnsA = Array.from({ length: 50 }, (_, i) => turn(`a-${i}`));
+    const turnsB = Array.from({ length: 50 }, (_, i) => turn(`b-${i}`));
+
+    await Promise.all([
+      (async () => {
+        await storeA.writeTurns([...turnsA]);
+        await storeA.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+        await storeA.commit({ message: "A" });
+      })(),
+      (async () => {
+        await storeB.writeTurns([...turnsB]);
+        await storeB.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+        await storeB.commit({ message: "B" });
+      })(),
+    ]);
+
+    const shared = turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)));
+    const versioned = versionedTurnsFiles(dir);
+    expect(versioned).toHaveLength(1);
+    const other = turnTexts(
+      readTurnsFromFile(path.join(dir, defined(versioned[0]))),
+    );
+    const sharedIsA =
+      JSON.stringify(shared) === JSON.stringify(turnTexts(turnsA));
+    const sharedIsB =
+      JSON.stringify(shared) === JSON.stringify(turnTexts(turnsB));
+    expect(sharedIsA || sharedIsB).toBe(true);
+    expect(other).toEqual(sharedIsA ? turnTexts(turnsB) : turnTexts(turnsA));
+    expect(new Set([...shared, ...other]).size).toBe(
+      turnsA.length + turnsB.length,
+    );
+  });
+
+  test("crash before the divert lands leaves no orphaned versioned file", async () => {
+    const dir = tempDir();
+    const owner = await createOptimizedContextStore(dir);
+    await owner.writeTurns([turn("a"), turn("b")]);
+    await owner.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await owner.commit({ message: "owner" });
+
+    const foreign = await createOptimizedContextStore(dir);
+    await foreign.writeTurns([turn("x"), turn("y")]);
+    expect(versionedTurnsFiles(dir)).toEqual([]);
+
+    const resumed = await createOptimizedContextStore(dir);
+    await resumed.writeTurns([turn("a"), turn("b"), turn("c")]);
+    await resumed.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await resumed.commit({ message: "resume" });
+    expect(versionedTurnsFiles(dir)).toEqual([]);
+    expect(turnTexts(readTurnsFromFile(path.join(dir, TURNS_FILE)))).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  test("versioned base names are unique even within the same millisecond", () => {
+    const names = Array.from({ length: 100 }, () =>
+      versionedBaseName(TURNS_FILE),
+    );
+    expect(new Set(names).size).toBe(100);
+    for (const name of names) {
+      expect(/^turns-\d+-[0-9a-f]+\.jsonl$/.test(name)).toBe(true);
+    }
+  });
+});
+
+function versionedTurnsFiles(dir: string): string[] {
+  return fs
+    .readdirSync(dir)
+    .filter((name) => /^turns-\d+-[0-9a-f]+\.jsonl$/.test(name));
+}
+
+function readTurnsFromFile(fullPath: string): ConversationTurn[] {
+  const text = fs.readFileSync(fullPath, "utf8");
+  return text
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as ConversationTurn);
+}
 
 async function gitLsTree(dir: string): Promise<string[]> {
   const proc = Bun.spawn(
