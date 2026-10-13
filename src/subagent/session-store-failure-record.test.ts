@@ -186,6 +186,32 @@ describe("terminal failure record", () => {
     expect(after?.error).toBe("first");
   });
 
+  test("a retryable failure after a write or shell call is not replay-safe", () => {
+    for (const tool of ["write_file", "run_shell", "mcp__x__y"]) {
+      const { sessions } = store();
+      const id = startRunning(sessions);
+      sessions.appendEvent(id, toolStart("read_file", "c1"));
+      sessions.appendEvent(id, toolStart(tool, "c2"));
+      sessions.fail(id, "timeout", { failure_class: "provider_retryable" });
+      expect(sessions.get(id)?.failure?.recovery).toEqual({
+        available: false,
+        reason: "side_effects_completed",
+      });
+    }
+  });
+
+  test("a retryable failure after only read calls stays eligible", () => {
+    const { sessions } = store();
+    const id = startRunning(sessions);
+    sessions.appendEvent(id, toolStart("read_file", "c1"));
+    sessions.appendEvent(id, toolStart("grep", "c2"));
+    sessions.fail(id, "timeout", { failure_class: "provider_retryable" });
+    expect(sessions.get(id)?.failure?.recovery).toEqual({
+      available: true,
+      reason: "eligible",
+    });
+  });
+
   test("a teardown failure reports partial cleanup", () => {
     const { sessions } = store();
     const id = startRunning(sessions);
@@ -526,5 +552,40 @@ describe("backstop close honesty", () => {
     expect(settled).toBe("settled");
     expect(sessions.get(id)?.lifecycle.state).toBe("failed");
     expect(sessions.get(id)?.failure?.cleanup).toBe("partial");
+  });
+});
+
+describe("recovery replacement link", () => {
+  function failedWorker() {
+    const { sessions } = store();
+    const id = startRunning(sessions);
+    sessions.fail(id, "upstream overloaded", {
+      failure_class: "provider_retryable",
+    });
+    return { sessions, id };
+  }
+
+  test("the first link wins and a second claim cannot overwrite it", () => {
+    const { sessions, id } = failedWorker();
+    sessions.linkRecoveryReplacement(id, "r1");
+    sessions.linkRecoveryReplacement(id, "r2");
+    expect(sessions.get(id)?.failure?.recovery).toEqual({
+      available: false,
+      reason: "already_recovered",
+      replacement_id: "r1",
+    });
+  });
+
+  test("unlinking restores availability only for the linked replacement", () => {
+    const { sessions, id } = failedWorker();
+    sessions.linkRecoveryReplacement(id, "r1");
+    sessions.unlinkRecoveryReplacement(id, "other");
+    expect(sessions.get(id)?.failure?.recovery.replacement_id).toBe("r1");
+
+    sessions.unlinkRecoveryReplacement(id, "r1");
+    expect(sessions.get(id)?.failure?.recovery).toEqual({
+      available: true,
+      reason: "eligible",
+    });
   });
 });

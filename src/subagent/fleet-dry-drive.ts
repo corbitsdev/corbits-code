@@ -144,13 +144,12 @@ export interface MailboxWorkerDigest {
 }
 
 /**
- * Single-successor guidance for a failed+continuable entry. The marker is
- * advisory only — no runtime auto-retry backs it.
+ * Guidance for a failed+continuable entry. spawn_agent enforces the "at most
+ * once": a second recovers call gets the first replacement back.
  */
-export const RECOVERABLE_FAILURE_CONTINUE_GUIDANCE =
-  "This worker failed with a transient provider error (retryable/timeout/overload) " +
-  "and is terminal — do not re-wait it. You may spawn at most one successor with " +
-  "the same brief; do not retry in a loop.";
+function recoverableFailureContinueGuidance(agentId: string): string {
+  return `Recoverable: call spawn_agent with recovers="${agentId}" at most once.`;
+}
 
 export function shouldDriveOpenTasks(input: {
   previousRunning?: number | undefined;
@@ -441,7 +440,7 @@ export function projectMailboxRecord(
     ...(taken.status === "failed" && taken.recoverableFailure === true
       ? {
           continuable: true as const,
-          continue_with: RECOVERABLE_FAILURE_CONTINUE_GUIDANCE,
+          continue_with: recoverableFailureContinueGuidance(id),
         }
       : {}),
     ...(taken.stopReason !== undefined
