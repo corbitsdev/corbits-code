@@ -59,6 +59,7 @@ import {
   metaProfilesToCatalogEntries,
   metaProvidersAsSettings,
 } from "./meta-providers.js";
+import { separateCollidingMetaApiKeys } from "./meta-api-key.js";
 import { customReasoningSettings } from "./providers.js";
 import { CODEX_BASE_URL } from "../auth/codex/constants.js";
 import { XAI_BASE_URL } from "../auth/xai/constants.js";
@@ -112,6 +113,7 @@ import {
   resolveLocalSettingsPath,
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
+  saveGlobalSettings,
   hasMcpTransport,
   isExaMCPPreset,
   type MCPServerSettingsEntry,
@@ -464,6 +466,7 @@ export function buildMetaSource(fields: {
 export function buildMetaApiKeySource(fields: {
   id: string;
   apiKey?: string;
+  baseURL?: string;
   model: string;
   sessionId: string;
   reasoningEffort?: ReasoningEffort;
@@ -472,10 +475,14 @@ export function buildMetaApiKeySource(fields: {
   if (fields.reasoningEffort !== undefined)
     providerOptions[META_REASONING_EFFORT_OPTION] = fields.reasoningEffort;
   registerSourceSecret(fields.id, fields.apiKey);
+  const configured = fields.baseURL?.trim() ?? "";
   return {
     id: fields.id,
     provider: META_PROVIDER,
-    baseURL: META_BASE_URL,
+    baseURL:
+      configured.length > 0
+        ? normalizeOpenAICompatibleBaseURL(configured)
+        : META_BASE_URL,
     credentialId: fields.id,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS, providerOptions },
@@ -1226,7 +1233,7 @@ export async function loadConfig(
     ...metaProvidersAsSettings(metaProfiles),
   };
   const parsedDocument = { value: settingsDocumentResult.value };
-  const settings =
+  const settingsAfterHeal =
     configPath !== undefined
       ? await loadSettingsRecoveringClobberedOAuthSelection(
           configPath,
@@ -1242,12 +1249,36 @@ export async function loadConfig(
           projectedOAuthProviders,
           { persist: true, parsedDocument },
         );
+  const separatedMeta = separateCollidingMetaApiKeys(
+    settingsAfterHeal,
+    metaProfiles.map((profile) => profile.name),
+  );
+  let persistedMetaSeparation = !separatedMeta.changed;
+  if (
+    separatedMeta.changed &&
+    separatedMeta.settings !== null &&
+    configPath === undefined &&
+    useOAuthProfiles
+  ) {
+    try {
+      await saveGlobalSettings(effectiveSettingsPath, separatedMeta.settings);
+      persistedMetaSeparation = true;
+    } catch {
+      process.stderr.write(
+        `settings: failed to persist Meta API-key separation for ${effectiveSettingsPath}; continuing with in-memory settings.\n`,
+      );
+    }
+  }
+  const settings = separatedMeta.settings;
   // --config does not load the global file, so do not reuse that document for
   // the later global telemetry read. Do not overlap that read with the heal
   // write above: both target settings.json and the later read must see the
   // persisted document, which is what this snapshot is.
   if (configPath === undefined) {
-    rememberBootGlobalSettings(effectiveSettingsPath, settings);
+    rememberBootGlobalSettings(
+      effectiveSettingsPath,
+      persistedMetaSeparation ? settings : settingsAfterHeal,
+    );
   }
 
   // True when the value came from settings, not this invocation's
@@ -1514,30 +1545,39 @@ export function mergeOAuthCatalog(
   xaiProfiles: readonly XaiProfile[],
   metaProfiles: readonly MetaProfile[],
 ): ProviderCatalogEntry[] {
+  const separated = separateCollidingMetaApiKeys(
+    settings,
+    metaProfiles.map((profile) => profile.name),
+  ).settings;
   const codexEntries = codexProfilesToCatalogEntries(codexProfiles);
   const xaiEntries = xaiProfilesToCatalogEntries(xaiProfiles);
   const metaEntries = metaProfilesToCatalogEntries(metaProfiles);
+  const bareMeta = separated?.providers["meta"];
+  const bareMetaHasApiKey =
+    typeof bareMeta?.apiKey === "string" && bareMeta.apiKey.length > 0;
   // Legacy bare `codex`/`xai` row (the original single-instance connect key)
   // next to live credential-backed `<kind>/<profile>` entries reads as a
   // second provider. Drop it once that family has a live profile; when
   // nothing is connected the bare row is the only ChatGPT/Grok access and
   // stays. A bare row at a different endpoint is a distinct provider (see
-  // sameEndpoint), so it stays too.
+  // sameEndpoint), so it stays too. A bare `meta` row with its own API key
+  // is not a legacy placeholder and stays beside OAuth profiles.
   const dropBare = new Set([
     ...(codexEntries.length > 0 &&
-    sameEndpoint(settings?.providers["codex"]?.baseURL, CODEX_BASE_URL)
+    sameEndpoint(separated?.providers["codex"]?.baseURL, CODEX_BASE_URL)
       ? ["codex"]
       : []),
     ...(xaiEntries.length > 0 &&
-    sameEndpoint(settings?.providers["xai"]?.baseURL, XAI_BASE_URL)
+    sameEndpoint(separated?.providers["xai"]?.baseURL, XAI_BASE_URL)
       ? ["xai"]
       : []),
     ...(metaEntries.length > 0 &&
-    sameEndpoint(settings?.providers["meta"]?.baseURL, META_BASE_URL)
+    !bareMetaHasApiKey &&
+    sameEndpoint(bareMeta?.baseURL, META_BASE_URL)
       ? ["meta"]
       : []),
   ]);
-  const settingsRows = buildProviderCatalog(settings, resolved);
+  const settingsRows = buildProviderCatalog(separated, resolved);
   // A hand-named codex/<slug> or xai/<slug> API-key row is explicit config,
   // not an OAuth placeholder (see isHandNamedProviderEntry): keep it and skip
   // the colliding live profile projection. buildProviderCatalog
@@ -1546,7 +1586,7 @@ export function mergeOAuthCatalog(
   // profile marker — treating it as hand-named would eject the real marked
   // entry for a stale token snapshot.
   const handNamed = new Set(
-    Object.entries(settings?.providers ?? {})
+    Object.entries(separated?.providers ?? {})
       .filter(
         ([name, provider]) =>
           (isCodexProviderName(name) ||

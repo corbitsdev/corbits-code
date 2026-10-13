@@ -13,6 +13,10 @@ import { writeClipboard } from "../copy-path.js";
 import { RUNTIME_FLASH_MS } from "../runtime-notices.js";
 import { OAUTH_PROFILE_HINT } from "./form.js";
 import { startRamp, stopRamp } from "./surface.js";
+import {
+  isPinnedMetaVerificationUri,
+  REJECTED_META_VERIFICATION_URI,
+} from "../../auth/meta/verification-uri.js";
 import type {
   AccountNameFlow,
   LoginFlow,
@@ -76,6 +80,25 @@ export function suggestOAuthProfileSlug(existing: readonly string[]): string {
   let n = 2;
   while (taken.has(`default-${String(n)}`)) n += 1;
   return `default-${String(n)}`;
+}
+
+/** First Meta sign-in slug that is free in both the auth store and API-key rows. */
+export function suggestMetaOAuthProfileSlug(
+  authProfiles: readonly string[],
+  existingProviderNames: readonly string[],
+): string {
+  return suggestOAuthProfileSlug([
+    ...authProfiles,
+    ...instanceSlugsForKind("meta", existingProviderNames),
+  ]);
+}
+
+/** True when `slug` is already an API-key instance, not an OAuth profile. */
+export function metaOAuthSlugBlockedByApiKey(
+  slug: string,
+  existingProviderNames: readonly string[],
+): boolean {
+  return instanceSlugsForKind("meta", existingProviderNames).includes(slug);
 }
 
 /**
@@ -252,6 +275,10 @@ export function createLoginFlow(
         notify: (event) => {
           if (event.type !== "device_code") return;
           if (attempt !== state.loginAttempt) return;
+          if (!isPinnedMetaVerificationUri(event.verificationUri)) {
+            failLogin(attempt, REJECTED_META_VERIFICATION_URI);
+            return;
+          }
           state.deviceCode = {
             verificationUri: event.verificationUri,
             userCode: event.userCode,
@@ -355,7 +382,17 @@ export function createAccountNameFlow(
       state
         .listOAuthProfiles(state.choice.oauth)
         .catch((): readonly string[] => [])
-        .then(applySuggestion);
+        .then((names) => {
+          const kind = state.choice?.oauth;
+          applySuggestion(
+            kind === "meta"
+              ? [
+                  ...names,
+                  ...instanceSlugsForKind("meta", state.existingProviderNames),
+                ]
+              : names,
+          );
+        });
       return;
     }
     applySuggestion(
@@ -411,6 +448,16 @@ export function createAccountNameFlow(
     const attempt = (state.oauthNameAttempt += 1);
     const handleNames = (names: readonly string[]): void => {
       if (state.settled || attempt !== state.oauthNameAttempt) return;
+      if (
+        state.choice?.oauth === "meta" &&
+        metaOAuthSlugBlockedByApiKey(slug, state.existingProviderNames)
+      ) {
+        state.oauthProfileError = "that name is an API key";
+        state.oauthProfileConfirmPending = false;
+        state.confirmedSlug = null;
+        surface.paint();
+        return;
+      }
       if (names.includes(slug)) {
         state.oauthProfileError = null;
         state.oauthProfileConfirmPending = true;

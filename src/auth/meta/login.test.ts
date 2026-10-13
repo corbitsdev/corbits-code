@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startMetaLogin } from "./login.js";
 import { loadMetaProfile } from "../../config/oauth-stores.js";
+import { REJECTED_META_VERIFICATION_URI } from "./verification-uri.js";
 
 const AUTH_URL = "https://auth.meta.com/oidc/device/authorization/";
 const TOKEN_URL = "https://auth.meta.com/oidc/device/token/";
@@ -89,6 +90,38 @@ describe("startMetaLogin (device flow)", () => {
       expect(saved?.tokens.refresh).toBe("identity-token");
       expect(requests).toEqual([AUTH_URL, TOKEN_URL, MINT_URL]);
     });
+  });
+
+  test("does not forward an http or non-Meta verification URI", async () => {
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === AUTH_URL) {
+        return jsonResponse({
+          device_code: "dc-1",
+          user_code: "ABCD-1234",
+          verification_uri_complete: "http://evil.example/device?code=ABCD",
+          interval: 1,
+          expires_in: 1800,
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }) as unknown as typeof fetch;
+
+    let notified = false;
+    const controller = new AbortController();
+    const handle = startMetaLogin({
+      profile: "work",
+      signal: controller.signal,
+      fetchImpl,
+      sleep: noopSleep,
+      notify: () => {
+        notified = true;
+      },
+    });
+    await expect(handle.completed).rejects.toThrow(
+      REJECTED_META_VERIFICATION_URI,
+    );
+    expect(notified).toBe(false);
   });
 
   test("abort rejects with the cancelled-login message", async () => {

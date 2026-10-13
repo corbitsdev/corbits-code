@@ -107,7 +107,7 @@ describe("FIRST_CLASS_PROVIDERS", () => {
 
     const api = meta?.paths?.find((p) => p.id === "api");
     expect(api?.auth).toBe("api-key");
-    expect(api?.providerId).toBe("meta");
+    expect(api?.providerId).toBe("meta-api");
     expect(api?.baseURL).toBe("https://api.meta.ai/v1");
     expect(api?.defaultModel).toBe("muse-spark-1.3");
     expect((api?.models ?? []).length).toBeGreaterThan(0);

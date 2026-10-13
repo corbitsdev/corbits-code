@@ -7,6 +7,9 @@ import {
   listCodexProfiles,
   loadCodexProfile,
   saveCodexProfile,
+  listMetaProfiles,
+  loadMetaProfile,
+  saveMetaProfile,
 } from "../config/oauth-stores.js";
 import {
   listXaiProfiles,
@@ -126,6 +129,26 @@ describe("oauthStoreForProvider", () => {
         oauthProvider("codex/work", "codex", "work"),
       );
       expect(await codex?.removeProfile(codex.profile, home)).toEqual([]);
+    });
+  });
+
+  test("removing an OAuth-backed meta row deletes that auth-store profile", async () => {
+    await withHome(async (home) => {
+      const tokens = { access: "LLM|a", refresh: "id", expiresAt: 10_000_000 };
+      await saveMetaProfile({ name: "default", createdAt: 0, tokens }, home);
+      await saveMetaProfile({ name: "work", createdAt: 0, tokens }, home);
+      const target = oauthStoreForProvider({
+        name: "meta/default",
+        metaProfile: "default",
+      });
+      expect(await target?.removeProfile(target.profile, home)).toEqual([
+        "default",
+      ]);
+      expect(await loadMetaProfile("default", home)).toBeUndefined();
+      expect(
+        (await listMetaProfiles(home)).map((profile) => profile.name),
+      ).toEqual(["work"]);
+      expect(oauthStoreForProvider({ name: "meta-api/default" })).toBeNull();
     });
   });
 });

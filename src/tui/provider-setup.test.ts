@@ -42,6 +42,8 @@ import {
   LOGIN_CANCELLED_MESSAGE,
   LOGIN_TIMEOUT_MESSAGE,
   suggestOAuthProfileSlug,
+  suggestMetaOAuthProfileSlug,
+  metaOAuthSlugBlockedByApiKey,
   validateOAuthProfileSlug,
 } from "./provider/oauth.js";
 import { runProviderSetup } from "./provider/setup.js";
@@ -335,6 +337,13 @@ describe("provider setup pure helpers", () => {
     expect(suggestOAuthProfileSlug(["personal"])).toBe("default");
     expect(suggestOAuthProfileSlug(["default"])).toBe("default-2");
     expect(suggestOAuthProfileSlug(["default", "default-2"])).toBe("default-3");
+  });
+
+  test("a Meta OAuth slug skips an API-key row instead of replacing it", () => {
+    expect(suggestMetaOAuthProfileSlug([], ["meta/default"])).toBe("default-2");
+    expect(suggestMetaOAuthProfileSlug([], [])).toBe("default");
+    expect(metaOAuthSlugBlockedByApiKey("work", ["meta/work"])).toBe(true);
+    expect(metaOAuthSlugBlockedByApiKey("work", ["meta-api/work"])).toBe(false);
   });
 
   test("the pick-list ends with custom and every known provider is launchable", () => {
@@ -1237,13 +1246,13 @@ describe("runProviderSetup sign-in", () => {
     const metaRows = providerChoiceRows(providerChoices()).filter((r) =>
       r.label.includes("Meta"),
     );
-    expect(metaRows.map((r) => r.id)).toEqual(["meta", "meta/api"]);
+    expect(metaRows.map((r) => r.id)).toEqual(["meta", "meta-api"]);
     expect(providerChoiceById("meta")?.oauth).toBe("meta");
-    expect(providerChoiceById("meta/api")?.oauth).toBeNull();
-    expect(providerChoiceById("meta/api")?.baseURL).toBe(
+    expect(providerChoiceById("meta-api")?.oauth).toBeNull();
+    expect(providerChoiceById("meta-api")?.baseURL).toBe(
       "https://api.meta.ai/v1",
     );
-    expect(providerChoiceById("meta/api")?.defaultModel).toBe("muse-spark-1.3");
+    expect(providerChoiceById("meta-api")?.defaultModel).toBe("muse-spark-1.3");
   });
 
   test("picking the Meta API-key row walks the key path, not the sign-in", async () => {
@@ -1251,7 +1260,7 @@ describe("runProviderSetup sign-in", () => {
     const { done, harness } = await mountSetup(async (values) => {
       seen.push({ ...values });
     });
-    await pickRow(harness, PROVIDER_IDS, "meta/api");
+    await pickRow(harness, PROVIDER_IDS, "meta-api");
     await flush(harness);
     expect(harness.captureCharFrame()).toContain("step 2 of 4");
     harness.pressKey("Enter");
@@ -1262,7 +1271,7 @@ describe("runProviderSetup sign-in", () => {
     harness.pressKey("Enter");
     await harness.renderOnce();
     expect(await done).toBe(true);
-    expect(seen[0]?.name).toBe("meta/default");
+    expect(seen[0]?.name).toBe("meta-api/default");
     expect(seen[0]?.apiKey).toBe("LLM|test-key");
     expect(seen[0]?.model).toBe("muse-spark-1.3");
   });

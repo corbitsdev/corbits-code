@@ -6,6 +6,10 @@ import {
   looksLikeHtmlGatewayBody,
   normalizeInferenceErrorForRetry,
 } from "./inference-gateway-error.js";
+import {
+  clearSourceCredentials,
+  registerSourceCredentialRecord,
+} from "./config/source-credentials.js";
 
 const CLOUDFLARE_503_HTML = `<!DOCTYPE html>
 <html><head><title>503 Service Temporarily Unavailable</title></head>
@@ -172,6 +176,45 @@ describe("normalizeInferenceErrorForRetry", () => {
     },
   ])("non-OAuth $name stays fatal", ({ error }) => {
     expect(normalizeInferenceErrorForRetry(error)).toEqual(error);
+  });
+
+  test("a plan upgrade 426 on an API-key meta/* row stays fatal", () => {
+    registerSourceCredentialRecord("meta/personal", {
+      provenance: { kind: "api-key" },
+      material: { secret: "LLM|pasted" },
+    });
+    try {
+      const error = {
+        category: "fatal" as const,
+        message: "Upgrade your plan to continue",
+        statusCode: 426,
+        providerId: "meta/personal",
+      };
+      const normalized = normalizeInferenceErrorForRetry(error);
+      expect(normalized).toEqual(error);
+      expect(normalized.message ?? "").not.toContain("re-authentication");
+    } finally {
+      clearSourceCredentials();
+    }
+  });
+
+  test("a 426 on a Meta OAuth profile is still re-authentication", () => {
+    registerSourceCredentialRecord("meta/personal", {
+      provenance: { kind: "oauth", provider: "meta", profile: "personal" },
+      material: { secret: "LLM|minted" },
+    });
+    try {
+      const normalized = normalizeInferenceErrorForRetry({
+        category: "fatal",
+        message: "Upgrade Required",
+        statusCode: 426,
+        providerId: "meta/personal",
+      });
+      expect(normalized.category).toBe("credential_failure");
+      expect(normalized.message).toContain("re-authentication");
+    } finally {
+      clearSourceCredentials();
+    }
   });
 
   test("OAuth 426 with quota text stays fatal", () => {

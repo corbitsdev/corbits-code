@@ -3,6 +3,8 @@ import type { CodexProfile } from "../auth/codex/store.js";
 import { CODEX_BASE_URL } from "../auth/codex/constants.js";
 import type { XaiProfile } from "../auth/xai/store.js";
 import { XAI_BASE_URL } from "../auth/xai/constants.js";
+import type { MetaProfile } from "../auth/meta/store.js";
+import { META_BASE_URL } from "../auth/meta/constants.js";
 import {
   codexProfilesToCatalogEntries,
   codexProvidersAsSettings,
@@ -14,6 +16,7 @@ import {
   providerCatalogToSettings,
   runtimeSettingsWithCatalog,
 } from "./index.js";
+import { oauthStoreForProvider } from "../auth/remove-provider.js";
 import type {
   ProviderSettings,
   ResolvedProvider,
@@ -129,6 +132,62 @@ describe("mergeOAuthCatalog legacy bare-row dedupe (CL-5606)", () => {
       [],
     );
     expect(merged.map((p) => p.name)).toEqual(["codex", "codex/default"]);
+  });
+});
+
+describe("mergeOAuthCatalog Meta API keys", () => {
+  const metaDefault: MetaProfile = {
+    name: "default",
+    tokens: { access: "LLM|oauth", refresh: "identity", expiresAt: 1 },
+    createdAt: 0,
+  };
+
+  test("a bare meta API-key row stays beside an OAuth profile", () => {
+    const merged = mergeOAuthCatalog(
+      settingsWith({
+        meta: {
+          baseURL: META_BASE_URL,
+          apiKey: "LLM|pasted",
+          models: ["muse-spark-1.3"],
+        },
+      }),
+      resolved,
+      [],
+      [],
+      [metaDefault],
+    );
+    expect(merged.map((p) => p.name)).toEqual(["meta", "meta/default"]);
+    expect(merged.find((p) => p.name === "meta")?.apiKey).toBe("LLM|pasted");
+    expect(merged.find((p) => p.name === "meta/default")?.metaProfile).toBe(
+      "default",
+    );
+  });
+
+  test("meta/default API key and OAuth default both stay in the catalog", () => {
+    const merged = mergeOAuthCatalog(
+      settingsWith({
+        "meta/default": {
+          baseURL: META_BASE_URL,
+          apiKey: "LLM|pasted",
+          models: ["muse-spark-1.3"],
+        },
+      }),
+      resolved,
+      [],
+      [],
+      [metaDefault],
+    );
+    const names = merged.map((p) => p.name);
+    expect(names).toContain("meta-api/default");
+    expect(names).toContain("meta/default");
+    const apiKeyRow = merged.find((p) => p.name === "meta-api/default");
+    const oauthRow = merged.find((p) => p.name === "meta/default");
+    expect(apiKeyRow?.apiKey).toBe("LLM|pasted");
+    expect(apiKeyRow?.metaProfile).toBeUndefined();
+    expect(oauthRow?.metaProfile).toBe("default");
+    expect(oauthRow?.apiKey).not.toBe("LLM|pasted");
+    expect(oauthStoreForProvider(apiKeyRow ?? null)).toBeNull();
+    expect(oauthStoreForProvider(oauthRow ?? null)?.profile).toBe("default");
   });
 });
 

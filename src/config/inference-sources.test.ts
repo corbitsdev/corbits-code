@@ -229,6 +229,31 @@ describe("source credential provenance", () => {
     });
   });
 
+  test("a meta row with a non-Meta base URL keeps that URL and its key", () => {
+    const source = buildInferenceSourceForRef(
+      { provider: "meta", model: "muse-spark-1.3" },
+      {
+        sessionId: "sess-meta-gateway",
+        catalog: [
+          {
+            name: "meta",
+            baseURL: "https://gateway.corp.example/v1",
+            apiKey: "sk-corp",
+            models: ["muse-spark-1.3"],
+          },
+        ],
+      },
+      undefined,
+    );
+
+    if (source === null) throw new Error("expected Meta API-key source");
+    expect(source.baseURL).toBe("https://gateway.corp.example/v1");
+    expect(source.baseURL).not.toBe("https://api.meta.ai/v1");
+    expect(
+      readSourceCredentialRecord(source.credentialId).material.secret,
+    ).toBe("sk-corp");
+  });
+
   test("namespaced API-key rows are not inferred as OAuth", () => {
     const source = buildInferenceSourceForRef(
       { provider: "codex/shadow", model: "relay-model" },

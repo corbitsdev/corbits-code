@@ -28,6 +28,7 @@ import {
 import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 import { isZenProvider } from "../../packages/zen/src/index.js";
 import { isMetaProviderName } from "./meta-providers.js";
+import { isMetaApiKeyProviderName } from "./meta-api-key.js";
 import { customReasoningSettings } from "./providers.js";
 
 export interface BuildSourceContext {
@@ -149,10 +150,13 @@ export function buildInferenceSourceForRef(
     });
   }
   // No metaProfile on API-key rows; do not fall through to chat completions.
+  // A configured base URL wins; META_BASE_URL is only the unset default.
   if (
     ref.provider === "meta" ||
+    isMetaApiKeyProviderName(ref.provider) ||
     (entry?.metaProfile === undefined && isMetaProviderName(ref.provider))
   ) {
+    const configuredBaseURL = entry?.baseURL ?? providerSettings?.baseURL;
     return buildMetaApiKeySource({
       id: ref.provider,
       ...(entry?.apiKey !== undefined
@@ -160,6 +164,9 @@ export function buildInferenceSourceForRef(
         : providerSettings?.apiKey !== undefined
           ? { apiKey: providerSettings.apiKey }
           : {}),
+      ...(configuredBaseURL !== undefined
+        ? { baseURL: configuredBaseURL }
+        : {}),
       model: ref.model,
       sessionId: ctx.sessionId,
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),

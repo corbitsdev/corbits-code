@@ -16,6 +16,9 @@ import {
 import { META_BASE_URL, META_DEFAULT_MODELS } from "@corbits/meta-provider";
 import type { FirstClassProviderDef } from "./types.js";
 
+/** Settings id for a pasted Meta API key. OAuth profiles stay under `meta/<slug>`. */
+export const META_API_KEY_PROVIDER_ID = "meta-api";
+
 const OPENAI_API_MODELS = [
   "gpt-6-astra",
   "gpt-5.4",
@@ -109,7 +112,7 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
         models: META_DEFAULT_MODELS,
         defaultModel: "muse-spark-1.3",
         authHint: "Paste your Meta API key (LLM|...)",
-        providerId: "meta",
+        providerId: META_API_KEY_PROVIDER_ID,
       },
     ],
   },
