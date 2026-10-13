@@ -43,8 +43,11 @@ import {
   appendObserveStreamRow,
   appendStreamRow,
   clearTranscript,
+  clearAllOperatorInputRequired,
   noteUnloadedHistory,
   paintChrome,
+  clearOperatorInputRequired,
+  setOperatorInputRequiredGate,
   setChromeZones,
   setHeader,
   setMcpNeedsAuth,
@@ -448,6 +451,7 @@ export async function mountProductHost(
     clearInterval(stickyPoll);
     config.eventEmitter.off("event", onEvent);
     disposeGates();
+    clearAllOperatorInputRequired(shell);
     config.eventEmitter.off("history.hydrate", onHistory);
     config.eventEmitter.off("session.title", onTitle);
     config.eventEmitter.off("session.clear", onSessionClear);
@@ -551,6 +555,10 @@ export async function mountProductHost(
     disposeGates = wireGates(config.eventEmitter, shell, {
       onGateOpened: () => bridge.gateOpened(),
       onGateClosed: () => bridge.gateClosed(),
+      onPrimaryOperatorAdmitted: (event) =>
+        setOperatorInputRequiredGate(shell, event),
+      onPrimaryOperatorSettled: (event) =>
+        clearOperatorInputRequired(shell, event.id),
     });
   } catch (err: unknown) {
     try {
@@ -578,10 +586,12 @@ export async function mountProductHost(
 
   // /clear and /new rotate the backend session; wipe the painted transcript
   // so the screen matches a brand-new session (the Ink App used to own this;
-  // OpenTUI regressed it).
+  // OpenTUI regressed it). The INPUT REQUIRED strip is cleared here too: the
+  // ask path merges no identity signal, so a gate abort never reaches it.
   function onSessionClear(): void {
     if (disposed) return;
     clearTranscript(shell);
+    clearAllOperatorInputRequired(shell);
     bridge.clearQueuedDelivery();
   }
 

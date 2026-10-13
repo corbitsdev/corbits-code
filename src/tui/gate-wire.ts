@@ -25,6 +25,7 @@ import {
 import { EXPAND_KEY } from "./stream.js";
 import {
   APPROVAL_UNAVAILABLE_MESSAGE,
+  isPrimaryAskOperatorEvent,
   type OperatorGateEvent,
   type PermissionGateEvent,
 } from "./gate-events.js";
@@ -209,6 +210,10 @@ export interface GateLifecycleHooks {
   readonly onGateOpened: () => void;
   /** A previously raised gate resolved. */
   readonly onGateClosed: () => void;
+  /** A marked primary ask_operator gate became outstanding. */
+  readonly onPrimaryOperatorAdmitted?: (event: OperatorGateEvent) => void;
+  /** A marked primary ask_operator gate settled. */
+  readonly onPrimaryOperatorSettled?: (event: OperatorGateEvent) => void;
 }
 
 const NOOP_GATE_HOOKS: GateLifecycleHooks = {
@@ -438,12 +443,16 @@ export function wireGates(
   }
 
   function onOperator(ev: OperatorGateEvent): void {
-    hooks.onGateOpened();
-    const resolve = onceClosed(hooks.onGateClosed, ev.resolve);
     if (typeof ev.id !== "string" || ev.id.length === 0) {
+      hooks.onGateOpened();
+      const resolve = onceClosed(hooks.onGateClosed, ev.resolve);
       resolve(operatorCancelResult());
       return;
     }
+    hooks.onGateOpened();
+    const resolve = onceClosed(hooks.onGateClosed, ev.resolve);
+    const primaryOperator = isPrimaryAskOperatorEvent(ev);
+    if (primaryOperator) hooks.onPrimaryOperatorAdmitted?.(ev);
     const choices = operatorChoicesFromOptions(ev.options, ev.id);
     // Guarded like the permission gate: a settle path that forgets its guard
     // would double-resolve this promise.
@@ -501,6 +510,7 @@ export function wireGates(
       settled = true;
       clearTimers();
       operatorTeardowns.delete(teardown);
+      if (primaryOperator) hooks.onPrimaryOperatorSettled?.(ev);
       if (openedGeneration === undefined) {
         unqueue(open);
       } else if (openedGeneration === overlayGeneration) {

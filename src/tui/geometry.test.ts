@@ -16,6 +16,7 @@ import {
   resolveGeometry,
   type GeometryInput,
 } from "./geometry/index.js";
+import type { Rect } from "./geometry/resolve.js";
 
 function idle80x24(overrides: Partial<GeometryInput> = {}) {
   return resolveGeometry({
@@ -48,6 +49,9 @@ describe("worker wait zone", () => {
 
   test("is the last optional row cut before prompt growth is reclaimed", () => {
     expect(COLLAPSE_ORDER.indexOf("worker_wait")).toBe(
+      COLLAPSE_ORDER.indexOf("input_required") - 1,
+    );
+    expect(COLLAPSE_ORDER.indexOf("input_required")).toBe(
       COLLAPSE_ORDER.indexOf("prompt") - 1,
     );
     const layout = resolveGeometry({
@@ -57,6 +61,82 @@ describe("worker wait zone", () => {
     expect(layout.heights.notice).toBe(0);
     expect(layout.heights.pending).toBe(0);
     expect(layout.heights.worker_wait).toBe(1);
+  });
+});
+
+describe("input required zone", () => {
+  test("requests one row directly on the prompt box without shrinking it", () => {
+    const idle = idle80x24();
+    const layout = idle80x24({ visibility: { inputRequired: true } });
+    const strip = defined(layout.regions.input_required, "input_required");
+    const prompt = defined(layout.regions.prompt, "prompt");
+    expect(strip.height).toBe(1);
+    expect(strip.y + strip.height).toBe(prompt.y);
+    expect(layout.heights.prompt).toBe(idle.heights.prompt);
+    expect(layout.transcriptHeight).toBe(idle.transcriptHeight - 1);
+    expect(
+      layout.chromeHeight + layout.overlayHeight + layout.transcriptHeight,
+    ).toBe(24);
+  });
+
+  test("collapses before prompt growth and restores to zero after settlement", () => {
+    const layout = resolveGeometry({
+      terminal: { columns: 80, rows: 18 },
+      visibility: {
+        workerWait: true,
+        inputRequired: true,
+        notice: true,
+        pending: 2,
+      },
+    });
+    // worker_wait is cut first: input_required is the newest optional strip
+    // and survives whenever one optional row can be retained.
+    expect(layout.heights.notice).toBe(0);
+    expect(layout.heights.pending).toBe(0);
+    expect(layout.heights.worker_wait).toBe(0);
+    expect(layout.heights.input_required).toBe(1);
+    expect(
+      layout.chromeHeight + layout.overlayHeight + layout.transcriptHeight,
+    ).toBe(18);
+    // A settled strip asks for nothing and adds no region.
+    const restored = idle80x24();
+    expect(restored.heights.input_required).toBe(0);
+    expect(restored.regions.input_required).toBeUndefined();
+  });
+
+  test("a 24-row narrow terminal keeps both strips in bounds with no overlap", () => {
+    const layout = resolveGeometry({
+      terminal: { columns: 40, rows: 24 },
+      visibility: { workerWait: true, inputRequired: true },
+    });
+    const regions = Object.values(layout.regions).filter(
+      (rect): rect is Rect => rect !== undefined,
+    );
+    expect(regions.length).toBeGreaterThan(0);
+    for (const rect of regions) {
+      expect(rect.y).toBeGreaterThanOrEqual(0);
+      expect(rect.y + rect.height).toBeLessThanOrEqual(24);
+      expect(rect.x).toBeGreaterThanOrEqual(0);
+      expect(rect.x + rect.width).toBeLessThanOrEqual(40);
+    }
+    for (let i = 0; i < regions.length; i++) {
+      const a = regions[i];
+      if (a === undefined) continue;
+      for (let j = i + 1; j < regions.length; j++) {
+        const b = regions[j];
+        if (b === undefined) continue;
+        const overlapY = a.y < b.y + b.height && b.y < a.y + a.height;
+        expect(overlapY).toBe(false);
+      }
+    }
+    // Vertical order: worker_wait above input_required above prompt.
+    const worker = defined(layout.regions.worker_wait, "worker_wait");
+    const strip = defined(layout.regions.input_required, "input_required");
+    const prompt = defined(layout.regions.prompt, "prompt");
+    expect(worker.y).toBeLessThan(strip.y);
+    expect(strip.y + strip.height).toBe(prompt.y);
+    expect(strip.x).toBe(layout.sideMargin);
+    expect(strip.width).toBe(layout.contentWidth);
   });
 });
 
