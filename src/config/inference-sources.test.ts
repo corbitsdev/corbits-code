@@ -478,14 +478,23 @@ describe("protocol flag routing", () => {
     expect(responses?.provider).toBe("openai-responses");
     expect(responses?.baseURL).toBe("https://opencode.ai/zen/go/v1");
 
-    const messages = buildInferenceSourceForRef(
+    const minimax = buildInferenceSourceForRef(
       { provider: "opencode-go", model: "minimax-m3" },
       ctx,
       undefined,
     );
-    expect(messages?.provider).toBe("opencode-go-messages");
-    expect(messages?.baseURL).toBe("https://opencode.ai/zen/go");
-    expect(messages?.model).toBe("minimax-m3");
+    expect(minimax?.provider).toBe("opencode-go-messages");
+    expect(minimax?.baseURL).toBe("https://opencode.ai/zen/go");
+    expect(minimax?.model).toBe("minimax-m3");
+
+    const qwenMax = buildInferenceSourceForRef(
+      { provider: "opencode-go", model: "qwen3.8-max" },
+      ctx,
+      undefined,
+    );
+    expect(qwenMax?.provider).toBe("opencode-go-messages");
+    expect(qwenMax?.baseURL).toBe("https://opencode.ai/zen/go");
+    expect(qwenMax?.model).toBe("qwen3.8-max");
   });
 });
 
