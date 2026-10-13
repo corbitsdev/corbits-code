@@ -432,8 +432,8 @@ export interface BridgeBag {
   pendingQueuedInputDeliveries: Map<string, "awaiting" | "received" | "read">;
   /**
    * Generation captured when each pending delivery began. Bumped by
-   * `clearQueuedDelivery` / dispose so a stale accept from a cleared session
-   * is ignored instead of painting a row.
+   * `clearQueuedDelivery`, interrupt, and dispose so a stale accept is
+   * ignored instead of painting a row.
    */
   queuedInputBegunAt: Map<string, number>;
   queuedInputGeneration: number;
@@ -1944,6 +1944,16 @@ export function attachSessionBridge(
     }
   };
 
+  /** Drop accepted-but-unread input. Keep `queuedInputBegunAt` so a stale
+   * accept from a delivery that began before this clear is still recognized
+   * as stale by the generation check in `recordAcceptedInput`. */
+  const clearQueuedInputLedger = (): void => {
+    bag.queuedInput = clearQueuedInput(bag.queuedInput);
+    bag.pendingQueuedInputDeliveries.clear();
+    bag.queuedInputGeneration += 1;
+    shell.queuedInput = bag.queuedInput;
+  };
+
   /** Shared abort for Ctrl+C, monitor tick, and the fleet-poll stall bound:
    * interrupt the hung inference, then flush occupancy. */
   const abortInFlightAndHandoff = (): void => {
@@ -1953,6 +1963,10 @@ export function attachSessionBridge(
     // inference.start cannot roll back the stop.
     bag.mapCtx.errorRollbackArmed = false;
     bag.attemptRow = null;
+    for (const messageId of bag.queuedInput.messageIds) {
+      bag.queuedInputBegunAt.set(messageId, bag.queuedInputGeneration);
+    }
+    clearQueuedInputLedger();
     applyShellInterrupt(shell);
     bag.port.interrupt();
     // The stop settles the turn without necessarily producing an idle event to
@@ -2011,14 +2025,7 @@ export function attachSessionBridge(
     shell.session = createSessionQueue("idle");
     recordLastSent(null);
     bag.pendingEchoes.length = 0;
-    bag.queuedInput = clearQueuedInput(bag.queuedInput);
-    bag.pendingQueuedInputDeliveries.clear();
-    // Keep `queuedInputBegunAt` so a stale accept from a delivery that began
-    // before this clear is still recognized as stale by the generation check
-    // in `recordAcceptedInput` (Nit 1: a late accept after /clear|/new must
-    // not paint a row). Entries are removed by accept/discard or dispose.
-    bag.queuedInputGeneration += 1;
-    shell.queuedInput = bag.queuedInput;
+    clearQueuedInputLedger();
     bag.pendingDeliveries.clear();
     bag.pendingPromptRecoveries.length = 0;
     bag.liveFleet = 0;

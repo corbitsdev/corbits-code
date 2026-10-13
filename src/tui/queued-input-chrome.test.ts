@@ -17,9 +17,11 @@ import { createAppShell } from "./shell/index.js";
 import type { PendingAskWake } from "../subagent/fleet-report.js";
 import { createLiveSessionPort } from "./live-session-port.js";
 import {
+  badgeCount,
   createLiveSteerDeliver,
   createSessionOperationQueue,
   deliverAgentMessage,
+  pause,
   routeQueuedDelivery,
 } from "./delivery-queue.js";
 import { userInboundMessage } from "./runner/submit.js";
@@ -328,6 +330,72 @@ test("late accept after /clear or /new is inert (generation check)", async () =>
         bridge.recordAcceptedInput("new-session-steer");
         expect(shell.queuedInput.messageIds).toEqual(["new-session-steer"]);
         bridge.handle(started("new-session-steer"));
+        expect(shell.queuedInput.messageIds).toEqual([]);
+      } finally {
+        bridge.dispose();
+        shell.dispose();
+      }
+    },
+    { width: 80, height: 24 },
+  );
+});
+
+test("interrupt before message.run.started clears the queued-input strip and a late accept stays hidden", async () => {
+  await withTestRenderer(
+    async (h) => {
+      const delivered: string[] = [];
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+        run: "busy",
+      });
+      const bridge = attachSessionBridge(
+        shell,
+        createLiveSessionPort({
+          send: (text) => {
+            delivered.push(text);
+          },
+          interrupt: () => undefined,
+          deliver: (text) => {
+            delivered.push(text);
+          },
+        }),
+      );
+      try {
+        bridge.submit("held for later", "steer");
+        shell.session = pause(shell.session);
+        bridge.beginQueuedInputDelivery("aborted-steer");
+        bridge.recordAcceptedInput("aborted-steer");
+        expect(shell.queuedInput.messageIds).toEqual(["aborted-steer"]);
+        expect(shell.queuedInputRow.visible).toBe(true);
+        bridge.beginQueuedInputDelivery("late-only");
+
+        bridge.interrupt();
+
+        expect(shell.queuedInput.messageIds).toEqual([]);
+        expect(shell.queuedInputRow.visible).toBe(false);
+        expect(shell.session.items.map((item) => item.text)).toEqual([
+          "held for later",
+        ]);
+        expect(delivered).toEqual([]);
+
+        bridge.recordAcceptedInput("aborted-steer");
+        bridge.recordAcceptedInput("late-only");
+        expect(shell.queuedInput.messageIds).toEqual([]);
+        expect(shell.queuedInputRow.visible).toBe(false);
+        expect(delivered).toEqual([]);
+
+        bridge.beginQueuedInputDelivery("next-steer");
+        bridge.recordAcceptedInput("next-steer");
+        expect(shell.queuedInput.messageIds).toEqual(["next-steer"]);
+        bridge.handle(started("next-steer"));
+        expect(shell.queuedInput.messageIds).toEqual([]);
+        expect(shell.queuedInputRow.visible).toBe(false);
+
+        bridge.submit("fresh", "immediate");
+        bridge.handle({ type: "run", state: "idle" });
+        expect(delivered).toEqual(["fresh", "held for later"]);
+        expect(badgeCount(shell.session)).toBe(0);
         expect(shell.queuedInput.messageIds).toEqual([]);
       } finally {
         bridge.dispose();
