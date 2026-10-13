@@ -334,6 +334,8 @@ const AUTO_ALLOWED_TOOLS = new Set([
   "tool_search",
   "use_skill",
   "skill_search",
+  "web_fetch",
+  "web_search",
   "search_agents",
   "spawn_agent",
   "wait_agents",

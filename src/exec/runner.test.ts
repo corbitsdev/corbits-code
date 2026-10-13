@@ -881,14 +881,14 @@ describe("exec permission prompt gating (CL-9002)", () => {
       });
       const authorized = await gate.authorizeCall({
         id: "h1",
-        name: "web_fetch",
-        arguments: { url: "https://example.com/docs", format: "markdown" },
+        name: "write_file",
+        arguments: { path: "src/docs.md", content: "x" },
       } as ToolCall);
       expect(authorized.effect).toBe("deny");
       const evaluated = await gate.evaluate({
         id: "h2",
-        name: "web_fetch",
-        arguments: { url: "https://example.com/other", format: "markdown" },
+        name: "write_file",
+        arguments: { path: "src/other.md", content: "x" },
       } as ToolCall);
       expect(evaluated.allowed).toBe(false);
     } finally {
@@ -939,12 +939,12 @@ describe("exec permission prompt gating (CL-9002)", () => {
     });
     const call = {
       id: "i1",
-      name: "web_fetch",
-      arguments: { url: "https://example.com/docs", format: "markdown" },
+      name: "write_file",
+      arguments: { path: "src/docs.md", content: "x" },
     } as ToolCall;
     const authorized = await gate.authorizeCall(call);
     expect(authorized.effect).toBe("ask");
     expect(await gate.evaluate(call)).toEqual({ allowed: true });
-    expect(seen).toEqual(["https://example.com/docs"]);
+    expect(seen).toEqual(["src/docs.md"]);
   });
 });
