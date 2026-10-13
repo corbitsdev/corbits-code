@@ -171,6 +171,10 @@ interface FleetOverlay {
   lastWaitStatus?: WaitJSONStatus;
   /** Report/error already copied into a wait or occupancy payload. */
   bodyHanded?: boolean;
+  /** Reply handed to completeAfterInterrupt — the settled follow-up's
+   * reply, kept on the overlay because an interrupt/close overlay can pin
+   * the projected status so the session payload alone would hide it. */
+  report?: string;
   tombstoned?: boolean;
   hint?: string;
   /** Mirror of the session's failure record so it survives eviction. */
@@ -312,9 +316,11 @@ class FleetMailbox {
   /**
    * The interrupt followup finished. Clear the followup and queued overlays
    * so wait projects the settled session, but keep a close/interrupt overlay —
-   * a followup reply must not undo interrupt_agent or close_agent.
+   * a followup reply must not undo interrupt_agent or close_agent. The reply
+   * itself lands on the overlay so interrupt/close-pinned lanes still hand it
+   * to the parent; a session payload report keeps precedence.
    */
-  completeAfterInterrupt(id: string, _report?: string): void {
+  completeAfterInterrupt(id: string, report?: string): void {
     const existing = this.records.get(id);
     if (existing === undefined || existing.collected === true) return;
     let changed = false;
@@ -324,6 +330,10 @@ class FleetMailbox {
     }
     if (existing.forceQueued === true) {
       delete existing.forceQueued;
+      changed = true;
+    }
+    if (report !== undefined && report.length > 0) {
+      existing.report = report;
       changed = true;
     }
     if (changed) this.sessions?.wake();
@@ -462,6 +472,11 @@ class FleetMailbox {
       ...(overlay.bodyHanded === true ? { bodyHanded: true } : {}),
       ...(overlay.tombstoned === true ? { tombstoned: true } : {}),
       ...(overlay.hint !== undefined ? { hint: overlay.hint } : {}),
+      // A tombstone already compacted the payload; the overlay reply goes
+      // with it so compaction keeps bounding memory.
+      ...(overlay.tombstoned !== true && overlay.report !== undefined
+        ? { report: overlay.report }
+        : {}),
       ...(payload?.report !== undefined ? { report: payload.report } : {}),
       ...(payload?.error !== undefined && status === "failed"
         ? { error: payload.error }

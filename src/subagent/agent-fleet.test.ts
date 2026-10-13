@@ -1470,6 +1470,26 @@ describe("interrupt_agent unblocks wait_agents", () => {
     expect(fleetRecords.peek(worker.id)?.status).toBe("interrupted");
   });
 
+  test("completeAfterInterrupt attaches the followup reply to the interrupted lane", () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const worker = sessions.start({
+      description: "looping",
+      agentId: "explorer",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    fleetRecords.register(worker.id);
+    fleetRecords.noteFollowup(worker.id);
+    fleetRecords.interrupt(worker.id);
+    fleetRecords.completeAfterInterrupt(worker.id, "followup reply");
+    // The overlay stays put, but the reply the send_input followup handoff
+    // passes in must surface to the parent through peek/wait.
+    expect(fleetRecords.peek(worker.id)?.status).toBe("interrupted");
+    expect(fleetRecords.peek(worker.id)?.report).toBe("followup reply");
+  });
+
   test("rejected send_input followup clears the lane so wait collects interrupted salvage", async () => {
     const gate = deferred<RunSubAgentResult>();
     const followupGate = deferred<string>();
