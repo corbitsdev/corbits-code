@@ -13,9 +13,14 @@ import {
 } from "../runtime-bridge.js";
 import { createLiveSessionPort } from "../live-session-port.js";
 import { createAppShell } from "../shell/index.js";
-import { withTestRenderer } from "../harness.js";
+import { withTestRenderer, type Harness } from "../harness.js";
 import { resetSessionForRotation } from "./exit.js";
-import { clearTranscript } from "../shell/chrome.js";
+import { clearTranscript, setMcpNeedsAuth } from "../shell/chrome.js";
+import type { AppShell } from "../shell/internals.js";
+import { closeInsetOverlay } from "../shell/overlay-host.js";
+import { submitPrompt } from "../shell/prompt.js";
+import { wireGates } from "../gate-wire.js";
+import { ASK_DIRECTOR_WAKE_PREFIX } from "../../subagent/fleet-report.js";
 import {
   createDeliveryGeneration,
   createLeftoverSend,
@@ -223,6 +228,8 @@ for (const phase of ["settled", "prequeued", "deferred"] as const) {
               { type: "agent-ask", asks: [] },
               { type: "fleet", running: 0 },
             ]);
+            expect(shell.workerWait.items).toEqual([]);
+            expect(shell.workerWaitRow.visible).toBe(false);
             expect(
               store.list().every((worker) => worker.status === "cancelled"),
             ).toBe(true);
@@ -301,6 +308,10 @@ for (const removal of [
             resolve: () => undefined,
             reject: () => undefined,
           });
+          expect(shell.workerWait.items.map((item) => item.sessionId)).toEqual([
+            worker.id,
+          ]);
+          expect(shell.workerWaitRow.visible).toBe(true);
           if (removal === "answer") {
             const mailbox = createFleetMailbox(store);
             mailbox.register(worker.id);
@@ -338,6 +349,8 @@ for (const removal of [
             type: "agent-ask",
             asks: [],
           });
+          expect(shell.workerWait.items).toEqual([]);
+          expect(shell.workerWaitRow.visible).toBe(false);
           bridge.handle({ type: "inference.done", data: {} });
           expect(sends).toEqual([]);
         } finally {
@@ -527,4 +540,276 @@ test("yield wait does not stamp; sending pendingAskWakeText gates list_agents", 
     },
     { width: 80, height: 24 },
   );
+});
+
+interface StripRig {
+  readonly shell: AppShell;
+  readonly h: Harness;
+  readonly bridge: ReturnType<typeof attachSessionBridge>;
+  readonly store: ReturnType<typeof createSubAgentSessionStore>;
+  readonly emitter: EventEmitter;
+  /** Everything the primary session port was handed, in order. */
+  readonly toPrimary: string[];
+  readonly answers: string[];
+  readonly park: (id: string, questionId: string, question: string) => void;
+}
+
+async function withStripRig(fn: (rig: StripRig) => Promise<void>) {
+  await withTestRenderer(
+    async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 120, rows: 30 },
+        wireKeys: false,
+      });
+      const toPrimary: string[] = [];
+      const answers: string[] = [];
+      const bridge = attachSessionBridge(
+        shell,
+        createLiveSessionPort({
+          send: (text) => {
+            toPrimary.push(text);
+          },
+          deliver: (text) => {
+            toPrimary.push(text);
+          },
+          interrupt: () => undefined,
+        }),
+      );
+      const store = createSubAgentSessionStore();
+      const emitter = new EventEmitter();
+      emitter.on("event", (event: BridgeInboundEvent) => bridge.handle(event));
+      const publisher = createFleetWakePublisher(store, emitter);
+      const unsubscribe = store.subscribe(publisher.publish);
+      const disposeGates = wireGates(emitter, shell, {
+        onGateOpened: () => bridge.gateOpened(),
+        onGateClosed: () => bridge.gateClosed(),
+      });
+      const park = (id: string, questionId: string, question: string) => {
+        if (store.list().every((lane) => lane.id !== id)) {
+          store.start({ id, agentId: "builder", description: id, brief: "b" });
+          store.markRunning(id);
+        }
+        store.registerAsk(id, {
+          question,
+          questionId,
+          resolve: (answer) => {
+            answers.push(`${id}:${answer}`);
+          },
+          reject: () => undefined,
+        });
+      };
+      try {
+        await fn({
+          shell,
+          h,
+          bridge,
+          store,
+          emitter,
+          toPrimary,
+          answers,
+          park,
+        });
+      } finally {
+        disposeGates();
+        unsubscribe();
+        bridge.dispose();
+        shell.dispose();
+      }
+    },
+    { width: 120, height: 30 },
+  );
+}
+
+async function stripText(h: Harness): Promise<string | undefined> {
+  await h.renderOnce();
+  await h.renderOnce();
+  return h
+    .captureCharFrame()
+    .split("\n")
+    .find((row) => row.includes("WAITING"));
+}
+
+test("the strip follows agent-ask snapshots while the wake reaches the director and send_input resolves it", async () => {
+  await withStripRig(
+    async ({ shell, h, bridge, store, toPrimary, answers, park }) => {
+      bridge.handle({ type: "inference.start", data: {} });
+      park("worker-session", "q1", "Which destination path should I use?");
+      const parked = await stripText(h);
+      expect(parked).toContain("WORKER WAITING");
+      expect(parked).toContain("Which destination path should I use?");
+      expect(toPrimary).toEqual([]);
+
+      // The primary settles: the wake goes to the director, the strip stays.
+      bridge.handle({ type: "inference.done", data: {} });
+      expect(toPrimary).toHaveLength(1);
+      expect(toPrimary[0]).toContain("Which destination path should I use?");
+      expect(toPrimary[0]).toContain("using target worker-session");
+      expect(await stripText(h)).toBe(parked);
+
+      // Director inference on the wake and its settlement are not resolution.
+      bridge.handle({ type: "inference.start", data: {} });
+      expect(await stripText(h)).toBe(parked);
+      bridge.handle({ type: "inference.done", data: {} });
+      expect(await stripText(h)).toBe(parked);
+
+      // A republished snapshot of the same identity does not duplicate it.
+      store.wake();
+      expect(shell.workerWait.items).toHaveLength(1);
+      expect(toPrimary).toHaveLength(1);
+
+      // Only the director's send_input to the worker session resolves it.
+      expect(store.sendInputOne("worker-session", "/srv/out").ok).toBe(true);
+      expect(answers).toEqual(["worker-session:/srv/out"]);
+      expect(await stripText(h)).toBeUndefined();
+      expect(shell.workerWaitRow.visible).toBe(false);
+    },
+  );
+});
+
+test("multiple parked workers keep the displayed identity and an accurate count", async () => {
+  await withStripRig(async ({ shell, h, bridge, store, park }) => {
+    bridge.handle({ type: "inference.start", data: {} });
+    park("first", "q1", "First question?");
+    park("second", "q2", "Second question?");
+    park("third", "q3", "Third question?");
+    let strip = await stripText(h);
+    expect(strip).toContain("First question?");
+    expect(strip).toContain("(+2 more)");
+
+    // A later worker's replacement question leaves the displayed one alone.
+    store.cancelAsk("third");
+    park("third", "q4", "Third replacement?");
+    strip = await stripText(h);
+    expect(strip).toContain("First question?");
+    expect(strip).toContain("(+2 more)");
+    expect(shell.workerWait.items.map((item) => item.questionId)).toEqual([
+      "q1",
+      "q2",
+      "q4",
+    ]);
+
+    // The displayed identity resolves: fall back to snapshot order.
+    expect(store.sendInputOne("first", "ok").ok).toBe(true);
+    strip = await stripText(h);
+    expect(strip).toContain("Second question?");
+    expect(strip).toContain("(+1 more)");
+  });
+});
+
+test("composer submission still goes to the director and never answers or clears the worker", async () => {
+  await withStripRig(
+    async ({ shell, h, bridge, store, toPrimary, answers, park }) => {
+      bridge.handle({ type: "inference.start", data: {} });
+      park("worker-session", "q1", "Which destination path should I use?");
+      bridge.handle({ type: "inference.done", data: {} });
+      expect(toPrimary).toHaveLength(1);
+      const parked = await stripText(h);
+
+      // Mid wake turn: Enter queues a steer for the primary session.
+      bridge.handle({ type: "inference.start", data: {} });
+      shell.prompt.value = "try /srv/out";
+      submitPrompt(shell, "steer");
+      expect(shell.session.items.map((item) => item.text)).toEqual([
+        "try /srv/out",
+      ]);
+      expect(answers).toEqual([]);
+      expect(store.hasPendingAsk("worker-session")).toBe(true);
+      expect(await stripText(h)).toBe(parked);
+      bridge.handle({ type: "inference.done", data: {} });
+
+      // Idle with the worker still live: Enter is a new primary turn and the
+      // operator's words reach the director verbatim.
+      shell.prompt.value = "/srv/out";
+      submitPrompt(shell, "steer");
+      expect(toPrimary.at(-1)).toBe("/srv/out");
+      expect(answers).toEqual([]);
+      expect(store.hasPendingAsk("worker-session")).toBe(true);
+      expect(await stripText(h)).toBe(parked);
+
+      // Typing alone changes nothing either.
+      shell.prompt.value = "still thinking";
+      expect(await stripText(h)).toBe(parked);
+      expect(store.hasPendingAsk("worker-session")).toBe(true);
+    },
+  );
+});
+
+test("ask_operator and permission gates never activate the strip", async () => {
+  await withStripRig(async ({ shell, h, bridge, emitter }) => {
+    bridge.handle({ type: "inference.start", data: {} });
+    let operatorAnswer: unknown;
+    emitter.emit("operator.gate", {
+      id: "ask-1",
+      question: "Which destination path should I use?",
+      options: ["Cancel", "Continue"],
+      resolve: (value: unknown) => {
+        operatorAnswer = value;
+      },
+    });
+    expect(shell.overlayList).not.toBeNull();
+    expect(shell.workerWait.items).toEqual([]);
+    expect(shell.layout.heights.worker_wait).toBe(0);
+    expect(await stripText(h)).toBeUndefined();
+    closeInsetOverlay(shell);
+    expect(operatorAnswer).toBeDefined();
+
+    emitter.emit("permission.gate", {
+      id: "req-1",
+      request: {
+        tool: "run_shell",
+        action: "Run shell command",
+        subject: "rm -rf build",
+        scopes: [],
+      },
+      resolve: () => undefined,
+    });
+    expect(shell.overlayKind).toBe("permissions");
+    expect(shell.workerWait.items).toEqual([]);
+    expect(await stripText(h)).toBeUndefined();
+  });
+});
+
+test("transcript wake text, status events and MCP attention never activate the strip", async () => {
+  await withStripRig(async ({ shell, h, bridge }) => {
+    bridge.handle({
+      type: "assistant",
+      text: `${ASK_DIRECTOR_WAKE_PREFIX} worker builder parked question q1`,
+    });
+    bridge.handle({ type: "system", text: "worker builder is waiting" });
+    bridge.handle({ type: "fleet", running: 2 });
+    setMcpNeedsAuth(shell, ["granola"]);
+    expect(shell.workerWait.items).toEqual([]);
+    expect(shell.layout.heights.worker_wait).toBe(0);
+    expect(await stripText(h)).toBeUndefined();
+  });
+});
+
+test("a live strip and an ask_operator overlay stay separate", async () => {
+  await withStripRig(async ({ shell, h, bridge, emitter, store, park }) => {
+    bridge.handle({ type: "inference.start", data: {} });
+    park("worker-session", "q1", "Which destination path should I use?");
+    const parked = await stripText(h);
+    emitter.emit("operator.gate", {
+      id: "ask-2",
+      question: "Ship it?",
+      options: ["No", "Yes"],
+      resolve: () => undefined,
+    });
+    expect(shell.overlayList).not.toBeNull();
+    expect(await stripText(h)).toBe(parked);
+    closeInsetOverlay(shell);
+    expect(await stripText(h)).toBe(parked);
+    expect(store.hasPendingAsk("worker-session")).toBe(true);
+  });
+});
+
+test("bridge teardown clears the strip", async () => {
+  await withStripRig(async ({ shell, h, bridge, park }) => {
+    bridge.handle({ type: "inference.start", data: {} });
+    park("worker-session", "q1", "Which destination path should I use?");
+    expect(await stripText(h)).toContain("WORKER WAITING");
+    bridge.dispose();
+    expect(shell.workerWait.items).toEqual([]);
+    expect(await stripText(h)).toBeUndefined();
+  });
 });
