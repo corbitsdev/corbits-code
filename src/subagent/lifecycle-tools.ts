@@ -21,7 +21,10 @@ import {
   UNSTRUCTURED_DIGEST_CHARS,
 } from "./fleet-dry-drive.js";
 import { parseSubAgentReport } from "./report.js";
-import { classifySubAgentFailure } from "./terminal-failure.js";
+import {
+  classifySubAgentFailure,
+  isSubAgentLoopGuardError,
+} from "./terminal-failure.js";
 import {
   DEFAULT_MAX_ENTRY_CHARS,
   type AgentLifecycleStatus,
@@ -353,6 +356,7 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
         onFail: (err) =>
           deps.sessions.fail(target, errorMessage(err), {
             failure_class: classifySubAgentFailure(err),
+            ...(isSubAgentLoopGuardError(err) ? { cause: err.cause } : {}),
           }),
       });
       if (!outcome.ok) {

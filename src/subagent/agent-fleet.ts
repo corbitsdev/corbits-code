@@ -113,6 +113,7 @@ import { formatSubAgentSpawnAuthFailureMessage } from "./inference-auth-failure.
 import {
   classifySubAgentFailure,
   isProviderFailureClass,
+  isSubAgentLoopGuardError,
   type SubAgentFailureRecord,
 } from "./terminal-failure.js";
 import { errorMessage } from "../agent/error-message.js";
@@ -1690,6 +1691,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                 ...(settlement?.teardown_failed === true
                   ? { teardownFailed: true }
                   : {}),
+                ...(isSubAgentLoopGuardError(err) ? { cause: err.cause } : {}),
               });
             })
             .finally(() => {

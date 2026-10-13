@@ -125,6 +125,36 @@ describe("terminal failure record", () => {
     expect(Object.isFrozen(snap?.failure)).toBe(true);
   });
 
+  test("a loop_guard with a retryable provider cause is recovery-eligible", () => {
+    const { sessions } = store();
+    const id = startRunning(sessions);
+    sessions.fail(id, "upstream overloaded", {
+      failure_class: "loop_guard",
+      cause: createResolvedProviderFailureError("test-provider", {
+        category: "retryable",
+        message: "upstream overloaded",
+      }),
+    });
+    const failure = sessions.get(id)?.failure;
+    expect(failure?.failure_class).toBe("loop_guard");
+    expect(failure?.recovery).toEqual({ available: true, reason: "eligible" });
+    expect("cause" in (failure ?? {})).toBe(false);
+  });
+
+  test("a loop_guard without a retryable cause is not recovery-eligible", () => {
+    const { sessions } = store();
+    const id = startRunning(sessions);
+    sessions.fail(id, "doom", {
+      failure_class: "loop_guard",
+      cause: new Error("doom"),
+    });
+    expect(sessions.get(id)?.failure?.failure_class).toBe("loop_guard");
+    expect(sessions.get(id)?.failure?.recovery).toEqual({
+      available: false,
+      reason: "not_retryable",
+    });
+  });
+
   test("fail without a classification records error", () => {
     const { sessions } = store();
     const id = startRunning(sessions);
@@ -415,30 +445,47 @@ describe("backstop close honesty", () => {
     expect(sessions.get(id)?.failure?.cleanup).toBe("released");
   });
 
-  test("a rejecting backstop close records partial cleanup", async () => {
+  test("a rejecting backstop close does not delay the failed lane", async () => {
     const { sessions } = store();
-    const id = retainedWithClose(sessions, async () => {
-      throw new Error("child still live");
-    });
-    await sessions.fail(id, "boom", { failure_class: "error" });
+    let rejectClose: (err: Error) => void = () => undefined;
+    const id = retainedWithClose(
+      sessions,
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectClose = reject;
+        }),
+    );
+    const failing = sessions.fail(id, "boom", { failure_class: "error" });
     expect(sessions.get(id)?.lifecycle.state).toBe("failed");
-    expect(sessions.get(id)?.failure?.cleanup).toBe("partial");
+    const record = sessions.get(id)?.failure;
+    expect(record?.cleanup).toBe("released");
+    rejectClose(new Error("child still live"));
+    await failing;
+    expect(sessions.get(id)?.failure).toBe(
+      record as NonNullable<typeof record>,
+    );
   });
 
-  test("a backstop close that hangs past its deadline records partial cleanup", async () => {
-    const sessions = createSubAgentSessionStore({
-      now: () => T0,
-      backstopCloseDeadlineMs: 20,
-    });
+  test("a hanging backstop close does not delay the failed lane", async () => {
+    const { sessions } = store();
     const id = retainedWithClose(
       sessions,
       () => new Promise<void>(() => undefined),
     );
-    await sessions.fail(id, "boom", { failure_class: "error" });
-    expect(sessions.get(id)?.failure?.cleanup).toBe("partial");
+    const settled = await Promise.race([
+      sessions
+        .fail(id, "boom", { failure_class: "error" })
+        .then(() => "settled" as const),
+      new Promise<"stalled">((resolve) =>
+        setTimeout(() => resolve("stalled"), 200),
+      ),
+    ]);
+    expect(settled).toBe("settled");
+    expect(sessions.get(id)?.lifecycle.state).toBe("failed");
+    expect(sessions.get(id)?.failure?.cleanup).toBe("released");
   });
 
-  test("the record is not written until the close settles, and never changes after", async () => {
+  test("the record is written before the close settles, and never changes after", async () => {
     const { sessions } = store();
     let finishClose: () => void = () => undefined;
     const id = retainedWithClose(
@@ -449,11 +496,11 @@ describe("backstop close honesty", () => {
         }),
     );
     const failing = sessions.fail(id, "boom", { failure_class: "error" });
-    expect(sessions.get(id)?.failure).toBeUndefined();
-    finishClose();
-    await failing;
+    expect(sessions.get(id)?.lifecycle.state).toBe("failed");
     const record = sessions.get(id)?.failure;
     expect(record?.cleanup).toBe("released");
+    finishClose();
+    await failing;
     await settleTick();
     expect(sessions.get(id)?.failure).toBe(
       record as NonNullable<typeof record>,

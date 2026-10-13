@@ -33,6 +33,7 @@ import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import {
   classifySubAgentFailure,
   failureClassForStopReason,
+  isSubAgentLoopGuardError,
   recoveryFor,
   type SubAgentFailureClass,
   type SubAgentFailureInput,
@@ -193,9 +194,6 @@ export interface SubAgentSessionStoreOptions {
   createId?: () => string;
   /** When set, resume/followup inference is admitted through this queue. */
   admission?: AdmissionQueue;
-  // How long fail() waits on a live close before recording partial cleanup.
-  // Defaults to close_agent's deadline: the same teardown, so no tighter or
-  // looser bound is justified.
   backstopCloseDeadlineMs?: number;
 }
 
@@ -217,8 +215,6 @@ export interface SubAgentSessionStore {
     report: string,
     opts?: { agentRetained?: boolean; stopReason?: ForcedStopReason },
   ): void;
-  // Resolves once the lane is terminal and its failure record is written. A
-  // live backstop close is awaited first so the record's cleanup is true.
   fail(
     id: string,
     error: string,
@@ -846,6 +842,7 @@ export function createSubAgentSessionStore(
             failureClass,
             attempt,
             followupTurn: followupTurns.has(id),
+            cause: pendingFailures.get(id)?.cause,
           }),
         ),
         attempt,
@@ -951,8 +948,6 @@ export function createSubAgentSessionStore(
 
   const releaseHandles = (id: string): void => {
     cancelAskInternal(id, "session handles released");
-    // Eviction and prune have no record left to keep honest, so the close
-    // stays fire-and-forget here; fail() awaits it through detachClose.
     void detachClose(id)?.catch((err: unknown) => {
       log.warn("session close during handle release failed: {error}", {
         error: errorMessage(err),
@@ -1262,7 +1257,10 @@ export function createSubAgentSessionStore(
     // Only the interrupted restore stamps a record of its own; a completed
     // restore stays a clean lane, as before.
     if (failLifecycle === "interrupted") {
-      pendingFailures.set(id, { failure_class: classifySubAgentFailure(err) });
+      pendingFailures.set(id, {
+        failure_class: classifySubAgentFailure(err),
+        ...(isSubAgentLoopGuardError(err) ? { cause: err.cause } : {}),
+      });
     }
     endFollowupTurn(id, failLifecycle);
     pendingFailures.delete(id);
@@ -1732,39 +1730,13 @@ export function createSubAgentSessionStore(
       }
     },
 
-    async fail(
+    fail(
       id: string,
       error: string,
       failure?: SubAgentFailureInput,
     ): Promise<void> {
       if (failure !== undefined) pendingFailures.set(id, failure);
       settleCancelsAsks(id, "session failed");
-      const current = sessions.get(id);
-      const failable =
-        current !== undefined &&
-        isLiveStrip(current.lifecycle) &&
-        current.lifecycle.state !== "cancelled";
-      // The record is written once and never amended, so the close it reports
-      // on has to finish first. A close that rejects or outlives its deadline
-      // is a cleanup fault, not a released worker.
-      const closing = failable ? detachClose(id) : undefined;
-      if (closing !== undefined && failure?.teardownFailed === true) {
-        // The worker's own bounded teardown already timed out on this agent,
-        // so the record is partial either way; waiting on a second close
-        // would only hold the lane and its admission slot for another
-        // deadline.
-        void closing.catch((err: unknown) => {
-          log.warn("backstop close after failed teardown failed: {error}", {
-            error: errorMessage(err),
-          });
-        });
-      } else if (closing !== undefined) {
-        try {
-          await closing;
-        } catch {
-          releaseFaults.add(id);
-        }
-      }
       mutate(id, (session) => {
         if (
           !isLiveStrip(session.lifecycle) ||
@@ -1773,7 +1745,8 @@ export function createSubAgentSessionStore(
           return;
         // Spawn-path throws already dispose in run.ts's finally; a resumed
         // persisted agent does not, so the live close handle is the only
-        // teardown, awaited above. A disposed spawn close is idempotent.
+        // teardown. Invoke it fire-and-forget (as prune/evict) without
+        // marking shutdown — a disposed spawn close is idempotent.
         session.lifecycle = { state: "failed", error };
         session.retained = false;
         session.finishedAt = now();
@@ -1789,6 +1762,7 @@ export function createSubAgentSessionStore(
         pruneCompleted();
       });
       pendingFailures.delete(id);
+      return Promise.resolve();
     },
 
     registerCancel(id: string, abort: () => void): void {

@@ -124,6 +124,60 @@ describe("recoveryFor", () => {
     ).toEqual({ available: false, reason: "not_retryable" });
   });
 
+  test("a loop_guard with a retryable provider cause is eligible", () => {
+    expect(
+      recoveryFor({
+        failureClass: "loop_guard",
+        attempt: 1,
+        followupTurn: false,
+        cause: providerError("retryable"),
+      }),
+    ).toEqual({ available: true, reason: "eligible" });
+    expect(
+      recoveryFor({
+        failureClass: "loop_guard",
+        attempt: 1,
+        followupTurn: false,
+        cause: createSubAgentLoopGuardError(providerError("timeout")),
+      }),
+    ).toEqual({ available: true, reason: "eligible" });
+  });
+
+  test("a loop_guard without a retryable cause stays not_retryable", () => {
+    expect(
+      recoveryFor({
+        failureClass: "loop_guard",
+        attempt: 1,
+        followupTurn: false,
+        cause: providerError("credential_failure"),
+      }),
+    ).toEqual({ available: false, reason: "not_retryable" });
+    expect(
+      recoveryFor({
+        failureClass: "loop_guard",
+        attempt: 1,
+        followupTurn: false,
+        cause: new Error("doom"),
+      }),
+    ).toEqual({ available: false, reason: "not_retryable" });
+    expect(
+      recoveryFor({
+        failureClass: "loop_guard",
+        attempt: 1,
+        followupTurn: true,
+        cause: providerError("retryable"),
+      }),
+    ).toEqual({ available: false, reason: "not_retryable" });
+    expect(
+      recoveryFor({
+        failureClass: "loop_guard",
+        attempt: 2,
+        followupTurn: false,
+        cause: providerError("retryable"),
+      }),
+    ).toEqual({ available: false, reason: "recovery_exhausted" });
+  });
+
   test("a retryable failure on a follow-up turn is not_retryable", () => {
     expect(
       recoveryFor({

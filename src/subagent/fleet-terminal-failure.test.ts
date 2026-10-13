@@ -15,6 +15,7 @@ import {
   waitUntilMailboxTerminal,
 } from "./fleet-test-harness.js";
 import { pollUntil } from "./run-test-harness.js";
+import { createSubAgentLoopGuardError } from "./terminal-failure.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 
 type Row = Record<string, unknown> & {
@@ -84,6 +85,38 @@ describe("failure_class drives the existing provider markers", () => {
       expect(row?.continuable === true).toBe(available);
     },
   );
+
+  test("a doom-loop over a retryable provider failure stays loop_guard and continuable", async () => {
+    const deps = createFleetDeps(async () => {
+      throw createSubAgentLoopGuardError(retryable());
+    });
+    const tools = fleetTools(deps);
+    const id = await spawnAgentId(tools.spawn, spawnArgs);
+    const [row] = await waitRows(tools, [id]);
+    expect(row?.status).toBe("failed");
+    expect(row?.failure?.failure_class).toBe("loop_guard");
+    expect(row?.failure?.recovery).toEqual({
+      available: true,
+      reason: "eligible",
+    });
+    expect(row?.provider_failure).toBeUndefined();
+    expect(row?.continuable).toBe(true);
+  });
+
+  test("a doom-loop without a retryable cause stays loop_guard and not continuable", async () => {
+    const deps = createFleetDeps(async () => {
+      throw createSubAgentLoopGuardError(new Error("reactor error: doom"));
+    });
+    const tools = fleetTools(deps);
+    const id = await spawnAgentId(tools.spawn, spawnArgs);
+    const [row] = await waitRows(tools, [id]);
+    expect(row?.failure?.failure_class).toBe("loop_guard");
+    expect(row?.failure?.recovery).toEqual({
+      available: false,
+      reason: "not_retryable",
+    });
+    expect(row?.continuable).toBeUndefined();
+  });
 
   test("a permission suspension after an observed inference.error is error, not provider", async () => {
     const deps = createFleetDeps(async (params) => {
@@ -192,6 +225,39 @@ describe("terminal failure cleanup", () => {
     const [row] = await waitRows(tools, [first]);
     expect(row?.status).toBe("failed");
     expect(row?.failure).toMatchObject({ cleanup: "partial" });
+    await pollUntil(() => !admission.occupied(first));
+
+    const secondId = second.agent_id as string;
+    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, secondId);
+    expect(deps.fleetRecords.peek(secondId)?.status).toBe("done");
+  });
+
+  test("a failed spawn with a hanging close frees its admission slot before close", async () => {
+    const admission = createAdmissionQueue({ capacity: 1 });
+    let started = 0;
+    const deps = createFleetDeps(
+      async (params: RunSubAgentParams): Promise<RunSubAgentResult> => {
+        started += 1;
+        if (started > 1) return { report: "second done" };
+        params.onAgentReady?.({
+          close: () => new Promise<void>(() => undefined),
+          interrupt: () => undefined,
+          followup: async () => "",
+          deliver: () => undefined,
+        });
+        throw new Error("spawn failed");
+      },
+    );
+    deps.admission = admission;
+    const tools = fleetTools(deps);
+    const first = await spawnAgentId(tools.spawn, spawnArgs);
+    const second = await callFleetTool(tools.spawn, spawnArgs);
+    expect(second.status).toBe("queued");
+
+    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, first);
+    const [row] = await waitRows(tools, [first]);
+    expect(row?.status).toBe("failed");
+    expect(deps.sessions.get(first)?.lifecycle.state).toBe("failed");
     await pollUntil(() => !admission.occupied(first));
 
     const secondId = second.agent_id as string;

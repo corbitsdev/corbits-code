@@ -68,6 +68,8 @@ export interface SubAgentFailureInput {
   readonly failure_class: SubAgentFailureClass;
   /** The worker's own session teardown threw or timed out. */
   readonly teardownFailed?: boolean;
+  /** Doom-loop cause. Read for recovery; omitted from the parent record. */
+  readonly cause?: unknown;
 }
 
 export function isProviderFailureClass(cls: SubAgentFailureClass): boolean {
@@ -93,7 +95,7 @@ export function createSubAgentLoopGuardError(cause: unknown): Error {
   return error;
 }
 
-export function isSubAgentLoopGuardError(err: unknown): boolean {
+export function isSubAgentLoopGuardError(err: unknown): err is Error {
   return err instanceof Error && loopGuardErrors.has(err);
 }
 
@@ -131,12 +133,28 @@ export function recoveryFor(input: {
   failureClass: SubAgentFailureClass;
   attempt: number;
   followupTurn: boolean;
+  cause?: unknown;
 }): SubAgentRecovery {
   if (input.attempt > 1) {
     return { available: false, reason: "recovery_exhausted" };
   }
-  if (input.followupTurn || input.failureClass !== "provider_retryable") {
+  if (input.followupTurn || !isRetryableFailure(input)) {
     return { available: false, reason: "not_retryable" };
   }
   return { available: true, reason: "eligible" };
+}
+
+function isRetryableFailure(input: {
+  failureClass: SubAgentFailureClass;
+  cause?: unknown;
+}): boolean {
+  if (input.failureClass === "provider_retryable") return true;
+  if (input.failureClass !== "loop_guard") return false;
+  const cause = isSubAgentLoopGuardError(input.cause)
+    ? input.cause.cause
+    : input.cause;
+  return (
+    isResolvedProviderFailureError(cause) &&
+    isRecoverableProviderFailureCategory(cause.category)
+  );
 }
