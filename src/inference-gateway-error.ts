@@ -18,6 +18,7 @@ import {
   isMetaProviderName,
   metaProfileFromProviderName,
 } from "./config/meta-providers.js";
+import { findSourceCredentialRecord } from "./config/source-credentials.js";
 import {
   isXaiProviderName,
   xaiProfileFromProviderName,
@@ -651,7 +652,13 @@ export function isKnownOAuthProviderId(
 ): providerId is string {
   if (providerId === undefined || providerId.length === 0) return false;
   if (isCodexProviderName(providerId)) return true;
-  if (isMetaProviderName(providerId)) return true;
+  if (isMetaProviderName(providerId)) {
+    const record = findSourceCredentialRecord(providerId);
+    return (
+      record?.provenance.kind === "oauth" &&
+      record.provenance.provider === "meta"
+    );
+  }
   return isKnownXaiProviderId(providerId);
 }
 

@@ -2,6 +2,10 @@ import { metaDeviceLogin, type MetaOAuthTokens } from "@corbits/meta-provider";
 
 import type { AuthProfile } from "../store.js";
 import { saveMetaProfile } from "../../config/oauth-stores.js";
+import {
+  isPinnedMetaVerificationUri,
+  REJECTED_META_VERIFICATION_URI,
+} from "./verification-uri.js";
 
 export type MetaLoginHandle = {
   authorizeUrl: string;
@@ -44,13 +48,15 @@ export function startMetaLogin(opts: StartMetaLoginOptions): MetaLoginHandle {
       ...(opts.sleep !== undefined ? { sleep: opts.sleep } : {}),
       ...(opts.now !== undefined ? { now: opts.now } : {}),
       notify: (event) => {
-        if (event.type === "device_code") {
-          opts.notify?.({
-            type: "device_code",
-            verificationUri: event.verificationUri,
-            userCode: event.userCode,
-          });
+        if (event.type !== "device_code") return;
+        if (!isPinnedMetaVerificationUri(event.verificationUri)) {
+          throw new Error(REJECTED_META_VERIFICATION_URI);
         }
+        opts.notify?.({
+          type: "device_code",
+          verificationUri: event.verificationUri,
+          userCode: event.userCode,
+        });
       },
     });
     const profile: AuthProfile<MetaOAuthTokens> = {
