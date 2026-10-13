@@ -483,6 +483,33 @@ by a history rewrite (compaction) are removed from the tree on the next commit. 
 per-commit git tree still grows one entry per spilled tool-output blob across the
 session; that tree re-write is inherent to git and left as residual cost.
 
+The wrapper also owns the on-disk transcript through a claim marker so two
+writer processes cannot silently fork one history. The first appendable write
+creates `session-owner.json` with an exclusive-create (`wx`) write; success
+means the writer owns the existing log. A writer that finds a marker owned by
+another process either reads the log back (append, when the live turns are a
+prefix of what it intends to write) or repairs it in place (rewrite, when the
+incoming turns are a compaction of the live log), and otherwise diverts.
+Diversion abandons the shared base names and re-binds turns and prompts to
+unique versioned bases, `turns-<epoch>-<uuid>.jsonl` and the same shape for
+prompt (`versionedBaseName`), so the other owner's history is never touched
+and versioned segments cannot be mistaken for live numbered segments by a
+base reader. Epoch+uuid avoids numbered segments (`turns-0001.jsonl`) that
+base readers treat as live history.
+
+A rewrite is also a repair of a shared log, so it is staged in memory until
+the next `commit()` lands it unchanged: the wrapper publishes the staged
+rewrite to the working-tree segments, stages the resulting paths, and only
+then commits; a failed commit restores the published generation and leaves
+the rewrite staged for a retry. What counts as a legitimate rewrite of the
+shared log is a pure predicate, so an unrelated content change cannot pose as
+compaction: `isCompactionOf` requires the incoming turns to strip compaction
+markers, carry at least one summary turn, and project their remaining tail
+from the live log — each projected turn keeps role and tool-call ids while
+`projectsFrom` allows only content-preserving projections of the shared log
+(excerpt shortening, thinking-only omission stubs, projected tool results, or
+a coalesced plain-text span). Anything else diverts.
+
 ### Crash Logging
 
 `index.ts` installs `uncaughtException` and `unhandledRejection` handlers (and catches a rejected `main`). Each calls `writeCrashReport` (`crash/report.ts`) to write a best-effort report to `~/.corbits/projects/<project-key>/errors/<timestamp>.txt`, using the same `projectKeyFor`/`projectSessionsRoot` (`session/project-key.ts`) that keys that project's session directories, so a crash report lands next to the session's `run.json` and transcript rather than under a separately computed slug. The file records the failure kind, an ISO timestamp, the cwd, and the stack. `projectSessionsRoot` shells out to git with no timeout, so the handler never calls it directly — `primeCrashReporting` resolves and caches the directory once at startup (right after config load), and `writeCrashReport` only ever reads that cached value; if priming never ran or failed, it falls back to an `unresolved` bucket rather than touching git mid-crash. `writeCrashReport` swallows its own errors and returns `null` without logging; the handler in `index.ts` is what prints the one-line failure notice to stderr when that happens, then exits non-zero.

@@ -317,13 +317,20 @@ REQUIRED or QUEUED INPUT strips are also visible, they stack between it and
 the prompt box, in that order:
 
 ```
-◆ WORKER WAITING · director reply needed (send_input) · builder (copy assets): Which destination path should I use? (+1 more)
+◆ WORKER WAITING · director reply needed (send_input) · builder (copy assets): Which destination path should I use?; classification: director_resolvable; outcome: the export name is ambiguous in the current tree; minimum: read docs/ARCHITECTURE.md and pick; consequence: the rename lands under the wrong contract; recommendation: keep the existing export name; target: wkr-9f22 (+1 more)
 ◆ INPUT REQUIRED · operator answer needed · Which environment should I deploy to?
 ◆ QUEUED INPUT · 1
 ```
 
-It names the worker, previews its question, and says the director owns the
-reply. It is display only: composer text still goes to the primary director,
+It names the worker, previews its assessed decision, and says the director
+owns the reply. When the ask carries an escalation assessment, the preview is
+the question joined with that decision summary (`workerWaitDecisionSummary`
+in `src/tui/worker-wait.ts`): the escalation `classification`, the blocked
+`outcome`, the `minimum` authority (or the minimum addition when no authority
+is required), the decline `consequence`, a `recommendation` or `safeDefault`
+line when the worker supplied one, and the `target` session — not the bare
+question; an ask without an assessment previews the bare question. It is
+display only: composer text still goes to the primary director,
 and only the director's `send_input` to the worker's session answers the
 worker. The strip reads the `agent-ask` pending snapshot and nothing else
 (`src/tui/worker-wait.ts`, painted by `paintChrome` in `shell/chrome.ts`). An
@@ -479,9 +486,7 @@ because an earlier version could abandon the awaited promise on Escape and
 leave the session parked with no recovery path short of killing the process;
 Escape must always settle the promise it is dismissing.
 
-The permissions prompt's title line names `/yolo` as the way to skip further
-prompts, longest first as the terminal narrows: `Esc cancel · Enter choose ·
-/yolo skip prompts`, then `Esc · Enter · /yolo`, then `Esc · Enter`. Operator
+The permissions prompt's title line is a four-tier ladder of key hints, longest first as the terminal narrows: `Esc cancel · Enter choose · Ctrl+C stop · /yolo skip prompts`, then `Esc · Enter · Ctrl+C stop · /yolo`, then `Esc · Enter · Ctrl+C stop`, and finally the stop key alone — `Ctrl+C stop` — which is retained down to contentWidth 28 (interior 26). Below that even the last tier does not fit and the title falls back to ` Permissions` (`PERMISSIONS_HINTS` in `src/tui/overlay-view.ts`). Operator
 questions and the model/provider picker do not advertise `/yolo`.
 
 Once a permission or operator prompt is answered — or cancelled, timed out,
@@ -501,8 +506,17 @@ subject in the action color — the only Breakthrough Orange on the card. The
 overlay host border and title use calm dim chrome (`UI.textDim`); consequence
 impact in the description zone paints `UI.warning` (sand), not orange. A
 blank row separates the subject from context. Choices are deliberately small:
-each one is a bare, single-line action name (`Reject`, `Accept once`, the
-scope's label) with no consequence text folded into the row. A scope's hint
+each one is a bare, single-line action name (`Reject`, `Reject and stop`,
+`Accept once`, the scope's label) with no consequence text folded into the row.
+Every permission overlay carries the standing `Reject and stop` row between
+`Reject` and `Accept once` (`permissionChoicesFromRequest` in
+`src/tui/gate-wire.ts`). Selecting it settles the open gate as a plain deny —
+no grant is minted, even when a persistable scope is offered — and then stops
+the turn like Ctrl+C (`stopDecisionGate` in `shell/overlay-host.ts`): the
+in-flight turn aborts and every queued permission gate is dropped, each
+resolving as a deny that also mints no grant. Plain `Reject` declines only the
+open gate and leaves the turn running; `Accept once` grants without
+persisting, and a scope row persists that grant. A scope's hint
 paints instead as a body message above the choice list
 (`permissionBodyFromRequest` in `src/tui/gate-wire.ts`), and the expand key,
 which binds only when the subject carries collapsed payloads, reveals the
