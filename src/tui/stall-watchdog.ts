@@ -41,8 +41,13 @@ function silentPastThreshold(
   // A fan-out sets `awaitingResponse` when any sibling finishes; outstanding
   // calls mean the run is not silent regardless of that flag.
   if (args.awaitingResponse && args.activeToolCalls.length === 0) return true;
-  // Watchdog-exempt polls (collect, wait_agents, ask_director) emit no parent
-  // events; with no other wall-clock bound, the stall budget is their backstop.
+  // Policy: an in-flight wait_agents or ask_director is stall-bounded, never
+  // exempt. The TUI primary mounts neither (wait_agents is mount-gated off and
+  // ask_director exists only in worker loops), so both names are defensive
+  // guards that keep a stray mount from pinning the clock. A worker's parked
+  // ask is bounded elsewhere: an unanswered ask expires after ASK_DEADLINE_MS
+  // via expireStaleAsks, and the director's silent ask-wake turn is aborted by
+  // this watchdog via abortStalledWakeTurn, which re-surfaces the question.
   if (isStallBoundedInFlightTool(args) && args.isProcessing) return true;
   // Mid-stream hang after the first token; tool runs have their own watchdog.
   return (
@@ -62,6 +67,7 @@ function isStallBoundedToolName(name: string | null | undefined): boolean {
   return isSameTool(name, "wait_agents") || isSameTool(name, "ask_director");
 }
 
+/** Why these names are bounded guards, not exemptions: see `silentPastThreshold`. */
 function isStallBoundedInFlightTool(args: ShouldAbortForStallArgs): boolean {
   if (isStallBoundedToolName(args.currentToolName)) return true;
   for (const [name, id] of Object.entries(args.callIdByName)) {
