@@ -5,6 +5,7 @@ import {
   CODEX_SESSION_ID_OPTION,
   withCodexContentTypeRepair,
 } from "@corbits/codex-provider";
+import { type } from "arktype";
 import type { AdapterFactory, ProviderAdapter } from "@intx/inference";
 import type { InferenceOptions } from "@intx/types/runtime";
 import { ENVIRONMENT_TAG_NAME, PRODUCT_NAME } from "../branding.js";
@@ -73,11 +74,70 @@ export function withParallelToolCalls(
   };
 }
 
+const FunctionCallItemDone = type({
+  type: "'response.output_item.done'",
+  item: { type: "'function_call'", call_id: "string", arguments: "string" },
+});
+
+// With parallel calls on, some Codex backends send a call's arguments only on
+// output_item.done and never as deltas. The packaged parser reads deltas
+// alone, so without this replay the harness assembles those calls as `{}`
+// (CL-10582).
+function withArgumentsFromDone(adapter: ProviderAdapter): ProviderAdapter {
+  let indexByCallId = new Map<string, number>();
+  let streamedIndices = new Set<number>();
+  return {
+    ...adapter,
+    buildRequest: (messages, model, options) => {
+      indexByCallId = new Map();
+      streamedIndices = new Set();
+      return adapter.buildRequest(messages, model, options);
+    },
+    parseResponse: (sseData) => {
+      const events = adapter.parseResponse(sseData);
+      for (const event of events) {
+        if (event.type === "inference.tool_call.start") {
+          if (event.data.index !== undefined) {
+            indexByCallId.set(event.data.callId, event.data.index);
+          }
+        } else if (event.type === "inference.tool_call.delta") {
+          if (event.data.index !== undefined) {
+            streamedIndices.add(event.data.index);
+          }
+        }
+      }
+      if (!sseData.includes('"response.output_item.done"')) return events;
+      const done = FunctionCallItemDone(JSON.parse(sseData));
+      if (done instanceof type.errors || done.item.arguments.length === 0) {
+        return events;
+      }
+      const index = indexByCallId.get(done.item.call_id);
+      if (index === undefined || streamedIndices.has(index)) return events;
+      streamedIndices.add(index);
+      return [
+        ...events,
+        {
+          type: "inference.tool_call.delta",
+          seq: 0,
+          data: {
+            callId: String(index),
+            argumentFragment: done.item.arguments,
+            partial: { text: "" },
+            index,
+          },
+        },
+      ];
+    },
+  };
+}
+
 // CodexQuirks are required by the package factory; Responses option keys are
 // not part of that bag, so host reasoning_effort is aliased at buildRequest.
 export const createCodexResponsesAdapter: AdapterFactory = (source) =>
   withHostReasoningEffort(
     withParallelToolCalls(
-      createPackageCodexResponsesAdapter(source, CODEX_QUIRKS),
+      withArgumentsFromDone(
+        createPackageCodexResponsesAdapter(source, CODEX_QUIRKS),
+      ),
     ),
   );

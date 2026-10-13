@@ -212,6 +212,26 @@ describe("codex-sse fixtures (golden parse)", () => {
     expect(String(error)).toMatch(/fixture stream error \(sanitized\)/);
   });
 
+  test("parallel calls whose arguments arrive only on done still carry their arguments", () => {
+    const out = parseFixture("parallel-tools-arguments-on-done.json");
+
+    expect(eventTypes(out)).toEqual([
+      "inference.tool_call.start",
+      "inference.tool_call.delta",
+      "inference.tool_call.start",
+      "inference.tool_call.delta",
+      "inference.usage",
+    ]);
+    expect(out[1]).toMatchObject({
+      type: "inference.tool_call.delta",
+      data: { callId: "0", argumentFragment: '{"path":"a.txt"}', index: 0 },
+    });
+    expect(out[3]).toMatchObject({
+      type: "inference.tool_call.delta",
+      data: { callId: "1", argumentFragment: '{"path":"b.txt"}', index: 1 },
+    });
+  });
+
   test("lifecycle envelopes alone produce no InferenceEvents", () => {
     const out = parseFixture("lifecycle-ignored.json");
     expect(out).toEqual([]);
