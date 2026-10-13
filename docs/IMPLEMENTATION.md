@@ -552,7 +552,8 @@ Other wave items (read bounds, shell truncation, process-group kill, grep caps, 
 ## Build and Validation
 
 ```bash
-bun run build      # bun build ./src/index.ts --outdir ./dist --target bun
+bun run build      # bun build ./src/index.ts --outdir ./dist --target bun, stamping
+                   # the version badge via --define "$(bun scripts/build-info.ts)"
 bun run typecheck  # tsc --noEmit
 bun test ./src ./tests
 ```

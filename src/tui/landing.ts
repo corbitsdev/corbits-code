@@ -12,7 +12,6 @@ import {
   type TextChunk,
 } from "@opentui/core";
 import { BoxRenderable, TextRenderable } from "@opentui/core";
-import pkg from "../../package.json" with { type: "json" };
 
 import {
   MARK_LARGE,
@@ -34,9 +33,18 @@ const MARK_GAP_ROWS = 1;
 /** Columns of air between the mark's right edge and the hint block. */
 export const LANDING_HERO_GAP = 3;
 
-/** The running build, read from `package.json` so it cannot drift;
- * rendered in the persistent chrome, not here. */
-export const LANDING_VERSION = `v${pkg.version}`;
+/**
+ * The running build, read from the build-time injected version (`src/version.ts`)
+ * so it cannot drift from what shipped. Rendered in the shell's persistent
+ * chrome (bottom-right of the terminal), not as part of this module's landing
+ * composition — see `versionBadgeVisible` and `shell.ts`'s `versionBadge`.
+ *
+ * A live re-export of `DISPLAY_VERSION`, not a module-eval snapshot: the
+ * shell reads the current value when it builds the badge, so tests can
+ * re-mock `version.ts` in-process and the badge picks up the injected value
+ * without spawning a child process to re-evaluate the module graph.
+ */
+export { DISPLAY_VERSION as LANDING_VERSION } from "../version.js";
 
 /** Minimum size for the version badge: below it, the badge hides before
  * the transcript is squeezed. */
