@@ -238,14 +238,13 @@ export async function evaluateRouting(args: {
       },
     });
     console.log(report.markdown());
-    const routeMisses = report.checks["routes"]?.missed;
-    if (!hadBaseline) {
-      console.error(
-        `eval "${DISPATCH_EVAL}" failed: no baseline at ${args.baselinePath}`,
-      );
-      return 1;
-    }
-    if (routeMisses !== 0) {
+    if (report.checks["routes"]?.missed !== 0) {
+      if (!hadBaseline) {
+        console.error(
+          `eval "${DISPATCH_EVAL}" failed: no baseline at ${args.baselinePath}`,
+        );
+        return 1;
+      }
       return 0;
     }
     await copyFile(args.lastPath, args.baselinePath);

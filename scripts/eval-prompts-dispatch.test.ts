@@ -246,4 +246,55 @@ describe("drop baseline", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("a clean pass seeds a missing baseline and the next run compares", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dispatch-routing-"));
+    const baselinePath = join(dir, "baseline.json");
+    const lastPath = join(dir, "last.json");
+    try {
+      const seeded = await evaluateRouting({
+        cases: [coderCase],
+        run: async () => "coder\nAdd a regression test for token refresh.",
+        lastPath,
+        baselinePath,
+      });
+      expect(seeded).toBe(0);
+      const seededText = await readFile(baselinePath, "utf8");
+      const parsed = JSON.parse(seededText) as {
+        cases: { "fix-token-refresh": { routes: { pass: boolean } } };
+      };
+      expect(parsed.cases["fix-token-refresh"].routes.pass).toBe(true);
+
+      const dropped = await evaluateRouting({
+        cases: [coderCase],
+        run: async () => "reviewer\nI refuse.",
+        lastPath,
+        baselinePath,
+      });
+      expect(dropped).not.toBe(0);
+      expect(await readFile(baselinePath, "utf8")).toBe(seededText);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a within-budget miss leaves an existing baseline unchanged", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dispatch-routing-"));
+    const baselinePath = join(dir, "baseline.json");
+    const lastPath = join(dir, "last.json");
+    const before = stored(false);
+    await writeFile(baselinePath, before);
+    try {
+      const code = await evaluateRouting({
+        cases: [coderCase],
+        run: async () => "reviewer\nI refuse.",
+        lastPath,
+        baselinePath,
+      });
+      expect(code).toBe(0);
+      expect(await readFile(baselinePath, "utf8")).toBe(before);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
