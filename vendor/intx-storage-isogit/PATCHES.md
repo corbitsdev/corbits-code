@@ -13,6 +13,12 @@ signposts that point into that diff; they do not define its extent.
 Re-carried as-is with its three tests; upstream `store.ts` has no
 `loadErrors`. No adaptation needed.
 
+### 2026-10-14 re-sync (upstream `5453d0b0` — npm `0.4.0`, CL-10651)
+
+Re-carried as-is: upstream did not touch `src/store.ts` or
+`src/store.test.ts` in this range (`loadErrors` still absent upstream),
+so both files and the entry are byte-identical to the prior pin.
+
 ## store-ts-load-errors
 
 `store.ts` — Implements `AuditStore.loadErrors` by reading

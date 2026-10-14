@@ -51,6 +51,10 @@
     "./workflow-sources": {
       "types": "./src/workflow-sources.ts",
       "default": "./src/workflow-sources.ts"
+    },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "default": "./src/testing/index.ts"
     }
   },
   "dependencies": {
