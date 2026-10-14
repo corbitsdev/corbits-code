@@ -72,7 +72,7 @@ already carries the primitive:
 
 - The before-tool authz hook returns, for an `ask` effect,
   `{ type: "suspend", gate: { type: "approval", gateId, correlationId,
-timeoutAt }, pendingOp }` (`authz-extension.ts:263-267` upstream; the
+  timeoutAt }, pendingOp }` (`authz-extension.ts:263-267` upstream; the
   reactor persists `pendingOp`, minting `correlationId` at :223 and
   `gateId = pending-${correlationId}` at :226).
 - `DEFAULT_APPROVAL_TIMEOUT_MS = 3_600_000` (:36) — one hour.
