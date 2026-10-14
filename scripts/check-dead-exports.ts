@@ -3,35 +3,43 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Dead-export guard: runs ts-prune and fails when an export with no consumer
-// falls outside scripts/dead-export-allowlist.txt. Exports used only inside
-// their own module ("(used in module)") do not count. New dead exports must
-// be deleted, not allowlisted — the allowlist covers entry points, cross-lane
-// ownership, path-loaded plugin surfaces, and ts-prune parser false positives
-// only.
+// Dead-export guard: runs knip and fails when a consumer-less export or an
+// unused file falls outside scripts/dead-export-allowlist.txt. knip replaces
+// the retired ts-prune scanner (CL-10655); it resolves the module graph, so an
+// export consumed through a re-export barrel or the closed director fan-in is
+// not reported, and exports used only inside their own module are skipped
+// (ignoreExportsUsedInFile in knip.json knits both semantics). knip.json pins
+// the scan (entry points per tree plus the workspace packages); this guard
+// owns only the allowlist and the fail-closed floor. New dead exports must be
+// deleted, not allowlisted — the allowlist covers entry-point API surfaces and
+// deferred-deletion lanes only.
 //
 // Hardening: stale entries fail instead of warning, every entry must pass
 // shape validation and sit under a reason comment (the gate enforces the
-// reason; review enforces the owning lane), the scan is pinned to
-// scripts/dead-export-guard.json, and the gate fails closed when the scanned
-// file count drops below that config's floor.
+// reason; review enforces the owning lane), the file-count floor is computed
+// from the pinned tsconfig and the gate fails closed under it, and the knip
+// invocation is pinned in code (reporter + flags) so the scan cannot be
+// narrowed from the guard config.
 
 // Test injection: a subprocess test can pass the deterministic file count
 // instead of paying for the ~1.5s tsc --listFilesOnly run. Production never
 // sets it, so the gate always computes the count in normal runs.
 const scannedFilesEnv = "DEAD_EXPORT_GUARD_SCANNED_FILES";
 
-// Test injection (same pattern as scannedFilesEnv): a subprocess test can
-// point the pinned scan at a smaller tsconfig instead of paying for the ~5s
-// full-project ts-prune run. Production never sets it.
-const tsconfigEnv = "DEAD_EXPORT_GUARD_TSCONFIG";
-
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname(here);
 const allowlistPath = join(here, "dead-export-allowlist.txt");
 const guardConfigPath = join(here, "dead-export-guard.json");
-const tsPruneBin = join(repoRoot, "node_modules", ".bin", "ts-prune");
+const knipBin = join(repoRoot, "node_modules", ".bin", "knip");
 const tscBin = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+
+// The integrated-monorepo knip config that drives the production agent scan;
+// a separate file so the default scan keeps knip.json's ts-prune-parity
+// project scope (the `workspaces` key switches knip into integrated mode,
+// which also widens its default file detection beyond that scope).
+export function agentsConfigPath(): string {
+  return join(repoRoot, "knip.agents.json");
+}
 
 export type AllowRule =
   | {
@@ -59,7 +67,6 @@ export interface GuardOutcome {
 
 export interface GuardConfig {
   readonly tsconfig: string;
-  readonly tsPruneArgs: readonly string[];
   readonly minScannedFiles: number;
 }
 
@@ -160,33 +167,23 @@ export function loadAllowlist(): AllowRule[] {
   return parseAllowlistText(readFileSync(allowlistPath, "utf8"));
 }
 
-// The invocation must be exactly "-p <tsconfig>": narrowing flags cannot
-// shrink the scan while the file count stays flat. The floor must be a
-// positive integer the gate fails closed against.
+// The counted floor must be a positive integer the gate fails closed against.
+// Unknown keys reject: a config carrying a retired or misnamed scan knob must
+// not silently narrow how the gate runs.
 export function parseGuardConfig(raw: unknown): GuardConfig {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error("dead-export guard config must be a JSON object");
   }
   const config = raw as Record<string, unknown>;
+  const known = new Set(["tsconfig", "minScannedFiles"]);
+  for (const key of Object.keys(config)) {
+    if (!known.has(key)) {
+      throw new Error(`dead-export guard config has an unexpected key: ${key}`);
+    }
+  }
   const tsconfig = config["tsconfig"];
   if (typeof tsconfig !== "string" || tsconfig === "") {
     throw new Error('dead-export guard config needs a "tsconfig" path string');
-  }
-  const tsPruneArgs = config["tsPruneArgs"];
-  if (
-    !Array.isArray(tsPruneArgs) ||
-    tsPruneArgs.length === 0 ||
-    tsPruneArgs.some((arg) => typeof arg !== "string")
-  ) {
-    throw new Error(
-      'dead-export guard config needs a non-empty "tsPruneArgs" string array',
-    );
-  }
-  const args = tsPruneArgs as string[];
-  if (args.length !== 2 || args[0] !== "-p" || args[1] !== tsconfig) {
-    throw new Error(
-      'dead-export guard config "tsPruneArgs" must be exactly ["-p", "<tsconfig>"] with no extra flags',
-    );
   }
   const minScannedFiles = config["minScannedFiles"];
   if (
@@ -198,7 +195,7 @@ export function parseGuardConfig(raw: unknown): GuardConfig {
       'dead-export guard config needs a positive integer "minScannedFiles"',
     );
   }
-  return { tsconfig, tsPruneArgs: [...args], minScannedFiles };
+  return { tsconfig, minScannedFiles };
 }
 
 export function loadGuardConfig(): GuardConfig {
@@ -229,44 +226,84 @@ export function isAllowlisted(
   );
 }
 
-// Parses one ts-prune output line. Returns undefined for blank lines,
-// unparseable lines, and exports used only inside their own module.
-export function parseTsPruneLine(raw: string): DeadExport | undefined {
-  const match = raw.match(/^(.*?):\d+ - (\S+?)(\s+\(used in module\))?$/);
-  if (!match) return undefined;
-  if (match[3] !== undefined) return undefined;
-  const file = match[1];
-  const name = match[2];
-  if (file === undefined || name === undefined) return undefined;
-  return { file, name };
+// knip issue items are { name } objects (plus position fields the guard never
+// reads); a `files` item carries the file path in `name`.
+interface KnipReportItem {
+  readonly name: unknown;
 }
 
-export function evaluateGuard(
-  rules: AllowRule[],
-  tsPruneStdout: string,
-): GuardOutcome {
-  const used = new Set<number>();
-  const violations: string[] = [];
-  let dead = 0;
-  for (const raw of tsPruneStdout.split("\n")) {
-    const parsed = parseTsPruneLine(raw);
-    if (parsed === undefined) continue;
-    dead += 1;
-    const index = rules.findIndex((rule) =>
-      rule.kind === "prefix"
-        ? parsed.file.startsWith(rule.prefix)
-        : rule.file === parsed.file && rule.name === parsed.name,
-    );
-    if (index === -1) {
-      violations.push(`${parsed.file}: ${parsed.name}`);
-    } else {
-      used.add(index);
+// The knip issue classes the guard counts. knip.json enables exports, types,
+// enumMembers, namespaceMembers, and files and turns everything else off, so
+// this list is the closed set the reporter can surface findings under.
+const knipFindingClasses = [
+  "exports",
+  "types",
+  "enumMembers",
+  "namespaceMembers",
+] as const;
+type KnipFindingClass = (typeof knipFindingClasses)[number];
+
+function isFindingClass(value: string): value is KnipFindingClass {
+  return (knipFindingClasses as readonly string[]).includes(value);
+}
+
+// Parses one knip --reporter json stdout blob into dead-export findings.
+// Malformed shapes throw: a mis-parsed report must fail closed, not pass.
+// `files` issues become one finding per file (the unreachable file is the
+// maximal consumer-less export); everything else is (file, export name).
+export function parseKnipReport(raw: string): DeadExport[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`knip report is not valid JSON: ${(err as Error).message}`);
+  }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("issues" in parsed) ||
+    !Array.isArray(parsed.issues)
+  ) {
+    throw new Error("knip report is missing its issues array");
+  }
+  const findings: DeadExport[] = [];
+  for (const issue of parsed.issues) {
+    if (typeof issue !== "object" || issue === null) {
+      throw new Error("knip report issue is not an object");
+    }
+    const entry = issue as Record<string, unknown>;
+    if (typeof entry.file !== "string") {
+      throw new Error("knip report issue is missing its file path");
+    }
+    const file = entry.file;
+    if (Array.isArray(entry.files) && entry.files.length > 0) {
+      for (const item of entry.files) {
+        const name = nameOf(item);
+        if (name === undefined) {
+          throw new Error("knip report files issue carries no file name");
+        }
+        findings.push({ file, name });
+      }
+      continue;
+    }
+    for (const [key, value] of Object.entries(entry)) {
+      if (!isFindingClass(key) || !Array.isArray(value)) continue;
+      for (const item of value) {
+        const name = nameOf(item);
+        if (name === undefined) {
+          throw new Error(`knip report ${key} issue carries no name`);
+        }
+        findings.push({ file, name });
+      }
     }
   }
-  const unused = rules
-    .filter((_, index) => !used.has(index))
-    .map((r) => r.source);
-  return { dead, violations, unused };
+  return findings;
+}
+
+function nameOf(item: unknown): string | undefined {
+  if (typeof item !== "object" || item === null) return undefined;
+  const name = (item as KnipReportItem).name;
+  return typeof name === "string" ? name : undefined;
 }
 
 // Passes only when nothing new died and no exemption is stale. Stale entries
@@ -275,14 +312,127 @@ export function isGuardPassing(outcome: GuardOutcome): boolean {
   return outcome.violations.length === 0 && outcome.unused.length === 0;
 }
 
-// ts-prune under-reports unused exports when the CLI runs on Bun (Linux CI
-// then sees the Darwin/Node allowlist as stale). The bin shebang is `node`,
-// but Bun spawns it with Bun anyway. Always launch the CLI with node.
-export function tsPruneSpawn(
-  tsPruneBinPath: string,
-  tsPruneArgs: readonly string[],
+// knip's own binary shebang is node, but Bun spawns .bin targets with Bun —
+// and knip's bun-mode path can behave differently across versions. The
+// invocation is always launched with node and its flags are pinned here (the
+// guard config carries no scan flags), so the report shape is stable and the
+// scan cannot be narrowed side-channel.
+export function knipSpawn(
+  knipBinPath: string,
+  args: readonly string[],
+): {
+  readonly command: string;
+  readonly args: string[];
+} {
+  return { command: "node", args: [knipBinPath, ...args] };
+}
+
+// Both knip configs must exist: the default scan reads knip.json and the
+// production agent scan reads the integrated-monorepo variant. A missing
+// config silently narrows the scan, so the guard fails closed instead.
+export function requireKnipConfigs(): void {
+  for (const configPath of [join(repoRoot, "knip.json"), agentsConfigPath()]) {
+    if (!existsSync(configPath)) {
+      throw new Error(`knip config not found: ${configPath}`);
+    }
+  }
+}
+
+// The pinned base flags for every knip scan: JSON reporter, no progress
+// output, and no exit-code clobbering (the guard owns the verdict; a knip
+// process failure must surface as a guard failure, not as a finding count).
+const knipBaseArgs = [
+  "--reporter",
+  "json",
+  "--no-progress",
+  "--no-exit-code",
+] as const;
+
+// The default scan covers every tree in knip.json's project scope. knip
+// counts test-file imports as consumption, so an export whose only importers
+// are tests is not reported here.
+export function knipDefaultSpawn(knipBinPath: string): {
+  readonly command: string;
+  readonly args: string[];
+} {
+  return knipSpawn(knipBinPath, knipBaseArgs);
+}
+
+// The agent-workspace production scan is the test-laundering counterweight:
+// knip's `--production` mode does not count test-file consumers, and the
+// `-W agents/*` workspace filter keeps the pass scoped to the agent packages'
+// entry-point surfaces the guard protects (the AGENTS.md director-extract
+// bar). It runs the integrated-monorepo config (knip.agents.json, whose
+// `workspaces` key makes cross-workspace consumers visible in production
+// mode), so the registry fan-in still clears `director` while the laundered
+// worker names surface. Outside that surface the default scan owns
+// enforcement at ts-prune parity; the union of both scans is the guard's
+// finding set.
+export function knipAgentProductionSpawn(
+  knipBinPath: string,
+  workspaces: readonly string[],
 ): { readonly command: string; readonly args: string[] } {
-  return { command: "node", args: [tsPruneBinPath, ...tsPruneArgs] };
+  if (workspaces.length === 0) {
+    throw new Error("agent-workspace production scan needs a workspace list");
+  }
+  return knipSpawn(knipBinPath, [
+    "-c",
+    agentsConfigPath(),
+    "--production",
+    ...knipBaseArgs,
+    ...workspaces.flatMap((workspace) => ["-W", workspace]),
+  ]);
+}
+
+// The agent workspaces the production scan must cover, derived from the
+// allowlist's `agents/<id>/src/index.ts` entries so the scan stays pinned to
+// the surface the allowlist governs. Fails closed when the surface names no
+// workspace: a silent no-op scan cannot be trusted.
+export function agentWorkspaceIds(rules: readonly AllowRule[]): string[] {
+  const ids = new Set<string>();
+  for (const rule of rules) {
+    if (rule.kind === "exact" && rule.file.startsWith("agents/")) {
+      const id = rule.file.slice("agents/".length).split("/")[0];
+      if (id !== undefined && id !== "") ids.add(`agents/${id}`);
+    }
+  }
+  const sorted = [...ids].sort();
+  if (sorted.length === 0) {
+    throw new Error(
+      "dead-export allowlist names no agents/<id>/src/index.ts surface: " +
+        "the agent-workspace production scan has nothing to cover",
+    );
+  }
+  return sorted;
+}
+
+export function evaluateGuard(
+  rules: AllowRule[],
+  findings: readonly DeadExport[],
+): GuardOutcome {
+  const used = new Set<number>();
+  const violations: string[] = [];
+  for (const finding of findings) {
+    const index = rules.findIndex((rule) =>
+      rule.kind === "prefix"
+        ? finding.file.startsWith(rule.prefix)
+        : rule.file === finding.file && rule.name === finding.name,
+    );
+    if (index === -1) {
+      violations.push(`${finding.file}: ${finding.name}`);
+    } else {
+      used.add(index);
+    }
+  }
+  const unused = rules
+    .filter((_, index) => !used.has(index))
+    .map((r) => r.source);
+  // Deterministic output ordering does not depend on knip's report order.
+  return {
+    dead: findings.length,
+    violations: violations.sort(),
+    unused: unused.sort(),
+  };
 }
 
 // Undefined means compute the count as usual; anything else must be a
@@ -301,9 +451,10 @@ export function parseInjectedScannedFiles(
 }
 
 // Counts the TS files the pinned tsconfig pulls into its program via
-// tsc --listFilesOnly — the same project ts-prune analyzes. A narrowed
-// tsconfig shrinks this count, and the gate fails closed against the
-// checked-in floor.
+// tsc --listFilesOnly. A narrowed tsconfig shrinks this count, and the gate
+// fails closed against the checked-in floor. knip's own scan scope is pinned
+// by knip.json; this floor is the repo-wide sanity check on the project
+// graph that gate tooling parses against.
 export function countScannedFiles(
   repoRootDir: string,
   tsconfigPath: string,
@@ -337,25 +488,68 @@ function fail(message: string): never {
   process.exit(1);
 }
 
+// The guard's finding set is the union of two knip reports:
+//
+// 1. the default scan over knip.json's project scope (ts-prune parity), and
+// 2. the `--production` scan filtered to the agent workspaces, where knip
+//    does not count test-file consumers.
+//
+// Both run under the pinned pinned spawn contract; a failing or malformed
+// report fails the gate rather than narrowing it silently.
+export function runKnipScans(rules: readonly AllowRule[]): DeadExport[] {
+  requireKnipConfigs();
+  const merge = (reports: readonly DeadExport[]): DeadExport[] => {
+    const seen = new Set<string>();
+    const merged: DeadExport[] = [];
+    for (const finding of reports) {
+      const key = `${finding.file}::${finding.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(finding);
+    }
+    return merged;
+  };
+  const spawnAndParse = (
+    spawn: { readonly command: string; readonly args: string[] },
+    label: string,
+  ): DeadExport[] => {
+    const ran = spawnSync(spawn.command, spawn.args, {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: 32 * 1024 * 1024,
+    });
+    if (ran.error !== undefined) {
+      fail(
+        `${label} failed to start with ${spawn.command}: ${ran.error.message}`,
+      );
+    }
+    if (ran.status !== 0) {
+      fail(`${label} failed:\n${ran.stderr || ran.stdout}`);
+    }
+    try {
+      return parseKnipReport(String(ran.stdout));
+    } catch (err) {
+      fail(`${label} report unusable: ${(err as Error).message}`);
+    }
+  };
+  const defaultFindings = spawnAndParse(
+    knipDefaultSpawn(knipBin),
+    "knip default scan",
+  );
+  const agentWorkspaces = agentWorkspaceIds(rules);
+  const agentFindings = spawnAndParse(
+    knipAgentProductionSpawn(knipBin, agentWorkspaces),
+    "knip production agent scan",
+  );
+  return merge([...defaultFindings, ...agentFindings]);
+}
+
 function main(): void {
   let config: GuardConfig;
   try {
     config = loadGuardConfig();
   } catch (err) {
     fail(`dead-export guard: invalid guard config: ${(err as Error).message}`);
-  }
-  const overrideTsconfig = process.env[tsconfigEnv];
-  if (overrideTsconfig !== undefined) {
-    if (!existsSync(join(repoRoot, overrideTsconfig))) {
-      fail(
-        `dead-export guard: tsconfig override not found: ${overrideTsconfig}`,
-      );
-    }
-    config = {
-      ...config,
-      tsconfig: overrideTsconfig,
-      tsPruneArgs: ["-p", overrideTsconfig],
-    };
   }
   const allowlistText = readFileSync(allowlistPath, "utf8");
   const allowlistProblems = [
@@ -369,20 +563,8 @@ function main(): void {
     );
   }
   const rules = parseAllowlistText(allowlistText);
-  const prune = tsPruneSpawn(tsPruneBin, config.tsPruneArgs);
-  const pruned = spawnSync(prune.command, prune.args, {
-    cwd: repoRoot,
-    encoding: "utf8",
-  });
-  if (pruned.error !== undefined) {
-    fail(
-      `ts-prune failed to start with ${prune.command}: ${pruned.error.message}`,
-    );
-  }
-  if (pruned.status !== 0) {
-    fail(`ts-prune failed:\n${pruned.stderr || pruned.stdout}`);
-  }
-  const outcome = evaluateGuard(rules, String(pruned.stdout));
+  const findings = runKnipScans(rules);
+  const outcome = evaluateGuard(rules, findings);
   let scannedFiles: number;
   const injectedCount = parseInjectedScannedFiles(process.env[scannedFilesEnv]);
   if (injectedCount !== undefined) {
@@ -397,7 +579,7 @@ function main(): void {
     }
   }
   console.log(
-    `dead-export guard: ${outcome.dead} consumer-less exports, ${outcome.dead - outcome.violations.length} allowlisted, ${outcome.violations.length} violations, ${scannedFiles} scanned files (floor ${config.minScannedFiles})`,
+    `dead-export guard: ${outcome.dead} consumer-less exports or unreachable files (default scan + production agent-workspace scan), ${outcome.dead - outcome.violations.length} allowlisted, ${outcome.violations.length} violations, ${scannedFiles} scanned files (floor ${config.minScannedFiles})`,
   );
   if (!isCoverageEnough(scannedFiles, config.minScannedFiles)) {
     fail(
@@ -407,7 +589,7 @@ function main(): void {
   }
   if (outcome.unused.length > 0) {
     console.error(
-      "Stale allowlist entries matching no dead export (remove them):\n" +
+      "Stale allowlist entries matching no knip finding (remove them):\n" +
         outcome.unused.map((entry) => `  ${entry}`).join("\n"),
     );
   }
