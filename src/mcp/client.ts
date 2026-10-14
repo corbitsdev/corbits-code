@@ -404,12 +404,17 @@ function streamableHTTPTransportOptions(
   authProvider: CorbitsOAuthProvider | undefined,
   signal: AbortSignal | undefined,
 ) {
-  if (authProvider === undefined && signal === undefined) return undefined;
+  // SDK 1.32 flips the client transports' default redirect handling to
+  // same-origin-only. MCP endpoint URLs are operator-configured (user
+  // settings, or trust-on-first-use local servers), so trust redirects from
+  // the chosen origin: keep the pre-1.32 behavior of letting fetch follow
+  // them rather than failing on a legit cross-origin hop.
   return {
     ...(authProvider === undefined ? {} : { authProvider }),
     ...(signal === undefined
       ? {}
       : { requestInit: { signal }, fetch: fetchWithConnectAbort(signal) }),
+    redirectPolicy: "follow" as const,
   };
 }
 

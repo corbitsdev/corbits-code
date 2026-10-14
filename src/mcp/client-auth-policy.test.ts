@@ -184,7 +184,9 @@ describe("HTTP MCP auth policy", () => {
     });
     expect(callbackStarts).toBe(0);
     expect(providerCreates).toBe(0);
-    expect(transportOptions).toEqual([undefined]);
+    // No signal and no provider: still pins the operator-configured-host
+    // redirect policy rather than the SDK 1.32 same-origin default.
+    expect(transportOptions).toEqual([{ redirectPolicy: "follow" }]);
   });
 
   test("closes a bound OAuth callback server when provider setup fails", async () => {
@@ -263,6 +265,7 @@ describe("HTTP MCP auth policy", () => {
         authProvider,
         requestInit: { signal: expect.any(AbortSignal) },
         fetch: expect.any(Function),
+        redirectPolicy: "follow",
       },
     ]);
 
@@ -299,6 +302,7 @@ describe("HTTP MCP auth policy", () => {
         authProvider,
         requestInit: { signal: expect.any(AbortSignal) },
         fetch: expect.any(Function),
+        redirectPolicy: "follow",
       },
     ]);
   });

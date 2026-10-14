@@ -21,6 +21,16 @@ import { SETTINGS_DIR_NAME } from "../branding.js";
 // Per-server OAuth state. The durable pair — registered client info and
 // tokens — reaches disk; the PKCE verifier stays instance-local in the
 // provider. Legacy codeVerifier keys are stripped on write.
+//
+// Issuer binding (SDK >= 1.31): tokens and client information carry a nested
+// `issuer`, the authorization server they belong to; both are persisted
+// unchanged in that nested shape, not as separate fields. Stores saved before
+// the stamp have no `issuer` key and still load — `issuer` is optional on
+// both — and the SDK consumes unstamped credentials as-is, re-stamping them
+// on the next successful auth or refresh. Stamping at read time is
+// deliberately not done: the persisted epoch predates binding, so the
+// authorization server cannot be reconstructed without discovery and a wrong
+// guess would make the SDK discard valid credentials.
 export interface MCPAuthState {
   clientInformation?: OAuthClientInformationFull;
   tokens?: OAuthTokens;
