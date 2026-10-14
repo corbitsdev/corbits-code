@@ -1727,3 +1727,175 @@ describe("createOptimizedContextStore prompt dedupe (CL-9026)", () => {
     expect(turnTexts((await store.load()).turns)).toEqual(turnTexts(live));
   });
 });
+
+describe("createOptimizedContextStore per-turn perf (CL-10666)", () => {
+  const SEGMENT_MANIFEST_FILE = "segment-manifest.json";
+
+  test("an orphan extra in the middle drops it and everything after it", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const callId = "call-middle-orphan";
+
+    const head: ConversationTurn[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: callId, name: "grep", arguments: {} },
+        ],
+        timestamp: 1,
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            callId,
+            content: [{ type: "text", text: "ok" }],
+          },
+        ],
+        timestamp: 2,
+      },
+    ];
+    // [well-formed, orphan, well-formed] — the incremental pass must stop at
+    // the orphan exactly where the old rescan-per-length loop did: keep 1 of
+    // 3 extras (segment 1), unlink segments 2 and 3.
+    const good: ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "kept" }],
+        timestamp: 10,
+      },
+    ];
+    const orphan: ConversationTurn[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            callId,
+            content: [{ type: "text", text: "again" }],
+          },
+        ],
+        timestamp: 20,
+      },
+    ];
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl(good),
+    );
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 2)),
+      jsonl(orphan),
+    );
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 3)),
+      jsonl([turn("last")]),
+    );
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl(head));
+
+    const loaded = await store.load();
+    expect(loaded.turns).toHaveLength(3);
+    expect(turnTexts(loaded.turns)).toEqual([...turnTexts(head), "kept"]);
+    expect(await listSegmentFiles(dir, TURNS_FILE)).toEqual([
+      TURNS_FILE,
+      segmentFileName(TURNS_FILE, 1),
+    ]);
+  });
+
+  test("loads observe external segment mutations, byte-identical edits included", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a"), turn("b")]));
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl([turn("c")]),
+    );
+    expect(turnTexts((await store.load()).turns)).toEqual(["a", "b", "c"]);
+
+    // Crash-artifact appends land in the active segment between loads; the
+    // cached generation must invalidate (stat change) and merge them.
+    fs.appendFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl([turn("d")]),
+    );
+    expect(turnTexts((await store.load()).turns)).toEqual(["a", "b", "c", "d"]);
+
+    // Same-length rewrite of the active segment ("c" -> "x") still invalidates.
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl([turn("x"), turn("d")]),
+    );
+    expect(turnTexts((await store.load()).turns)).toEqual(["a", "b", "x", "d"]);
+
+    // Torn tail on the active segment keeps dropping it stably.
+    const active = path.join(dir, segmentFileName(TURNS_FILE, 1));
+    fs.writeFileSync(
+      active,
+      jsonl([turn("x"), turn("d")]) + '{"role":"user","content":[{"type":"te',
+    );
+    expect(turnTexts((await store.load()).turns)).toEqual(["a", "b", "x", "d"]);
+  });
+
+  test("commits a segment manifest only when turn extras exist and readAt consults it", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const bigText = "x".repeat(300 * 1024);
+    const bigTurn: ConversationTurn = {
+      role: "user",
+      content: [{ type: "text", text: bigText }],
+      timestamp: 1,
+    };
+    await store.writeTurns([bigTurn]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "base only" });
+    expect(fs.existsSync(path.join(dir, SEGMENT_MANIFEST_FILE))).toBe(false);
+
+    const last = turn("tail");
+    await store.writeTurns([bigTurn, last]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const second = await store.commit({ message: "with extra" });
+    const extraTurns = segmentFileName(TURNS_FILE, 1);
+    expect(fs.existsSync(path.join(dir, SEGMENT_MANIFEST_FILE))).toBe(true);
+    const tree = await gitLsTree(dir);
+    expect(tree).toContain(SEGMENT_MANIFEST_FILE);
+    expect(
+      fs.readFileSync(path.join(dir, SEGMENT_MANIFEST_FILE), "utf-8"),
+    ).toBe(JSON.stringify({ turnSegments: [extraTurns] }));
+
+    // Manifest path and tree-walk path agree.
+    expect(turnTexts(await store.readAt(second.hash))).toEqual([
+      bigText,
+      "tail",
+    ]);
+    expect(await store.readAt(first.hash)).toHaveLength(1);
+  });
+
+  test("a corrupt committed segment manifest falls back to the commit-tree walk", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const bigText = "x".repeat(300 * 1024);
+    const bigTurn: ConversationTurn = {
+      role: "user",
+      content: [{ type: "text", text: bigText }],
+      timestamp: 1,
+    };
+    await store.writeTurns([bigTurn, turn("tail")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "with extra" });
+
+    fs.writeFileSync(path.join(dir, SEGMENT_MANIFEST_FILE), "{torn");
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const after = await store.commit({ message: "corrupt manifest" });
+
+    expect(turnTexts(await store.readAt(after.hash))).toEqual([
+      bigText,
+      "tail",
+    ]);
+    await store.writeTurns([bigTurn, turn("tail"), turn("newer")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "heal manifest" });
+    expect(
+      fs.readFileSync(path.join(dir, SEGMENT_MANIFEST_FILE), "utf-8"),
+    ).toBe(JSON.stringify({ turnSegments: [segmentFileName(TURNS_FILE, 1)] }));
+  });
+});

@@ -81,11 +81,27 @@ export async function ageImageBlocks(
   return { turn: { ...turn, content }, blobs };
 }
 
-/** Restore aged markers to image blocks via a blob reader; missing blobs leave the marker text. */
+/** Restore aged markers to image blocks via a blob reader; missing blobs leave
+ * the marker text. The same attachment id only reads its blob once per
+ * restore: compaction copies (excerpted spines, folded handoffs) repeat the
+ * identical marker, and each copy then deserializes from the one read. */
 export async function rehydrateAttachmentImages(
   turns: readonly ConversationTurn[],
   readBlob: (key: string) => Promise<Uint8Array>,
 ): Promise<ConversationTurn[]> {
+  const blobReads = new Map<string, Promise<Uint8Array | null>>();
+  const blobFor = (key: string): Promise<Uint8Array | null> => {
+    const shared = blobReads.get(key);
+    if (shared !== undefined) return shared;
+    // One failure is memoized for the id too: missing blobs keep their
+    // markers, and re-serving that outcome avoids a retry storm per copy.
+    const sharedRead = readBlob(key).then(
+      (bytes) => bytes,
+      () => null,
+    );
+    blobReads.set(key, sharedRead);
+    return sharedRead;
+  };
   const out: ConversationTurn[] = [];
   for (const turn of turns) {
     let changed = false;
@@ -100,21 +116,21 @@ export async function rehydrateAttachmentImages(
         content.push(block);
         continue;
       }
-      try {
-        const bytes = await readBlob(marker.id);
-        const data = new TextDecoder().decode(bytes);
-        content.push({
-          type: "image",
-          source: {
-            kind: "base64",
-            mimeType: marker.mimeType,
-            data,
-          },
-        });
-        changed = true;
-      } catch {
+      const bytes = await blobFor(marker.id);
+      if (bytes === null) {
         content.push(block);
+        continue;
       }
+      const data = new TextDecoder().decode(bytes);
+      content.push({
+        type: "image",
+        source: {
+          kind: "base64",
+          mimeType: marker.mimeType,
+          data,
+        },
+      });
+      changed = true;
     }
     out.push(changed ? { ...turn, content } : turn);
   }
