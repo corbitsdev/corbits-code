@@ -17,6 +17,10 @@ import {
 } from "../../config/settings.js";
 import { isCodexProviderName } from "../../config/codex-providers.js";
 import { peekSourceCredentialSecret } from "../../config/source-credentials.js";
+import {
+  createShellSandbox,
+  type ShellSandbox,
+} from "../../shell/sandbox-config.js";
 import { getProcessAdmissionQueue } from "../../subagent/admission.js";
 import { createSubAgentSessionStore } from "../../subagent/index.js";
 import {
@@ -150,10 +154,14 @@ export async function assembleTUISession(
       v.enabled,
     ]),
   );
+  // Assigned once the gate exists below (createShellSandbox needs it as the
+  // sandbox network-ask path); the hooks wiring reads it lazily at fire time.
+  let sessionSandbox: ShellSandbox | undefined;
   const { hookManager, runSink, cycleRecorder } =
     await assembleSessionLifecycle({
       cwd: config.cwd,
       emitter,
+      getSandbox: () => sessionSandbox,
       getTelemetry,
       getSessionId: () => state.sessionId,
       // The lifecycle starts consuming events well after the exit module wires
@@ -324,6 +332,16 @@ export async function assembleTUISession(
   );
 
   const shellTimeout = shellTimeoutFromSettings(config.settings);
+  // OS sandbox from settings (default off). The gate is the ask path for
+  // network hosts outside the allowlist; the handle is undefined when the
+  // sandbox is disabled, leaving every spawn site untouched. The hooks
+  // wiring reads this lazily, so assignment here covers post-gate fires.
+  sessionSandbox = createShellSandbox({
+    sessionRoot: config.cwd,
+    extraDeniedPaths: [config.globalSettingsPath],
+    settings: config.settings,
+    gate: permissionGate,
+  });
   // Mutable so Settings → waitForApproval takes effect on the next tool call
   // without rebuilding the toolset.
   const liveToolWatchdog: ToolWatchdogConfig = {
@@ -359,6 +377,7 @@ export async function assembleTUISession(
     // model-unreadable/unwritable, like the default settings file.
     secretGuardExtraDeniedPaths: [config.globalSettingsPath],
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
+    ...(sessionSandbox !== undefined ? { sandbox: sessionSandbox } : {}),
     ...(localSettingsForEnv?.env !== undefined
       ? { shellEnv: localSettingsForEnv.env }
       : {}),

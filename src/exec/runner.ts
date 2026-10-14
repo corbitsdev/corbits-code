@@ -66,6 +66,7 @@ import {
   type AgentToolset,
   type OperatorResult,
 } from "../agent/tools.js";
+import { createShellSandbox } from "../shell/sandbox-config.js";
 import { liveTelemetry } from "../telemetry/singleton.js";
 import {
   CREDENTIAL_FAILURE_USER_MESSAGE,
@@ -705,6 +706,15 @@ export async function runExec(config: Config): Promise<ExecResult> {
     });
     subAgentSessions = fleetSessions;
     const shellTimeout = shellTimeoutFromSettings(config.settings);
+    // OS sandbox from settings (default off). The gate is the ask path for
+    // network hosts outside the allowlist; the handle is undefined when the
+    // sandbox is disabled, leaving every spawn site untouched.
+    const sandbox = createShellSandbox({
+      sessionRoot: config.cwd,
+      extraDeniedPaths: [config.globalSettingsPath],
+      settings: config.settings,
+      gate: permissionGate,
+    });
     const toolWatchdog = toolWatchdogFromSettings(config.settings);
     const toolAvailability: ToolAvailability = {
       languageServerAvailable: detectLanguageServerAvailable(config.cwd),
@@ -733,6 +743,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       secretGuardExtraDeniedPaths: [config.globalSettingsPath],
       ...(shellTimeout !== undefined ? { shellTimeout } : {}),
       ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
+      ...(sandbox !== undefined ? { sandbox } : {}),
       ...(localSettingsForMode?.env !== undefined
         ? { shellEnv: localSettingsForMode.env }
         : {}),
@@ -1013,6 +1024,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
     } = await assembleSessionLifecycle({
       cwd: config.cwd,
       emitter,
+      // Hooks spawn under the same sandbox handle as run_shell: a hook file
+      // discovered in the (writable) session root must never raw-spawn.
+      getSandbox: () => sandbox,
       getTelemetry: () => liveTelemetry,
       getSessionId: () => sessionId,
       getSource: () => liveSource,
