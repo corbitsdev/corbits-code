@@ -551,9 +551,10 @@ export interface ChatAgentWiring {
   getSources: () => InferenceSource[];
   getDefaultSource: () => string;
   /**
-   * Read at each build so a compaction-mode toggle is visible on rebuild.
-   * assemble passes the completeness gate as `wrapPruning` so fold-commit
-   * side effects (stub notice, onFolded prune) run only after a fold lands.
+   * Read at each build so operator-side compaction changes are visible on
+   * rebuild. assemble passes the completeness gate as `wrapPruning` so
+   * fold-commit side effects (stub notice, onFolded prune) run only after a
+   * fold lands.
    */
   getCompactor: (wrapPruning?: (pruning: Compactor) => Compactor) => Compactor;
   /**

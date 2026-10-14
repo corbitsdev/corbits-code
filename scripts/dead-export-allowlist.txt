@@ -20,15 +20,6 @@
 # vendor workspaces on the next sync. Prune upstream, not here.
 vendor/
 
-# Deferred Codex/xAI usage-data cleanup owned by the CL-6815 lane: these
-# modules are fully dead deferred code with no live importers (not test-only
-# helpers), and that lane decides their fate. Scoped to the exact ts-prune
-# flags so a new dead export in these files fails the guard instead of
-# hiding under a whole-file exemption. Remove each entry with the export it
-# names when the owning cleanup lands.
-src/auth/codex/constants.ts: CODEX_REFRESH_SKEW_MS
-src/auth/codex/constants.ts: CODEX_HEADLESS_REFRESH_INTERVAL_MS
-
 # ts-prune parser false positives: bare tokens on `as const satisfies ...`
 # lines inside live exports. None of these is an export declaration.
 src/provider/reasoning-effort.ts: satisfies

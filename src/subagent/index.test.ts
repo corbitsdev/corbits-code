@@ -347,7 +347,8 @@ describe("sub-agent stop helpers", () => {
       evaluateSubAgentStop({
         hasToolCalls: false,
         lastAssistantText: SUMMARY_ONLY_NARRATION,
-        incompleteReportNudgeFired: true,
+        // The nudge bumps the cycle count (nudge-director wraps up here).
+        toolLessNarrationCycles: 2,
       }),
     ).toBe("incomplete-report-stop");
   });
@@ -362,13 +363,12 @@ describe("sub-agent stop helpers", () => {
     ).toBe("stop");
   });
 
-  test("evaluateSubAgentStop spiral uses toolLessNarrationCycles over the deprecated flag", () => {
+  test("evaluateSubAgentStop nudges once on the first tool-less turn, then stops at the cap", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: false,
         lastAssistantText: SUMMARY_ONLY_NARRATION,
         toolLessNarrationCycles: 1,
-        incompleteReportNudgeFired: true,
       }),
     ).toBe("incomplete-report");
     expect(

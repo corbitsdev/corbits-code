@@ -46,18 +46,7 @@ describe("scoped exemptions", () => {
   test("the real allowlist covers the named flags but not a sibling probe", () => {
     const rules = loadAllowlist();
     expect(
-      isAllowlisted(
-        rules,
-        "src/auth/codex/constants.ts",
-        "CODEX_REFRESH_SKEW_MS",
-      ),
-    ).toBe(true);
-    expect(
-      isAllowlisted(
-        rules,
-        "src/auth/codex/constants.ts",
-        "CODEX_HEADLESS_REFRESH_INTERVAL_MS",
-      ),
+      isAllowlisted(rules, "src/provider/reasoning-effort.ts", "satisfies"),
     ).toBe(true);
     expect(
       isAllowlisted(rules, "src/auth/codex/usage.ts", "someNewDeadExport"),

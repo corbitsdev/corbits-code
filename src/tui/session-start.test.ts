@@ -138,7 +138,6 @@ function launchConfig(overrides: Partial<Config> = {}): Config {
     providers: [],
     mcpServerEntries: [],
     sessionId: "launch-session",
-    noWorkflow: false,
     ...overrides,
   } as Config;
 }

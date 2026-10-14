@@ -105,17 +105,10 @@ export function evaluateSubAgentStop(input: {
   thrashState?: ThrashState;
   /** Final assistant text; missing envelope nudges once then salvages. */
   lastAssistantText: string;
-  /** 1-based tool-less turn count; falls back to `incompleteReportNudgeFired` when omitted. */
+  /** 1-based tool-less turn count; start at 1 for the first completed tool-less turn. */
   toolLessNarrationCycles?: number;
-  /**
-   * @deprecated Prefer `toolLessNarrationCycles`. True after the one-shot
-   * incomplete-report wrap-up nudge has been injected.
-   */
-  incompleteReportNudgeFired?: boolean;
 }): SubAgentStopReason | null {
-  const spiralCycles =
-    input.toolLessNarrationCycles ??
-    (input.incompleteReportNudgeFired === true ? 2 : 1);
+  const spiralCycles = input.toolLessNarrationCycles ?? 1;
   const spiralStop = (): SubAgentStopReason =>
     evaluateToolLessNarrationSpiral(spiralCycles) === "stop"
       ? "incomplete-report-stop"

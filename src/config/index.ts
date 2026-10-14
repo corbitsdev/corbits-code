@@ -662,8 +662,6 @@ export interface Config {
    */
   modelOverride?: boolean;
 
-  // Deprecated no-op retained for CLI compatibility.
-  noWorkflow: boolean;
   /**
    * Runtime settings view for provider resolution, including OAuth
    * projections never written to settings.json. Not for saveGlobalSettings —
@@ -887,7 +885,6 @@ export async function loadConfig(
   let provider: string | undefined;
   let model: string | undefined;
   let profileFlag: string | undefined;
-  let noWorkflow = false;
   const positional: string[] = [];
 
   const requireValue = (flag: string, value: string | undefined): string => {
@@ -947,10 +944,6 @@ export async function loadConfig(
     }
     if (arg === "--no-auto") {
       auto = false;
-      continue;
-    }
-    if (arg === "--no-workflow") {
-      noWorkflow = true;
       continue;
     }
     if (arg === "-p") {
@@ -1216,7 +1209,6 @@ export async function loadConfig(
     ...(director !== undefined ? { director } : {}),
     globalSettingsPath: effectiveSettingsPath,
     sessionId,
-    noWorkflow,
     ...(resumeMode !== undefined
       ? {
           resumeMode,

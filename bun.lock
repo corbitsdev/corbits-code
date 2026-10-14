@@ -231,10 +231,6 @@
         "@types/semver": "catalog:",
       },
     },
-    "workflows/_stub": {
-      "name": "@corbits/workflows-stub",
-      "version": "0.0.0",
-    },
   },
   "overrides": {
     "@intx/agent": "workspace:*",
@@ -321,8 +317,6 @@
     "@corbits/provider-opencode-go": ["@corbits/provider-opencode-go@workspace:packages/opencode-go"],
 
     "@corbits/provider-zen": ["@corbits/provider-zen@workspace:packages/zen"],
-
-    "@corbits/workflows-stub": ["@corbits/workflows-stub@workspace:workflows/_stub"],
 
     "@corbits/xai-provider": ["@corbits/xai-provider@0.1.2", "", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.2.0", "@corbits/openai-responses": "^0.2.0", "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-4gCSLehuE922UG5DeAQLMA3iaq5MzSEgKNuq2Lb4aJqEYsQ85t8rTmu0DXs+T6mHNq2cbCI9eCF4aXuyv420iA=="],
 
