@@ -1,8 +1,5 @@
 import { isSameTool } from "./canonical-tool-name.js";
-import {
-  DefaultDirector,
-  type ExtendedInferenceOptions,
-} from "@intx/inference";
+import { DefaultDirector } from "@intx/inference";
 import { createHash } from "node:crypto";
 import { getLogger } from "@intx/log";
 import type {
@@ -31,6 +28,11 @@ import { onTurnBoundary } from "./reactor-events.js";
 import { isOperatorOriginated } from "./message-provenance.js";
 import { errorMessage } from "./error-message.js";
 import { type } from "arktype";
+import {
+  composeDirectedPrompt,
+  inferWithEphemeralNudge,
+  withEphemeralNudge,
+} from "./director-core.js";
 import {
   applyManageTasks,
   hasActiveTasks,
@@ -73,34 +75,6 @@ function isInternalRecoveryAbort(
   event: Extract<ReactorInboundEvent, { type: "inference.error" }>,
 ): boolean {
   return isInternalRecoveryAbortRaw(event.error.raw);
-}
-
-function directorNudgeTurn(text: string): ConversationTurn {
-  return {
-    role: "user",
-    content: [{ type: "text", text: text.trim() }],
-    timestamp: Date.now(),
-  };
-}
-
-function withEphemeralNudge(
-  options: ExtendedInferenceOptions,
-  nudge: string,
-): ExtendedInferenceOptions {
-  const turn = directorNudgeTurn(nudge);
-  const existing = options.ephemeralTurns;
-  if (existing === undefined || existing.length === 0) {
-    return { ...options, ephemeralTurns: [turn] };
-  }
-  return { ...options, ephemeralTurns: [...existing, turn] };
-}
-
-function inferWithNudge(
-  capabilities: ReactorCapabilities,
-  nudge: string,
-  options?: ExtendedInferenceOptions,
-): ReactorAction {
-  return capabilities.infer(withEphemeralNudge(options ?? {}, nudge));
 }
 
 // agent.send() resolves only on reply (or fatal shutdown): a terminal bare
@@ -536,10 +510,7 @@ class ChatDirectorImpl extends DefaultDirector {
     const disciplineRules = familyPolicy.toolDisciplineRules;
     // Tool-discipline rules go at the tail: tail appends keep the prompt-
     // cache hit (99.1%) while a head edit drops it to 9%.
-    const composedPrompt =
-      disciplineRules !== undefined && disciplineRules.length > 0
-        ? `${systemPrompt}\n\n${disciplineRules}`
-        : systemPrompt;
+    const composedPrompt = composeDirectedPrompt(systemPrompt, disciplineRules);
     super(composedPrompt, toolDefinitions, {});
     this._systemPrompt = composedPrompt;
     this._toolDefinitions = toolDefinitions;
@@ -809,7 +780,7 @@ class ChatDirectorImpl extends DefaultDirector {
       ReactorAction,
       { type: "infer" }
     >;
-    rewritten[inferIndex] = inferWithNudge(
+    rewritten[inferIndex] = inferWithEphemeralNudge(
       capabilities,
       this.modelFamilyPolicy.wrapUpNudgeText,
       existing.options,
@@ -1133,7 +1104,7 @@ class ChatDirectorImpl extends DefaultDirector {
             this.declinedTerminationNudges++;
             return [
               capabilities.checkpoint("operator-declined"),
-              inferWithNudge(capabilities, DECLINED_OPEN_TASK_NUDGE),
+              inferWithEphemeralNudge(capabilities, DECLINED_OPEN_TASK_NUDGE),
             ];
           }
           this.logTerminationWithOpenTasks("operator-declined");
@@ -1176,7 +1147,7 @@ class ChatDirectorImpl extends DefaultDirector {
     ) {
       if (this.spacerEchoNudges < MAX_SPACER_ECHO_NUDGES) {
         this.spacerEchoNudges++;
-        return inferWithNudge(capabilities, SPACER_ECHO_NUDGE);
+        return inferWithEphemeralNudge(capabilities, SPACER_ECHO_NUDGE);
       }
     }
 
@@ -1258,7 +1229,7 @@ class ChatDirectorImpl extends DefaultDirector {
               { type: "wait" } | { type: "reply" }
             > => a.type !== "wait" && a.type !== "reply",
           );
-          return [...passThrough, inferWithNudge(capabilities, nudge)];
+          return [...passThrough, inferWithEphemeralNudge(capabilities, nudge)];
         }
       }
     }
@@ -1293,7 +1264,7 @@ class ChatDirectorImpl extends DefaultDirector {
           const nudge = coordinatorActive
             ? WORKFLOW_OPEN_TASK_NUDGE
             : IDLE_OPEN_TASK_NUDGE;
-          return [...passThrough, inferWithNudge(capabilities, nudge)];
+          return [...passThrough, inferWithEphemeralNudge(capabilities, nudge)];
         }
         this.logTerminationWithOpenTasks("idle-stall");
       }

@@ -3,17 +3,13 @@
  * recovery for quiet leaves.
  */
 
-import {
-  DefaultDirector,
-  type ExtendedInferenceOptions,
-} from "@intx/inference";
+import { DefaultDirector } from "@intx/inference";
 import type {
   ReactorInboundEvent,
   ReactorState,
   ReactorCapabilities,
   ReactorAction,
   ToolDefinition,
-  ConversationTurn,
   RetryPolicy,
 } from "@intx/types/runtime";
 import {
@@ -22,6 +18,11 @@ import {
 } from "../agent/compaction.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { createCorbitsRetryPolicy } from "../agent/retry-policy.js";
+import {
+  composeDirectedPrompt,
+  inferWithEphemeralNudge,
+  withEphemeralNudge,
+} from "../agent/director-core.js";
 import {
   EMPTY_THRASH_STATE,
   nextThrashState,
@@ -67,51 +68,10 @@ function hasVerbatimToolCallMarkup(
   );
 }
 
-function ephemeralNudgeTurn(text: string): ConversationTurn {
-  return {
-    role: "user",
-    content: [{ type: "text", text }],
-    timestamp: Date.now(),
-  };
-}
-
 const SUBAGENT_STALL_NUDGE =
   "No activity has been observed for a while. If you are waiting on a " +
   "background command, check its status now; otherwise continue working or " +
   "write your report.";
-
-function inferWithSubAgentNudge(
-  capabilities: ReactorCapabilities,
-  text: string,
-): ReactorAction {
-  const options: ExtendedInferenceOptions = {
-    ephemeralTurns: [
-      {
-        role: "user",
-        content: [{ type: "text", text }],
-        timestamp: Date.now(),
-      },
-    ],
-  };
-  return capabilities.infer(options);
-}
-
-/**
- * Attach the armed nudge to an existing infer instead of building a fresh
- * one — a tool_use turn must be followed by tool_result, never a bare user
- * turn, so the nudge rides the infer that follows the pending tool calls.
- */
-function withEphemeralNudge(
-  options: ExtendedInferenceOptions | undefined,
-  text: string,
-): ExtendedInferenceOptions {
-  const turn = ephemeralNudgeTurn(text);
-  const existing = options?.ephemeralTurns;
-  if (existing === undefined || existing.length === 0) {
-    return { ...(options ?? {}), ephemeralTurns: [turn] };
-  }
-  return { ...(options ?? {}), ephemeralTurns: [...existing, turn] };
-}
 
 function isEmptyContinuation(event: ReactorInboundEvent): boolean {
   if (event.type !== "message.received") return false;
@@ -240,10 +200,10 @@ export class SubAgentDirector extends DefaultDirector {
   ) {
     // Composed before super() like ChatDirectorImpl: the base director sends
     // its own copy, so anything appended after super() never reaches the wire.
-    const composedPrompt =
-      toolDisciplineRules !== undefined && toolDisciplineRules.length > 0
-        ? `${systemPrompt}\n\n${toolDisciplineRules}`
-        : systemPrompt;
+    const composedPrompt = composeDirectedPrompt(
+      systemPrompt,
+      toolDisciplineRules,
+    );
     super(composedPrompt, toolDefinitions, {});
     this._systemPrompt = composedPrompt;
     this.advertisedTools = toolDefinitions;
@@ -413,7 +373,7 @@ export class SubAgentDirector extends DefaultDirector {
         });
         return [
           capabilities.checkpoint("subagent-verbatim-tool-call-nudge"),
-          inferWithSubAgentNudge(capabilities, VERBATIM_TOOL_CALL_NUDGE),
+          inferWithEphemeralNudge(capabilities, VERBATIM_TOOL_CALL_NUDGE),
         ];
       }
       if (stop === "incomplete-report") {
@@ -434,7 +394,7 @@ export class SubAgentDirector extends DefaultDirector {
         });
         return [
           capabilities.checkpoint("subagent-incomplete-report-nudge"),
-          inferWithSubAgentNudge(
+          inferWithEphemeralNudge(
             capabilities,
             stubPlan ? PLAN_SUBSTANCE_NUDGE : INCOMPLETE_REPORT_NUDGE,
           ),
@@ -542,7 +502,7 @@ export class SubAgentDirector extends DefaultDirector {
       });
       return [
         capabilities.checkpoint("subagent-stall-nudge"),
-        inferWithSubAgentNudge(capabilities, SUBAGENT_STALL_NUDGE),
+        inferWithEphemeralNudge(capabilities, SUBAGENT_STALL_NUDGE),
       ];
     }
 
