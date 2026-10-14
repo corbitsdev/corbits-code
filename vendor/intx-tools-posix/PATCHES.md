@@ -26,7 +26,9 @@ describe. Companion to `size-cap-ts-paged-read-file` in
 
 `tools-posix.test.ts` — carries a small registry-contract test asserting
 the description names `Use offset=` and paging, so the wording cannot
-drift from the behavior it documents.
+drift from the behavior it documents. Upstream did not touch this package
+in the `5453d0b0` → `4cc6972` range (CL-10656 re-sync verified: the diff
+is empty), so the entry carried byte-identically.
 
 **Disposition:** Companion to `size-cap-ts-paged-read-file` (vendor/
 intx-inference). **Removal path:** the same upstream PR that adds the

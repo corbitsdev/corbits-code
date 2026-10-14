@@ -43,6 +43,14 @@ export function classifyNetworkError(cause: unknown): InferenceError {
   return { category: "retryable", message, raw: cause };
 }
 
+// An adapter that refuses to build a request has rejected the call's own
+// options before any network call, so the identical request fails the same
+// way on every attempt.
+export function classifyRequestBuildError(cause: unknown): InferenceError {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return { category: "fatal", message, raw: cause };
+}
+
 /**
  * `origin` mirrors AbortSignal.reason from the send path
  * (e.g. intercode `user-stop` / `internal-recovery` string literals).

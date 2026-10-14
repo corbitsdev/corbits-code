@@ -29,6 +29,64 @@ byte-identically with zero adaptation (`stopReason` chain verified at
 `src/testing/` subpackage (`waitUntil`), which the vendored
 `package.json` now exposes via the upstream `./testing` subpath export.
 
+### 2026-10-14 re-sync to `4cc6972` (CL-10656)
+
+All three entries re-carried; none dropped as upstream-absorbed (grep of the
+pristine `4cc6972` `packages/types` tree: `loadErrors`, `stopReason`,
+`normalizeError`, `credentialFailureOrdinal` all absent upstream). Upstream
+split `runtime.ts` into `runtime-core.ts` (runtime contracts) + the new
+`inference-events.ts` (event union); `runtime.ts` is now a two-line re-export
+barrel. The patch sites follow the split:
+
+- `inference.usage` stopReason → both declarations in
+  `inference-events.ts` (arktype mapping and the TS union) carry the
+  `types-ts-usage-stop-reason` marker.
+- `AuditStore.loadErrors` → `runtime-core.ts`, marker intact.
+- Retry-context (`RetryDecision.error?`, `RetrySituation.source` /
+  `credentialFailureOrdinal` / `credentialFailureHistory`,
+  `RetryPolicy.normalizeError`) → `runtime-core.ts`; the sites moved
+  unchanged from the old `runtime.ts`, and each now carries the
+  `runtime-ts-auth-recovery-context` marker (previously only the
+  `mediated-credential.ts` site carried one).
+- `mediated-credential.ts` was untouched upstream; its entry carried
+  byte-identically.
+
+Upstream also added `adapter-manifest.ts` (adapter manifest schema),
+`attachment-validation.ts`, `inbound-mail-policy.ts`,
+`credential-delivery.ts`, `format-safety-rating.ts`, `repo.ts`,
+`workflow-definition.ts`, `workflow-lifecycle.ts` — all carried verbatim,
+with the subpath exports the adopted vendored consumers import
+(`runtime-core`, `attachments`, `credential-delivery`,
+`format-safety-rating`, `inference-events`) wired into the vendored
+`package.json`. Resume audit (same day): the first pass wired only the
+five consumer-used new subpaths and dropped fifteen upstream exports
+(`base64`, `signals`, `hex`, `has-code`, `agent-address`,
+`workflow-run-id`, `message-id`, `concat`, `grants`, `grant-snapshot`,
+`credential-cipher`, `repo`, `inbound-mail-policy`,
+`workflow-definition`, `adapter-manifest`) that upstream's export map
+carries; since the vendored tree is wholesale, the vendored export map
+now mirrors upstream's 33 entries verbatim (src paths instead of dist).
+The vendored `@intx/inference` `package.json` likewise gained the
+`./manifest` subpath it was missing.
+The `sync.request` frame and the `agent.undeploy.ack`
+`statePushed` field left `sidecar.ts` with upstream `e75eee2`; first-party
+`src/` has zero references to either (grep evidence recorded in
+docs/VENDORING.md).
+
+## vendor-types-ts-runtime-format-safety-rating-compat
+
+`runtime.ts` — after the upstream moved `formatSafetyRatingText` to
+`format-safety-rating.ts`, the barrel keeps one compat re-export because
+the published `@corbits/openai-responses@0.2.1` dist imports it from the
+`./runtime` subpath (`dist/protocol/body.js`), and npm has no newer
+release that compiles against the new subpath. Without the re-export,
+`bun run build` fails to bundle the installed dist.
+
+**Disposition:** Compat shim, not a divergence of behavior. **Removal
+path:** the `@corbits/openai-responses` release whose dist imports
+`@intx/types/format-safety-rating`; drop this entry and the re-export
+lines in the same change.
+
 ## runtime-ts-auth-recovery-context
 
 `mediated-credential.ts` and `runtime.ts` — credential material can atomically
