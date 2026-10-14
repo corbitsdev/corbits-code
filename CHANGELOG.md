@@ -20,6 +20,57 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
+## [0.3.38] - 2026-10-13
+
+Written by hand, ahead of the cut, because this range changes behavior you may
+already be relying on.
+
+### What changed for you
+
+**`ask_director` now requires a typed `escalation` assessment (#1394).** The
+compatibility-sensitive change in this release: calls that omit `escalation`
+now fail with an error instead of parking a question. The argument carries
+`policyVersion`, `classification`, and the seven required facts. One of five
+classifications decides what happens next: `routine`, and
+`director_resolvable` with a comparable confidence alternative, continue
+internally without parking; `operator_decision_required`,
+`irreversible_or_sensitive`, and `outcome_blocked` always park the question
+with the parent or the operator, even when a listed alternative claims
+comparable confidence. The seven facts force a real accounting of what is
+blocked, what was tried, and what declining the ask costs.
+
+**Permission cards now offer "Reject and stop" (#1388).** A standing second
+row on every permission card, between Reject and Accept once: a plain deny
+with no grant — it never picks up a persistable scope — that aborts the
+in-flight turn and auto-denies any gates queued behind it. Ctrl+C shares the
+same path instead of resuming the run.
+
+**`web_fetch` and `web_search` now auto-allow in auto mode (#1412).** Auto
+mode is on by default, and these two read tools now execute under it without a
+prompt; outside auto mode they still ask. State of the permissions surface,
+plainly: if you want the prompts back, pass `--no-auto` to start in ask mode.
+
+Also in this release:
+
+- Subagents that fail or are cancelled now carry a typed terminal failure
+  record — `failure_class`, recovery availability with a typed reason, attempt
+  number — written once, never rewritten, so `wait_agents`, `list_agents`, and
+  mailbox mail cannot disagree and recovery is actionable (#1391).
+- Concurrent sessions and compacted transcripts share one authoritative
+  session log: concurrent writers on one directory cannot duplicate sequence
+  numbers or interleave entries (#1408, #1413).
+- Codex parallel tool calls replay arguments from `output_item.done` for
+  backends that never stream them as deltas, so calls no longer assemble as
+  `{}` (#1414).
+- Parked `ask_director` questions expire after 30 minutes and settle with a
+  timeout error instead of waiting forever (#1389).
+- Timed stalls on parked workers are bounded: the ask deadline sits at twice
+  the stall abort bound, so a re-surfaced wake turn gets a full cycle to prove
+  the parent alive (#1387).
+- Docs updated for all of the above (#1416).
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.37...v0.3.38
+
 ## [0.3.37] - 2026-10-11
 
 ### What's Changed
