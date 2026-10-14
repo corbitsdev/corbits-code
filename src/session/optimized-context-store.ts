@@ -1332,12 +1332,17 @@ export async function createSessionStores(
           const remove = [...new Set(toRemove)].filter((p) => !add.includes(p));
           extraPaths = [...new Set([...add, ...remove])];
 
-          for (const filepath of add) {
-            await git.add({ fs, dir, filepath });
+          // Array-form add/remove stages and unstages in one index write
+          // per call (isomorphic-git >= 1.42.7). On a mid-batch add failure
+          // the index is left unwritten and the catch below still resets
+          // every extraPath, so the all-or-nothing outcome matches the old
+          // per-file loop.
+          if (add.length > 0) {
+            await git.add({ fs, dir, filepath: add });
           }
-          for (const filepath of remove) {
+          if (remove.length > 0) {
             try {
-              await git.remove({ fs, dir, filepath });
+              await git.remove({ fs, dir, filepath: remove });
             } catch {
               // Already absent from the index.
             }
