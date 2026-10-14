@@ -22,6 +22,7 @@ import {
   workerPermissionGate,
 } from "../permission/reactor-authorize.js";
 import { createSessionStores } from "../session/optimized-context-store.js";
+import { redactedCorrelationId } from "../session/redacted-correlation.js";
 import { createShellOutputFeedMap } from "../session/shell-output-feed.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { type } from "arktype";
@@ -218,9 +219,11 @@ export function assertReplySend(
   result: SendResult,
 ): asserts result is Extract<SendResult, { type: "reply" }> {
   if (result.type === "reply") return;
+  // Error text carries only the redacted form; the live capability stays on
+  // the structured .correlationId property.
   const error = new Error(
     `Sub-agent send returned a suspended result ` +
-      `(correlationId=${result.correlationId}` +
+      `(correlationId=${redactedCorrelationId(result.correlationId)}` +
       `${result.approvalSnapshot !== undefined ? ", approvalSnapshot present" : ""})`,
   );
   Object.assign(error, {

@@ -331,6 +331,78 @@ recorded SHA to print exactly the lines that are ours. A correspondence
 test (`scripts/vendor-patch-ledger.test.ts`) fails if a marker anchor
 does not resolve to a ledger heading, or if a ledger heading has no marker.
 
+## Approval rail hygiene audit (CL-10679)
+
+App-side redaction built on CL-10678's provenance gate, audited against the
+CL-10678 base (`950a3e37`). Nothing in `vendor/` was modified for this audit;
+the vendored findings below are recorded as suppression/disposition notes.
+
+**Vendored validator-throw log (`reactor.ts:687`,
+`logger.warn`Correlation validator threw for ${correlationId}...``) —
+unreachable in production wiring.** `tryCorrelate` only calls a validator when
+one is injected (`correlationValidator !== undefined`), and both the vendored
+`@intx/agent` env contract and every production call site forward none (see
+the "Bearer correlation IDs and approval provenance" section above and the
+comment at `src/agent/live-tool-dispatch.ts`). Foreign ingress is dropped the
+line before it could ever be correlated (`createApprovalProvenanceGate` wraps
+the app's `createAgent` deliver seam, fail-closed on unknown mailboxes), so
+this vendored warn can log a bearer correlation ID only if a future wiring
+injects a validator — and then only when that validator throws. When a seam
+forwards the app validator, keep `createApprovalCorrelationValidator`'s
+`validate` non-throwing: it returns `Promise.resolve(...)`, never throws, so
+the death of this branch stays guaranteed even hot-swapped. **Second vendored
+full-ID site, promotion candidate:** the `processDelivery` fatal path
+(`reactor.ts` ~1906-1923 — `logger.error`Correlation dispatch failed: ${cause}``
+plus the `closeMessageRun` failure text) can carry a full correlation ID a
+correlation-path invariant failure embeds in its message (the registry's
+double-registration throw names the ID). The deliver-gate pre-drop makes that
+fatal branch effectively unreachable today (a throw can arise inside
+`tryCorrelate`'s patched acceptance/correlation region, but no untrusted
+delivery reaches it without first injecting a validator); recorded here so a
+future wiring that can reach it gets an ID-free receipt at the next sync.
+
+**Vendored retry-policy throw log (`harness.ts:1749`) — app-side
+disposition, no vendor edit.** The vendored `runInference` catch sanitizes the
+terminal error it shows the caller and passes policies pre-sanitized inputs,
+but the warn about a policy's own exception interpolates raw
+(`error=${cause.message}`). The app keeps its vendor tree untouched here and
+answers the exposure contractually instead: `RetryPolicy` implementations are
+trusted first-party code and must never embed credential-bearing text in an
+exception — documented on `createCorbitsRetryPolicy`
+(`src/agent/retry-policy.ts`). The vendored line is a promotion candidate if
+upstream adopts a sanitized clone for policy-exception logging; the raw
+terminal `inference.error` event keeps its existing sanitization.
+
+**App-side correlation-ID receipt redaction.** All app-side log sites that
+interpolated a correlation ID now emit the truncated, hash-suffixed form
+(`src/session/redacted-correlation.ts`): the parked-approval,
+late-decision and duplicate-resume warns in `src/session/approval-resume.ts`,
+the forged-approval discard receipt in `src/session/approval-provenance.ts`,
+and the acceptance-timeout warn in `src/tui/approval-delivery.ts`. The file
+log sink (`src/logging/sink.ts`) records debug level too, so nothing app-side
+carries the full ID at any log level; the full ID lives only on the in-memory
+transport that consumes it (message headers, gate table, operator surface).
+
+**Event-sink audit.** Correlation IDs do not reach model-visible history or
+tool-output-readable surfaces: `run.json` excludes correlation IDs (status/task/turn
+counts and usage only), the audit collector records `tool.start`/`tool.done`
+keyed by callId — not correlation ID — and `message.correlated` /
+`reactor.gate.blocked` events fan out to in-memory consumers (TUI occupancy
+wait, runtime bridge, watchdog recovery) without being persisted. The
+`metadata.json` checkpoint persists pending operations with their correlation
+IDs by design (the restart-resume path re-registers parked calls) — that is
+the credential cell's own storage, not a log or event sink.
+
+**Approval snapshot args at rest (CL-10679 R5).** The app's context-store
+write boundary (`src/session/pending-snapshot-scrub.ts`, wired into
+`src/session/optimized-context-store.ts`) now runs the result-side secret-shape
+scrubber (`scrubSecretShapedValue`) over every persisted
+`approvalSnapshot.arguments`. The re-dispatch artifact (`suspendedCall`)
+stays raw because the approved call must re-run with the arguments the
+operator saw; residual at-rest exposure in `suspendedCall.arguments` inside
+`metadata.json` is documented as a known gap for the vendored re-dispatch
+owner, not silently widened here.
+
 ## Re-syncing a vendored package to a newer upstream commit
 
 1. In the read-only upstream clone, confirm the commit to sync to and note

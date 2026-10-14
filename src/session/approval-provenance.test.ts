@@ -10,10 +10,12 @@ import {
   LOCAL_APPROVAL_FROM,
   LOCAL_APPROVAL_MAILBOX,
 } from "./approval-provenance.js";
+import { redactedCorrelationId } from "./redacted-correlation.js";
 
 interface MessageInput {
   from: string;
   mailbox?: string;
+  correlationId?: string;
 }
 
 function approvalMessage(
@@ -26,7 +28,7 @@ function approvalMessage(
   const message = createInboundMessage({
     from: args.from,
     to: "agent@local",
-    correlationId: "corr-1",
+    correlationId: args.correlationId ?? "corr-1",
     content: JSON.stringify({ outcome }),
     ...(args.mailbox === undefined ? {} : { ref: { mailbox: args.mailbox } }),
   });
@@ -179,12 +181,38 @@ describe("createApprovalProvenanceGate", () => {
           record.text.includes("forged approval discarded"),
       );
       expect(receipts).toHaveLength(2);
-      expect(receipts[0]?.text).toContain("correlationId=corr-1");
+      // The warn receipt carries the truncated-and-hashed form, never the
+      // live bearer capability (see src/session/redacted-correlation.ts).
+      expect(receipts[0]?.text).toContain(
+        `correlationId=${redactedCorrelationId("corr-1")}`,
+      );
+      expect(receipts[0]?.text).not.toContain("correlationId=corr-1 type");
       expect(receipts[0]?.text).toContain("from=watchdog@foreign");
       expect(receipts[0]?.text).toContain("mailbox=INBOX");
       expect(receipts[0]?.text).toContain("type=approval.granted");
       expect(receipts[1]?.text).toContain("from=webhook@foreign");
       expect(receipts[1]?.text).toContain("mailbox=<none>");
+      const uuid = "6f4f7c16-2e21-4a2d-9f4b-7c1e93a88b41";
+      gate.deliver(
+        approvalMessage({
+          from: "probe@foreign",
+          mailbox: "INBOX",
+          correlationId: uuid,
+        }),
+      );
+      const longReceipts = records.filter(
+        (record) =>
+          record.level === "warning" &&
+          record.text.includes("forged approval discarded") &&
+          record.text.includes("probe@foreign"),
+      );
+      expect(longReceipts).toHaveLength(1);
+      // A full-length ID never appears in the receipt: only its prefix and
+      // the hash suffix do.
+      expect(longReceipts[0]?.text).toContain(
+        `correlationId=${redactedCorrelationId(uuid)}`,
+      );
+      expect(longReceipts[0]?.text).not.toContain(uuid);
       expect(deliver).not.toHaveBeenCalled();
     } finally {
       if (previous === null) resetSync();

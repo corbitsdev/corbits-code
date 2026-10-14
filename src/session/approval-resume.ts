@@ -36,6 +36,8 @@ import {
   LOCAL_APPROVAL_FROM,
   LOCAL_APPROVAL_MAILBOX,
 } from "./approval-provenance.js";
+import { redactedCorrelationId } from "./redacted-correlation.js";
+import { canonicalSnapshotScrub } from "./pending-snapshot-scrub.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "approval-resume"]);
 
@@ -141,7 +143,7 @@ export function createSuspendedApprovalRecovery(args: {
           if (candidate === owned) candidate = undefined;
         },
         () => {
-          logger.warn`parked approval not presented correlation=${correlationId}`;
+          logger.warn`parked approval not presented correlation=${redactedCorrelationId(correlationId)}`;
         },
       );
     },
@@ -287,8 +289,18 @@ export async function resolveSuspendedApprovalFromStore(
   if (
     parked.name !== parsedPersisted.name ||
     parked.name !== parsedCaptured.name ||
-    !isDeepStrictEqual(parked.arguments, parsedPersisted.arguments ?? {}) ||
-    !isDeepStrictEqual(parked.arguments, parsedCaptured.arguments ?? {})
+    // Both sides of each comparison run through the same canonical scrub, so
+    // the persisted snapshot (scrubbed at the metadata write boundary) still
+    // matches the live raw snapshot: secret-shaped values are redacted
+    // identically on both sides; benign values are unchanged.
+    !isDeepStrictEqual(
+      canonicalSnapshotScrub(parked.arguments),
+      canonicalSnapshotScrub(parsedPersisted.arguments ?? {}),
+    ) ||
+    !isDeepStrictEqual(
+      canonicalSnapshotScrub(parked.arguments),
+      canonicalSnapshotScrub(parsedCaptured.arguments ?? {}),
+    )
   )
     return { ok: false, code: "snapshot-mismatch" };
   return { ok: true, parkedCallId: parked.id };
@@ -524,7 +536,7 @@ export function createApprovalResume(args: {
         return true;
       }
       if (timedOut) {
-        logger.warn`late approval decision dropped correlation=${correlationId} timeoutCall=${parkedCallId} outcome=${outcome?.allow === true ? "approved" : "rejected"}`;
+        logger.warn`late approval decision dropped correlation=${redactedCorrelationId(correlationId)} timeoutCall=${parkedCallId} outcome=${outcome?.allow === true ? "approved" : "rejected"}`;
         return true;
       }
       await deliverDecision(
@@ -555,7 +567,7 @@ export function createApprovalResume(args: {
       if (result.type !== "suspended") return Promise.resolve(false);
       const { correlationId } = result;
       if (handedOver.has(correlationId)) {
-        logger.warn`duplicate approval resume ignored correlation=${correlationId}`;
+        logger.warn`duplicate approval resume ignored correlation=${redactedCorrelationId(correlationId)}`;
         return Promise.resolve(true);
       }
       const ongoing = inflight.get(correlationId);
