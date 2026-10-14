@@ -62,6 +62,13 @@ import { listCommands } from "../commands/registry.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
+// Shared tail for both recordSent paths; append is best-effort recall.
+const logSentAppendFailure = (err: unknown): void => {
+  tuiLogger.debug("sent-message append failed: {error}", {
+    error: err instanceof Error ? err.message : String(err),
+  });
+};
+
 export type SubmissionRoute =
   | { kind: "empty" }
   | { kind: "command"; name: string; args: string }
@@ -447,11 +454,7 @@ export function createSubmitPath(
     state.sendAborted = false;
     if (text.trim().length > 0) {
       void appendSentMessage(state.config.cwd, state.sessionId, text).catch(
-        (err: unknown) => {
-          tuiLogger.debug("sent-message append failed: {error}", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        },
+        logSentAppendFailure,
       );
     }
     const ingested = await ingestOperatorPrompt(
@@ -547,11 +550,7 @@ export function createDeliverRouting(
         if (text.startsWith(ASK_DIRECTOR_WAKE_PREFIX)) return;
         if (text.startsWith(MAILBOX_MAIL_WAKE_PREFIX)) return;
         void appendSentMessage(state.config.cwd, state.sessionId, text).catch(
-          (err: unknown) => {
-            tuiLogger.debug("sent-message append failed: {error}", {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          },
+          logSentAppendFailure,
         );
       },
       captureGeneration: services.deliveryGeneration.capture,

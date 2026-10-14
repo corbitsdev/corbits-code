@@ -58,6 +58,7 @@ import {
 } from "../shell/chrome.js";
 import type { AppShell } from "../shell/internals.js";
 import { setShellInputSuspended } from "../shell/prompt.js";
+import { caughtDebug } from "../../logging/caught.js";
 import { warningsForPluginEntry } from "../../plugins/diagnostics.js";
 import { isPluginEnabledForSurface } from "../plugin-surface.js";
 import { resolveWaitForApproval } from "../../agent/tool-execution-watchdog.js";
@@ -237,11 +238,9 @@ export async function wireSettings(
   if (state.telemetryFirstRun) {
     void services.globalSettingsWriter
       .enqueue(() => markTelemetryNoticeShown(trueGlobalSettingsPath))
-      .catch((err: unknown) => {
-        tuiLogger.debug("telemetry notice watermark persist failed: {error}", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
+      .catch(
+        caughtDebug(tuiLogger, "telemetry notice watermark persist failed"),
+      );
   }
 
   // Post-upgrade release notes watermark policy:
@@ -261,11 +260,7 @@ export async function wireSettings(
       .enqueue(() =>
         markLastChangelogVersion(trueGlobalSettingsPath, stampVersion),
       )
-      .catch((err: unknown) => {
-        tuiLogger.debug("changelog watermark persist failed: {error}", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
+      .catch(caughtDebug(tuiLogger, "changelog watermark persist failed"));
   }
 
   // Every settings RMW in this runner shares this tail, including writes to
@@ -403,11 +398,7 @@ export async function wireSettings(
               nextProviders,
             );
           })
-          .catch((err: unknown) => {
-            tuiLogger.debug("go model prefetch failed: {error}", {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          });
+          .catch(caughtDebug(tuiLogger, "go model prefetch failed"));
       }
       if (isZenProvider({ name: providerName })) {
         void prefetchZenModels()
@@ -430,17 +421,9 @@ export async function wireSettings(
               nextProviders,
             );
           })
-          .catch((err: unknown) => {
-            tuiLogger.debug("zen model prefetch failed: {error}", {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          });
+          .catch(caughtDebug(tuiLogger, "zen model prefetch failed"));
       }
-    })().catch((err: unknown) => {
-      tuiLogger.debug("provider connect failed: {error}", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
+    })().catch(caughtDebug(tuiLogger, "provider connect failed"));
   };
 
   const pendingProviderRemovals = new Set<string>();
@@ -499,11 +482,7 @@ export async function wireSettings(
         listRecentModels(next),
         listFavoriteModels(next),
       );
-    })().catch((err: unknown) => {
-      tuiLogger.debug("model selection persist failed: {error}", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
+    })().catch(caughtDebug(tuiLogger, "model selection persist failed"));
   };
 
   const onFavoriteToggle = (id: string): void => {
@@ -526,11 +505,7 @@ export async function wireSettings(
         listRecentModels(next),
         listFavoriteModels(next),
       );
-    })().catch((err: unknown) => {
-      tuiLogger.debug("favorite toggle persist failed: {error}", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
+    })().catch(caughtDebug(tuiLogger, "favorite toggle persist failed"));
   };
 
   const onSetDefault = (id: string): void => {
@@ -561,11 +536,7 @@ export async function wireSettings(
       );
       state.config = { ...state.config, settings: next };
       state.systemNotice?.(`Default set to ${ref.model} (${ref.provider})`);
-    })().catch((err: unknown) => {
-      tuiLogger.debug("set default persist failed: {error}", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
+    })().catch(caughtDebug(tuiLogger, "set default persist failed"));
   };
 
   // Credential bit shared by the arm line and the post-delete notice: names
@@ -778,11 +749,7 @@ export async function wireSettings(
         ),
       );
     })()
-      .catch((err: unknown) => {
-        tuiLogger.debug("provider removal failed: {error}", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      })
+      .catch(caughtDebug(tuiLogger, "provider removal failed"))
       .finally(() => {
         pendingProviderRemovals.delete(provider);
       });

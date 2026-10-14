@@ -1289,10 +1289,6 @@ export function createSubAgentSessionStore(
     }
     endFollowupTurn(id, failLifecycle);
     pendingFailures.delete(id);
-    log.error("followup turn failed for {id}: {error}", {
-      id,
-      error: errorMessage(err),
-    });
   };
   const queueFollowupTurn = (
     id: string,

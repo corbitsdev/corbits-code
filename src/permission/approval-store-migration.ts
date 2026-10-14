@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { getLogger } from "@intx/log";
 
 import { canonicalGrantTool } from "../agent/canonical-tool-name.js";
+import { errorMessage } from "../agent/error-message.js";
 import { LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
 import { sessionDir } from "../session/index.js";
 import { chainObjectWrite } from "./store.js";
@@ -15,6 +16,8 @@ export interface ApprovalStoreMigrationFileResult {
   path: string;
   purged: number;
   backupPath?: string | undefined;
+  /** Why the file was skipped untouched (absent when migration ran). */
+  error?: string | undefined;
 }
 
 export interface ApprovalStoreMigrationResult {
@@ -101,6 +104,7 @@ export async function migrateApprovalStoreFile(
   const backupPath = `${path}.bak`;
   let purged = 0;
   let rewrote = false;
+  let skipped: string | undefined;
   try {
     await chainObjectWrite(path, async (current) => {
       const next: Record<string, unknown> = { ...current };
@@ -139,10 +143,7 @@ export async function migrateApprovalStoreFile(
         );
       } catch (err) {
         if (!isFileExistsError(err)) {
-          log.warn("Skipping approval-store migration for {path}: {error}", {
-            path,
-            error: err instanceof Error ? err.message : String(err),
-          });
+          skipped = `backup failed: ${errorMessage(err)}`;
           return undefined;
         }
       }
@@ -151,11 +152,14 @@ export async function migrateApprovalStoreFile(
       return next;
     });
   } catch (err) {
-    log.warn("Skipping approval-store migration for {path}: {error}", {
+    return {
       path,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return { path, purged: 0 };
+      purged: 0,
+      error: `rewrite failed: ${errorMessage(err)}`,
+    };
+  }
+  if (skipped !== undefined) {
+    return { path, purged: 0, error: skipped };
   }
   if (!rewrote) return { path, purged: 0 };
   return { path, purged, backupPath };
@@ -181,12 +185,19 @@ export async function migratePersistedApprovalStores(
     try {
       files.push(await migrateApprovalStoreFile(path));
     } catch (err) {
-      log.warn("Skipping approval-store migration for {path}: {error}", {
+      files.push({
         path,
-        error: err instanceof Error ? err.message : String(err),
+        purged: 0,
+        error: errorMessage(err),
       });
-      files.push({ path, purged: 0 });
     }
+  }
+  // One summary warn per migration, not one per store file.
+  const failed = files.filter((file) => file.error !== undefined);
+  if (failed.length > 0) {
+    log.warn("Skipped approval-store migration: {details}", {
+      details: failed.map((file) => `${file.path}: ${file.error}`).join("; "),
+    });
   }
   return {
     purged: files.reduce((total, file) => total + file.purged, 0),

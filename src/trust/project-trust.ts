@@ -52,15 +52,16 @@ const emptyStore = (): ProjectTrustStore => ({
 
 /**
  * Extract a schema-confirmed array field: missing → [], non-strings dropped.
- * Hand-edited partial files must not wipe consent.
+ * Hand-edited partial files must not wipe consent. Issues accumulate on
+ * `issues` for the caller's one summary warn per store.
  */
 function extractStringArrayField(
   value: unknown[] | undefined,
   field: string,
-  path: string,
+  issues: string[],
 ): string[] {
   if (value === undefined) {
-    logger.warn`project trust store missing ${field} at ${path}; defaulting to []`;
+    issues.push(`${field}: missing, defaulting to []`);
     return [];
   }
   const strings: string[] = [];
@@ -73,7 +74,7 @@ function extractStringArrayField(
     }
   }
   if (dropped > 0) {
-    logger.warn`project trust store dropping ${dropped} non-string entr${dropped === 1 ? "y" : "ies"} from ${field} at ${path}`;
+    issues.push(`${field}: dropped ${dropped} non-string entries`);
   }
   return strings;
 }
@@ -146,20 +147,23 @@ export async function readProjectTrustStore(
     logger.warn`project trust store has an invalid shape at ${path}: ${validated.summary}`;
     return { state: "invalid", store: emptyStore() };
   }
+  // Field/entry issues collect; the store gets one summary warn, not one
+  // per field or entry.
+  const issues: string[] = [];
   const trustedPluginPaths = extractStringArrayField(
     validated.trustedPluginPaths,
     "trustedPluginPaths",
-    path,
+    issues,
   );
   const trustedMcpFingerprints = extractStringArrayField(
     validated.trustedMcpFingerprints,
     "trustedMcpFingerprints",
-    path,
+    issues,
   );
   const trustedGrantFingerprints = extractStringArrayField(
     validated.trustedGrantFingerprints,
     "trustedGrantFingerprints",
-    path,
+    issues,
   );
   // Reject a record keyed to another repo: the file stores its repo and it
   // must match this cwd. A missing or non-string `repo` is invalid too, or a
@@ -176,18 +180,27 @@ export async function readProjectTrustStore(
   // Grants are recorded absolute (see resolveAgainstProjectCwd); a relative
   // entry would bind to process.cwd() — the confused-cwd bug path-trust.ts
   // guards against. Drop it.
-  const absolutePluginPaths: string[] = [];
-  for (const p of trustedPluginPaths) {
+  let nonAbsolute = 0;
+  const absolutePluginPaths = trustedPluginPaths.filter((p) => {
     if (!isAbsolute(p)) {
-      logger.warn`project trust store dropping non-absolute trustedPluginPaths entry at ${path}: ${p}`;
-      continue;
+      nonAbsolute += 1;
+      return false;
     }
-    absolutePluginPaths.push(resolve(p));
+    return true;
+  });
+  if (nonAbsolute > 0) {
+    issues.push(
+      `trustedPluginPaths: dropped ${nonAbsolute} non-absolute entries`,
+    );
+  }
+  // One summary warn per store, not one warn per field or per entry.
+  if (issues.length > 0) {
+    logger.warn`project trust store issues at ${path} (${issues.length}): ${issues.join("; ")}`;
   }
   return {
     state: "valid",
     store: {
-      trustedPluginPaths: absolutePluginPaths,
+      trustedPluginPaths: absolutePluginPaths.map((p) => resolve(p)),
       trustedMcpFingerprints: [...trustedMcpFingerprints],
       trustedGrantFingerprints: [...trustedGrantFingerprints],
     },

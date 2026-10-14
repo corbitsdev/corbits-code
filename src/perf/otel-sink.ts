@@ -270,7 +270,9 @@ export async function flushPerfToOtel(
   try {
     const resolved = resolveOtelExportConfig(settings, env);
     if (!resolved.ok) {
-      log.warn("OTEL export skipped: {message}", { message: resolved.message });
+      log.debug("OTEL export skipped: {message}", {
+        message: resolved.message,
+      });
       return;
     }
     config = resolved.config;

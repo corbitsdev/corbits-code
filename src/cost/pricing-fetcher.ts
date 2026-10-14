@@ -306,9 +306,7 @@ export function startPricingRefresh(
   const refreshIntervalMs =
     options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS;
   const timer = setInterval(() => {
-    loadPricing(options).catch((err: unknown) => {
-      process.stderr.write(`pricing-fetcher: refresh error: ${err}\n`);
-    });
+    void loadPricing(options);
   }, refreshIntervalMs);
   return timer;
 }

@@ -29,14 +29,9 @@ export function schedulePricingMetadataRefresh(
 ): void {
   if (refreshScheduled) return;
   refreshScheduled = true;
-  void loadPricing(options)
-    .then((cache) => {
-      if (cache !== null) applyPricingCacheMetadata(cache);
-    })
-    .catch((err: unknown) => {
-      // Match pricing-fetcher: keep refresh best-effort, surface the failure.
-      process.stderr.write(`pricing-metadata: refresh error: ${err}\n`);
-    });
+  void loadPricing(options).then((cache) => {
+    if (cache !== null) applyPricingCacheMetadata(cache);
+  });
 }
 
 export async function bootstrapPricingMetadata(

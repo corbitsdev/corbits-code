@@ -42,6 +42,7 @@ import {
 } from "../subagent/index.js";
 import { getProcessAdmissionQueue } from "../subagent/admission.js";
 import { disposeExecRuntime, formatCaughtError } from "./dispose.js";
+import { caughtDebug } from "../logging/caught.js";
 import {
   EXEC_MCP_CONNECT_WAIT_MS,
   EXEC_MCP_HANDSHAKE_TIMEOUT_MS,
@@ -468,7 +469,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
     priorState = prior?.kind === "ok" ? prior.state : undefined;
   } catch (err) {
     const message = formatCaughtError(err);
-    logger.error("exec setup failed: {error}", { error: message });
+    logger.error("exec setup failed: {error}", {
+      sessionId,
+      error: message,
+    });
     stderr.write(`Error: ${message}\n`);
     liveTelemetry.capture(
       "session_end",
@@ -598,11 +602,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
   try {
     // Pricing seed is optional for exec; continue without rates.
-    const inferenceDeps = await assembleInferenceBase((err: unknown) => {
-      logger.debug("seedPricingMetadataFromCache failed: {error}", {
-        error: sanitizeExecDiagnostic(formatCaughtError(err)),
-      });
-    });
+    const inferenceDeps = await assembleInferenceBase(
+      caughtDebug(
+        logger,
+        "seedPricingMetadataFromCache failed",
+        sanitizeExecDiagnostic,
+      ),
+    );
 
     // One-shot migration only when the path-trust file is absent. Headless
     // exec has no frame to corrupt, so skipped members write straight to stderr.
@@ -1217,22 +1223,22 @@ export async function runExec(config: Config): Promise<ExecResult> {
         // entry and would write the whole reply as a spurious partial.
         // Dispose is a no-op on success and a real record only if a cycle
         // died without a terminal event.
-        await activeAgent.close().catch((err: unknown) => {
-          logger.debug(
-            "agent.close during successful-send teardown failed: {error}",
-            {
-              error: sanitizeExecDiagnostic(formatCaughtError(err)),
-            },
+        await activeAgent
+          .close()
+          .catch(
+            caughtDebug(
+              logger,
+              "agent.close during successful-send teardown failed",
+              sanitizeExecDiagnostic,
+            ),
           );
-        });
-        await streamPromise.catch((err: unknown) => {
-          logger.debug(
-            "stream drain during successful-send teardown failed: {error}",
-            {
-              error: sanitizeExecDiagnostic(formatCaughtError(err)),
-            },
-          );
-        });
+        await streamPromise.catch(
+          caughtDebug(
+            logger,
+            "stream drain during successful-send teardown failed",
+            sanitizeExecDiagnostic,
+          ),
+        );
         await cycleRecorder.dispose("cancelled");
       } else {
         // Failed or aborted send: close() tears down stream consumers before
@@ -1241,22 +1247,22 @@ export async function runExec(config: Config): Promise<ExecResult> {
         await cycleRecorder.dispose(
           sendCompleted ? "cancelled" : "send-failed",
         );
-        await activeAgent.close().catch((err: unknown) => {
-          logger.debug(
-            "agent.close during failed-send teardown failed: {error}",
-            {
-              error: sanitizeExecDiagnostic(formatCaughtError(err)),
-            },
+        await activeAgent
+          .close()
+          .catch(
+            caughtDebug(
+              logger,
+              "agent.close during failed-send teardown failed",
+              sanitizeExecDiagnostic,
+            ),
           );
-        });
-        await streamPromise.catch((err: unknown) => {
-          logger.debug(
-            "stream drain during failed-send teardown failed: {error}",
-            {
-              error: sanitizeExecDiagnostic(formatCaughtError(err)),
-            },
-          );
-        });
+        await streamPromise.catch(
+          caughtDebug(
+            logger,
+            "stream drain during failed-send teardown failed",
+            sanitizeExecDiagnostic,
+          ),
+        );
       }
     }
 
@@ -1350,7 +1356,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
     return result;
   } catch (err) {
     const diagnosticMessage = sanitizeExecDiagnostic(formatCaughtError(err));
-    logger.error("exec failed: {error}", { error: diagnosticMessage });
+    logger.error("exec failed: {error}", {
+      sessionId,
+      error: diagnosticMessage,
+    });
     const userMessage = sanitizeExecDiagnostic(
       execUserFailureMessage(
         config,
@@ -1391,7 +1400,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
       });
     } catch (err: unknown) {
       const message = sanitizeExecDiagnostic(formatCaughtError(err));
-      logger.error("runtime dispose failed: {error}", { error: message });
+      logger.error("runtime dispose failed: {error}", {
+        sessionId,
+        error: message,
+      });
       stderr.write(`Error: runtime dispose failed: ${message}\n`);
       if (result !== undefined) {
         result.exitCode = 1;

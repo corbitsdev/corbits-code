@@ -509,7 +509,7 @@ export function createModelSummarizer(
           failureClass === "provider";
         if (retryable && !retried.has(failureClass)) {
           retried.add(failureClass);
-          logger.warn(
+          logger.debug(
             "compaction summary call failed ({class}); retrying once: {error}",
             { class: failureClass, error: err.message },
           );
@@ -517,7 +517,7 @@ export function createModelSummarizer(
             try {
               await options.refreshAuth?.();
             } catch (refreshError) {
-              logger.warn(
+              logger.debug(
                 "credential re-read after summary auth failure failed: {error}",
                 {
                   error:
