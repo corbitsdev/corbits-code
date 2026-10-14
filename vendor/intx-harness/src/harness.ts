@@ -29,14 +29,31 @@ import type {
   ContextStore,
   InboundMessage,
   InferenceSource,
+  MessageRef,
   MessageTransport,
-  Unsubscribe,
 } from "@intx/types/runtime";
 
 import { createConnectorRouter, type RouteDecision } from "./connector-router";
 import { driveConnectorReplies } from "./reply-drain";
 
 const logger = getLogger(["interchange", "harness"]);
+
+/**
+ * Interchange keyword flag the INBOX watch puts on a message whose
+ * `transport.fetchFull` threw. The message stays in the INBOX rather than being
+ * consumed, because part of what makes a fetch throw is an envelope the sender
+ * chose and the rest is local (a uid a concurrent expunge removed, a faulting
+ * read), so deleting on it would put a peer in charge of whether its own mail
+ * survives.
+ *
+ * The keyword is what keeps the watch from attempting the same uid again in the
+ * run that flagged it, on the premise that a transport delivers a second
+ * arrival event for a uid already resident in the mailbox -- which no transport
+ * here does. Nothing in this package re-attempts a flagged message either, so
+ * the flag preserves the mail and surfaces it to a search for
+ * `hasFlags: [MAIL_FETCH_FAILED_FLAG]`, but gives it no path back to delivery.
+ */
+export const MAIL_FETCH_FAILED_FLAG = "$FetchFailed";
 
 /**
  * Env extension the composition layer requires beyond `BaseEnv`. Tools
@@ -294,8 +311,8 @@ export async function createHarness<EnvReq extends MailEnv>(
 
   // From here through the final `return`, the agent is constructed
   // and the workdir lock is held. Anything that throws -- the
-  // `driveConnectorReplies` setup, `transport.watch()`,
-  // anything in the watch callback's synchronous registration -- has
+  // `driveConnectorReplies` setup, `transport.watch()` rejecting,
+  // a throw from the watch callback's registration -- has
   // to release the lock by closing the agent before re-raising; the
   // caller never sees the agent and cannot do it themselves.
   // `createAgent` covers its own internal failure paths via its
@@ -327,35 +344,49 @@ export async function createHarness<EnvReq extends MailEnv>(
         : {}),
     });
 
-    // Delete a message from the INBOX after it has been delivered to the
-    // reactor.
-    //
-    // A failure here is logged and swallowed: the router state has
-    // already been committed and `agent.deliver` has accepted the
-    // message, so re-raising would unwind a half-applied delivery. The
-    // message stays in the INBOX and a future startup (or watch firing)
-    // re-fetches it, re-routes it, and re-delivers it. The router's
-    // persisted state makes that benign on the routing side: the sender
-    // is already a thread participant, so `route()` returns either a
-    // `continue` (which is a no-op state mutation since the sender is
-    // unchanged) or a `passthrough` (no headers match). The agent's
-    // director sees a duplicate `message.received`; idempotent
-    // directors are unaffected, and the audit trail records the
-    // duplicate for post-hoc reconciliation.
-    async function consumeFromInbox(message: InboundMessage): Promise<void> {
+    // A failure here is logged and swallowed: the router state is already
+    // committed and `agent.deliver` has accepted the message, so re-raising
+    // would unwind a half-applied delivery. A redelivery shows the director
+    // a duplicate `message.received`.
+    async function consumeFromInbox(ref: MessageRef): Promise<void> {
       try {
-        await transport.setFlags(message.ref, ["\\Deleted"]);
+        await transport.setFlags(ref, ["\\Deleted"]);
         await transport.expunge("INBOX");
       } catch (cause) {
-        logger.warn`Failed to consume message uid=${message.ref.uid} from INBOX: ${cause}`;
+        logger.warn`Failed to consume message uid=${ref.uid} from INBOX: ${cause}`;
       }
     }
 
-    // INBOX watch loop. Subscribe before the agent's reactor is fully
-    // settled so no message is missed in the window between subscription
-    // and the first watch callback.
+    // Whether an earlier attempt on this uid already failed its fetch and
+    // said so on the message. The transport is asked rather than an
+    // in-process uid set because that is where the record lives: on the
+    // message, which outlives the process that wrote it. That record is
+    // what a search on `MAIL_FETCH_FAILED_FLAG` surfaces to an operator.
+    async function fetchAlreadyFailed(ref: MessageRef): Promise<boolean> {
+      const flagged = await transport.search("INBOX", {
+        hasFlags: [MAIL_FETCH_FAILED_FLAG],
+      });
+      return flagged.some((candidate) => candidate.uid === ref.uid);
+    }
+
+    // A flag write that fails leaves the message unflagged, so a later
+    // arrival event for the same uid attempts the fetch again. That is the
+    // safe direction to fail in: the message is still in the INBOX, and the
+    // attempt that comes after a transient fault may well deliver it.
+    async function markFetchFailed(ref: MessageRef): Promise<void> {
+      try {
+        await transport.setFlags(ref, [MAIL_FETCH_FAILED_FLAG]);
+      } catch (cause) {
+        logger.warn`Failed to flag unfetchable message uid=${ref.uid} in INBOX: ${cause}`;
+      }
+    }
+
+    // INBOX watch loop. The transport registers the callback before its
+    // promise resolves, so a message that arrives during acceptance is
+    // not missed. A refusal rejects inside this try, and the finally
+    // closes the agent.
     let stopped = false;
-    const unsubscribe: Unsubscribe = transport.watch("INBOX", (event) => {
+    const unsubscribe = await transport.watch("INBOX", (event) => {
       if (stopped) return;
       if (event.type !== "exists") return;
 
@@ -363,11 +394,33 @@ export async function createHarness<EnvReq extends MailEnv>(
 
       void (async () => {
         try {
+          if (await fetchAlreadyFailed(ref)) {
+            // An earlier attempt on this uid failed and said so on the
+            // message. Part of what makes a fetch fail is permanent, and the
+            // watch cannot tell that part from the rest, so it leaves the
+            // message flagged in the INBOX and delivers nothing.
+            logger.debug`Skipping message uid=${event.uid}: an earlier fetch failed and flagged it ${MAIL_FETCH_FAILED_FLAG}`;
+            return;
+          }
+          if (stopped) return;
+
           let message: InboundMessage;
           try {
             message = await transport.fetchFull(ref);
           } catch (cause) {
-            logger.error`Failed to fetch message uid=${event.uid}: ${cause}`;
+            // What reaches here is not only a message the transport could not
+            // assemble. The same throw covers a uid a concurrent expunge
+            // already removed, where there is nothing left to consume, and a
+            // faulting read of sound bytes, where a later attempt could still
+            // succeed. Only the assembly case is input a peer chooses, and
+            // consuming on it would let a peer delete its own mail out of the
+            // INBOX by malforming one header -- so the message is flagged and
+            // left where it is. Inventing the flags and signature status the
+            // transport never read would vouch for a message it did not, so
+            // the message is not delivered either.
+            logger.error`Failed to fetch message uid=${event.uid}; flagging it ${MAIL_FETCH_FAILED_FLAG} and leaving it in the INBOX: ${cause}`;
+            if (stopped) return;
+            await markFetchFailed(ref);
             return;
           }
 
@@ -403,7 +456,7 @@ export async function createHarness<EnvReq extends MailEnv>(
           connectorRouter.commit(decision);
           if (stopped) return;
           agent.deliver(message);
-          await consumeFromInbox(message);
+          await consumeFromInbox(message.ref);
         } catch (cause) {
           // `agent.deliver` throws `AgentClosedError` synchronously when
           // called after the agent has closed. The `if (stopped) return`
@@ -449,7 +502,7 @@ export async function createHarness<EnvReq extends MailEnv>(
   } finally {
     if (!harnessSucceeded) {
       // Close the agent without waiting on its shutdown timeout so a
-      // synchronous post-`createAgent` throw does not stall the
+      // throw after `createAgent` does not stall the
       // caller's failure path. The `.catch` swallows any rejection
       // from the close: the caller is already receiving the original
       // throw, and a noisier-than-original close failure here would
