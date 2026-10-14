@@ -24,6 +24,7 @@ import {
 } from "./approval-resume.js";
 import { createSessionOperationQueue } from "../tui/delivery-queue.js";
 import { defined } from "../../testkit/defined.js";
+import { redactedCorrelationId } from "./redacted-correlation.js";
 import {
   approvalTimeoutTurn as timeoutTurn,
   assistantToolCallTurn as assistantTurn,
@@ -718,6 +719,69 @@ describe("suspended approval recovery", () => {
     expect(outcome.code).toBe("unverified-snapshot-mismatch");
     expect(JSON.stringify(outcome)).not.toContain("secret");
     expect(mismatch.delivered).toEqual([]);
+  });
+
+  test("a failed resume attempt refuses with the underlying cause, not an opaque error", async () => {
+    const t = recovery({ gate: "allow" });
+    const failing = createSuspendedApprovalRecovery({
+      storage: () => storeWith([operation]),
+      resume: {
+        handle: async () => {
+          throw new Error("deliver failed: transport closed");
+        },
+        status: t.resume.status,
+      },
+    });
+    failing.capture(result, () => true);
+
+    const outcome = await failing.tryResumeOnce();
+
+    expect(outcome.code).toBe("error");
+    expect(outcome.detail).toContain("Error");
+    expect(outcome.detail).toContain("deliver failed: transport closed");
+  });
+
+  test("a storage failure during resume verification carries its cause", async () => {
+    const failing = createSuspendedApprovalRecovery({
+      storage: () => ({
+        load: async () => {
+          throw new Error("store read failed: disk I/O error");
+        },
+      }),
+      resume: recovery({ gate: "allow" }).resume,
+    });
+    failing.capture(result, () => true);
+
+    const outcome = await failing.tryResumeOnce();
+
+    expect(outcome.code).toBe("error");
+    expect(outcome.detail).toContain("store read failed: disk I/O error");
+  });
+
+  test("a failing attempt's cause carries neither a secret nor a correlation ID in full form", async () => {
+    // A storage failure whose message embeds a bearer-shaped token and the
+    // parked call's correlation ID: the detail must redact both — the
+    // correlation ID is a bearer capability too (approval-provenance).
+    const correlationId = "6f4f7c16-2e21-4a2d-9f4b-7c1e93a88b41";
+    const failing = createSuspendedApprovalRecovery({
+      storage: () => ({
+        load: async () => {
+          throw new Error(
+            `gate dispatch failed: Bearer sk-live-abcdef0123456789ghij correlation=${correlationId}`,
+          );
+        },
+      }),
+      resume: recovery({ gate: "allow" }).resume,
+    });
+    failing.capture(result, () => true);
+
+    const outcome = await failing.tryResumeOnce();
+
+    expect(outcome.code).toBe("error");
+    expect(outcome.detail).toContain("[redacted: looks like a credential]");
+    expect(outcome.detail).toContain(redactedCorrelationId(correlationId));
+    expect(outcome.detail).not.toContain("sk-live-abcdef0123456789ghij");
+    expect(outcome.detail).not.toContain(correlationId);
   });
 
   test("a stale generation or a cleared capture never presents", async () => {

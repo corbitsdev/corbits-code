@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { redactedCorrelationId } from "./redacted-correlation.js";
+import {
+  redactedCorrelationId,
+  scrubCorrelationShapedIds,
+} from "./redacted-correlation.js";
 
 describe("redactedCorrelationId", () => {
   test("never exposes the full ID", () => {
@@ -27,5 +30,21 @@ describe("redactedCorrelationId", () => {
     const b = "12345678-2222-4a2d-9f4b-7c1e93a88b41";
     expect(a.slice(0, 8)).toBe(b.slice(0, 8));
     expect(redactedCorrelationId(a)).not.toBe(redactedCorrelationId(b));
+  });
+});
+
+describe("scrubCorrelationShapedIds", () => {
+  test("redacts every UUID-shaped id to its standard redacted form", () => {
+    const a = "6f4f7c16-2e21-4a2d-9f4b-7c1e93a88b41";
+    const b = "5a5dfc8e-90cd-4f6a-b6d3-4e8a1a2b3c4d";
+    const out = scrubCorrelationShapedIds(`drop ${a} then ${b}`);
+    expect(out).toBe(
+      `drop ${redactedCorrelationId(a)} then ${redactedCorrelationId(b)}`,
+    );
+  });
+
+  test("leaves prose and non-correlation tokens intact", () => {
+    const text = "store read failed for path ~/.corbits/settings.json: EIO";
+    expect(scrubCorrelationShapedIds(text)).toBe(text);
   });
 });

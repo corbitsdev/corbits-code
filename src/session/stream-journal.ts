@@ -191,7 +191,17 @@ export function createCycleTextRecorder(
     const thinkingSnapshot = cycleThinkingText;
     cycleText = "";
     cycleThinkingText = "";
-    if (opts?.drain !== undefined) await opts.drain.catch(() => undefined);
+    if (opts?.drain !== undefined) {
+      await opts.drain.catch((err: unknown) =>
+        getLogger([LOG_NAMESPACE_ROOT, "session", "partial"]).warn(
+          "stream journal drain failed on dispose: {error}",
+          {
+            reason,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        ),
+      );
+    }
     await writeRecord(reason, snapshot, thinkingSnapshot);
     return snapshot;
   };

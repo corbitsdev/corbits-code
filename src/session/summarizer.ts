@@ -91,10 +91,12 @@ export async function buildArchiveSummaryExcerpt(
       let body: string | undefined;
       if (occ.gap === true) {
         body = "(payload not stored)";
+        logger.warn`compaction evidence gap for occurrence=${occ.occurrenceId} kind=${occ.kind}`;
       } else {
         try {
           body = await archive.readAuthorizedPayload(occ.occurrenceId);
-        } catch {
+        } catch (err) {
+          logger.warn`compactable evidence payload unreadable occurrence=${occ.occurrenceId} kind=${occ.kind} error=${err instanceof Error ? err.message : String(err)}`;
           omitted++;
           continue;
         }
