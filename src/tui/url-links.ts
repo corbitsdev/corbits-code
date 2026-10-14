@@ -398,7 +398,22 @@ export function armMarkdownLinks(
     if (start === null || !isUrlOpenClick(event)) return;
     if (markdownLinkAt(renderer, event.x, event.y) === start) openUrl(start);
   };
-  target.onMouseOut = () => {
+  target.onMouseOut = (event) => {
+    // 0.6.x refreshes over/out lazily, so an out earned by an earlier
+    // pointer position can land between a press and its release although
+    // the pointer never moved. An out whose coordinates still resolve to a
+    // descendant of target means the pointer stayed inside the transcript —
+    // only an actual departure clears the press.
+    try {
+      let current: Renderable | null | undefined =
+        Renderable.renderablesByNumber.get(renderer.hitTest(event.x, event.y));
+      while (current) {
+        if (current === target) return;
+        current = current.parent;
+      }
+    } catch {
+      // Unresolvable hit: treat as departed, like pre-0.6 did implicitly.
+    }
     press = null;
   };
 }

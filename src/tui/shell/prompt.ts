@@ -45,6 +45,7 @@ import {
   shellInternals,
   shellPromptImageSource,
   shellRecognitionSource,
+  type ShellRenderer,
 } from "./internals.js";
 import {
   appendStreamRow,
@@ -177,17 +178,19 @@ export function setPromptCostContext(
   paintPromptBorder(shell);
 }
 
-let cachedPromptSyntaxStyle: SyntaxStyle | null = null;
-
-let cachedPromptRecognizedStyleId: number | null = null;
+/** 0.6.x native styles must name their owning Context — the live renderer's
+ * native scene — so the style is keyed per renderer instead of a module
+ * global; `promptStyleGeneration` invalidates it like the old cache did. */
+const promptStylesByRenderer = new WeakMap<
+  ShellRenderer,
+  { generation: number; style: SyntaxStyle }
+>();
 
 let promptStyleGeneration = 0;
 
 const promptHighlightGenerations = new WeakMap<AppShell, number>();
 
 onThemeChange(() => {
-  cachedPromptSyntaxStyle = null;
-  cachedPromptRecognizedStyleId = null;
   promptStyleGeneration += 1;
 });
 
@@ -195,17 +198,20 @@ onThemeChange(() => {
  * Lazy like `transcriptSyntaxStyle`: construction reaches into the native
  * render lib.
  */
-function promptRecognizedStyleId(): number {
-  if (cachedPromptSyntaxStyle === null) {
-    cachedPromptSyntaxStyle = SyntaxStyle.fromStyles({
-      recognized: { fg: UI.action },
-    });
+function promptStyleFor(renderer: ShellRenderer): SyntaxStyle {
+  const cached = promptStylesByRenderer.get(renderer);
+  if (cached !== undefined && cached.generation === promptStyleGeneration) {
+    return cached.style;
   }
-  if (cachedPromptRecognizedStyleId === null) {
-    cachedPromptRecognizedStyleId =
-      cachedPromptSyntaxStyle.resolveStyleId("recognized") ?? 0;
-  }
-  return cachedPromptRecognizedStyleId;
+  const style = SyntaxStyle.fromStyles(
+    { recognized: { fg: UI.action } },
+    renderer.nativeScene,
+  );
+  promptStylesByRenderer.set(renderer, {
+    generation: promptStyleGeneration,
+    style,
+  });
+  return style;
 }
 
 const promptHighlightedValue = new WeakMap<AppShell, string>();
@@ -226,8 +232,9 @@ export function syncPromptHighlights(shell: AppShell): void {
   promptHighlightedValue.set(shell, value);
   promptHighlightGenerations.set(shell, promptStyleGeneration);
 
-  const styleId = promptRecognizedStyleId();
-  shell.prompt.syntaxStyle = cachedPromptSyntaxStyle;
+  const style = promptStyleFor(shell.renderer);
+  const styleId = style.resolveStyleId("recognized") ?? 0;
+  shell.prompt.syntaxStyle = style;
   shell.prompt.clearAllHighlights();
   const matcher = resolvePromptRecognitionMatcher(source);
   for (const span of resolvePromptHighlightSpans(value, matcher)) {

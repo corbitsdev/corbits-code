@@ -1,7 +1,7 @@
 /** Transcript stream row model — product-skin styling for plain and
  * markdown renderables. */
 
-import { SyntaxStyle } from "@opentui/core";
+import { SyntaxStyle, type CliRenderer } from "@opentui/core";
 
 import { stringWidth, wrapLines } from "./view/height.js";
 import type { DiffView } from "./diff.js";
@@ -773,17 +773,35 @@ function markdownStyles() {
   };
 }
 
-let cachedSyntaxStyle: SyntaxStyle | null = null;
+/** 0.6.x native styles must name the Context that owns them; the owner is the
+ * live renderer, so the shared style is keyed per renderer instead of held in
+ * a module global. A theme pin bumps the generation; the next reader rebuilds
+ * from the new `UI` colors, matching the old invalidation. */
+const transcriptStylesByRenderer = new WeakMap<
+  CliRenderer,
+  { generation: number; style: SyntaxStyle }
+>();
 
-/** Shared transcript SyntaxStyle, built lazily — the native render lib is
- * unreachable until a renderer exists. */
-export function transcriptSyntaxStyle(): SyntaxStyle {
-  if (cachedSyntaxStyle === null) {
-    cachedSyntaxStyle = SyntaxStyle.fromStyles({ ...markdownStyles() });
+let transcriptStyleGeneration = 0;
+
+/** Shared transcript SyntaxStyle for `ctx`, built lazily — the native render
+ * lib is unreachable until a renderer exists. */
+export function transcriptSyntaxStyle(ctx: CliRenderer): SyntaxStyle {
+  const cached = transcriptStylesByRenderer.get(ctx);
+  if (cached !== undefined && cached.generation === transcriptStyleGeneration) {
+    return cached.style;
   }
-  return cachedSyntaxStyle;
+  const style = SyntaxStyle.fromStyles(
+    { ...markdownStyles() },
+    ctx.nativeScene,
+  );
+  transcriptStylesByRenderer.set(ctx, {
+    generation: transcriptStyleGeneration,
+    style,
+  });
+  return style;
 }
 
 onThemeChange(() => {
-  cachedSyntaxStyle = null;
+  transcriptStyleGeneration += 1;
 });

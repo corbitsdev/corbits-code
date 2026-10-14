@@ -25,23 +25,38 @@ afterEach(() => {
 });
 
 /** Live heading colour in the transcript registry. */
-function registryHeadingFg(): RGBA | undefined {
-  return transcriptSyntaxStyle().getAllStyles().get("markup.heading.1")?.fg;
+function registryHeadingFg(h: Harness): RGBA | undefined {
+  return transcriptSyntaxStyle(h.renderer)
+    .getAllStyles()
+    .get("markup.heading.1")?.fg;
 }
 
 function painted(spans: CapturedSpan[], text: string, fg: RGBA): boolean {
   return spans.some((s) => s.text.includes(text) && s.fg.equals(fg));
 }
 
+/** 0.6.x leases a session buffer around each presented frame; a capture
+ * landing inside that window throws OutputBusy. The poll retries on the
+ * next round anyway, so a losing capture keeps polling instead of
+ * throwing — the ready predicate, never the trace, decides the outcome. */
+function readSpans(h: Harness): CapturedSpan[] {
+  try {
+    return h.captureSpans().lines.flatMap((line) => line.spans);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("OutputBusy")) return [];
+    throw err;
+  }
+}
+
 async function settleSpans(
   h: Harness,
   ready: (spans: CapturedSpan[]) => boolean,
 ): Promise<CapturedSpan[]> {
-  let spans = h.captureSpans().lines.flatMap((line) => line.spans);
+  let spans = readSpans(h);
   for (let i = 0; i < 400 && !ready(spans); i++) {
     await h.renderOnce();
     await new Promise((resolve) => setTimeout(resolve, 25));
-    spans = h.captureSpans().lines.flatMap((line) => line.spans);
+    spans = readSpans(h);
   }
   return spans;
 }
@@ -64,7 +79,7 @@ describe("applyThemePinLive", () => {
             painted(spans, "pin cycle", darkHeading),
           );
           expect(painted(before, "pin cycle", darkHeading)).toBe(true);
-          expect(registryHeadingFg()?.equals(darkHeading)).toBe(true);
+          expect(registryHeadingFg(h)?.equals(darkHeading)).toBe(true);
 
           // No cost movement anywhere in this cycle: the meter never moves,
           // so only an unconditional repaint repaints anything.
@@ -74,7 +89,7 @@ describe("applyThemePinLive", () => {
           expect(applied).toBe("corbits-light");
           expect(UI.name).toBe("corbits-light");
           expect(UI.ground).not.toBe(darkGround);
-          expect(registryHeadingFg()?.equals(lightHeading)).toBe(true);
+          expect(registryHeadingFg(h)?.equals(lightHeading)).toBe(true);
 
           const after = await settleSpans(h, (spans) =>
             painted(spans, "pin cycle", lightHeading),
@@ -106,14 +121,14 @@ describe("applyThemePinLive", () => {
             painted(spans, "pin cycle", lightHeading),
           );
           expect(painted(before, "pin cycle", lightHeading)).toBe(true);
-          expect(registryHeadingFg()?.equals(lightHeading)).toBe(true);
+          expect(registryHeadingFg(h)?.equals(lightHeading)).toBe(true);
 
           const applied = applyThemePinLive("dark", () =>
             repaintShellForTheme(shell),
           );
           expect(applied).toBe("corbits-dark");
           expect(UI.name).toBe("corbits-dark");
-          expect(registryHeadingFg()?.equals(darkHeading)).toBe(true);
+          expect(registryHeadingFg(h)?.equals(darkHeading)).toBe(true);
 
           const after = await settleSpans(h, (spans) =>
             painted(spans, "pin cycle", darkHeading),
@@ -129,11 +144,13 @@ describe("applyThemePinLive", () => {
     );
   }, 30000);
 
-  test("auto re-resolves through the startup path and rebuilds the registry", () => {
+  test("auto re-resolves through the startup path and rebuilds the registry", async () => {
     setTheme("corbits-dark");
-    const applied = applyThemePinLive("auto", () => undefined);
-    expect(["corbits-dark", "corbits-light"]).toContain(applied);
-    expect(UI.name).toBe(applied);
-    expect(registryHeadingFg()?.equals(RGBA.fromHex(UI.heading))).toBe(true);
+    await withTestRenderer(async (h) => {
+      const applied = applyThemePinLive("auto", () => undefined);
+      expect(["corbits-dark", "corbits-light"]).toContain(applied);
+      expect(UI.name).toBe(applied);
+      expect(registryHeadingFg(h)?.equals(RGBA.fromHex(UI.heading))).toBe(true);
+    });
   });
 });

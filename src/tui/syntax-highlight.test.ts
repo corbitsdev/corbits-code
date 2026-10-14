@@ -1,6 +1,7 @@
 /**
  * Fenced-code highlighting: colour lives in the native renderer
- * (transcriptSyntaxStyle() over the bundled tree-sitter grammars), while the
+ * (the per-renderer SyntaxStyle built by transcriptSyntaxStyle(h.renderer)
+ * over the bundled tree-sitter grammars), while the
  * synchronous StyledSegment model keeps geometry only. These tests pin both
  * halves: the plain sync fallback and the language parity the native renderer
  * applies.
@@ -41,7 +42,7 @@ const SYNTAX_FGS = [KEYWORD_FG, STRING_FG, COMMENT_FG, FUNCTION_FG];
 function renderFence(h: Harness, fence: string): void {
   h.root.add(
     new MarkdownRenderable(h.renderer, {
-      syntaxStyle: transcriptSyntaxStyle(),
+      syntaxStyle: transcriptSyntaxStyle(h.renderer),
       fg: UI.text,
       width: 80,
       flexShrink: 0,
@@ -51,17 +52,30 @@ function renderFence(h: Harness, fence: string): void {
   );
 }
 
+function readSpans(h: Harness): CapturedSpan[] {
+  try {
+    return h.captureSpans().lines.flatMap((line) => line.spans);
+  } catch (err) {
+    // 0.6.x leases a session buffer around each presented frame; a capture
+    // landing inside that window throws OutputBusy. The poll retries on the
+    // next round anyway, so a losing capture keeps polling instead of
+    // throwing — the ready predicate, never the trace, decides the outcome.
+    if (err instanceof Error && err.message.includes("OutputBusy")) return [];
+    throw err;
+  }
+}
+
 async function settleSpans(
   h: Harness,
   ready: (spans: CapturedSpan[]) => boolean,
 ): Promise<CapturedSpan[]> {
-  let spans = h.captureSpans().lines.flatMap((line) => line.spans);
-  for (let i = 0; i < 400 && !ready(spans); i++) {
+  for (let i = 0; i < 400; i += 1) {
+    const spans = readSpans(h);
+    if (ready(spans)) return spans;
     await h.renderOnce();
     await new Promise((resolve) => setTimeout(resolve, 25));
-    spans = h.captureSpans().lines.flatMap((line) => line.spans);
   }
-  return spans;
+  return readSpans(h);
 }
 
 function coloured(spans: CapturedSpan[], text: string, fg: RGBA): boolean {

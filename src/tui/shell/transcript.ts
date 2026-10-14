@@ -355,9 +355,13 @@ export function buildRowNode(
 }
 
 /** Shared construction options for a transcript markdown body's renderer. */
-function markdownBodyOptions(gutter: PaintedStreamLine, width: number) {
+function markdownBodyOptions(
+  ctx: CliRenderer,
+  gutter: PaintedStreamLine,
+  width: number,
+) {
   return {
-    syntaxStyle: transcriptSyntaxStyle(),
+    syntaxStyle: transcriptSyntaxStyle(ctx),
     fg: gutter.fg,
     width,
     flexShrink: 0,
@@ -430,7 +434,7 @@ function createMarkdownBody(
   if (split === null) {
     // Native incremental block stability: only the trailing block is unstable.
     return new MarkdownRenderable(ctx, {
-      ...markdownBodyOptions(gutter, width),
+      ...markdownBodyOptions(ctx, gutter, width),
       content,
       streaming: row.streaming === true,
     });
@@ -438,14 +442,14 @@ function createMarkdownBody(
   const column = new BoxRenderable(ctx, { flexDirection: "column", width });
   column.add(
     new MarkdownRenderable(ctx, {
-      ...markdownBodyOptions(gutter, width),
+      ...markdownBodyOptions(ctx, gutter, width),
       content: split.frozen,
       streaming: false,
     }),
   );
   column.add(
     new MarkdownRenderable(ctx, {
-      ...markdownBodyOptions(gutter, width),
+      ...markdownBodyOptions(ctx, gutter, width),
       content: split.live,
       streaming: row.streaming === true,
       marginTop: split.gapRows,
