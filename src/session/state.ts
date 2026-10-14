@@ -131,6 +131,62 @@ export async function saveState(
   return write;
 }
 
+/**
+ * Debounce window for mid-run `running` snapshots (CL-10667): coalesces the
+ * per-turn boundary write to ~0.2/turn at a ~1s/turn cadence, while the
+ * run-liveness heartbeat keeps mtime freshness over longer gaps.
+ */
+export const RUN_SNAPSHOT_DEBOUNCE_MS = 5_000;
+
+export interface RunSnapshotDebouncer {
+  /** Mark a pending write and arm the one-shot timer once. */
+  schedule: () => void;
+  /** Cancel the timer and run any pending write immediately. */
+  flush: () => Promise<void>;
+}
+
+/**
+ * Lazy payoff: the deferred write recomputes its snapshot when it fires, not
+ * at schedule time, so a front of rapid turns persists the state current at
+ * fire time. One timer; `schedule` while armed only re-marks dirty. The
+ * writer maps write failures to undefined so a stalled flush cannot wedge
+ * the terminal path that awaits it.
+ */
+export function createRunSnapshotDebouncer(args: {
+  write: () => Promise<void>;
+  intervalMs?: number;
+}): RunSnapshotDebouncer {
+  const intervalMs = args.intervalMs ?? RUN_SNAPSHOT_DEBOUNCE_MS;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let dirty = false;
+  let inFlight: Promise<void> = Promise.resolve();
+
+  const run = (): void => {
+    dirty = false;
+    inFlight = args.write().catch(() => undefined);
+  };
+
+  return {
+    schedule: () => {
+      dirty = true;
+      if (timer !== null) return;
+      timer = setTimeout(() => {
+        timer = null;
+        if (dirty) run();
+      }, intervalMs);
+      timer.unref?.();
+    },
+    flush: async () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (dirty) run();
+      await inFlight;
+    },
+  };
+}
+
 // Terminal-write path: clears the in-memory active-run handle (active-run.ts)
 // alongside the on-disk status so the two cannot drift. Non-terminal
 // ("running") snapshots use saveState directly.

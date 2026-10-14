@@ -1142,17 +1142,26 @@ export function createReactor(config: ReactorConfig): Reactor {
       enqueue({ type: "tool.done", result });
     }
 
-    // Checkpoint the completed tool cycle (the assistant tool_call turn plus
-    // its results) so an interrupt that rebuilds the agent from the store
-    // reloads the full exchange. Otherwise context commits only at cycle
-    // terminals and an uncommitted tool turn vanishes on rebuild. Guarded on
-    // addToHistory: only then does history end with the tool_result turn, so
-    // the persisted prefix is well-formed rather than an assistant turn with
-    // unanswered tool calls.
+    // CL-10667 turn-persistence coalescing: a tool cycle appends to history
+    // into the store's on-disk segments only (writeTurns, no index touch).
+    // The segments are the crash-durability story: an interrupt that rebuilds
+    // the agent from the store reads them through load(), and the full cycle
+    // commit (manifest, metadata, git index+commit) is deferred to the next
+    // reply/wait/done/suspend terminal. Keeps the durability the old
+    // per-batch commitCycle call carried while collapsing K tool cycles on an
+    // agentic turn to one deferred commit.
     //
-    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-checkpoint-after-tool-cycle
-    if (addToHistory) {
-      await commitCycle();
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
+    if (addToHistory && pendingCompactOutput === null) {
+      const revision = stateManager?.getTurnsRevision();
+      if (
+        stateManager !== null &&
+        revision !== undefined &&
+        revision !== lastWrittenTurnsRevision
+      ) {
+        await contextStore.writeTurns(stateManager.getTurns());
+        lastWrittenTurnsRevision = revision;
+      }
     }
   }
 

@@ -7,12 +7,14 @@ import {
   type CommitSigner,
 } from "@intx/storage-isogit/node";
 import {
+  ApprovalSnapshot,
   ContentBlock,
+  ConnectorThreadState,
   type AuditStore,
-  type ConnectorThreadState,
+  TokenUsage,
   type ConversationTurn,
   type PendingOperation,
-  type TokenUsage,
+  ToolCall,
 } from "@intx/types/runtime";
 import { getLogger } from "@intx/log";
 import {
@@ -31,6 +33,12 @@ const PROMPT_FILE = "prompt.jsonl";
 const RESPONSE_FILE = "response.jsonl";
 const MANIFEST_FILE = "manifest.jsonl";
 const METADATA_FILE = "metadata.json";
+// Append-only tokenUsage sidecar (CL-10667): a per-turn line keyed to the
+// turn frontier so per-commit metadata.json rewrites stop re-hashing token
+// data. No consumer ever read response.jsonl (sessions list, resume crash
+// recovery all read the turns store), so it is folded away entirely; see
+// store.writeResponse.
+const TOKEN_USAGE_SIDECAR_FILE = "token-usage.jsonl";
 const TOOL_OUTPUT_DIR = "tool-output";
 const EVIDENCE_ARCHIVE_DIR = "evidence-archive";
 const OWNER_MARKER_FILE = "session-owner.json";
@@ -249,24 +257,113 @@ function emptyMetadata(): SessionMetadata {
 }
 
 /**
- * Soft-default metadata only when metadata.json is unreadable, so poisoned
- * turns still resume without wiping pendingOperations / tokenUsage /
- * connectorState.
+ * CL-10667 metadata ownership. metadata.json now carries pendingOperations
+ * and connectorState only; tokenUsage lives on an append-only sidecar keyed
+ * to the turn frontier so per-commit rewrites stop re-hashing token data.
+ * Legacy files still carry tokenUsage (the old vendor shape) and read as the
+ * fallback when the sidecar holds nothing.
  */
-async function loadMetadataSoft(
-  loadMetadata: () => Promise<SessionMetadata>,
-): Promise<SessionMetadata> {
+const StoredPendingOperationSchema = type({
+  correlationId: "string",
+  kind: "'approval'",
+  "expectedFrom?": "string",
+  registeredAt: "number",
+  gateId: "string",
+  "timeoutAt?": "number",
+  "suspendedCall?": ToolCall,
+  "approvalSnapshot?": ApprovalSnapshot,
+});
+
+const StoredMetadataSchema = type({
+  pendingOperations: StoredPendingOperationSchema.array(),
+  "tokenUsage?": TokenUsage,
+  "connectorState?": type("null").or(ConnectorThreadState),
+});
+
+const TokenUsageSidecarLineSchema = type({
+  turnIndex: "number",
+  usage: TokenUsage,
+});
+
+async function readTextOrNull(filePath: string): Promise<string | null> {
   try {
-    return await loadMetadata();
+    return await fs.promises.readFile(filePath, "utf-8");
   } catch (cause) {
-    log.warn(
-      "metadata.json unreadable during resilient load; using empty defaults",
-      {
-        cause: cause instanceof Error ? cause.message : String(cause),
-      },
-    );
-    return emptyMetadata();
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+      return null;
+    throw cause;
   }
+}
+
+/**
+ * Last well-formed sidecar line wins; a torn line (append torn mid-write)
+ * drops silently like a torn JSONL tail.
+ */
+async function readLatestSidecarUsage(dir: string): Promise<TokenUsage | null> {
+  const raw = await readTextOrNull(path.join(dir, TOKEN_USAGE_SIDECAR_FILE));
+  if (raw === null) return null;
+  let latest: TokenUsage | null = null;
+  for (const line of raw.split("\n")) {
+    if (line.length === 0) continue;
+    try {
+      const result = TokenUsageSidecarLineSchema(JSON.parse(line));
+      if (!(result instanceof type.errors)) latest = result.usage;
+    } catch {
+      // Torn or non-JSON line: keep the last good record.
+    }
+  }
+  return latest;
+}
+
+function readMetadataDocument(raw: string): Pick<
+  SessionMetadata,
+  "pendingOperations" | "connectorState"
+> & {
+  legacyTokenUsage: TokenUsage | null;
+} {
+  const parsed: unknown = JSON.parse(raw);
+  const result = StoredMetadataSchema(parsed);
+  if (result instanceof type.errors) {
+    throw new Error(
+      `metadata.json has unexpected structure: ${result.summary}`,
+    );
+  }
+  return {
+    pendingOperations: result.pendingOperations,
+    connectorState: result.connectorState ?? null,
+    legacyTokenUsage: result.tokenUsage ?? null,
+  };
+}
+
+/**
+ * metadata.json + sidecar merge behind the same soft-default contract the
+ * base store had: a throw from the caller's catch falls back to empty
+ * defaults so a poisoned file cannot block resume.
+ */
+async function readSessionMetadata(dir: string): Promise<SessionMetadata> {
+  const raw = await readTextOrNull(path.join(dir, METADATA_FILE));
+  const document =
+    raw !== null && raw.length > 0
+      ? readMetadataDocument(raw)
+      : { pendingOperations: [], connectorState: null, legacyTokenUsage: null };
+  const sidecarUsage = await readLatestSidecarUsage(dir);
+  const tokenUsage = sidecarUsage ??
+    document.legacyTokenUsage ?? { ...EMPTY_TOKEN_USAGE };
+  return {
+    pendingOperations: document.pendingOperations,
+    tokenUsage,
+    connectorState: document.connectorState,
+  };
+}
+
+function sameTokenUsage(a: TokenUsage, b: TokenUsage): boolean {
+  return (
+    a.input === b.input &&
+    a.output === b.output &&
+    a.cacheRead === b.cacheRead &&
+    a.cacheWrite === b.cacheWrite &&
+    a.thinking === b.thinking
+  );
 }
 
 /**
@@ -1048,6 +1145,59 @@ export async function createSessionStores(
   let unpublishedRewrite: ConversationTurn[] | null = null;
   let pendingPrompt: ConversationTurn[] | null = null;
   let stagedPrompt: ConversationTurn[] | null = null;
+  // metadata.json ownership (CL-10667): this store writes the file itself, so
+  // the base's pendingConnectorState buffer would never land. The written
+  // payload is the compare baseline — metadata.json changes only through this
+  // path in-process, matching the segment writers' single-writer assumption.
+  let connectorStateBuffer: ConnectorThreadState | null = null;
+  let writtenMetadataJson: string | null = null;
+  let metadataJsonSeeded = false;
+  let sidecarUsage: TokenUsage | null = null;
+  let sidecarUsageSeeded = false;
+
+  // One sidecar line per tokenUsage CHANGE, keyed to the turn frontier the
+  // store manages. Appending on change (instead of on every write call)
+  // keeps the last line exactly what a crash resume reads without growing
+  // one line per commit; usage is monotone, so an older line never wins.
+  async function appendUsageSidecar(tokenUsage: TokenUsage): Promise<void> {
+    if (!sidecarUsageSeeded) {
+      sidecarUsage = await readLatestSidecarUsage(dir);
+      sidecarUsageSeeded = true;
+    }
+    if (sidecarUsage !== null && sameTokenUsage(sidecarUsage, tokenUsage)) {
+      return;
+    }
+    const turnIndex = (unpublishedRewrite ?? liveTurnRefs)?.length ?? 0;
+    await fs.promises.appendFile(
+      path.join(dir, TOKEN_USAGE_SIDECAR_FILE),
+      `${JSON.stringify({ turnIndex, usage: tokenUsage })}\n`,
+      "utf8",
+    );
+    sidecarUsage = { ...tokenUsage };
+  }
+
+  async function writeMetadataLive(metadata: {
+    pendingOperations: PendingOperation[];
+    tokenUsage: TokenUsage;
+  }): Promise<void> {
+    await appendUsageSidecar(metadata.tokenUsage);
+    const desired = JSON.stringify(
+      {
+        pendingOperations: metadata.pendingOperations,
+        connectorState: connectorStateBuffer,
+      },
+      null,
+      2,
+    );
+    if (!metadataJsonSeeded) {
+      writtenMetadataJson = await readTextOrNull(path.join(dir, METADATA_FILE));
+      metadataJsonSeeded = true;
+    }
+    if (writtenMetadataJson !== desired) {
+      await fs.promises.writeFile(path.join(dir, METADATA_FILE), desired);
+      writtenMetadataJson = desired;
+    }
+  }
 
   function divertToVersionedBases(): void {
     if (versionedBase !== null) return;
@@ -1467,10 +1617,26 @@ export async function createSessionStores(
           { cause },
         );
       }
-      const metadata = await loadMetadataSoft(() => base.loadMetadata());
+      let metadata: SessionMetadata;
+      try {
+        metadata = await readSessionMetadata(dir);
+      } catch (cause) {
+        // Unreadable metadata alone must not abort resume when turns are
+        // fine: soft-default, the same contract the base load always had.
+        log.warn(
+          "session metadata unreadable during resilient load; using empty defaults",
+          { cause: cause instanceof Error ? cause.message : String(cause) },
+        );
+        metadata = emptyMetadata();
+      }
       return { turns, ...metadata };
     },
-    setConnectorState: (state) => base.setConnectorState(state),
+    // Buffer is carried only by this store: base.writeMetadata is never
+    // called through the wrapper, so base's pendingConnectorState would
+    // never land.
+    setConnectorState: (state) => {
+      connectorStateBuffer = state;
+    },
     branch: (name, signal) => base.branch(name, signal),
     log: (limit, signal) => base.log(limit, signal),
     async readAt(hash, signal) {
@@ -1524,10 +1690,28 @@ export async function createSessionStores(
     // Skipped identical snapshots fall back to live turns; load() never reads
     // prompt.jsonl.
     writePrompt: (turns) => queuePrompt(turns),
-    writeResponse: (turn, signal) => base.writeResponse(turn, signal),
-    writeManifest: (records, signal) => base.writeManifest(records, signal),
+    // CL-10667 fold: response.jsonl duplicated the assistant turn turns.jsonl
+    // already carries, and nothing in the repo reads it (grep over src,
+    // scripts, e2e, and the vendored packages: write-only). The per-commit
+    // re-write plus re-hash went to zero; LEGACY trees that still hold one
+    // keep staging as a vendor root.
+    writeResponse: () => Promise.resolve(),
+    async writeManifest(records, signal) {
+      if (records.length === 0) {
+        // Empty cycle buffers converge the worktree to no manifest, the same
+        // way an identical prompt converges to no prompt segment: the removal
+        // joins the pending set, one index write carries it at commit, and
+        // readManifestHistory reads a missing manifest as no records.
+        if (await pathExists(path.join(dir, MANIFEST_FILE))) {
+          await fs.promises.unlink(path.join(dir, MANIFEST_FILE));
+          pendingSegmentPaths.add(MANIFEST_FILE);
+        }
+        return;
+      }
+      await base.writeManifest(records, signal);
+    },
     writeTurns: (turns) => writeTurnsLiveOrStage(turns),
-    writeMetadata: (metadata, signal) => base.writeMetadata(metadata, signal),
+    writeMetadata: (metadata) => writeMetadataLive(metadata),
     readManifestHistory: (limit, signal) =>
       base.readManifestHistory(limit, signal),
     async writeBlob(key, bytes, contentType, signal) {
