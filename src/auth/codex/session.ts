@@ -1,31 +1,26 @@
-import {
-  createTokenSession,
-  isTokenExpired,
-  OAuthProfileNotFoundError,
-  OAuthRefreshFailedError,
-  type TokenSession,
-} from "@corbits/oauth-core";
+import { OAuthProfileNotFoundError } from "@corbits/oauth-core";
 import {
   CODEX_REFRESH_SKEW_MS,
   refreshCodexTokens,
   type CodexTokens,
 } from "@corbits/codex-provider";
+import type { TokenSession } from "@corbits/oauth-core";
 
-import {
-  codexAuthPath,
-  loadCodexProfile,
-  updateCodexTokens,
-} from "../../config/oauth-stores.js";
 import type { InferenceErrorLike } from "../../inference-gateway-error.js";
 import {
-  replaceMutableTokens,
-  sanitizedRefreshFailure,
-} from "../token-session-boundary.js";
+  loadCodexProfile,
+  codexAuthPath,
+  updateCodexTokens,
+} from "../../config/oauth-stores.js";
 import {
-  CodexRefreshLockTimeoutError,
   withCodexRefreshLock,
+  CodexRefreshLockTimeoutError,
 } from "./refresh-lock.js";
 import { withDefaultCodexExpiry } from "./store.js";
+import {
+  createProviderTokenSession,
+  type TokenSessionCallContext,
+} from "../provider-token-session.js";
 
 // Raised when a Codex profile cannot yield a usable access token: it is gone,
 // or its refresh token was revoked/expired. Carries the profile name and a
@@ -70,111 +65,53 @@ export interface CodexAccess {
   accountId?: string | undefined;
 }
 
-function wrapCodexAuthError(name: string, err: unknown): never {
-  if (err instanceof OAuthProfileNotFoundError) {
-    throw new CodexAuthError(
-      name,
-      "missing",
-      `Codex profile "${name}" is not authorized. Log in again.`,
-    );
-  }
-  if (err instanceof OAuthRefreshFailedError) {
-    const cause = err.cause;
-    throw new CodexAuthError(
-      name,
-      "refresh-failed",
-      `Codex profile "${name}" could not be refreshed (${cause instanceof Error ? cause.message : String(cause)}). Log in again.`,
-    );
-  }
-  throw err;
-}
-
-const sessions = new Map<string, TokenSession<CodexTokens, CodexAccess>>();
-
-async function refreshCodexTokensForStore(
-  refreshToken: string,
-  now: number,
-  previous: CodexTokens,
-): Promise<CodexTokens> {
-  return withDefaultCodexExpiry(
-    await refreshCodexTokens(refreshToken, now, previous),
-    now,
-  );
-}
-
-/**
- * Independent Codex token session for a home directory. Each session carries
- * its own in-flight deduplication, so two sessions over one home behave like
- * two processes sharing one credential store.
- */
-export function createCodexTokenSession(
-  home?: string,
-): TokenSession<CodexTokens, CodexAccess> {
-  const refreshBasis = new WeakMap<CodexTokens, string>();
-  const inner = createTokenSession<CodexTokens, CodexAccess>({
-    skewMs: CODEX_REFRESH_SKEW_MS,
-    loadProfile: (name) => loadCodexProfile(name, home),
-    updateTokens: async (name, tokens) => {
-      const winner = await updateCodexTokens(
-        name,
-        tokens,
-        home,
-        refreshBasis.get(tokens),
-      );
-      if (winner === undefined) throw new OAuthProfileNotFoundError(name);
-      replaceMutableTokens(tokens, winner.tokens);
-    },
-    // createTokenSession only passes (refresh, now); mergeRefreshed supplies
-    // the prior tokens the package helper needs to keep chatgpt-account-id.
-    refreshTokens: async (refreshToken, now) => {
-      try {
-        const refreshed = await refreshCodexTokensForStore(refreshToken, now, {
-          access: "",
-          refresh: refreshToken,
-        });
-        refreshBasis.set(refreshed, refreshToken);
-        return refreshed;
-      } catch (error) {
-        throw sanitizedRefreshFailure(error, refreshToken);
-      }
-    },
-    toAccess: (tokens) => ({
-      access: tokens.access,
-      accountId: tokens.accountId,
-    }),
-    mergeRefreshed: (refreshed, previous) => {
-      const merged =
-        refreshed.accountId === undefined && previous.accountId !== undefined
-          ? { ...refreshed, accountId: previous.accountId }
-          : refreshed;
-      const expectedRefreshToken = refreshBasis.get(refreshed);
-      if (expectedRefreshToken !== undefined)
-        refreshBasis.set(merged, expectedRefreshToken);
-      return merged;
-    },
-  });
-  return {
-    isExpired: inner.isExpired,
-    getValidToken: (name, now = Date.now()) =>
-      withSerializedCodexRefresh(home, name, now, () =>
-        inner.getValidToken(name, now),
+export const codexTokensSession = createProviderTokenSession<
+  CodexTokens,
+  CodexAccess
+>({
+  errorClass: CodexAuthError,
+  providerLabel: "Codex",
+  skewMs: CODEX_REFRESH_SKEW_MS,
+  loadProfile: loadCodexProfile,
+  updateTokens: updateCodexTokens,
+  toAccess: (tokens) => ({
+    access: tokens.access,
+    accountId: tokens.accountId,
+  }),
+  refreshTokens: async (refreshToken, now, previous) =>
+    // The session-driven refresh has no prior tokens to lean on; the mapper
+    // only needs the refresh grant itself. Staged refreshes pass the real
+    // prior tokens through.
+    withDefaultCodexExpiry(
+      await refreshCodexTokens(
+        refreshToken,
+        now,
+        previous ?? { access: "", refresh: refreshToken },
       ),
-  };
-}
+      now,
+    ),
+  // Keep the stored chatgpt account id when the refresh response omits
+  // id_token; the shared factory carries the refresh basis for the store CAS.
+  mergeRefreshed: (refreshed, previous) =>
+    refreshed.accountId === undefined && previous.accountId !== undefined
+      ? { ...refreshed, accountId: previous.accountId }
+      : refreshed,
+  serializeRefresh: (ctx) => serializeCodexRefresh(ctx),
+});
 
 // Refreshes for one shared credential store serialize on a lock file so two
 // headless runs (or two sessions in one process) cannot hold overlapping
 // refresh grants and revoke each other under token rotation. Fresh tokens
 // resolve before the lock: a stalled refresh never blocks healthy readers.
-async function withSerializedCodexRefresh(
-  home: string | undefined,
-  name: string,
-  now: number,
-  refresh: () => Promise<CodexAccess>,
-): Promise<CodexAccess> {
+async function serializeCodexRefresh({
+  home,
+  name,
+  now,
+  getValid,
+}: TokenSessionCallContext<CodexTokens, CodexAccess>): Promise<CodexAccess> {
   const profile = await loadCodexProfile(name, home);
   if (profile === undefined) throw new OAuthProfileNotFoundError(name);
-  if (!isCodexTokenExpired(profile.tokens, now))
+  if (!codexTokensSession.isExpired(profile.tokens, now))
     return {
       access: profile.tokens.access,
       accountId: profile.tokens.accountId,
@@ -182,7 +119,7 @@ async function withSerializedCodexRefresh(
   try {
     return await withCodexRefreshLock(
       `${codexAuthPath(home)}.refresh.lock`,
-      refresh,
+      getValid,
     );
   } catch (err) {
     // A lock-blocked refresh is contention/crash hygiene, not a dead
@@ -210,17 +147,19 @@ export function codexAuthFailureDiagnostic(
   return null;
 }
 
-function sessionFor(home?: string): TokenSession<CodexTokens, CodexAccess> {
-  const key = home ?? "";
-  const existing = sessions.get(key);
-  if (existing !== undefined) return existing;
-  const created = createCodexTokenSession(home);
-  sessions.set(key, created);
-  return created;
+/**
+ * Independent Codex token session for a home directory. Each session carries
+ * its own in-flight deduplication and serializes inter-process refreshes on
+ * the credential file lock.
+ */
+export function createCodexTokenSession(
+  home?: string,
+): TokenSession<CodexTokens, CodexAccess> {
+  return codexTokensSession.createSession(home);
 }
 
 export function isCodexTokenExpired(tokens: CodexTokens, now: number): boolean {
-  return isTokenExpired(tokens, now, CODEX_REFRESH_SKEW_MS);
+  return codexTokensSession.isExpired(tokens, now);
 }
 
 export async function getValidCodexToken(
@@ -228,24 +167,12 @@ export async function getValidCodexToken(
   now?: number,
   home?: string,
 ): Promise<CodexAccess> {
-  try {
-    return await sessionFor(home).getValidToken(name, now);
-  } catch (err) {
-    wrapCodexAuthError(name, err);
-  }
+  return codexTokensSession.getValidToken(name, now, home);
 }
 
 export async function refreshStagedCodexTokens(
   tokens: CodexTokens,
   now: number = Date.now(),
 ): Promise<CodexTokens> {
-  if (!isCodexTokenExpired(tokens, now)) return tokens;
-  let refreshed: CodexTokens;
-  try {
-    refreshed = await refreshCodexTokensForStore(tokens.refresh, now, tokens);
-  } catch (error) {
-    throw sanitizedRefreshFailure(error, tokens.refresh);
-  }
-  replaceMutableTokens(tokens, refreshed);
-  return tokens;
+  return codexTokensSession.refreshStaged(tokens, now);
 }

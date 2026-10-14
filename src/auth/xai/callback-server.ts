@@ -1,10 +1,9 @@
-import { startCallbackServer, type CallbackServer } from "@corbits/oauth-core";
-
 import {
-  authorizationDoneHtml,
-  callbackPageHtml,
-  type CallbackPageCopy,
-} from "../callback-page.js";
+  startProviderCallbackServer,
+  type CallbackServer,
+} from "../provider-callback-server.js";
+
+import type { CallbackPageCopy } from "../callback-page.js";
 import {
   XAI_CALLBACK_HOST,
   XAI_CALLBACK_PATH,
@@ -17,12 +16,14 @@ export async function startXaiCallbackServer(
   expectedState: string,
   copy: CallbackPageCopy,
 ): Promise<XaiCallbackServer> {
-  return startCallbackServer(expectedState, {
-    port: XAI_CALLBACK_PORT,
-    host: XAI_CALLBACK_HOST,
-    path: XAI_CALLBACK_PATH,
-    doneHtml: authorizationDoneHtml("xAI", copy),
-    failedHtml: (reason) =>
-      callbackPageHtml({ subject: "xAI", error: reason }, copy),
-  });
+  return startProviderCallbackServer(
+    "xAI",
+    {
+      port: XAI_CALLBACK_PORT,
+      host: XAI_CALLBACK_HOST,
+      path: XAI_CALLBACK_PATH,
+    },
+    expectedState,
+    copy,
+  );
 }

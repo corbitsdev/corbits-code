@@ -1,7 +1,4 @@
 import {
-  createTokenSession,
-  isTokenExpired,
-  OAuthProfileNotFoundError,
   OAuthRefreshFailedError,
   type TokenSession,
 } from "@corbits/oauth-core";
@@ -13,9 +10,9 @@ import {
 
 import { loadXaiProfile, updateXaiTokens } from "../../config/oauth-stores.js";
 import {
-  replaceMutableTokens,
-  sanitizedRefreshFailure,
-} from "../token-session-boundary.js";
+  createProviderTokenSession,
+  type TokenSessionCallContext,
+} from "../provider-token-session.js";
 
 export class XaiAuthError extends Error {
   readonly profile: string;
@@ -37,89 +34,63 @@ export interface XaiAccess {
   access: string;
 }
 
-function wrapXaiAuthError(name: string, err: unknown): never {
-  if (err instanceof OAuthProfileNotFoundError) {
-    throw new XaiAuthError(
-      name,
-      "missing",
-      `xAI profile "${name}" is not authorized. Log in again.`,
-    );
-  }
-  if (err instanceof OAuthRefreshFailedError) {
-    const cause = err.cause;
-    throw new XaiAuthError(
-      name,
-      "refresh-failed",
-      `xAI profile "${name}" could not be refreshed (${cause instanceof Error ? cause.message : String(cause)}). Log in again.`,
-    );
-  }
-  throw err;
-}
+export const xaiTokensSession = createProviderTokenSession<
+  XaiTokens,
+  XaiAccess
+>({
+  errorClass: XaiAuthError,
+  providerLabel: "xAI",
+  skewMs: XAI_REFRESH_SKEW_MS,
+  loadProfile: loadXaiProfile,
+  updateTokens: updateXaiTokens,
+  toAccess: (tokens) => ({ access: tokens.access }),
+  refreshTokens: (refreshToken, now) => refreshXaiTokens(refreshToken, now),
+  // No inter-process lock here: xAI never rotates refresh tokens, so
+  // overlapping grants cannot revoke each other. What IS needed is the
+  // committed-winner recovery: a lost invalid_grant race must return the
+  // rotation another session committed instead of a re-login error.
+  serializeRefresh: (ctx) => recoverCommittedXaiWinner(ctx),
+});
 
-const sessions = new Map<string, TokenSession<XaiTokens, XaiAccess>>();
+// On a shared credential two independent sessions may refresh at once; the
+// loser's grant is rejected with invalid_grant. If a newer committed winner
+// exists on disk by the time we fail, that is the shared credential's fresh
+// access token — return it instead of a re-login error.
+async function recoverCommittedXaiWinner({
+  home,
+  name,
+  now,
+  getValid,
+  session,
+}: TokenSessionCallContext<XaiTokens, XaiAccess>): Promise<XaiAccess> {
+  const basis = await loadXaiProfile(name, home);
+  try {
+    return await getValid();
+  } catch (error) {
+    if (error instanceof OAuthRefreshFailedError && basis !== undefined) {
+      const winner = await loadXaiProfile(name, home);
+      if (
+        winner !== undefined &&
+        !session.isExpired(winner.tokens, now) &&
+        // A committed rotation always changes the access token or its
+        // lifetime; an unchanged profile is not a winner to recover.
+        (winner.tokens.access !== basis.tokens.access ||
+          winner.tokens.expiresAt !== basis.tokens.expiresAt)
+      )
+        return { access: winner.tokens.access };
+    }
+    throw error;
+  }
+}
 
 export function createXaiTokenSession(
   home?: string,
 ): TokenSession<XaiTokens, XaiAccess> {
-  const refreshBasis = new WeakMap<XaiTokens, string>();
-  const inner = createTokenSession<XaiTokens, XaiAccess>({
-    skewMs: XAI_REFRESH_SKEW_MS,
-    loadProfile: (name) => loadXaiProfile(name, home),
-    updateTokens: async (name, tokens) => {
-      const winner = await updateXaiTokens(
-        name,
-        tokens,
-        home,
-        refreshBasis.get(tokens),
-      );
-      if (winner === undefined) throw new OAuthProfileNotFoundError(name);
-      replaceMutableTokens(tokens, winner.tokens);
-    },
-    refreshTokens: async (refreshToken, now) => {
-      try {
-        const refreshed = await refreshXaiTokens(refreshToken, now);
-        refreshBasis.set(refreshed, refreshToken);
-        return refreshed;
-      } catch (error) {
-        throw sanitizedRefreshFailure(error, refreshToken);
-      }
-    },
-    toAccess: (tokens) => ({ access: tokens.access }),
-  });
-  return {
-    isExpired: inner.isExpired,
-    getValidToken: async (name, now = Date.now()) => {
-      const basis = await loadXaiProfile(name, home);
-      try {
-        return await inner.getValidToken(name, now);
-      } catch (error) {
-        if (error instanceof OAuthRefreshFailedError && basis !== undefined) {
-          const winner = await loadXaiProfile(name, home);
-          if (
-            winner !== undefined &&
-            !inner.isExpired(winner.tokens, now) &&
-            (winner.tokens.access !== basis.tokens.access ||
-              winner.tokens.expiresAt !== basis.tokens.expiresAt)
-          )
-            return { access: winner.tokens.access };
-        }
-        throw error;
-      }
-    },
-  };
-}
-
-function sessionFor(home?: string): TokenSession<XaiTokens, XaiAccess> {
-  const key = home ?? "";
-  const existing = sessions.get(key);
-  if (existing !== undefined) return existing;
-  const created = createXaiTokenSession(home);
-  sessions.set(key, created);
-  return created;
+  return xaiTokensSession.createSession(home);
 }
 
 export function isXaiTokenExpired(tokens: XaiTokens, now: number): boolean {
-  return isTokenExpired(tokens, now, XAI_REFRESH_SKEW_MS);
+  return xaiTokensSession.isExpired(tokens, now);
 }
 
 export async function getValidXaiToken(
@@ -127,24 +98,12 @@ export async function getValidXaiToken(
   now?: number,
   home?: string,
 ): Promise<XaiAccess> {
-  try {
-    return await sessionFor(home).getValidToken(name, now);
-  } catch (err) {
-    wrapXaiAuthError(name, err);
-  }
+  return xaiTokensSession.getValidToken(name, now, home);
 }
 
 export async function refreshStagedXaiTokens(
   tokens: XaiTokens,
   now: number = Date.now(),
 ): Promise<XaiTokens> {
-  if (!isXaiTokenExpired(tokens, now)) return tokens;
-  let refreshed: XaiTokens;
-  try {
-    refreshed = await refreshXaiTokens(tokens.refresh, now);
-  } catch (error) {
-    throw sanitizedRefreshFailure(error, tokens.refresh);
-  }
-  replaceMutableTokens(tokens, refreshed);
-  return tokens;
+  return xaiTokensSession.refreshStaged(tokens, now);
 }

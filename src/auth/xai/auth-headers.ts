@@ -1,3 +1,4 @@
+import { bearerHeaders } from "../bearer-headers.js";
 import {
   XAI_CLIENT_IDENTIFIER,
   XAI_CLIENT_VERSION,
@@ -8,12 +9,11 @@ import {
 export function xaiAuthHeadersForToken(token: {
   readonly access: string;
 }): Record<string, string> {
-  const headers: Record<string, string> = {
-    authorization: `Bearer ${token.access}`,
+  const headers = bearerHeaders(token, {
     "user-agent": XAI_USER_AGENT,
     "x-grok-client-identifier": XAI_CLIENT_IDENTIFIER,
     "x-grok-client-version": XAI_CLIENT_VERSION,
-  };
+  });
   const userId = xaiUserIdFromAccessToken(token.access);
   if (userId !== undefined) headers["x-grok-user-id"] = userId;
   return headers;

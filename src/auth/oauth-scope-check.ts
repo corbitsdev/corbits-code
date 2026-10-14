@@ -97,21 +97,16 @@ function classifyStatus(
   return unavailable(providerLabel);
 }
 
-async function checkCodexScope(
-  tokens: CodexTokens,
-  commandName: string,
+// One probe shape per provider: refresh staged tokens into the request
+// headers, hit the provider's catalog/list endpoint, and classify the
+// response. Only the headers, endpoint, and timeout differ.
+async function probeOAuthScope(
+  providerLabel: string,
+  authorizeHeaders: () => Promise<Record<string, string>>,
+  fetchEndpoint: (headers: Record<string, string>) => Promise<Response>,
 ): Promise<OAuthScopeCheckResult> {
-  const providerLabel = "Codex";
   try {
-    const headers = codexAuthHeadersForToken(
-      await refreshStagedCodexTokens(tokens),
-      commandName,
-    );
-    const url = `${CODEX_BASE_URL}${CODEX_MODELS_PATH}?client_version=${encodeURIComponent(CODEX_CLIENT_VERSION)}`;
-    const res = await fetch(url, {
-      headers,
-      signal: AbortSignal.timeout(SCOPE_CHECK_TIMEOUT_MS),
-    });
+    const res = await fetchEndpoint(await authorizeHeaders());
     if (res.ok) return { status: "ok" };
     return classifyStatus(res.status, providerLabel);
   } catch (err) {
@@ -121,25 +116,37 @@ async function checkCodexScope(
   }
 }
 
+async function checkCodexScope(
+  tokens: CodexTokens,
+  commandName: string,
+): Promise<OAuthScopeCheckResult> {
+  return probeOAuthScope(
+    "Codex",
+    async () =>
+      codexAuthHeadersForToken(
+        await refreshStagedCodexTokens(tokens),
+        commandName,
+      ),
+    (headers) =>
+      fetch(
+        `${CODEX_BASE_URL}${CODEX_MODELS_PATH}?client_version=${encodeURIComponent(CODEX_CLIENT_VERSION)}`,
+        { headers, signal: AbortSignal.timeout(SCOPE_CHECK_TIMEOUT_MS) },
+      ),
+  );
+}
+
 async function checkXaiScope(
   tokens: XaiTokens,
 ): Promise<OAuthScopeCheckResult> {
-  const providerLabel = "Grok";
-  try {
-    const headers = xaiAuthHeadersForToken(
-      await refreshStagedXaiTokens(tokens),
-    );
-    const res = await fetch(`${XAI_BASE_URL}/models`, {
-      headers,
-      signal: AbortSignal.timeout(XAI_TOKEN_TIMEOUT_MS),
-    });
-    if (res.ok) return { status: "ok" };
-    return classifyStatus(res.status, providerLabel);
-  } catch (err) {
-    if (isDefinitiveRefreshAuthRejection(err))
-      return invalidCredentials(providerLabel);
-    return unavailable(providerLabel);
-  }
+  return probeOAuthScope(
+    "Grok",
+    async () => xaiAuthHeadersForToken(await refreshStagedXaiTokens(tokens)),
+    (headers) =>
+      fetch(`${XAI_BASE_URL}/models`, {
+        headers,
+        signal: AbortSignal.timeout(XAI_TOKEN_TIMEOUT_MS),
+      }),
+  );
 }
 
 // Probe an OAuth-issued token against the provider's own catalog/list

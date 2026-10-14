@@ -9,10 +9,36 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import {
-  CodexRefreshLockTimeoutError,
-  withCodexRefreshLock,
-} from "./refresh-lock.js";
+import { CodexRefreshLockTimeoutError } from "./refresh-lock.js";
+
+import { withMockedModule } from "../../../testkit/mock-module.js";
+
+// Non-ENOENT lock-file failures must surface raw instead of being swallowed
+// (the pre-unification codex lock caught every fs error). Flags gate each
+// failure to its own test; undefined keeps every call on the real module.
+let failingReadPath: string | undefined;
+let failingStatPath: string | undefined;
+let failingUnlinkPath: string | undefined;
+await withMockedModule(
+  import.meta.resolve("node:fs/promises"),
+  (real: typeof import("node:fs/promises")) => ({
+    ...real,
+    readFile: async (...args: Parameters<typeof real.readFile>) => {
+      if (args[0] === failingReadPath) throw new Error("lock read failed");
+      return real.readFile(...args);
+    },
+    stat: async (...args: Parameters<typeof real.stat>) => {
+      if (args[0] === failingStatPath) throw new Error("lock stat failed");
+      return real.stat(...args);
+    },
+    unlink: async (...args: Parameters<typeof real.unlink>) => {
+      if (args[0] === failingUnlinkPath) throw new Error("lock release failed");
+      return real.unlink(...args);
+    },
+  }),
+);
+
+const { withCodexRefreshLock } = await import("./refresh-lock.js");
 
 async function tempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "cl8628-lock-"));
@@ -211,6 +237,79 @@ describe("codex refresh lock", () => {
       );
     } finally {
       proc.kill();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a non-ENOENT read failure while contending propagates raw", async () => {
+    const dir = await tempDir();
+    try {
+      const lock = join(dir, "refresh.lock");
+      await writeFile(lock, "");
+      failingReadPath = lock;
+      try {
+        // The unified lock re-reads the holder content while contending; a
+        // permission/disk failure there must surface, not read as "no lock".
+        await expect(
+          withCodexRefreshLock(lock, async () => "never", {
+            timeoutMs: 1_000,
+            retryMs: 10,
+          }),
+        ).rejects.toThrow("lock read failed");
+      } finally {
+        failingReadPath = undefined;
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a non-ENOENT stat failure while deciding staleness propagates raw", async () => {
+    const dir = await tempDir();
+    try {
+      const lock = join(dir, "refresh.lock");
+      // Untagged content routes the staleness decision through mtime stat;
+      // a non-ENOENT stat failure must surface, not read as "not stale".
+      await writeFile(lock, "");
+      failingStatPath = lock;
+      try {
+        await expect(
+          withCodexRefreshLock(lock, async () => "never", {
+            timeoutMs: 1_000,
+            retryMs: 10,
+          }),
+        ).rejects.toThrow("lock stat failed");
+      } finally {
+        failingStatPath = undefined;
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a non-ENOENT release failure surfaces after the work value", async () => {
+    const dir = await tempDir();
+    try {
+      const lock = join(dir, "refresh.lock");
+      failingUnlinkPath = lock;
+      try {
+        // The refresh succeeded, but a release that fails for a real reason
+        // (not a steal's ENOENT) must not vanish: the caller has to know the
+        // lock file is still on disk.
+        await expect(
+          withCodexRefreshLock(lock, async () => "done", {
+            timeoutMs: 1_000,
+            retryMs: 10,
+          }),
+        ).rejects.toThrow("lock release failed");
+        // The failed release leaves the claim file in place for recovery.
+        await expect(readFile(lock, "utf8")).resolves.toContain(
+          String(process.pid),
+        );
+      } finally {
+        failingUnlinkPath = undefined;
+      }
+    } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
