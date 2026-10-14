@@ -4,6 +4,7 @@ import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 
 import { connectMCPServer, type MCPClient } from "../mcp/client.js";
+import { toolInputSchema } from "../util/tool-input-schema.js";
 import type { MCPServerConfig } from "../config/settings.js";
 import { EXA_MCP_URL } from "../mcp/exa.js";
 
@@ -16,43 +17,39 @@ export const PARALLEL_MCP_URL = "https://search.parallel.ai/mcp";
 export type WebSearchProviderId = "exa" | "parallel";
 
 const WebSearchArgs = type({
-  query: "string>0",
-  "numResults?": "number",
-  "type?": "'auto' | 'fast' | 'deep'",
-  "livecrawl?": "'fallback' | 'preferred'",
-  "contextMaxCharacters?": "number",
+  query: ["string>0", "@", { description: "Search query" }],
+  "numResults?": [
+    "number",
+    "@",
+    { description: "Maximum number of results (default 8)." },
+  ],
+  "type?": [
+    "'auto' | 'fast' | 'deep'",
+    "@",
+    { description: "Search depth/strategy. Defaults to auto." },
+  ],
+  "livecrawl?": [
+    "'fallback' | 'preferred'",
+    "@",
+    {
+      description:
+        "Whether to prefer or only fall back to a live crawl. Defaults to fallback.",
+    },
+  ],
+  "contextMaxCharacters?": [
+    "number",
+    "@",
+    {
+      description:
+        "Cap on returned context length in characters (default 10000).",
+    },
+  ],
 });
 
 export const webSearchDefinition: ToolDefinition = {
   name: "web_search",
   description: "Search the web; returns ranked results as text.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      query: { type: "string", description: "Search query" },
-      numResults: {
-        type: "number",
-        description: "Maximum number of results (default 8).",
-      },
-      type: {
-        type: "string",
-        enum: ["auto", "fast", "deep"],
-        description: "Search depth/strategy. Defaults to auto.",
-      },
-      livecrawl: {
-        type: "string",
-        enum: ["fallback", "preferred"],
-        description:
-          "Whether to prefer or only fall back to a live crawl. Defaults to fallback.",
-      },
-      contextMaxCharacters: {
-        type: "number",
-        description:
-          "Cap on returned context length in characters (default 10000).",
-      },
-    },
-    required: ["query"],
-  },
+  inputSchema: toolInputSchema(WebSearchArgs),
 };
 
 // Provider selection is env-driven (settings.env now makes this configuration

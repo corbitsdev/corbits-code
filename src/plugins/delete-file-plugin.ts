@@ -5,25 +5,25 @@ import type { ExtraTool, ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { resolveWorkspacePath } from "../permission/path-restriction.js";
 import type { RootsProvider } from "../permission/worktree-roots.js";
+import { toolInputSchema } from "../util/tool-input-schema.js";
 import { formatChangeDiff } from "./change-diff.js";
 
-const DeleteFileArgs = type({ path: "string>0" });
+const DeleteFileArgs = type({
+  path: [
+    "string>0",
+    "@",
+    {
+      description:
+        "Path to the file to delete, relative to the working directory or absolute",
+    },
+  ],
+});
 
 export const DELETE_FILE_DEFINITION = {
   name: "delete_file",
   description:
     "Delete one file. Returns success when the file is deleted or already absent. Refuses directories; use this instead of shell rm for file deletion.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      path: {
-        type: "string",
-        description:
-          "Path to the file to delete, relative to the working directory or absolute",
-      },
-    },
-    required: ["path"],
-  },
+  inputSchema: toolInputSchema(DeleteFileArgs),
 };
 
 function errorResult(callId: string, message: string): ToolResult {
