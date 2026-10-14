@@ -8,9 +8,8 @@ import {
   codexProvidersAsSettings,
 } from "./codex-providers.js";
 import {
-  dropOrphanedOAuthEntries,
+  applyOAuthProviderProjections,
   mergeOAuthCatalog,
-  overlayOAuthProjections,
   providerCatalogToSettings,
   runtimeSettingsWithCatalog,
 } from "./index.js";
@@ -141,34 +140,38 @@ describe("CL-6728: OAuth projections do not overwrite hand-named provider entrie
   const liveProjected = () => codexProvidersAsSettings([liveMine]);
   const liveCatalog = () => codexProfilesToCatalogEntries([liveMine]);
 
-  test("overlayOAuthProjections keeps a hand-named codex/<slug> API-key entry", () => {
-    const overlaid = overlayOAuthProjections(
+  test("the projection chain keeps a hand-named codex/<slug> API-key entry", () => {
+    const overlaid = applyOAuthProviderProjections(
       settingsWith({ "codex/mine": handNamed() }),
       liveProjected(),
+      { dropOrphans: true },
     );
     expect(overlaid?.providers["codex/mine"]?.apiKey).toBe("hand-named-key");
   });
 
-  test("overlayOAuthProjections still applies the live token over a credential-less OAuth placeholder", () => {
-    const overlaid = overlayOAuthProjections(
+  test("the projection chain still applies the live token over a credential-less OAuth placeholder", () => {
+    const overlaid = applyOAuthProviderProjections(
       settingsWith({ "codex/mine": codexEntry() }),
       liveProjected(),
+      { dropOrphans: true },
     );
     expect(overlaid?.providers["codex/mine"]?.apiKey).toBe("live-token");
   });
 
-  test("dropOrphanedOAuthEntries never drops a hand-named API-key entry", () => {
-    const kept = dropOrphanedOAuthEntries(
+  test("the chain never drops a hand-named API-key entry (orphan sweep)", () => {
+    const kept = applyOAuthProviderProjections(
       settingsWith({ "codex/mine": handNamed() }),
       {},
+      { dropOrphans: true },
     );
     expect(kept?.providers["codex/mine"]?.apiKey).toBe("hand-named-key");
   });
 
-  test("dropOrphanedOAuthEntries still drops a credential-less orphan", () => {
-    const dropped = dropOrphanedOAuthEntries(
+  test("the chain still drops a credential-less orphan", () => {
+    const dropped = applyOAuthProviderProjections(
       settingsWith({ "codex/mine": codexEntry() }),
       {},
+      { dropOrphans: true },
     );
     expect(dropped?.providers["codex/mine"]).toBeUndefined();
   });
@@ -274,8 +277,8 @@ describe("CL-6728: OAuth projections do not overwrite hand-named provider entrie
     expect(runtime.providers["codex/mine"]?.apiKey).toBeUndefined();
   });
 
-  test("overlayOAuthProjections treats a whitespace apiKey as hand-named", () => {
-    const overlaid = overlayOAuthProjections(
+  test("the chain treats a whitespace apiKey as hand-named", () => {
+    const overlaid = applyOAuthProviderProjections(
       settingsWith({
         "codex/mine": {
           baseURL: "https://hand-named.example.com/v1",
@@ -284,12 +287,13 @@ describe("CL-6728: OAuth projections do not overwrite hand-named provider entrie
         },
       }),
       liveProjected(),
+      { dropOrphans: true },
     );
     expect(overlaid?.providers["codex/mine"]?.apiKey).toBe("   ");
   });
 
-  test("overlayOAuthProjections treats an empty-string apiKey as a placeholder", () => {
-    const overlaid = overlayOAuthProjections(
+  test("the chain treats an empty-string apiKey as a placeholder", () => {
+    const overlaid = applyOAuthProviderProjections(
       settingsWith({
         "codex/mine": {
           baseURL: "https://hand-named.example.com/v1",
@@ -298,7 +302,44 @@ describe("CL-6728: OAuth projections do not overwrite hand-named provider entrie
         },
       }),
       liveProjected(),
+      { dropOrphans: true },
     );
     expect(overlaid?.providers["codex/mine"]?.apiKey).toBe("live-token");
+  });
+});
+
+describe("applyOAuthProviderProjections: one ordered chain (CL-10672)", () => {
+  const liveMine: CodexProfile = {
+    name: "mine",
+    tokens: { access: "live-token", refresh: "r", expiresAt: 1 },
+    createdAt: 0,
+  };
+  test("persisted defaults feed the projections before the orphan sweep and overlay", () => {
+    // settings carry a persisted defaultModel on the credential-less
+    // placeholder; the projection must inherit it (defaults step) while the
+    // orphan sweep honors the live profile presence (drop guard) and the
+    // overlay delivers the live token.
+    const settings = settingsWith({
+      "codex/mine": { ...codexEntry(), defaultModel: "chosen-model" },
+    });
+    const resolvedChain = applyOAuthProviderProjections(
+      settings,
+      codexProvidersAsSettings([liveMine]),
+      { dropOrphans: true },
+    );
+    const row = resolvedChain?.providers["codex/mine"];
+    expect(row?.apiKey).toBe("live-token");
+    expect(row?.models).toContain("chosen-model");
+    expect(row?.defaultModel).toBe("chosen-model");
+  });
+
+  test("dropOrphans: false skips the orphan sweep verbatim (programmatic settings load)", () => {
+    const placeholder = codexEntry();
+    const kept = applyOAuthProviderProjections(
+      settingsWith({ "codex/mine": placeholder }),
+      {},
+      { dropOrphans: false },
+    );
+    expect(kept?.providers["codex/mine"]).toBe(placeholder);
   });
 });

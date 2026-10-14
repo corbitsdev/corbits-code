@@ -36,7 +36,8 @@ export interface OtelSettings {
   /** Resource service.name. Env OTEL_SERVICE_NAME overrides. */
   serviceName?: string;
   /**
-   * Extra resource attributes (merged; env keys win). Non-secret labels only.
+   * Extra resource attributes. Non-secret labels only. Replaced wholesale by
+   * OTEL_RESOURCE_ATTRIBUTES when the env var is set; never merged per-key.
    */
   resourceAttributes?: Record<string, string>;
 }
@@ -208,12 +209,13 @@ function validateStringMap(
 }
 
 /**
- * Precedence (env over settings):
+ * Precedence (env wins wholesale per field):
  * - endpoint: env > settings
  * - headers: env list fully replaces settings when set; else settings
  * - serviceName: env > settings.serviceName > attrs["service.name"] > default
- * - resourceAttributes: settings then env (env wins on conflict); after merge,
- *   attrs["service.name"] is synced to the resolved serviceName
+ * - resourceAttributes: env list fully replaces settings when OTEL_RESOURCE_ATTRIBUTES
+ *   is set; else settings. After resolution, attrs["service.name"] is synced
+ *   to the resolved serviceName
  *
  * No endpoint → disabled (ok); invalid or malformed → not ok.
  */
@@ -294,20 +296,10 @@ export function resolveOtelExportConfig(
   }
 
   let resourceAttributes: Record<string, string> = {};
-  const settingsAttrs = validateStringMap(
-    otel?.resourceAttributes,
-    "settings.otel.resourceAttributes",
-  );
-  if (!settingsAttrs.ok) {
-    return {
-      ok: false,
-      code: OTEL_CONFIG_INVALID,
-      message: settingsAttrs.message,
-    };
-  }
-  resourceAttributes = { ...settingsAttrs.value };
-
   if (envResourceAttrsRaw !== undefined) {
+    // Env wins wholesale: a set OTEL_RESOURCE_ATTRIBUTES replaces settings
+    // attrs entirely, matching the headers rule. An invalid settings map
+    // never blocks a fully-specified env list.
     const parsed = parseOtelKeyValueList(
       envResourceAttrsRaw,
       OTEL_ENV.resourceAttributes,
@@ -315,7 +307,20 @@ export function resolveOtelExportConfig(
     if (!parsed.ok) {
       return { ok: false, code: OTEL_CONFIG_INVALID, message: parsed.message };
     }
-    resourceAttributes = { ...resourceAttributes, ...parsed.value };
+    resourceAttributes = parsed.value;
+  } else {
+    const settingsAttrs = validateStringMap(
+      otel?.resourceAttributes,
+      "settings.otel.resourceAttributes",
+    );
+    if (!settingsAttrs.ok) {
+      return {
+        ok: false,
+        code: OTEL_CONFIG_INVALID,
+        message: settingsAttrs.message,
+      };
+    }
+    resourceAttributes = settingsAttrs.value;
   }
 
   // Sync attrs["service.name"] to the resolved name so the two never diverge.

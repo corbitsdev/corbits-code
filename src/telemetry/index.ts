@@ -236,9 +236,10 @@ export function generationSampleRate(
   return Math.min(1, Math.max(0, parsed));
 }
 
-// Env kills win over settings and need none — callers skip settings writes
-// entirely. Falsy CORBITS_TELEMETRY and truthy DO_NOT_TRACK share the same
-// flag parsing, so the two switches agree on what counts as "off".
+// Env kill switches, one canonical switch plus a kept alias: DO_NOT_TRACK is
+// canonical; a falsy CORBITS_TELEMETRY is an accepted alias. Env kills win
+// over settings and need none — callers skip settings writes entirely. The
+// two spellings share this one falsy parse so "off" agrees across the pair.
 export function telemetryDisabledByEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {

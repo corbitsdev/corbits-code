@@ -109,7 +109,9 @@ import { resolveProfile } from "./profiles.js";
 
 // Per-call token ceiling for inference sources, shared by agent creation
 // (runner.ts) and live provider switching (the /agent modal) so a live switch
-// cannot silently revert it.
+// cannot silently revert it. CL-10672 review: kept as the shared fallback —
+// it is NOT an always-overridden default; ProviderSettings.maxTokens is the
+// optional override and an unset value resolves to this ceiling.
 export const SOURCE_MAX_TOKENS = 16384;
 
 // Credential-cell placeholder for keyless local providers (e.g. Ollama). The
@@ -160,8 +162,9 @@ function applyPersistedOAuthDefaults(
 
 // OAuth entries in settings.json carry no credentials; they work only while a
 // matching auth-store profile exists. Drop orphans in memory so a removed
-// profile does not pin resolution to an unauthenticatable provider.
-export function dropOrphanedOAuthEntries(
+// profile does not pin resolution to an unauthenticatable provider. Called
+// only from applyOAuthProviderProjections (plus its tests).
+function dropOrphanedOAuthEntries(
   settings: Settings | null,
   projected: Record<string, ProviderSettings>,
 ): Settings | null {
@@ -197,8 +200,8 @@ function isHandNamedProviderEntry(
 }
 
 // Overlay live OAuth profile projections onto settings for runtime provider
-// resolution. Exported for tests; loadConfig is the only production caller.
-export function overlayOAuthProjections(
+// resolution. Called only from applyOAuthProviderProjections (plus its tests).
+function overlayOAuthProjections(
   settings: Settings | null,
   projected: Record<string, ProviderSettings>,
 ): Settings | null {
@@ -211,6 +214,28 @@ export function overlayOAuthProjections(
     ...(settings ?? { providers: {} }),
     providers,
   };
+}
+
+// The one ordered OAuth projection chain for runtime provider resolution,
+// folding the three dedicated helpers at the layer that owns them
+// (loadConfig): (1) persisted defaultModel defaults merge into the live
+// projections, (2) credential-less orphan entries are dropped from settings
+// (only when the projections came from the home auth stores), (3) the
+// projections overlay onto the surviving settings without overwriting
+// hand-named API-key rows. Exposed for tests.
+export function applyOAuthProviderProjections(
+  settings: Settings | null,
+  projectedProviderSettings: Record<string, ProviderSettings>,
+  options: { dropOrphans: boolean },
+): Settings | null {
+  const projected = applyPersistedOAuthDefaults(
+    settings,
+    projectedProviderSettings,
+  );
+  const liveSettings = options.dropOrphans
+    ? dropOrphanedOAuthEntries(settings, projected)
+    : settings;
+  return overlayOAuthProjections(liveSettings, projected);
 }
 
 function hasExaEntry(servers: MCPServerSettingsEntry[] | undefined): boolean {
@@ -705,6 +730,15 @@ export interface UnconfiguredConfig {
   settingsDiagnostics?: SettingsLoadDiagnostic[];
 }
 
+// Skip-permissions spellings. `--dangerously-skip-permissions` is the
+// canonical process-only flag; `--yolo` is a kept alias (`/yolo` is the
+// persistent settings writer — a separate surface). One flag, one setting
+// (`dangerouslySkipPermissions`); the parse consults one alias set.
+const SKIP_PERMISSIONS_FLAGS: ReadonlySet<string> = new Set([
+  "--dangerously-skip-permissions",
+  "--yolo",
+]);
+
 /** Printed for `corbits --help` / `-h`. Keep in sync with docs/IMPLEMENTATION.md. */
 export const CLI_HELP_TEXT = `corbits — coding agent CLI
 
@@ -833,20 +867,21 @@ export async function loadConfig(
   let resumeMode: "id" | "pick" | undefined;
   let resumeSessionId: string | undefined;
   const leading = args[0];
+  // One exec verb: `exec` is canonical; `run` is a kept alias (help names
+  // both). One resume verb: `resume` is canonical; `continue` is a kept
+  // alias of the same flow.
   if (leading === "exec" || leading === "run") {
     command = "exec";
     args.shift();
   } else if (leading === "resume" || leading === "continue") {
-    command = "tui";
     args.shift();
     // Bare resume opens the list; a session id is the only direct-resume path.
     // Invalid non-flag positionals error instead of falling through (a
     // free-form token would otherwise become task while skipInitialTask is set).
+    // A following --pick/--list falls through to the loop's single resume
+    // branch, where it is a kept alias of the bare --resume picker flow.
     const next = args.slice()[0];
-    if (next === "--pick" || next === "--list") {
-      resumeMode = "pick";
-      args.shift();
-    } else if (next !== undefined && !isFlagToken(next)) {
+    if (next !== undefined && !isFlagToken(next)) {
       if (!isSessionId(next)) {
         throw new Error(
           `'${next}' is not a session id. Use a UUID session id or \`corbits resume\` to choose.`,
@@ -860,9 +895,10 @@ export async function loadConfig(
     }
   }
 
-  // `-p` is the exec one-shot path in any position (`-p --provider …`,
+  // `-p` is the exec one-shot alias in any position (`-p --provider …`,
   // `--model … -p …`). Detect it before value flags so exec-only options
-  // that appear before `-p` still see exec mode.
+  // that appear before `-p` still see exec mode; the loop keeps the token
+  // out of the task positionals.
   if (args.includes("-p")) {
     if (leading === "resume" || leading === "continue") {
       throw new Error(
@@ -934,11 +970,13 @@ export async function loadConfig(
       continue;
     }
 
-    if (arg === "--dangerously-skip-permissions" || arg === "--yolo") {
+    if (SKIP_PERMISSIONS_FLAGS.has(arg)) {
       dangerouslySkipPermissions = true;
       continue;
     }
     if (arg === "--auto") {
+      // Explicit re-assertion of the on-by-default auto mode. Kept because
+      // sequence order still matters (`--no-auto --auto` re-enables).
       auto = true;
       continue;
     }
@@ -947,41 +985,45 @@ export async function loadConfig(
       continue;
     }
     if (arg === "-p") {
-      command = "exec";
+      // `-p` alias of exec: the pre-scan already fixed command="exec"; the
+      // token must stay out of the task positionals.
       continue;
     }
-    if (arg === "--resume") {
-      if (resumeMode === "id") {
-        throw new Error("cannot combine a session id with --resume");
-      }
-      // Optional session id on the interactive path: `corbits --resume <uuid>`
-      // reopens that session (alias for `corbits resume <uuid>`); bare
-      // `--resume` opens the picker. Exec / `-p` require the id — headless has
-      // no picker. A non-id token errors instead of leaking into task text.
-      const next = args[i + 1];
-      if (next !== undefined && !isFlagToken(next)) {
-        if (!isSessionId(next)) {
-          throw new Error(
-            `'${next}' is not a session id. Use a UUID session id or \`corbits resume\` to choose.`,
-          );
+    if (arg === "--resume" || arg === "--pick" || arg === "--list") {
+      // One resume verb: `--resume` carries the optional session id (exec
+      // requires it; interactive bare `--resume` opens the picker, the alias
+      // for `resume <session-id>`). `--pick`/`--list` are kept aliases of that
+      // bare picker flow and may not follow a session id.
+      if (arg === "--resume") {
+        if (resumeMode === "id") {
+          throw new Error("cannot combine a session id with --resume");
         }
-        resumeMode = "id";
-        resumeSessionId = next;
-        i++;
-      } else if (command === "exec") {
-        throw new Error(
-          `--resume requires a session id in exec mode. Use \`${COMMAND_NAME} resume\` to choose a session.`,
-        );
-      } else {
-        resumeMode = "pick";
-      }
-      continue;
-    }
-    if ((arg === "--pick" || arg === "--list") && resumeMode !== undefined) {
-      if (resumeMode === "id") {
+        const next = args[i + 1];
+        if (next !== undefined && !isFlagToken(next)) {
+          if (!isSessionId(next)) {
+            throw new Error(
+              `'${next}' is not a session id. Use a UUID session id or \`corbits resume\` to choose.`,
+            );
+          }
+          resumeMode = "id";
+          resumeSessionId = next;
+          i++;
+        } else if (command === "exec") {
+          throw new Error(
+            `--resume requires a session id in exec mode. Use \`${COMMAND_NAME} resume\` to choose a session.`,
+          );
+        } else {
+          resumeMode = "pick";
+        }
+      } else if (resumeMode === "id") {
         throw new Error("cannot combine a session id with --pick/--list");
+      } else if (resumeMode !== undefined) {
+        resumeMode = "pick";
+      } else {
+        // Without the resume verb these spellings are not in flow; preserve
+        // the previous fallthrough as an unrecognized flag.
+        throw new Error(`unrecognized flag: ${arg}`);
       }
-      resumeMode = "pick";
       continue;
     }
     if (arg.startsWith("--")) {
@@ -1017,7 +1059,7 @@ export async function loadConfig(
     useOAuthProfiles
       ? await Promise.all([listCodexProfiles(), listXaiProfiles()])
       : [[], []];
-  let projectedOAuthProviders = {
+  const projectedOAuthProviders = {
     ...codexProvidersAsSettings(codexProfiles),
     ...xaiProvidersAsSettings(xaiProfiles),
   };
@@ -1047,16 +1089,11 @@ export async function loadConfig(
     settings?.dangerouslySkipPermissions === true;
   dangerouslySkipPermissions =
     dangerouslySkipPermissions || settings?.dangerouslySkipPermissions === true;
-  projectedOAuthProviders = applyPersistedOAuthDefaults(
+  // Single ordered projection chain (see applyOAuthProviderProjections).
+  const settingsForResolution: Settings | null = applyOAuthProviderProjections(
     settings,
     projectedOAuthProviders,
-  );
-  const liveSettings = useOAuthProfiles
-    ? dropOrphanedOAuthEntries(settings, projectedOAuthProviders)
-    : settings;
-  const settingsForResolution: Settings | null = overlayOAuthProjections(
-    liveSettings,
-    projectedOAuthProviders,
+    { dropOrphans: useOAuthProfiles },
   );
 
   // The per-repo selection file still applies on top of --config: that file

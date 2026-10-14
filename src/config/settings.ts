@@ -42,11 +42,12 @@ export interface ProviderSettings {
   contextWindow?: number;
   // Per-call output cap, overriding SOURCE_MAX_TOKENS when set.
   maxTokens?: number;
-  // Sampling temperature (0..2, OpenAI-compatible); mutually exclusive with
-  // topP — never send both on the wire.
+  // Sampling temperature (0..2, OpenAI-compatible); the canonical sampling
+  // knob. Mutually exclusive with topP — never send both on the wire.
   temperature?: number;
-  // Sampling top-p (0..1, OpenAI-compatible); mutually exclusive with
-  // temperature.
+  // Deprecated non-canonical sampling spelling; honored as-is (loads, flows
+  // to top_p) so existing files keep working. Mutually exclusive with
+  // temperature; new config should use temperature.
   topP?: number;
   // Bifrost virtual key (sk-bf-...): routes through the Bifrost adapter
   // (injects the x-bf-vk header) and enables /v1/models auto-discovery.
