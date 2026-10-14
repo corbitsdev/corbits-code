@@ -87,8 +87,8 @@
     "tar": "^7.5.1"
   },
   "dependencies": {
-    "@corbits/codex-provider": "0.1.1",
-    "@corbits/oauth-core": "0.2.0",
+    "@corbits/codex-provider": "0.1.2",
+    "@corbits/oauth-core": "0.3.0",
     "@corbits/openai-responses": "0.2.1",
     "@corbits/xai-provider": "0.1.2",
     "@intx/agent": "workspace:*",
@@ -122,8 +122,7 @@
     "oxfmt": "^0.73.0",
     "oxlint": "^1.88.0",
     "typescript": "5.9.3",
-    "typescript-language-server": "^4.3.4",
-    "ws": "^8.21.0"
+    "typescript-language-server": "^4.3.4"
   },
   "optionalDependencies": {
     "@opentui/core-darwin-arm64": "0.5.12",
