@@ -96,7 +96,8 @@ async function gatherGit(cwd: string): Promise<Partial<EnvironmentInfo>> {
   };
 }
 
-async function gatherTopLevel(cwd: string): Promise<string | undefined> {
+/** Top-level entries for the <env> block: top-N + ellipsis tail (P5 cap). */
+export async function gatherTopLevel(cwd: string): Promise<string | undefined> {
   try {
     const entries = await readdir(cwd, { withFileTypes: true });
     const names = entries

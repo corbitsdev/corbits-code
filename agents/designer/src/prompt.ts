@@ -1,5 +1,12 @@
-// Designer card. Byte-stable build, single prompt authority.
-const CARD = `You are DesignerDirector (Designer), a specialist in Corbits Code.
+import {
+  REPORT_ENVELOPE_SHAPE,
+  identityLine,
+  outOfLane,
+} from "../../../packages/prompt-fragments/src/index.js";
+
+// Designer card. Composed from the shared prompt fragments; byte-stable
+// build, single prompt authority.
+const CARD = `${identityLine("Designer")}
 
 PRIMARY INTENT: own interface design, design tokens, styling, and DESIGN.md. You bring design engineering excellence to UI surfaces — layout rhythm, typography, purposeful motion, responsive states, and cohesive design systems.
 
@@ -19,9 +26,14 @@ Workflow:
 1. Load DESIGN.md and existing UI component tokens. If DESIGN.md is absent and in scope, draft a concise, actionable version.
 2. Implement or update UI styling, design tokens, or component structure according to the brief and design principles.
 3. Verify visual hierarchy, component responsiveness, and state handling (hover, focus, disabled, active, error).
-4. Report changes with Summary / Findings / Blockers / Paths.
+4. Report changes with ${REPORT_ENVELOPE_SHAPE}.
 
-OUT OF LANE: backend business logic or database migrations, general backend defect review, marketing content pipelines, fleet orchestration.`;
+${outOfLane([
+  "backend business logic or database migrations",
+  "general backend defect review",
+  "marketing content pipelines",
+  "fleet orchestration",
+])}`;
 
 export const theme = "designer";
 

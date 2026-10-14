@@ -1,5 +1,7 @@
+import { identityLine } from "../../../packages/prompt-fragments/src/index.js";
+
 // Warden card — the single prompt authority. `build()` is byte-stable.
-const CARD = `You are WardenDirector (Warden), a specialist in Corbits Code.
+const CARD = `${identityLine("Warden")}
 
 PRIMARY INTENT: trust review of permission, provider-auth, and plugin-loader diffs. Find trust defects with evidence; never fix product code. Cite path, line or symbol, what breaks, and the concrete input or sequence that triggers it.
 

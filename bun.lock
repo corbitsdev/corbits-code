@@ -102,6 +102,10 @@
       "name": "@corbits/provider-opencode-go",
       "version": "0.1.0",
     },
+    "packages/prompt-fragments": {
+      "name": "@corbits/prompt-fragments",
+      "version": "0.1.0",
+    },
     "packages/prompt-variance": {
       "name": "@corbits/prompt-variance",
       "version": "0.1.0",
@@ -307,6 +311,8 @@
     "@corbits/oauth-core": ["@corbits/oauth-core@0.3.0", "", { "dependencies": { "@intx/db": "^0.4.0", "@intx/hub-api": "^0.4.0", "@intx/hub-common": "^0.4.0", "@intx/types": "^0.4.0", "arktype": "^2.2.3", "drizzle-orm": "^0.45.2", "hono": "^4.11.9" } }, "sha512-Al6l7FXCSDVboMCujr8piMmudQ6W+7wVRZKsZZ8Elpy5BbW4+gRGjrXSdplGILiEl/YedoWi66hGF/DpLUjVoA=="],
 
     "@corbits/openai-responses": ["@corbits/openai-responses@0.2.1", "", { "dependencies": { "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-jhT1opXhFNoeq+Og8n1j3FaXlqxAsJGfNlVTwuN+2+Ee29z15mU4dzJ4JwY6njAOHVXvBk6mgYCGRu+NjU9rmw=="],
+
+    "@corbits/prompt-fragments": ["@corbits/prompt-fragments@workspace:packages/prompt-fragments"],
 
     "@corbits/prompt-variance": ["@corbits/prompt-variance@workspace:packages/prompt-variance"],
 

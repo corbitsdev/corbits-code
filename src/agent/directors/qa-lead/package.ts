@@ -1,5 +1,9 @@
 import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
+import {
+  REPORT_ENVELOPE_SHAPE,
+  outOfLane,
+} from "../../../../packages/prompt-fragments/src/index.js";
 
 /**
  * QA Lead worker. Hands-on product exercise — actually run the CLI / e2e /
@@ -47,11 +51,17 @@ BLINDERS ON: exercise what the brief's success_criteria ask for, on the product 
 
 # Report
 
-When done, stop tooling and reply with ONLY the Corbits report envelope (Summary / Findings / Blockers / Paths, in that order). Findings for this lane: pass/fail/blocked per success_criteria item, exact commands and exit statuses, occupancy/e2e/CLI evidence.
+When done, stop tooling and reply with ONLY the Corbits report envelope (${REPORT_ENVELOPE_SHAPE}, in that order). Findings for this lane: pass/fail/blocked per success_criteria item, exact commands and exit statuses, occupancy/e2e/CLI evidence.
 
 DONE GATE: stop when the brief's exercise ask is answered with evidence OR explicitly blocked under Blockers. Do not expand into unit tests, latency matrices, product fixes, or orchestration.
 
-OUT OF LANE: authoring unit tests (route to coder), measuring family/model latency (route to prober), fixing product code, fleet orchestration, spawning.`,
+${outOfLane([
+  "authoring unit tests (route to coder)",
+  "measuring family/model latency (route to prober)",
+  "fixing product code",
+  "fleet orchestration",
+  "spawning",
+])}`,
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",

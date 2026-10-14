@@ -13,7 +13,6 @@ import {
 } from "./directors/types.js";
 import { buildSubAgentSystemPrompt } from "./prompts.js";
 import { resolveModelFamilyPolicy } from "./model-family-policy.js";
-import { shouldApplyGrokAntiThrash } from "../subagent/provider-family.js";
 import {
   advertisedToolName,
   foldFileToolNames,
@@ -28,9 +27,9 @@ import { webSearchDefinition } from "../tools/web-search.js";
 /**
  * Canonical prompt-size fixture: assembles each director prompt exactly as
  * src/subagent/run.ts does — extensions=[director systemPromptRole] +
- * environment + tools + appendix, Grok finish-bias gated by
- * shouldApplyGrokAntiThrash, family promptResidual from the model family
- * policy. Inputs are pinned so sizes never drift with machine, date, or
+ * environment + tools + appendix, ONE family promptResidual from the model
+ * family policy (grok carries the merged tool-discipline block). Inputs are
+ * pinned so sizes never drift with machine, date, or
  * checkout — only real prompt changes move the numbers.
  */
 export const CANONICAL_PROMPT_ENV: EnvironmentInfo = {
@@ -167,7 +166,6 @@ export function assembleDirectorPrompt(
     {
       orchestrator,
       toolNames: canonicalToolNamesForDirector(pkg, family),
-      grokAntiThrash: shouldApplyGrokAntiThrash({ ...provider, orchestrator }),
       promptResidual: policy.promptResidual,
     },
   );

@@ -6,10 +6,14 @@ import {
   FAMILY_ROWS,
   gptRow,
   grokRow,
-  grokToolBudgetResidual,
   museRow,
   type PromptVarianceFamily,
 } from "./rows.js";
+
+const BUDGET_LINES = [
+  "- Batch independent tool calls into a single turn.",
+  "- Never re-issue a tool call whose result you already have.",
+];
 
 const CEREMONY_LINES = [
   "Never run git add, git commit, git stash, or any other state-changing git command unless the user asks.",
@@ -69,12 +73,14 @@ describe("prompt-variance family rows", () => {
     expect(museRow.residual).toContain("Do not narrate; act.");
   });
 
-  test("grok row is the single finish-bias + ceremony block (CL-8296)", () => {
-    expect(grokRow.residual).toContain("Finish bias (xAI / Grok worker):");
+  test("grok row is the ONE merged tool-budget + finish-bias block (CL-10674)", () => {
+    expect(grokRow.residual).toContain("Tool budget (xAI / Grok worker):");
     expect(grokRow.residual).toContain("prefer the structured report");
     expect(grokRow.residual).toContain("re-open paths you already read");
     expect(grokRow.residual).toContain("done-definition is met");
     expect(grokRow.residual).toContain("never bash");
+    // One heading; the old separate "Finish bias" block is merged away.
+    expect(grokRow.residual).not.toContain("Finish bias (xAI / Grok worker):");
   });
 
   test("each ceremony line appears exactly once in the grok row (P2 invariant)", () => {
@@ -84,14 +90,15 @@ describe("prompt-variance family rows", () => {
     }
   });
 
-  test("grok tool-budget residual is ceremony-free and budget text appears once (P1 invariant)", () => {
-    expect(grokToolBudgetResidual).toContain("Tool budget:");
-    for (const line of CEREMONY_LINES) {
-      expect(grokToolBudgetResidual).not.toContain(line);
+  test("each budget line appears exactly once in the grok row (P2 invariant)", () => {
+    for (const line of BUDGET_LINES) {
+      const occurrences = grokRow.residual.split(line).length - 1;
+      expect(occurrences).toBe(1);
     }
-    const budgetOccurrences =
-      grokToolBudgetResidual.split("Tool budget:").length - 1;
-    expect(budgetOccurrences).toBe(1);
+    // The formerly double "write the report instead" pointer ships once.
+    expect(grokRow.residual.split("write the report instead").length - 1).toBe(
+      1,
+    );
   });
 
   test("default row carries no residual", () => {

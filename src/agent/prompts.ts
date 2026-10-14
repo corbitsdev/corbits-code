@@ -7,7 +7,7 @@ import {
   buildWorkerContract,
   buildWorkerToolNames,
 } from "./worker-contract.js";
-import { GROK_PROMPT_RESIDUAL } from "./model-family-policy.js";
+import { SETTINGS_DIR_NAME } from "../branding.js";
 
 // Advertise every gated core tool when the caller has no session-start facts
 // (tests, ad-hoc prompt previews), except wait_agents — it is mount-gated and
@@ -16,7 +16,6 @@ import { GROK_PROMPT_RESIDUAL } from "./model-family-policy.js";
 const DEFAULT_TOOL_AVAILABILITY: ToolAvailability = {
   languageServerAvailable: true,
 };
-import { SETTINGS_DIR_NAME } from "../branding.js";
 
 // Fallback tool list for worker prompts when the caller does not pass the
 // installed set. Matches the worker install (posix + manage_tasks + ask_director).
@@ -47,7 +46,8 @@ export function buildChatRole(
   _sessionMode: SessionMode = "orchestrator",
 ): string {
   // Primary session identity is the closed Dispatch director package.
-  // Harness facts / guidelines still append after this role in baseSection.
+  // Harness facts / guidelines only append under a SYSTEM.md override
+  // (baseSection); the default path is the bare dispatch card.
   return dispatchSystemPrompt.build();
 }
 
@@ -427,18 +427,10 @@ export function buildSubAgentReportContract(
   ].join("\n");
 }
 
-// Tiny residual for Grok/xAI workers: mining showed higher tools-only thrash
-// than Codex on the same harness. Shared thrash harness + spawn contracts do
-// the structural work; this is only a finish-bias nudge, not a full rewrite.
-// Returns GROK_PROMPT_RESIDUAL (model-family-policy.ts) verbatim so the
-// prompt carries one grok residual with no line twice.
-export function buildGrokLeafAntiThrashNote(): string {
-  return GROK_PROMPT_RESIDUAL;
-}
-
-// Single XML residual for Claude-family workers: a prose residual did
-// nothing, but one <task_guidance> block cut Sonnet tokens. One block only —
-// never a full-prompt XML renderer, never applied outside the claude family.
+// Lean worker assembly: contract, tool names, env, director body, optional
+// family residual — ONE tool-discipline block at the tail. No guidelines, no
+// tool catalog, no appendix; the contract owns identity, escalation, and the
+// report envelope.
 export function buildSubAgentSystemPrompt(
   extensions?: string[],
   env?: EnvironmentInfo,
@@ -446,8 +438,6 @@ export function buildSubAgentSystemPrompt(
   opts: {
     orchestrator?: boolean;
     toolNames?: readonly string[];
-    /** When true, append the tiny Grok/xAI finish-bias note (provider residual). */
-    grokAntiThrash?: boolean;
     /**
      * Family policy residual appended once at the tail so it cannot disturb
      * the cached prompt prefix. Unset for families with none.
@@ -461,9 +451,6 @@ export function buildSubAgentSystemPrompt(
       : defaultChatTools;
   const askDirector = toolListForPrompt.includes("ask_director");
   const orchestrator = opts.orchestrator === true;
-  // Lean worker assembly: [contract, tool-names-only, env, director body,
-  // grok note]. No guidelines, no tool catalog, no appendix — the contract
-  // owns identity, escalation, and the report envelope.
   const base =
     baseOverride !== undefined && baseOverride.trim().length > 0
       ? baseOverride.trim()
@@ -475,9 +462,6 @@ export function buildSubAgentSystemPrompt(
   ];
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
-  }
-  if (opts.grokAntiThrash === true) {
-    sections.push(buildGrokLeafAntiThrashNote());
   }
   if (opts.promptResidual !== undefined && opts.promptResidual.length > 0) {
     sections.push(opts.promptResidual);

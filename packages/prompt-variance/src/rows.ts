@@ -23,6 +23,15 @@ export interface PromptVarianceRow {
   residual: string;
 }
 
+/**
+ * Structural row shape for variance rows that travel seams outside the
+ * five FAMILY_IDS (dsv4 role rows): same fields, untyped id.
+ */
+export interface VarianceRow {
+  id: string;
+  residual: string;
+}
+
 export const FAMILY_IDS: readonly PromptVarianceFamily[] = [
   "default",
   "muse",
@@ -48,14 +57,18 @@ export const museRow: PromptVarianceRow = {
     "- Do not narrate; act.",
 };
 
-// Single grok finish-bias + ceremony residual (no git, no pre-plan, verify
-// once), merged into one block with no line twice. The don't re-read idea
-// appears exactly once (the "re-open paths" bullet). Grok-only: no glm
-// family exists, so no GLM row ships here.
+// Single grok finish-bias + tool-budget residual — ONE tool-discipline block
+// per grok leaf. Formerly two blocks shipped back-to-back ("Tool budget:" +
+// "Finish bias (xAI / Grok worker):"), each appending its own "write the
+// report instead" line; acknowledged redundancy. Merged here: the union of
+// unique bullets appears exactly once, the done-definition pointer once.
+// Grok-only: no glm family exists, so no GLM row ships here.
 export const grokRow: PromptVarianceRow = {
   id: "grok",
   residual: [
-    "Finish bias (xAI / Grok worker):",
+    "Tool budget (xAI / Grok worker):",
+    "- Batch independent tool calls into a single turn.",
+    "- Never re-issue a tool call whose result you already have.",
     "- Once you can answer the dispatch brief, prefer the structured report over another speculative tool call.",
     "- If the next call would only re-open paths you already read, write the report instead.",
     "- When the dispatch brief's done-definition is met, write the report envelope instead of making one more search or micro-edit.",
@@ -65,16 +78,6 @@ export const grokRow: PromptVarianceRow = {
     "- Verify with the test command once at the end, not after every edit.",
   ].join("\n"),
 };
-
-// Grok tool-budget hook: pure tool-loop budget, deliberately free of
-// ceremony lines and family-specific routing. A named export rather than a
-// family row because it travels a different seam (the
-// ModelFamilyPolicy.promptResidual field, not a row).
-export const grokToolBudgetResidual: string =
-  "Tool budget:\n" +
-  "- Batch independent tool calls into a single turn.\n" +
-  "- Never re-issue a tool call whose result you already have.\n" +
-  "- When the next call would only repeat prior work, write the report instead.";
 
 // Single XML residual for Claude-family workers: a prose residual did
 // nothing, but one <task_guidance> block cut Sonnet tokens. The block is

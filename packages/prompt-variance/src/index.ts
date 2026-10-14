@@ -2,9 +2,15 @@ export {
   claudeRow,
   gptRow,
   grokRow,
-  grokToolBudgetResidual,
   museRow,
 } from "./rows.js";
+
+export {
+  dsv4CoderBodyRow,
+  dsv4LeafRow,
+  dsv4PrimaryRow,
+  dsv4ReviewerBodyRow,
+} from "./dsv4.js";
 
 // Astra tool-evasion residual: the gpt-6-astra leaf re-issues the same
 // effective tool call with trivial argument deltas (path prefix, default

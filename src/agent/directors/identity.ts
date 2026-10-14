@@ -10,6 +10,16 @@ import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
  * only.
  */
 export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
+  return `${formatDirectorIdentityHeader(pkg)}\n\n${pkg.systemPrompt}`;
+}
+
+/**
+ * Identity block for a director package: agent id, model role, attached
+ * skills, optional skills — no card body. formatDirectorSystemPrompt composes
+ * header + card; run.ts composes the same header over a family-tuned leaf
+ * role body so identity stays single-authority.
+ */
+export function formatDirectorIdentityHeader(pkg: DirectorPackage): string {
   const attached = pkg.attachedSkills;
   const names = pkg.optionalSkills;
   const isPrimaryOrchestrator = pkg.tier === "orchestrator";
@@ -41,7 +51,24 @@ export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
     `Model role: ${pkg.modelRole}.`,
     ...skillLines,
   ].join("\n");
-  return `${header}\n\n${pkg.systemPrompt}`;
+  return header;
+}
+
+/**
+ * Compose a family-tuned leaf role body under the single identity header:
+ * the header is the block before the first blank line of the already
+ * formatted director prompt (identity stays formatted once, per package), so
+ * a family role body replaces only the card body. Falls back to the raw body
+ * when no formatted prompt is available.
+ */
+export function composeLeafRoleBody(
+  formattedPrompt: string | undefined,
+  leafRoleBody: string,
+): string {
+  if (formattedPrompt === undefined) return leafRoleBody;
+  const boundary = formattedPrompt.indexOf("\n\n");
+  if (boundary <= 0) return leafRoleBody;
+  return `${formattedPrompt.slice(0, boundary)}\n\n${leafRoleBody}`;
 }
 
 /**

@@ -32,17 +32,17 @@ const PROMPT_SIZE_BASELINE: Record<
   DirectorId,
   { chars: number; bytes: number }
 > = {
-  dispatch: { chars: 5277, bytes: 5281 },
-  explorer: { chars: 4041, bytes: 4059 },
-  planner: { chars: 4439, bytes: 4447 },
-  coder: { chars: 4705, bytes: 4715 },
-  reviewer: { chars: 4625, bytes: 4635 },
-  designer: { chars: 4596, bytes: 4604 },
-  artist: { chars: 4285, bytes: 4293 },
-  warden: { chars: 4113, bytes: 4127 },
-  shakespeare: { chars: 5993, bytes: 6015 },
-  prober: { chars: 5428, bytes: 5454 },
-  "qa-lead": { chars: 5226, bytes: 5246 },
+  dispatch: { chars: 5614, bytes: 5618 },
+  explorer: { chars: 3929, bytes: 3947 },
+  planner: { chars: 4321, bytes: 4329 },
+  coder: { chars: 4593, bytes: 4603 },
+  reviewer: { chars: 4534, bytes: 4544 },
+  designer: { chars: 4505, bytes: 4513 },
+  artist: { chars: 4194, bytes: 4202 },
+  warden: { chars: 4022, bytes: 4036 },
+  shakespeare: { chars: 5900, bytes: 5922 },
+  prober: { chars: 5337, bytes: 5363 },
+  "qa-lead": { chars: 5073, bytes: 5093 },
 };
 
 /** Deliberate budgets above baseline + allowance, with justification. */
