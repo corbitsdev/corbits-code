@@ -13,6 +13,12 @@
  * other providers as Codex.
  */
 
+import {
+  coerceBody,
+  readErrorNode,
+  resetSecondsFromNode,
+} from "../../provider/error-body.js";
+
 export interface CodexUsageLimitError {
   readonly code: string;
   readonly message: string;
@@ -25,48 +31,6 @@ const USAGE_LIMIT_CODES = new Set([
   "usage_limit_reached",
   "usage_limit_exceeded",
 ]);
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return undefined;
-  return value as Record<string, unknown>;
-}
-
-function tryParseJSON(text: string): unknown {
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
-function coerceBody(raw: unknown): unknown {
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    if (trimmed.length === 0) return undefined;
-    return tryParseJSON(trimmed) ?? raw;
-  }
-  return raw;
-}
-
-function readErrorNode(body: unknown): Record<string, unknown> | undefined {
-  const root = asRecord(body);
-  if (root === undefined) return undefined;
-
-  const detail = asRecord(root["detail"]);
-  if (detail !== undefined) {
-    const nested = asRecord(detail["error"]);
-    if (nested !== undefined) return nested;
-    // Some gateways put the fields directly under detail.
-    if (typeof detail["code"] === "string") return detail;
-  }
-
-  const top = asRecord(root["error"]);
-  if (top !== undefined) return top;
-
-  if (typeof root["code"] === "string") return root;
-  return undefined;
-}
 
 /**
  * Nested Codex `detail.error.message` when the harness left it on `raw` while
@@ -106,16 +70,7 @@ export function parseCodexUsageLimitError(
         ? node["planType"]
         : undefined;
 
-  const resetsRaw =
-    node["resets_in_seconds"] ??
-    node["resetsInSeconds"] ??
-    node["reset_after_seconds"];
-  const resetsInSeconds =
-    typeof resetsRaw === "number" &&
-    Number.isFinite(resetsRaw) &&
-    resetsRaw >= 0
-      ? Math.floor(resetsRaw)
-      : undefined;
+  const resetsInSeconds = resetSecondsFromNode(node);
 
   return {
     code,

@@ -308,6 +308,39 @@ describe("normalizeInferenceErrorForRetry", () => {
     );
   });
 
+  test("Codex bare 429 with a body reset window retries on the body, not the header (CL-10664)", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      ...BARE_429,
+      providerId: "codex/acme-labs",
+      raw: {
+        error: {
+          code: "rate_limit_exceeded",
+          message: "Too Many Requests",
+          resets_in_seconds: 7,
+        },
+      },
+    });
+    expect(normalized.category).toBe("retryable");
+    expect(normalized.message).toBe("Rate limited");
+    expect(normalized.retryAfterMs).toBe(7_000);
+  });
+
+  test("non-Codex 429s keep the header retry-after; a body reset is not read (CL-10664)", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      ...BARE_429,
+      providerId: "xai/alice",
+      raw: {
+        error: {
+          code: "rate_limit_exceeded",
+          message: "Too Many Requests",
+          resets_in_seconds: 7,
+        },
+      },
+    });
+    expect(normalized.category).toBe("retryable");
+    expect(normalized.retryAfterMs).toBe(45_000);
+  });
+
   test.each([{}, { providerId: "openai" }])(
     "bare 429 without a known provider keeps intx's quota_exhausted (%j)",
     (context) => {

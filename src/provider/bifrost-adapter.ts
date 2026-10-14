@@ -1,9 +1,6 @@
-import {
-  CREDENTIAL_SENTINEL,
-  type BuiltRequest,
-  type ProviderAdapter,
-} from "@intx/inference";
+import { CREDENTIAL_SENTINEL, type ProviderAdapter } from "@intx/inference";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
+import { withExtraHeaders } from "./adapter-decorators.js";
 
 // Small adapter for Bifrost (https://docs.getbifrost.ai). Bifrost is
 // OpenAI-compatible for chat but scopes requests to a virtual key's
@@ -22,28 +19,10 @@ type AdapterSource = Parameters<typeof createOpenAICompatibleAdapter>[0];
 // streaming request without it with HTTP 426 — plus the providerOptions merge
 // and delta patching every other OpenAI-shaped source gets.
 export function createBifrostAdapter(source: AdapterSource): ProviderAdapter {
-  const base = createOpenAICompatibleAdapter(source);
-
-  const buildRequest: ProviderAdapter["buildRequest"] = (
-    messages,
-    model,
-    options,
-  ) => {
-    const req = base.buildRequest(messages, model, options);
-    return {
-      ...req,
-      headers: {
-        ...req.headers,
-        "x-bf-vk": CREDENTIAL_SENTINEL,
-        // The base adapter has already emitted authorization as the BEARER
-        // sentinel; spread keeps it, and gateways that only look at x-bf-vk
-        // are tolerated.
-      },
-    } as BuiltRequest;
-  };
-
-  return {
-    ...base,
-    buildRequest,
-  };
+  return withExtraHeaders(createOpenAICompatibleAdapter(source), () => ({
+    "x-bf-vk": CREDENTIAL_SENTINEL,
+    // The base adapter has already emitted authorization as the BEARER
+    // sentinel; the spread keeps it, and gateways that only look at x-bf-vk
+    // are tolerated.
+  }));
 }

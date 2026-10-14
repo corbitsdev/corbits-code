@@ -27,6 +27,31 @@ export function endpointErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * Validate a `/models` response body and project it to its discovery state.
+ * Dedup happens by trimmed id; an optional cap rebrands an oversized catalog
+ * as malformed instead of admitting it. Callers keep their own HTTP and
+ * transport failure lines; this only owns the body.
+ */
+export function parseModelsData(
+  raw: unknown,
+  cap?: { readonly maxModels: number; readonly oversizeMessage: string },
+): ModelsEndpointDiscoveryState {
+  const parsed = ModelsEndpointResponse(raw);
+  if (parsed instanceof type.errors) {
+    return { status: "malformed", message: parsed.summary };
+  }
+  if (cap !== undefined && parsed.data.length > cap.maxModels) {
+    return { status: "malformed", message: cap.oversizeMessage };
+  }
+  const models = [
+    ...new Set(
+      parsed.data.map(({ id }) => id.trim()).filter((id) => id.length > 0),
+    ),
+  ];
+  return models.length > 0 ? { status: "models", models } : { status: "empty" };
+}
+
 // Single GET against an OpenAI-compatible /models endpoint, so URL
 // normalization and the request timeout stay consistent across callers.
 export async function requestModelsEndpoint(args: {
