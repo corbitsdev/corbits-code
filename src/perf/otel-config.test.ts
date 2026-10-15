@@ -197,7 +197,7 @@ describe("resolveOtelExportConfig", () => {
     }
   });
 
-  test("resource attributes merge with env winning on conflict", () => {
+  test("env resource attributes replace settings wholesale (CL-10672)", () => {
     const result = resolveOtelExportConfig(
       baseSettings({
         endpoint: "https://c.example",
@@ -213,7 +213,48 @@ describe("resolveOtelExportConfig", () => {
       expect(result.config.resourceAttributes["deployment.environment"]).toBe(
         "prod",
       );
-      expect(result.config.resourceAttributes.team).toBe("corbits");
+      expect(result.config.resourceAttributes.team).toBeUndefined();
+      expect(result.config.resourceAttributes["service.name"]).toBe(
+        DEFAULT_OTEL_SERVICE_NAME,
+      );
+    }
+  });
+
+  test("settings resource attributes can carry a service.name the env never overrides", () => {
+    const result = resolveOtelExportConfig(
+      baseSettings({
+        endpoint: "https://c.example",
+        resourceAttributes: {
+          "deployment.environment": "settings-only",
+          team: "corbits",
+        },
+      }),
+      { [OTEL_ENV.resourceAttributes]: "service.name=from-env" },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok && result.config.enabled) {
+      expect(result.config.resourceAttributes.team).toBeUndefined();
+      expect(result.config.serviceName).toBe("from-env");
+    }
+  });
+
+  test("set-but-empty env resource attributes replace with nothing (regression: no settings fallback)", () => {
+    const result = resolveOtelExportConfig(
+      baseSettings({
+        endpoint: "https://c.example",
+        resourceAttributes: {
+          team: "corbits",
+          "deployment.environment": "dev",
+        },
+      }),
+      { [OTEL_ENV.resourceAttributes]: "" },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok && result.config.enabled) {
+      expect(result.config.resourceAttributes.team).toBeUndefined();
+      expect(
+        result.config.resourceAttributes["deployment.environment"],
+      ).toBeUndefined();
       expect(result.config.resourceAttributes["service.name"]).toBe(
         DEFAULT_OTEL_SERVICE_NAME,
       );

@@ -572,6 +572,8 @@ describe("loadConfig", () => {
     { argv: ["resume", "--pick"] },
     { argv: ["resume"] },
     { argv: ["continue", "--list"] },
+    { argv: ["resume", "--list"] },
+    { argv: ["resume", "--pick", "--list"] },
   ] as const)("$argv opens the session picker", async ({ argv }) => {
     const cwd = await emptyCwd();
     const config = await loadFor(cwd, argv, { home: await tempHome() });
@@ -579,6 +581,15 @@ describe("loadConfig", () => {
     expect(config.resumeMode).toBe("pick");
     expect(config.resumePicker).toBe(true);
     expect(config.skipInitialTask).toBe(true);
+  });
+
+  test("CL-10672 keeps --pick/--list out of flow as unrecognized flags", async () => {
+    await expect(
+      loadConfig(["--pick"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow("unrecognized flag: --pick");
+    await expect(
+      loadConfig(["--list"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow("unrecognized flag: --list");
   });
 
   test("resume <id> reopens a known session and skips the initial task", async () => {

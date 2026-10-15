@@ -834,16 +834,12 @@ export async function loadConfig(
     command = "exec";
     args.shift();
   } else if (leading === "resume" || leading === "continue") {
-    command = "tui";
     args.shift();
     // Bare resume opens the list; a session id is the only direct-resume path.
     // Invalid non-flag positionals error instead of falling through (a
     // free-form token would otherwise become task while skipInitialTask is set).
     const next = args.slice()[0];
-    if (next === "--pick" || next === "--list") {
-      resumeMode = "pick";
-      args.shift();
-    } else if (next !== undefined && !isFlagToken(next)) {
+    if (next !== undefined && !isFlagToken(next)) {
       if (!isSessionId(next)) {
         throw new Error(
           `'${next}' is not a session id. Use a UUID session id or \`corbits resume\` to choose.`,
@@ -944,41 +940,37 @@ export async function loadConfig(
       continue;
     }
     if (arg === "-p") {
-      command = "exec";
       continue;
     }
-    if (arg === "--resume") {
-      if (resumeMode === "id") {
-        throw new Error("cannot combine a session id with --resume");
-      }
-      // Optional session id on the interactive path: `corbits --resume <uuid>`
-      // reopens that session (alias for `corbits resume <uuid>`); bare
-      // `--resume` opens the picker. Exec / `-p` require the id — headless has
-      // no picker. A non-id token errors instead of leaking into task text.
-      const next = args[i + 1];
-      if (next !== undefined && !isFlagToken(next)) {
-        if (!isSessionId(next)) {
-          throw new Error(
-            `'${next}' is not a session id. Use a UUID session id or \`corbits resume\` to choose.`,
-          );
+    if (arg === "--resume" || arg === "--pick" || arg === "--list") {
+      if (arg === "--resume") {
+        if (resumeMode === "id") {
+          throw new Error("cannot combine a session id with --resume");
         }
-        resumeMode = "id";
-        resumeSessionId = next;
-        i++;
-      } else if (command === "exec") {
-        throw new Error(
-          `--resume requires a session id in exec mode. Use \`${COMMAND_NAME} resume\` to choose a session.`,
-        );
-      } else {
-        resumeMode = "pick";
-      }
-      continue;
-    }
-    if ((arg === "--pick" || arg === "--list") && resumeMode !== undefined) {
-      if (resumeMode === "id") {
+        const next = args[i + 1];
+        if (next !== undefined && !isFlagToken(next)) {
+          if (!isSessionId(next)) {
+            throw new Error(
+              `'${next}' is not a session id. Use a UUID session id or \`corbits resume\` to choose.`,
+            );
+          }
+          resumeMode = "id";
+          resumeSessionId = next;
+          i++;
+        } else if (command === "exec") {
+          throw new Error(
+            `--resume requires a session id in exec mode. Use \`${COMMAND_NAME} resume\` to choose a session.`,
+          );
+        } else {
+          resumeMode = "pick";
+        }
+      } else if (resumeMode === "id") {
         throw new Error("cannot combine a session id with --pick/--list");
+      } else if (resumeMode !== undefined) {
+        resumeMode = "pick";
+      } else {
+        throw new Error(`unrecognized flag: ${arg}`);
       }
-      resumeMode = "pick";
       continue;
     }
     if (arg.startsWith("--")) {

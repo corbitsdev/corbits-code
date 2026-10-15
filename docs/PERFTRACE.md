@@ -66,7 +66,8 @@ Precedence:
   `resourceAttributes["service.name"]` > `corbits-code`. After merge,
   `resourceAttributes["service.name"]` is always set to the resolved name so
   the two never diverge.
-- **resourceAttributes:** settings merged with env; env wins on key conflict
+- **resourceAttributes:** when `OTEL_RESOURCE_ATTRIBUTES` is set, it fully
+  replaces settings attributes (including set-but-empty)
 - **enabling export:** setting an endpoint (settings or env) enables export;
   `otel.enabled` need not be set. Service name or resource attributes alone do
   not enable export.
