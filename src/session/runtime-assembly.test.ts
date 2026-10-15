@@ -722,7 +722,10 @@ describe("createSessionPruningCompactor stub fallback", () => {
               callId: "c1",
               isError: true,
               content: [
-                { type: "text" as const, text: "token refresh assertion failed" },
+                {
+                  type: "text" as const,
+                  text: "token refresh assertion failed",
+                },
               ],
             },
           ],
@@ -780,7 +783,9 @@ describe("createSessionPruningCompactor stub fallback", () => {
         compactionShape: { tailBudgetTokens: 1 },
       }).apply(turns as never, { state: {} as never, trigger: "test" });
       expect(result.output).toBe(turns);
-      expect(result.record.reason).toBe("verify failed — keeping prior context");
+      expect(result.record.reason).toBe(
+        "verify failed — keeping prior context",
+      );
       expect(result.record.decisions.summarizedTurnCount).toBeUndefined();
       expect(result.record.decisions.verifyAborted).toBe(1);
       expect(folds).toEqual([]);
