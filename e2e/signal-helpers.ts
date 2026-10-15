@@ -65,10 +65,10 @@ export interface SpawnSignalFixtureOptions {
    */
   readonly extraEnv?:
     | Record<string, string>
-    | ((dirs: { readonly cwd: string; readonly home: string }) => Record<
-        string,
-        string
-      >);
+    | ((dirs: {
+        readonly cwd: string;
+        readonly home: string;
+      }) => Record<string, string>);
 }
 
 /**
