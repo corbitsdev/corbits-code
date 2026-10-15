@@ -1,7 +1,7 @@
 /** Transcript stream row model — product-skin styling for plain and
  * markdown renderables. */
 
-import { SyntaxStyle } from "@opentui/core";
+import { SyntaxStyle, type CliRenderer } from "@opentui/core";
 
 import { stringWidth, wrapLines } from "./view/height.js";
 import type { DiffView } from "./diff.js";
@@ -12,6 +12,10 @@ import {
   type Thought,
 } from "./thinking.js";
 import { UI, onThemeChange } from "./theme.js";
+import {
+  syntaxStyleForGeneration,
+  destroyUnpaintedSyntaxStyles,
+} from "./syntax-style-cache.js";
 import { pastTenseToolLabel } from "./tool-formatter.js";
 
 /** One pre-coloured body line (an expanded call's structured args). */
@@ -773,17 +777,47 @@ function markdownStyles() {
   };
 }
 
-let cachedSyntaxStyle: SyntaxStyle | null = null;
+/** 0.6.x native styles must name the Context that owns them; the owner is the
+ * live renderer, so the shared style is keyed per renderer instead of held in
+ * a module global. A theme pin bumps the generation; the next reader rebuilds
+ * from the new `UI` colors, matching the old invalidation. The previous
+ * style stays alive until rows drop it (`dropRetiredTranscriptSyntaxStyles`). */
+const transcriptStylesByRenderer = new WeakMap<
+  CliRenderer,
+  { generation: number; style: SyntaxStyle }
+>();
 
-/** Shared transcript SyntaxStyle, built lazily — the native render lib is
- * unreachable until a renderer exists. */
-export function transcriptSyntaxStyle(): SyntaxStyle {
-  if (cachedSyntaxStyle === null) {
-    cachedSyntaxStyle = SyntaxStyle.fromStyles({ ...markdownStyles() });
-  }
-  return cachedSyntaxStyle;
+const retiredTranscriptStyles = new WeakMap<CliRenderer, SyntaxStyle[]>();
+
+let transcriptStyleGeneration = 0;
+
+/** Shared transcript SyntaxStyle for `ctx`, built lazily — the native render
+ * lib is unreachable until a renderer exists. */
+export function transcriptSyntaxStyle(ctx: CliRenderer): SyntaxStyle {
+  return syntaxStyleForGeneration(
+    transcriptStylesByRenderer,
+    retiredTranscriptStyles,
+    ctx,
+    transcriptStyleGeneration,
+    () => SyntaxStyle.fromStyles({ ...markdownStyles() }, ctx.nativeScene),
+  );
+}
+
+/** Destroy transcript styles this renderer no longer paints. `painted` runs
+ * only when a previous style is queued, and only after rows have been
+ * rebuilt — a style the thunk still reports stays queued. */
+export function dropRetiredTranscriptSyntaxStyles(
+  ctx: CliRenderer,
+  painted: () => ReadonlySet<SyntaxStyle>,
+): void {
+  const pending = retiredTranscriptStyles.get(ctx);
+  if (pending === undefined || pending.length === 0) return;
+  const held = painted();
+  destroyUnpaintedSyntaxStyles(retiredTranscriptStyles, ctx, (style) =>
+    held.has(style),
+  );
 }
 
 onThemeChange(() => {
-  cachedSyntaxStyle = null;
+  transcriptStyleGeneration += 1;
 });
