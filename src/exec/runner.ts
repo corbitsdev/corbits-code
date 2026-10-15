@@ -944,6 +944,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
           onFailure: (text) => {
             stderr.write(`${text}\n`);
           },
+          onKeptPrior: () => {
+            directorHolder.instance?.noteCompactionKeptPrior();
+          },
           onFolded: () => {
             // Fold restarts the cached prefix: drop idle execute-promoted
             // schemas and persist, so a crash resume cannot re-flush them.

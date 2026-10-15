@@ -1202,6 +1202,21 @@ describe("handoff arming (/handoff)", () => {
     ).toBeNull();
   });
 
+  test("a failed handoff compact does not schedule the post-compact infer", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.syncFromTurns(tenTurns);
+    expect(governor.requestHandoff("now do the UI audit")).toBe("armed");
+    const actions = governor.interceptIdleContinuation(
+      pivot("now do the UI audit"),
+      capabilities,
+    );
+    expect(actions?.some((a) => a.type === "compact")).toBe(true);
+    expect(governor.hasOutstandingContinuation()).toBe(true);
+    governor.noteKeptPrior();
+    expect(governor.hasOutstandingContinuation()).toBe(false);
+    expect(governor.resumeAfterCompact(emptyMessage())).toBeNull();
+  });
+
   test("instructions stay sticky for the summary after the fold fires", () => {
     const governor = createCompactionGovernor(undefined);
     governor.syncFromTurns(tenTurns);
