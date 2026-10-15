@@ -414,6 +414,14 @@ export function createCompactionGovernor(
     ];
   }
 
+  // A keep-prior compact (verify abort, summarizer failure) must not resume
+  // into inference: the continuation is already queued, and inferring on the
+  // full transcript is what 401/429s the handoff.
+  function noteKeptPrior(): void {
+    postCompactInfer = false;
+    postCompactMeter = false;
+  }
+
   // After compact, a content-less continuation re-enters decide. "infer"
   // resumes the interrupted loop; "meter" adopts the shrunk turns for the
   // Ctx display and stays idle (idle empty compact has nothing to answer).
@@ -559,6 +567,7 @@ export function createCompactionGovernor(
     interceptIdleContinuation,
     interceptOverflow,
     resumeAfterCompact,
+    noteKeptPrior,
     hasOutstandingContinuation,
   };
 }

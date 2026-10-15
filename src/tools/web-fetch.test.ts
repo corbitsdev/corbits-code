@@ -7,6 +7,7 @@ import {
   createWebFetchTool,
   runWebFetch,
   MAX_FETCH_BYTES,
+  webFetchDefinition,
 } from "./web-fetch.js";
 
 let server: Server;
@@ -262,5 +263,46 @@ describe("createExaMCPWebFetchTool", () => {
     expect(text.content).not.toContain("# Heading");
     expect(text.content).not.toContain("<h1>");
     expect(html.content).toContain("<h1>Heading</h1>");
+  });
+});
+
+// The served schema must stay the toJsonSchema projection of WebFetchArgs:
+// pinning it here asserts the arktype-generated args type remains the single
+// source of truth (descriptions flow from the type's @ metadata, not from a
+// hand-written JSON copy).
+describe("webFetchDefinition.inputSchema", () => {
+  test("is generated from WebFetchArgs via toJsonSchema", () => {
+    expect(webFetchDefinition.inputSchema).toEqual({
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "URL to fetch (http or https only)",
+          minLength: 1,
+        },
+        format: {
+          anyOf: [
+            {
+              const: "html",
+              description: "Output format. Defaults to markdown.",
+            },
+            {
+              const: "markdown",
+              description: "Output format. Defaults to markdown.",
+            },
+            {
+              const: "text",
+              description: "Output format. Defaults to markdown.",
+            },
+          ],
+          description: "Output format. Defaults to markdown.",
+        },
+        timeout: {
+          type: "number",
+          description: "Timeout in seconds (default 30, max 120).",
+        },
+      },
+      required: ["url"],
+    });
   });
 });

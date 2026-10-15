@@ -13,6 +13,7 @@ import { realpathSync } from "node:fs";
 import { createBlobReader, type BlobReader } from "@intx/types/runtime";
 import { createPosixTools, composeMiddleware } from "./index";
 import type { PosixTools, ToolHandler, ToolPlugin } from "./index";
+// Locally patched — see vendor/intx-tools-posix/PATCHES.md#registry-ts-read-file-paging-description
 import { TOOL_DEFINITIONS } from "./registry";
 import { matchGlob, shouldSkip } from "./glob-match";
 

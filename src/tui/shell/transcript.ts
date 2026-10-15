@@ -9,6 +9,7 @@ import {
   StyledText,
   type BaseRenderable,
   type CliRenderer,
+  type SyntaxStyle,
 } from "@opentui/core";
 import { stringWidth } from "../view/height.js";
 import { viewToTableContent, type McpStructuredView } from "../mcp-view.js";
@@ -37,6 +38,7 @@ import {
   toolRowLines,
   toolSentenceLines,
   transcriptSyntaxStyle,
+  dropRetiredTranscriptSyntaxStyles,
   type PaintedStreamLine,
   type RowLayout,
   type StreamRow,
@@ -355,9 +357,13 @@ export function buildRowNode(
 }
 
 /** Shared construction options for a transcript markdown body's renderer. */
-function markdownBodyOptions(gutter: PaintedStreamLine, width: number) {
+function markdownBodyOptions(
+  ctx: CliRenderer,
+  gutter: PaintedStreamLine,
+  width: number,
+) {
   return {
-    syntaxStyle: transcriptSyntaxStyle(),
+    syntaxStyle: transcriptSyntaxStyle(ctx),
     fg: gutter.fg,
     width,
     flexShrink: 0,
@@ -430,7 +436,7 @@ function createMarkdownBody(
   if (split === null) {
     // Native incremental block stability: only the trailing block is unstable.
     return new MarkdownRenderable(ctx, {
-      ...markdownBodyOptions(gutter, width),
+      ...markdownBodyOptions(ctx, gutter, width),
       content,
       streaming: row.streaming === true,
     });
@@ -438,14 +444,14 @@ function createMarkdownBody(
   const column = new BoxRenderable(ctx, { flexDirection: "column", width });
   column.add(
     new MarkdownRenderable(ctx, {
-      ...markdownBodyOptions(gutter, width),
+      ...markdownBodyOptions(ctx, gutter, width),
       content: split.frozen,
       streaming: false,
     }),
   );
   column.add(
     new MarkdownRenderable(ctx, {
-      ...markdownBodyOptions(gutter, width),
+      ...markdownBodyOptions(ctx, gutter, width),
       content: split.live,
       streaming: row.streaming === true,
       marginTop: split.gapRows,
@@ -458,6 +464,27 @@ function createMarkdownBody(
     streaming: row.streaming === true,
   });
   return column;
+}
+
+/** Markdown bodies still holding a syntax style. A theme pin must not free
+ * a style that one of these nodes is still painting. */
+function paintedMarkdownSyntaxStyles(node: BaseRenderable): Set<SyntaxStyle> {
+  const painted = new Set<SyntaxStyle>();
+  const walk = (current: BaseRenderable): void => {
+    if (current instanceof MarkdownRenderable) {
+      painted.add(current.syntaxStyle);
+    }
+    for (const child of current.getChildren()) walk(child);
+  };
+  walk(node);
+  return painted;
+}
+
+/** After the transcript rows have been rebuilt, free styles they dropped. */
+export function releaseRetiredTranscriptSyntaxStyles(shell: AppShell): void {
+  dropRetiredTranscriptSyntaxStyles(shell.renderer as CliRenderer, () =>
+    paintedMarkdownSyntaxStyles(shell.renderer.root as BaseRenderable),
+  );
 }
 
 /** Gutter + one pre-coloured text line per body row (a diff, expanded tool

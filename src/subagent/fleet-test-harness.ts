@@ -18,6 +18,7 @@ import {
   createInterruptAgentTool,
   createResumeAgentTool,
   createSendInputTool,
+  createApproveWorkerCallTool,
 } from "./lifecycle-tools.js";
 import type {
   FleetDryLane,
@@ -85,6 +86,10 @@ export function fleetTools(deps: AgentFleetDeps) {
     wait: createWaitAgentsTool(scope),
     list: createListAgentsTool(scope),
     sendInput: createSendInputTool(scope),
+    approveWorkerCall: createApproveWorkerCallTool({
+      ...scope,
+      permissionGate: deps.permissionGate,
+    }),
     interrupt: createInterruptAgentTool(scope),
     close: createCloseAgentTool(scope),
     resume: createResumeAgentTool(scope),

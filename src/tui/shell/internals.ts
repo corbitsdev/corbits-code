@@ -284,6 +284,9 @@ export type ShellRenderer = Pick<
   | "off"
   | "isDestroyed"
   | "clearSelection"
+  // 0.6.x native style construction needs the owning Context: the renderer's
+  // native scene.
+  | "nativeScene"
 >;
 
 export interface AppShellOptions {

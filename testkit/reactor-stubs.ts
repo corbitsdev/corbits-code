@@ -13,14 +13,16 @@ import type {
 /** Empty reactor state for decides that never read it. */
 export const stubReactorState = {} as unknown as ReactorState;
 
-/** Pass-through capabilities: every method returns its action literal. */
+/** Pass-through capabilities: every method returns its action literal.
+ * Per-test overrides go through `stubReactorCapabilitiesWith`. */
 export const stubReactorCapabilities: ReactorCapabilities = {
   infer: (options) =>
     ({
       type: "infer",
       ...(options !== undefined ? { options } : {}),
     }) as ReactorAction,
-  executeTools: (calls) => ({ type: "execute_tools", calls }),
+  executeTools: (calls, parallel, addToHistory) =>
+    ({ type: "execute_tools", calls, parallel, addToHistory }) as ReactorAction,
   suspend: (gate) => ({ type: "suspend", gate }),
   fork: (mode, forkId) => ({ type: "fork", mode, forkId }),
   emit: (eventType, data) => ({ type: "emit", eventType, data }),
@@ -44,4 +46,11 @@ export function stubTextTurnEvent(): ReactorInboundEvent {
     usage: { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
     source: { model: "test-model" },
   } as unknown as ReactorInboundEvent;
+}
+
+/** Canonical stub with per-test overrides for the methods a test observes. */
+export function stubReactorCapabilitiesWith(
+  overrides: Partial<ReactorCapabilities>,
+): ReactorCapabilities {
+  return { ...stubReactorCapabilities, ...overrides };
 }

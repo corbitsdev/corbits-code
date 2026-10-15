@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   assertCanTargetAgent,
   assertTierMayMountFleetVerb,
+  FLEET_VERBS,
   FleetAuthorityError,
   isFleetVerb,
 } from "./authority.js";
@@ -70,6 +71,8 @@ describe("assertTierMayMountFleetVerb", () => {
 
   test("isFleetVerb matches the same set used for the gate", () => {
     expect(isFleetVerb("spawn_agent")).toBe(true);
+    expect(FLEET_VERBS.has("approve_worker_call")).toBe(true);
+    expect(isFleetVerb("approve_worker_call")).toBe(true);
     expect(isFleetVerb("task")).toBe(false);
     expect(isFleetVerb("write_file")).toBe(false);
   });

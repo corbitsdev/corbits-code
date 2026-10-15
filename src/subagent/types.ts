@@ -22,6 +22,7 @@ import type { ForcedStopReason } from "./stop-policy.js";
 import type { AdmissionQueue } from "./admission.js";
 import type { EscalationAssessment } from "./escalation-policy.js";
 import type { SkillSummary } from "../extensions/skills.js";
+import type { ShellSandbox } from "../shell/sandbox-config.js";
 
 export interface SubAgentProvider {
   providerName: string;
@@ -65,6 +66,12 @@ export interface SubAgentSandboxDeps {
    * dispatch chain.
    */
   secretGuardExtraDeniedPaths?: readonly string[];
+  /**
+   * Parent's OS-sandbox handle: worker run_shell spawns wrap into the same
+   * sandbox. Shared state (one SandboxManager per process), so the handle is
+   * passed down, never rebuilt per worker.
+   */
+  sandbox?: ShellSandbox;
   /** Plugin skill dirs, same list the primary passes to createUseSkillTool. */
   skillDirs?: readonly string[];
   /**

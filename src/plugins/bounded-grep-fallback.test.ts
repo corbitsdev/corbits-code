@@ -97,6 +97,35 @@ describe("runBoundedGrep", () => {
       ).rejects.toThrow();
     });
   });
+
+  test("accepts regex quantifier braces and still rejects glob braces", async () => {
+    await withTempDir(async (dir) => {
+      await writeFile(join(dir, "q.txt"), "foo\nfooo\n");
+      const out = await runBoundedGrep(
+        { pattern: "foo{1,3}", path: "." },
+        new AbortController().signal,
+        dir,
+      );
+      expect(out).toContain("q.txt");
+      expect(out).not.toContain("brace expansion");
+
+      await expect(
+        runBoundedGrep(
+          { pattern: "foo", path: ".", glob: "*.{ts,txt}" },
+          new AbortController().signal,
+          dir,
+        ),
+      ).rejects.toThrow(/brace expansion is not supported/);
+
+      await expect(
+        runBoundedSearchFiles(
+          { pattern: "*.{ts,txt}", path: "." },
+          new AbortController().signal,
+          dir,
+        ),
+      ).rejects.toThrow(/brace expansion is not supported/);
+    });
+  });
 });
 
 describe("runBoundedSearchFiles", () => {

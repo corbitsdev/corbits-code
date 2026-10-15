@@ -27,6 +27,7 @@ import type { ContextStore } from "@intx/types/runtime";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { loadOrCreateCommitSigner } from "./commit-signer.js";
 import { withResolvedDirLock } from "./session-dir-lock.js";
+import { scrubPersistedPendingOperations } from "./pending-snapshot-scrub.js";
 
 const TURNS_FILE = "turns.jsonl";
 const PROMPT_FILE = "prompt.jsonl";
@@ -1181,9 +1182,14 @@ export async function createSessionStores(
     tokenUsage: TokenUsage;
   }): Promise<void> {
     await appendUsageSidecar(metadata.tokenUsage);
+    // Approval snapshot args persist into metadata.json in the clear; scrub
+    // them at this app-owned write (suspendedCall stays raw for the approved
+    // call's re-dispatch).
     const desired = JSON.stringify(
       {
-        pendingOperations: metadata.pendingOperations,
+        pendingOperations: scrubPersistedPendingOperations(
+          metadata.pendingOperations,
+        ),
         connectorState: connectorStateBuffer,
       },
       null,
@@ -1872,19 +1878,34 @@ export async function createSessionStores(
           const remove = [...new Set(toRemove)].filter((p) => !add.includes(p));
           extraPaths = [...new Set([...add, ...remove])];
 
-          // Array-form add/remove stages and unstages in one index write
-          // per call (isomorphic-git >= 1.42.7). On a mid-batch add failure
-          // the index is left unwritten and the catch below still resets
-          // every extraPath, so the all-or-nothing outcome matches the old
-          // per-file loop.
+          // Array `git.add` / `git.remove` each write the index once.
+          // Array `remove` is isomorphic-git 1.43.0; array `add` is older.
+          // A mid-batch add failure leaves the index unwritten. Only the
+          // outer catch calls `resetIndexPaths`.
           if (add.length > 0) {
             await git.add({ fs, dir, filepath: add });
           }
           if (remove.length > 0) {
             try {
               await git.remove({ fs, dir, filepath: remove });
-            } catch {
-              // Already absent from the index.
+            } catch (cause) {
+              // `GitIndex.delete` does not throw when a path is absent, so
+              // this is an index lock or write. It aborts before the index
+              // write. Skip the failing path and write the rest once.
+              let unstaged = false;
+              if (remove.length > 1) {
+                for (let index = 0; index < remove.length; index++) {
+                  const rest = remove.filter((_, other) => other !== index);
+                  try {
+                    await git.remove({ fs, dir, filepath: rest });
+                    unstaged = true;
+                    break;
+                  } catch {
+                    // This omission still aborted before the index write.
+                  }
+                }
+              }
+              if (!unstaged) throw cause;
             }
           }
           const committed = await base.commit(options, signal);

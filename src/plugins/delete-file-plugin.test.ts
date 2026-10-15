@@ -15,7 +15,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
-import { deleteFilePlugin } from "./delete-file-plugin.js";
+import {
+  deleteFilePlugin,
+  DELETE_FILE_DEFINITION,
+} from "./delete-file-plugin.js";
 import { pathEscapePlugin } from "./path-escape-plugin.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { permissionPlugin } from "./permission-plugin.js";
@@ -23,6 +26,27 @@ import { permissionPlugin } from "./permission-plugin.js";
 function call(path: unknown): ToolCall {
   return { id: "delete-call", name: "delete_file", arguments: { path } };
 }
+
+// The served schema must stay the toJsonSchema projection of DeleteFileArgs:
+// pinning it here asserts the arktype-generated args type remains the single
+// source of truth (descriptions flow from the type's @ metadata, not from a
+// hand-written JSON copy).
+describe("DELETE_FILE_DEFINITION.inputSchema", () => {
+  test("is generated from DeleteFileArgs via toJsonSchema", () => {
+    expect(DELETE_FILE_DEFINITION.inputSchema).toEqual({
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Path to the file to delete, relative to the working directory or absolute",
+          minLength: 1,
+        },
+      },
+      required: ["path"],
+    });
+  });
+});
 
 async function exists(path: string): Promise<boolean> {
   try {

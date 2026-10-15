@@ -48,6 +48,16 @@ export interface CorbitsRetryPolicyOptions {
  * before `normalizeInferenceErrorForRetry` so known-provider remappers (xAI
  * short 429 → retryable, Go, Codex) can gate on context the harness does not
  * attach to InferenceError today.
+ *
+ * Trust model: a `RetryPolicy` is trusted first-party code. The vendored
+ * harness sanitizes the `situation.error` it passes here (the terminal error
+ * is run through `sanitizeCredentialDiagnostic` before the policy call) and
+ * still sanitizes a same-source recovered diagnostic, but the warn it emits
+ * when the policy itself throws has no sanitizer — a policy exception is
+ * logged raw (CL-10679 ledger note,
+ * docs/VENDORING.md#approval-rail-hygiene-audit). Never embed bearer-shaped
+ * or otherwise credential-bearing text in a policy exception; reach for the
+ * pre-sanitized `situation.error` instead.
  */
 export function createCorbitsRetryPolicy(
   options?: CorbitsRetryPolicyOptions,

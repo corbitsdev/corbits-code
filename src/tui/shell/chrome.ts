@@ -143,6 +143,7 @@ import {
   transcriptRowChildren,
   transcriptRowLayout,
   transcriptRowOffset,
+  releaseRetiredTranscriptSyntaxStyles,
 } from "./transcript.js";
 
 function syncPending(shell: AppShell): void {
@@ -1411,6 +1412,7 @@ export function repaintTranscriptWindow(shell: AppShell): void {
       ),
     );
   });
+  releaseRetiredTranscriptSyntaxStyles(shell);
 }
 
 /** Tear the landing down on the first transcript row. The prompt box jumps
