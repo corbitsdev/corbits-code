@@ -59,6 +59,7 @@ import {
 import {
   classifySummarizerFailure,
   summarizerStubFallbackNotice,
+  type SummarizerFailureClass,
   type SummaryContext,
 } from "./summarizer.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
@@ -443,10 +444,16 @@ export interface SessionPruningCompactorArgs {
     stub: boolean;
   }) => void;
   /**
-   * Operator-visible notice for a statistics-only stub that actually replaced
-   * turns. Verify abort and completeness-gate discard do not fire this.
+   * Operator-visible notice. A committed stub says the fold used a stub.
+   * Verify abort says compaction failed and kept prior context.
    */
   onFailure?: (text: string) => void;
+  /**
+   * Keep-prior compact (verify abort, or summarize failed with no fold).
+   * Clears the governor's post-compact infer so /handoff does not re-infer
+   * on the full transcript.
+   */
+  onKeptPrior?: () => void;
   /**
    * True when the lifecycle has discarded (or will discard) the in-flight
    * compact — e.g. bound to the lifecycle's signal.
@@ -473,11 +480,20 @@ export interface SessionPruningCompactorArgs {
   compactionShape?: Partial<CompactionShape>;
 }
 
-function stubFallbackNoticeFromError(error: unknown): string | undefined {
-  const err = error instanceof Error ? error : new Error(String(error));
-  const kind = classifySummarizerFailure(err);
-  if (kind === "aborted") return undefined;
-  return summarizerStubFallbackNotice(kind, err);
+function compactionFailedKeepNotice(
+  kind: SummarizerFailureClass | undefined,
+): string {
+  const reason =
+    kind === "auth" || kind === "quota" ? `${kind}, verify` : "verify";
+  return `Compaction failed — keeping prior context (${reason}).`;
+}
+
+/** Keep-prior after summarize itself failed (not a verify abort). */
+function summarizerKeepPriorFailureNotice(
+  kind: SummarizerFailureClass | undefined,
+): string {
+  const reason = kind === "auth" || kind === "quota" ? kind : "failed";
+  return `Compaction failed — keeping prior context (${reason}).`;
 }
 
 function stubFallbackNoticeFromRecord(
@@ -494,6 +510,7 @@ export function createSessionPruningCompactor(
   args: SessionPruningCompactorArgs,
 ): Compactor {
   let pendingStubNotice: string | undefined;
+  let pendingFailureKind: SummarizerFailureClass | undefined;
   const innerSummarize = args.summarize;
   const summarize =
     innerSummarize === undefined
@@ -502,7 +519,14 @@ export function createSessionPruningCompactor(
           try {
             return await innerSummarize(turns, ctx);
           } catch (error) {
-            pendingStubNotice = stubFallbackNoticeFromError(error);
+            const err =
+              error instanceof Error ? error : new Error(String(error));
+            const kind = classifySummarizerFailure(err);
+            pendingFailureKind = kind;
+            pendingStubNotice =
+              kind === "aborted"
+                ? undefined
+                : summarizerStubFallbackNotice(kind, err);
             throw error;
           }
         };
@@ -528,6 +552,7 @@ export function createSessionPruningCompactor(
     ...compactor,
     async apply(turns, ctx) {
       pendingStubNotice = undefined;
+      pendingFailureKind = undefined;
       const turnsBefore = turns.length;
       const startedAt = Date.now();
       const abortSignal = args.getSignal?.();
@@ -539,6 +564,28 @@ export function createSessionPruningCompactor(
       // output away, so telemetry or onFolded would describe work that never
       // landed.
       if (isAborted() || result.record.reason === COMPACTION_ABORTED_REASON) {
+        return result;
+      }
+      // Verify abort keeps the prior turns and does not set
+      // summarizedTurnCount, so it must notify here. A statistics stub is
+      // not committed. Lifecycle abort is handled above and stays on the
+      // interrupted notice.
+      if (result.record.decisions.verifyAborted === 1) {
+        args.onKeptPrior?.();
+        args.onFailure?.(compactionFailedKeepNotice(pendingFailureKind));
+        return result;
+      }
+      if (
+        result.record.decisions.summarizeFailed === 1 &&
+        result.record.decisions.summarizedTurnCount === undefined
+      ) {
+        // Reached when classifySummarizerFailure is "aborted" with no
+        // lifecycle signal (exec never passes getSignal). Still keep prior
+        // context, but the operator must see the failure — not silence.
+        // A signaled lifecycle abort returned above and stays on the
+        // interrupted notice only.
+        args.onKeptPrior?.();
+        args.onFailure?.(summarizerKeepPriorFailureNotice(pendingFailureKind));
         return result;
       }
       // summarizedTurnCount is set only when turns were folded; the no-op

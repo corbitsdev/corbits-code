@@ -667,112 +667,194 @@ describe("createSessionPruningCompactor stub fallback", () => {
     expect(notices[0]).toContain("model unreachable");
   });
 
-  test("verify abort after a failed summary keeps prior context and fires no stub notice", async () => {
+  test.each([
+    ["model unreachable", "verify"],
+    ["401 Unauthorized", "auth"],
+    ["429 quota exceeded", "quota"],
+  ])(
+    "verify abort after summarizer failure (%s) keeps prior context and notifies",
+    async (errorMessage, reason) => {
+      const notices: string[] = [];
+      const kept: number[] = [];
+      const folds: { stub: boolean }[] = [];
+      const summarize = createModelSummarizer({
+        getSource: () =>
+          ({
+            id: "test",
+            provider: "openai",
+            model: "test-model",
+            baseURL: "http://localhost:1",
+            credentialId: "test",
+          }) as never,
+        complete: async () => {
+          throw new Error(errorMessage);
+        },
+      });
+      const now = Date.now();
+      const turns = [
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "text" as const,
+              text: "Migrate the auth module to opaque tokens",
+            },
+          ],
+          timestamp: now,
+        },
+        {
+          role: "assistant" as const,
+          content: [
+            {
+              type: "tool_call" as const,
+              id: "c1",
+              name: "run_shell",
+              arguments: { command: "bun test auth" },
+            },
+          ],
+          timestamp: now,
+        },
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "tool_result" as const,
+              callId: "c1",
+              isError: true,
+              content: [
+                {
+                  type: "text" as const,
+                  text: "token refresh assertion failed",
+                },
+              ],
+            },
+          ],
+          timestamp: now,
+        },
+        {
+          role: "assistant" as const,
+          content: [
+            { type: "text" as const, text: "Working through the failure" },
+          ],
+          timestamp: now,
+        },
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "text" as const,
+              text: "Confirm there are no errors remaining in auth",
+            },
+          ],
+          timestamp: now,
+        },
+        {
+          role: "assistant" as const,
+          content: [
+            { type: "text" as const, text: "Continuing the auth work now" },
+          ],
+          timestamp: now,
+        },
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "text" as const,
+              text: "There are no errors remaining in the suite",
+            },
+          ],
+          timestamp: now,
+        },
+        {
+          role: "assistant" as const,
+          content: [
+            { type: "text" as const, text: "I will keep going from here" },
+          ],
+          timestamp: now,
+        },
+      ];
+      const result = await createSessionPruningCompactor({
+        summarize,
+        onFolded: (info) => folds.push(info),
+        onFailure: (text) => notices.push(text),
+        onKeptPrior: () => {
+          kept.push(1);
+        },
+        compactionShape: { tailBudgetTokens: 1 },
+      }).apply(turns as never, { state: {} as never, trigger: "test" });
+      expect(result.output).toBe(turns);
+      expect(result.record.reason).toBe(
+        "verify failed — keeping prior context",
+      );
+      expect(result.record.decisions.summarizedTurnCount).toBeUndefined();
+      expect(result.record.decisions.verifyAborted).toBe(1);
+      expect(folds).toEqual([]);
+      expect(kept).toEqual([1]);
+      expect(notices).toHaveLength(1);
+      expect(notices[0]?.toLowerCase()).toContain("fail");
+      expect(notices[0]?.toLowerCase()).toContain("verify");
+      expect(notices[0]?.toLowerCase()).toContain(reason);
+      expect(notices[0]).not.toContain("statistics-only stub");
+      expect(notices[0]).not.toContain("Compaction interrupted");
+    },
+  );
+
+  test("AbortError without a lifecycle signal keeps prior context and notifies", async () => {
     const notices: string[] = [];
-    const folds: { stub: boolean }[] = [];
-    const summarize = createModelSummarizer({
-      getSource: () =>
-        ({
-          id: "test",
-          provider: "openai",
-          model: "test-model",
-          baseURL: "http://localhost:1",
-          credentialId: "test",
-        }) as never,
-      complete: async () => {
-        throw new Error("model unreachable");
-      },
-    });
+    const kept: number[] = [];
     const now = Date.now();
-    const turns = [
-      {
-        role: "user" as const,
-        content: [
-          {
-            type: "text" as const,
-            text: "Migrate the auth module to opaque tokens",
-          },
-        ],
-        timestamp: now,
-      },
-      {
-        role: "assistant" as const,
-        content: [
-          {
-            type: "tool_call" as const,
-            id: "c1",
-            name: "run_shell",
-            arguments: { command: "bun test auth" },
-          },
-        ],
-        timestamp: now,
-      },
-      {
-        role: "user" as const,
-        content: [
-          {
-            type: "tool_result" as const,
-            callId: "c1",
-            isError: true,
-            content: [
-              { type: "text" as const, text: "token refresh assertion failed" },
-            ],
-          },
-        ],
-        timestamp: now,
-      },
-      {
-        role: "assistant" as const,
-        content: [
-          { type: "text" as const, text: "Working through the failure" },
-        ],
-        timestamp: now,
-      },
-      {
-        role: "user" as const,
-        content: [
-          {
-            type: "text" as const,
-            text: "Confirm there are no errors remaining in auth",
-          },
-        ],
-        timestamp: now,
-      },
-      {
-        role: "assistant" as const,
-        content: [
-          { type: "text" as const, text: "Continuing the auth work now" },
-        ],
-        timestamp: now,
-      },
-      {
-        role: "user" as const,
-        content: [
-          {
-            type: "text" as const,
-            text: "There are no errors remaining in the suite",
-          },
-        ],
-        timestamp: now,
-      },
-      {
-        role: "assistant" as const,
-        content: [
-          { type: "text" as const, text: "I will keep going from here" },
-        ],
-        timestamp: now,
-      },
-    ];
+    const turns = Array.from({ length: 8 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: [{ type: "text" as const, text: `t${i}` }],
+      timestamp: now,
+    }));
+    const summarize = async () => {
+      throw new DOMException("The operation was aborted", "AbortError");
+    };
     const result = await createSessionPruningCompactor({
       summarize,
-      onFolded: (info) => folds.push(info),
       onFailure: (text) => notices.push(text),
+      onKeptPrior: () => {
+        kept.push(1);
+      },
       compactionShape: { tailBudgetTokens: 1 },
     }).apply(turns as never, { state: {} as never, trigger: "test" });
     expect(result.output).toBe(turns);
-    expect(result.record.reason).toBe("verify failed — keeping prior context");
+    expect(result.record.reason).toBe("summarize failed");
     expect(result.record.decisions.summarizedTurnCount).toBeUndefined();
-    expect(folds).toEqual([]);
+    expect(kept).toEqual([1]);
+    expect(notices).toEqual([
+      "Compaction failed — keeping prior context (failed).",
+    ]);
+    expect(notices[0]).not.toContain("Compaction interrupted");
+    expect(notices[0]).not.toContain("statistics-only stub");
+  });
+
+  test("a signaled lifecycle abort does not emit the keep-prior failure notice", async () => {
+    const notices: string[] = [];
+    const kept: number[] = [];
+    const now = Date.now();
+    const turns = Array.from({ length: 8 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: [{ type: "text" as const, text: `t${i}` }],
+      timestamp: now,
+    }));
+    const controller = new AbortController();
+    controller.abort();
+    const summarize = async () => {
+      throw new DOMException("The operation was aborted", "AbortError");
+    };
+    const result = await createSessionPruningCompactor({
+      summarize,
+      onFailure: (text) => notices.push(text),
+      onKeptPrior: () => {
+        kept.push(1);
+      },
+      getSignal: () => controller.signal,
+      compactionShape: { tailBudgetTokens: 1 },
+    }).apply(turns as never, { state: {} as never, trigger: "test" });
+    expect(result.output).toBe(turns);
+    expect(kept).toEqual([]);
     expect(notices).toEqual([]);
   });
 

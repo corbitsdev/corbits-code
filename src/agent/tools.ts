@@ -25,6 +25,7 @@ import type { Telemetry } from "../telemetry/index.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
+import type { ShellSandbox } from "../shell/sandbox-config.js";
 import { createLazyBlobReader } from "./lazy-blob-reader.js";
 import type { BlobReader } from "@intx/types/runtime";
 import {
@@ -213,6 +214,10 @@ export interface AgentToolsetArgs {
    * points pass [config.globalSettingsPath]. Forwarded to the posix plugin
    * stack and workers; omitted keeps the static denylist only. */
   secretGuardExtraDeniedPaths?: readonly string[];
+  // Session OS-sandbox handle (shell.sandbox.enabled): wraps run_shell and
+  // stdio MCP spawns, fails closed when unavailable, and asks through the
+  // permission gate for unmatched network hosts. Omitted = passthrough.
+  sandbox?: ShellSandbox;
   // Called when a background run_shell exits. Hosts deliver the exit as a
   // system message so the reactor re-enters; omit it and background runs
   // never notify.
@@ -419,6 +424,7 @@ export async function createAgentToolset(
     sessionMode = "orchestrator",
     shellEnv,
     secretGuardExtraDeniedPaths,
+    sandbox,
     toolAvailability = { languageServerAvailable: true },
   } = args;
   let mcpServersSource = args.mcpServersSource ?? "none";
@@ -433,6 +439,7 @@ export async function createAgentToolset(
           }),
         }
       : {}),
+    ...(sandbox !== undefined ? { sandbox } : {}),
   });
   // Bounded live-output tails of foreground shells, polled by the TUI for each
   // pending run_shell row. Workers get a map too; nothing reads it unless a
@@ -529,6 +536,7 @@ export async function createAgentToolset(
       ...(shellEnv !== undefined ? { shellEnv } : {}),
       getBackgroundShellRegistry: () => backgroundShells,
       getShellOutputFeeds: () => shellOutputFeed,
+      ...(sandbox !== undefined ? { sandbox } : {}),
     }),
   });
 
@@ -572,6 +580,7 @@ export async function createAgentToolset(
         ...(secretGuardExtraDeniedPaths !== undefined
           ? { secretGuardExtraDeniedPaths }
           : {}),
+        ...(sandbox !== undefined ? { sandbox } : {}),
         ...(skillDirs.length > 0 ? { skillDirs } : {}),
         // Parent's already-discovered catalog; shared-cwd lanes reuse it,
         // worktree lanes (different cwd) rediscover.
@@ -1249,6 +1258,7 @@ export async function createAgentToolset(
       try {
         result = await connectMCPClient(config, {
           stderr: "ignore",
+          ...(sandbox !== undefined ? { sandbox } : {}),
           ...(callbacks.interactiveAuth
             ? {
                 onAuthURL: (name: string, url: string) => {
@@ -1528,6 +1538,9 @@ export async function createAgentToolset(
       // Kill live background process groups before the posix teardown so
       // reload/interrupt cannot leave orphans behind.
       backgroundShells.disposeAll();
+      // Sandbox teardown before the posix dispose: srt proxies/violation state
+      // are host-global and must not outlive the sandboxed session.
+      await sandbox?.dispose();
       try {
         await posixTools.dispose();
       } catch (err: unknown) {

@@ -30,6 +30,7 @@ import type { PermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import type { CompactionArchive } from "../session/compaction-archive.js";
 import type { ShellOutputFeedMap } from "../session/shell-output-feed.js";
+import type { ShellSandbox } from "../shell/sandbox-config.js";
 
 export interface CorePosixToolPluginsArgs {
   cwd: string;
@@ -58,6 +59,9 @@ export interface CorePosixToolPluginsArgs {
    * Omitted (tests, ad-hoc stacks) keeps the static denylist only.
    */
   secretGuardExtraDeniedPaths?: readonly string[];
+  // Session OS-sandbox handle for run_shell (foreground + background) and
+  // stdio MCP spawns. Omitted keeps the raw spawn paths byte-identical.
+  sandbox?: ShellSandbox;
 }
 
 // Middleware order matches docs/ARCHITECTURE.md: path escape through
@@ -92,6 +96,7 @@ export function buildCorePosixToolPlugins(
     getShellOutputFeeds,
     getEvidenceArchive,
     secretGuardExtraDeniedPaths,
+    sandbox,
   } = args;
   // Pre-gate sandboxes honor yolo mode so outside-workspace paths and shell
   // cwd are not hard-denied after the gate auto-allows. Live getter so
@@ -139,6 +144,7 @@ export function buildCorePosixToolPlugins(
         ? { getBackgroundShellRegistry }
         : {}),
       ...(getShellOutputFeeds !== undefined ? { getShellOutputFeeds } : {}),
+      ...(sandbox !== undefined ? { sandbox } : {}),
     }),
     ...(getEvidenceArchive !== undefined
       ? [evidenceArchiveSearchPlugin(getEvidenceArchive)]

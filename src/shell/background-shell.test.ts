@@ -26,7 +26,7 @@ describe("background shell registry", () => {
     const registry = createBackgroundShellRegistry({
       onExit: recorder.onExit,
     });
-    const started = registry.start({
+    const started = await registry.start({
       command: "sleep 0.1; echo done",
       cwd: tmpCwd,
     });
@@ -44,7 +44,7 @@ describe("background shell registry", () => {
     const registry = createBackgroundShellRegistry({
       onExit: recorder.onExit,
     });
-    const started = registry.start({
+    const started = await registry.start({
       command: "echo early; sleep 60",
       cwd: tmpCwd,
       timeoutMs: 150,
@@ -63,7 +63,7 @@ describe("background shell registry", () => {
     const registry = createBackgroundShellRegistry({
       onExit: recorder.onExit,
     });
-    const started = registry.start({
+    const started = await registry.start({
       command: `bash -c 'TAG=${token} sleep 600 & TAG=${token} exec sleep 600'`,
       cwd: tmpCwd,
     });
@@ -81,10 +81,13 @@ describe("background shell registry", () => {
   test("running cap fails closed with an error instead of spawning", async () => {
     const registry = createBackgroundShellRegistry();
     for (let i = 0; i < MAX_RUNNING_BACKGROUND_SHELLS; i++) {
-      const started = registry.start({ command: "sleep 30", cwd: tmpCwd });
+      const started = await registry.start({
+        command: "sleep 30",
+        cwd: tmpCwd,
+      });
       expect("error" in started).toBe(false);
     }
-    const over = registry.start({ command: "sleep 30", cwd: tmpCwd });
+    const over = await registry.start({ command: "sleep 30", cwd: tmpCwd });
     expect("error" in over).toBe(true);
     registry.disposeAll();
   });
@@ -95,7 +98,7 @@ describe("background shell registry", () => {
     const registry = createBackgroundShellRegistry({
       onExit: (exit) => exits.push(exit),
     });
-    const started = registry.start({
+    const started = await registry.start({
       command: `sleep 600 # ${token}`,
       cwd: tmpCwd,
     });
@@ -115,7 +118,7 @@ describe("background shell registry", () => {
     });
     // Grandchild inherits the piped stdout so Node's 'close' waits on it; the
     // shell exits immediately, so delivery must not require close.
-    const started = registry.start({
+    const started = await registry.start({
       command: `bash -c 'exec -a ${token} sleep 600 & exit 0'`,
       cwd: tmpCwd,
     });

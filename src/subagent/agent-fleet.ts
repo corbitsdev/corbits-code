@@ -1452,6 +1452,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                   secretGuardExtraDeniedPaths: deps.secretGuardExtraDeniedPaths,
                 }
               : {}),
+            ...(deps.sandbox !== undefined ? { sandbox: deps.sandbox } : {}),
             ...(deps.skillDirs !== undefined
               ? { skillDirs: deps.skillDirs }
               : {}),
@@ -1631,6 +1632,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                   secretGuardExtraDeniedPaths: deps.secretGuardExtraDeniedPaths,
                 }
               : {}),
+            ...(deps.sandbox !== undefined ? { sandbox: deps.sandbox } : {}),
             ...(deps.extraToolPlugins !== undefined
               ? { extraToolPlugins: deps.extraToolPlugins }
               : {}),
