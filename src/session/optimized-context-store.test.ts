@@ -1,4 +1,5 @@
 import { defined } from "../../testkit/defined.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 import { describe, test, expect } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -1725,5 +1726,51 @@ describe("createOptimizedContextStore prompt dedupe (CL-9026)", () => {
     expect(tree).not.toContain(PROMPT_FILE);
     expect(tree).not.toContain(extraPrompt);
     expect(turnTexts((await store.load()).turns)).toEqual(turnTexts(live));
+  });
+
+  test("one remove failure still unstages the other paths in one index write", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const huge = "x".repeat(300_000);
+    const live = [turn(`live-${huge}`), turn("live-tail")];
+    await store.writeTurns([...live]);
+    await store.writePrompt([turn(`prompt-${huge}`), turn("prompt-tail")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "two prompt segments" });
+    const extraPrompt = segmentFileName(PROMPT_FILE, 1);
+    expect(await gitLsTree(dir)).toEqual(
+      expect.arrayContaining([PROMPT_FILE, extraPrompt]),
+    );
+
+    await store.writePrompt(cloneTurns(live));
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+
+    const removeCalls: (string | string[])[] = [];
+    await withMockedModuleDuring(
+      import.meta.resolve("isomorphic-git"),
+      (real: typeof import("isomorphic-git")) => {
+        const remove: typeof real.default.remove = async (args) => {
+          removeCalls.push(args.filepath);
+          const paths = Array.isArray(args.filepath)
+            ? args.filepath
+            : [args.filepath];
+          if (paths.includes(extraPrompt)) {
+            throw new Error("index write failed");
+          }
+          return real.default.remove(args);
+        };
+        return { ...real, default: { ...real.default, remove } };
+      },
+      () => store.commit({ message: "drop prompt segments" }),
+    );
+
+    const tree = await gitLsTree(dir);
+    expect(tree).not.toContain(PROMPT_FILE);
+    expect(tree).toContain(extraPrompt);
+    const written = removeCalls.filter((filepath) => {
+      const paths = Array.isArray(filepath) ? filepath : [filepath];
+      return !paths.includes(extraPrompt);
+    });
+    expect(written).toEqual([[PROMPT_FILE]]);
   });
 });
