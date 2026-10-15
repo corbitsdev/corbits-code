@@ -253,6 +253,39 @@ paths) are verbatim copies of upstream — no modifications. A diff against a
 pristine upstream checkout at the same commit and paths will show 100%
 upstream-authored lines for those eight.
 
+## Bearer correlation IDs and approval provenance
+
+On the approval rail, a correlation ID is a bearer capability. Interchange
+removed the `expectedFrom` sender check upstream, so `tryCorrelate`
+(`vendor/intx-inference/src/reactor.ts`) resolves any inbound message whose
+`interchangeCorrelationId` matches a registered pending operation: a learned
+ID plus a forged `approval.granted` would grant the parked call's one-shot
+bypass, and a forged `approval.denied` would inject a denial into history.
+Upstream's seam for sender authentication is the `CorrelationValidator`
+interface (`vendor/intx-inference/src/correlation.ts`), injected through
+reactor config — but the vendored `@intx/agent` layer forwards no such
+validator into `createReactorAssembly` and its env contract has no field to
+carry one, so production wiring happens on the app side.
+
+Corbits Code therefore authenticates approval provenance at its inbound
+delivery boundary (`src/session/approval-provenance.ts`, wired in
+`src/agent/live-tool-dispatch.ts` around every agent the app constructs):
+typed approvals (`approval.granted` / `approval.denied`) are accepted only
+from the local approval-delivery path — sender `approval@local` on mailbox
+`approval`, the exact provenance `src/session/approval-resume.ts`
+`decisionMessage` stamps — and any other ingress (mailbox or system) is
+discarded with a warn receipt before the reactor can correlate it. The same
+policy is exposed as a `CorrelationValidator` implementation so the vendored
+injection point can consume it verbatim (see
+`e2e/reactor-approval-acceptance.test.ts`) when a vendor seam to forward it
+exists. Decision binding to the gate is untouched and remains in the vendored
+reactor: `tryCorrelate`'s `isLiveApproval` requires the pending operation's
+gate to still hold the correlation ID and be unexpired, and the local
+`reactor-ts-atomic-approval-acceptance` patch keeps a discarded typed
+approval from collapsing the pending operation. The two provenance markers
+and the policy live in one module so the authentic sender cannot drift from
+the allowlist; `decisionMessage` draws its sender/mailbox from that module.
+
 ## Notable upstream shape changes carried by the 2026-08-22 sync
 
 Upstream commit `5f798bea` ("Inject the runtime into iso-git storage")

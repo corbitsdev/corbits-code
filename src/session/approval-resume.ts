@@ -32,6 +32,10 @@ import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../permission/decline-markers.js";
 import { buildRequests } from "../permission/classify.js";
 import type { PermissionGate } from "../permission/gate.js";
 import type { PermissionRequest } from "../permission/types.js";
+import {
+  LOCAL_APPROVAL_FROM,
+  LOCAL_APPROVAL_MAILBOX,
+} from "./approval-provenance.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "approval-resume"]);
 
@@ -355,9 +359,9 @@ function decisionMessage(
   };
   if (message !== undefined && message.length > 0) body.message = message;
   return {
-    ref: { uid: 0, mailbox: "approval" },
+    ref: { uid: 0, mailbox: LOCAL_APPROVAL_MAILBOX },
     headers: {
-      from: "approval@local",
+      from: LOCAL_APPROVAL_FROM,
       to: ["agent@local"],
       date: new Date().toISOString(),
       messageId: `approval-${correlationId}`,
