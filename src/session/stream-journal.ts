@@ -1,4 +1,4 @@
-import { appendFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { ReactorEmittedEvent } from "@intx/inference";
@@ -20,6 +20,44 @@ export const PARTIAL_FILE = "partial.jsonl";
 
 /** Cap on retained cycle text; older text is dropped from the front. */
 export const CYCLE_TEXT_CAP_CHARS = 262_144;
+
+function isEnoent(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "ENOENT"
+  );
+}
+
+let partialTmpCounter = 0;
+
+/**
+ * Append one JSONL line so readers never observe a torn record. `appendFile`
+ * creates the destination before the bytes land; a poller then reads empty or
+ * truncated JSON. Rewrite the whole file through a temp sibling and `rename`
+ * so the path appears only with complete lines.
+ */
+async function appendPartialLine(dir: string, line: string): Promise<void> {
+  const target = join(dir, PARTIAL_FILE);
+  let prior = "";
+  try {
+    prior = await readFile(target, "utf8");
+  } catch (err) {
+    if (!isEnoent(err)) throw err;
+  }
+  const tmp = join(
+    dir,
+    `.${PARTIAL_FILE}.${process.pid}.${(partialTmpCounter += 1)}.tmp`,
+  );
+  try {
+    await writeFile(tmp, prior + line, "utf8");
+    await rename(tmp, target);
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw err;
+  }
+}
 
 /** Append a streamed token to the cycle buffer, keeping only the tail. */
 export function appendCycleText(
@@ -105,6 +143,9 @@ export function createCycleTextRecorder(
   let cycleText = "";
   let cycleThinkingText = "";
   let closed = false;
+  // Overlapping flushes (inference.error is not awaited) must not both read
+  // the same prior bytes and rename away the other line.
+  let publishChain: Promise<void> = Promise.resolve();
 
   const writeRecord = async (
     reason: PartialFlushReason,
@@ -132,12 +173,16 @@ export function createCycleTextRecorder(
       record.thinkingText = thinkingText;
     }
     if (error !== undefined) record.error = error;
+    const line = `${JSON.stringify(record)}\n`;
+    const run = publishChain.then(() =>
+      appendPartialLine(resolveContextDir(), line),
+    );
+    publishChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
     try {
-      await appendFile(
-        join(resolveContextDir(), PARTIAL_FILE),
-        `${JSON.stringify(record)}\n`,
-        "utf8",
-      );
+      await run;
     } catch (err) {
       getLogger([LOG_NAMESPACE_ROOT, "session", "partial"]).warn(
         "failed to write partial stream output: {error}",

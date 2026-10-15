@@ -124,6 +124,60 @@ describe("createCycleTextRecorder", () => {
     expect(records[0]?.error?.message).toBe("aborted");
   });
 
+  test("a reader never observes a torn partial.jsonl record", async () => {
+    // appendFile creates the file before the line lands, so a poller can read
+    // empty or truncated JSON. Every observed byte must already parse.
+    for (let trial = 0; trial < 30; trial++) {
+      const temp = createTempDir("stream-journal-race-");
+      try {
+        const recorder = createCycleTextRecorder(() => temp.dir);
+        recorder.handleEvent({
+          type: "inference.error",
+          data: {
+            error: {
+              category: "rate_limit",
+              message: "429 too many requests",
+              statusCode: 429,
+            },
+          },
+        } as unknown as ReactorEmittedEvent);
+
+        const started = Date.now();
+        for (;;) {
+          let raw: string;
+          try {
+            raw = await readFile(join(temp.dir, PARTIAL_FILE), "utf8");
+          } catch (err) {
+            if (Date.now() - started >= 2_000) throw err;
+            continue;
+          }
+          const records = parsePartialRaw(raw);
+          expect(records).toHaveLength(1);
+          expect(records[0]?.text).toBe("");
+          expect(records[0]?.error?.statusCode).toBe(429);
+          break;
+        }
+      } finally {
+        temp.cleanup();
+      }
+    }
+  });
+
+  test("two flushes append both records", async () => {
+    const recorder = createCycleTextRecorder(() => dir);
+    recorder.handleEvent(delta("one"));
+    await recorder.flush("cancelled");
+    recorder.handleEvent(delta("two"));
+    await recorder.flush("interrupted");
+
+    const records = await readPartialRecords();
+    expect(records.map((record) => record.text)).toEqual(["one", "two"]);
+    expect(records.map((record) => record.reason)).toEqual([
+      "cancelled",
+      "interrupted",
+    ]);
+  });
+
   test("inference.error with empty cycle text still writes a partial with the error payload", async () => {
     // Live failures can emit inference.error with no streamed text; the
     // partial must still land so category/message survive.
