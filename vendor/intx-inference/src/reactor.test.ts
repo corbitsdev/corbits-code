@@ -4,11 +4,13 @@ import { validateActions } from "./actions";
 import { createAuthzExtension } from "./authz-extension";
 import { createGateManager } from "./gates";
 import { createCorrelationRegistry } from "./correlation";
-import { createReactor } from "./reactor";
+import { createReactor, mergeInferenceOptions } from "./reactor";
 import { createDefaultDependencies } from "./providers";
 import { createDefaultDirector } from "./default-director";
 import { assertWellFormedToolSequence } from "./turns";
 import { createInboundMessage } from "@intx/mime";
+import { waitUntil } from "@intx/types/testing";
+import { PerCallInferenceOptions } from "@intx/types/runtime";
 
 import type {
   ReactorDirector,
@@ -146,28 +148,23 @@ function collectEvents(): {
   };
 }
 
-function waitForEvent(
+// Resolve with the first collected event matching `predicate`, re-checking
+// after each event-loop turn. No deadline: a wall-clock number here is a race
+// the test loses under load, and a never-arriving event is the lane timeout's
+// job to report (CONVENTIONS.md, "Synchronizing on State, Not Time").
+async function waitForEvent(
   events: ReactorEmittedEvent[],
   predicate: (e: ReactorEmittedEvent) => boolean,
-  timeoutMs = 2000,
 ): Promise<ReactorEmittedEvent> {
-  return new Promise((resolve, reject) => {
-    const deadline = setTimeout(
-      () => reject(new Error("Timed out waiting for event")),
-      timeoutMs,
-    );
-
-    function check() {
-      const found = events.find(predicate);
-      if (found !== undefined) {
-        clearTimeout(deadline);
-        resolve(found);
-        return;
-      }
-      setTimeout(check, 10);
-    }
-    check();
+  let found: ReactorEmittedEvent | undefined;
+  await waitUntil(() => {
+    found = events.find(predicate);
+    return found !== undefined;
   });
+  if (found === undefined) {
+    throw new Error("unreachable: waitUntil resolved without a match");
+  }
+  return found;
 }
 
 // Simple inbound message factory. Delegates to the mail-builder so the
@@ -329,9 +326,8 @@ function createTestReactor(
 
   function waitFor(
     type: ReactorEmittedEvent["type"],
-    timeoutMs = 2000,
   ): Promise<ReactorEmittedEvent> {
-    return waitForEvent(events, (e) => e.type === type, timeoutMs);
+    return waitForEvent(events, (e) => e.type === type);
   }
 
   return { reactor, events, waitFor };
@@ -1079,11 +1075,35 @@ describe("createReactor — gate lifecycle", () => {
     const commitGate = new Promise<void>((resolve) => {
       releaseCommit = resolve;
     });
+    // Resolves when the reactor reaches the held commit, so the test observes
+    // the window rather than guessing when it opens.
+    let signalCommitEntered: (() => void) | undefined;
+    const commitEntered = new Promise<void>((resolve) => {
+      signalCommitEntered = resolve;
+    });
+    // Whether `blocked` had been emitted at the moment the commit was
+    // released -- read inside the store, which is the last point still inside
+    // the window. A reactor that emitted before or concurrently with the
+    // commit shows up here as `true`.
+    let blockedDuringCommit: boolean | undefined;
+    let signalCommitObserved: (() => void) | undefined;
+    const commitObserved = new Promise<void>((resolve) => {
+      signalCommitObserved = resolve;
+    });
     const base = makeContextStore();
     const contextStore: ContextStore = {
       ...base,
       async writeMetadata(metadata, signal) {
+        signalCommitEntered?.();
         await commitGate;
+        // Record the suspend's own commit only. A later cycle's commit runs
+        // after `blocked` has legitimately fired and must not overwrite it.
+        if (blockedDuringCommit === undefined) {
+          blockedDuringCommit = events.some(
+            (e) => e.type === "reactor.gate.blocked",
+          );
+          signalCommitObserved?.();
+        }
         return base.writeMetadata(metadata, signal);
       },
     };
@@ -1103,13 +1123,19 @@ describe("createReactor — gate lifecycle", () => {
     reactor.start();
     reactor.deliver(makeInboundMessage());
 
-    // The commit is held, so a correctly-ordered reactor has not emitted
-    // `blocked` yet; a reactor that emits before committing would have.
-    await new Promise((r) => setTimeout(r, 50));
+    // The reactor is parked inside the held commit, so a correctly-ordered
+    // reactor has not emitted `blocked` yet; a reactor that emits before
+    // committing would have emitted it before reaching this point.
+    await commitEntered;
     expect(events.some((e) => e.type === "reactor.gate.blocked")).toBe(false);
 
-    // Release the durable commit; only now may `blocked` be emitted.
+    // Release the durable commit; only now may `blocked` be emitted. The
+    // in-store check runs before the release returns control to the reactor,
+    // so it closes the window the check above leaves open: an emit that races
+    // the commit instead of preceding it.
     releaseCommit?.();
+    await commitObserved;
+    expect(blockedDuringCommit).toBe(false);
     await waitFor("reactor.gate.blocked");
 
     reactor.abort("admin_kill");
@@ -1128,10 +1154,18 @@ describe("createReactor — gate lifecycle", () => {
     const commitGate = new Promise<void>((resolve) => {
       releaseCommit = resolve;
     });
+    // Resolves when the reactor reaches the held commit. suspendOnGate arms
+    // the gate's timeout timer before it commits, so once this resolves the
+    // 30ms timer below is already scheduled.
+    let signalCommitEntered: (() => void) | undefined;
+    const commitEntered = new Promise<void>((resolve) => {
+      signalCommitEntered = resolve;
+    });
     const base = makeContextStore();
     const contextStore: ContextStore = {
       ...base,
       async writeMetadata(metadata, signal) {
+        signalCommitEntered?.();
         await commitGate;
         return base.writeMetadata(metadata, signal);
       },
@@ -1152,8 +1186,15 @@ describe("createReactor — gate lifecycle", () => {
     reactor.start();
     reactor.deliver(makeInboundMessage());
 
-    // Let the gate's timeout elapse while the commit is still held. Neither the
-    // block nor the clear may surface until the commit is released.
+    // The gate timer firing inside the commit window is the race under test,
+    // and nothing observable reports it -- a deferred clear is by definition
+    // not emitted. So the wait below is ordered against the timer rather than
+    // sized to outlast it: the gate's 30ms deadline was set before
+    // `commitEntered` resolved, and this timer's 80ms deadline is set after,
+    // so the gate's deadline is the earlier of the two and the event loop
+    // fires it first no matter how loaded the machine is. Neither the block
+    // nor the clear may surface until the commit is released.
+    await commitEntered;
     await new Promise((r) => setTimeout(r, 80));
     expect(events.some((e) => e.type === "reactor.gate.blocked")).toBe(false);
     expect(events.some((e) => e.type === "reactor.gate.cleared")).toBe(false);
@@ -1191,7 +1232,7 @@ describe("createReactor — gate lifecycle", () => {
     reactor.start();
     reactor.deliver(makeInboundMessage());
 
-    await waitFor("reactor.done", 3000);
+    await waitFor("reactor.done");
 
     const cleared = getEvent(events, "reactor.gate.cleared");
     expect(cleared.data.reason).toBe("timeout");
@@ -2082,7 +2123,7 @@ describe("createReactor — correlation", () => {
     // Deliver the correlated response.
     reactor.deliver(makeInboundMessage(CORR_ID));
 
-    await waitFor("reactor.done", 3000);
+    await waitFor("reactor.done");
 
     const correlated = getEvent(events, "message.correlated");
     expect(correlated.data.correlationId).toBe(CORR_ID);
@@ -2532,9 +2573,11 @@ describe("createReactor — director misbehavior", () => {
     reactor.start();
     reactor.deliver(makeInboundMessage());
 
-    // After wait, deliver a second message which triggers done.
-    // Small delay to let the reactor process the first message.
-    setTimeout(() => reactor.deliver(makeInboundMessage()), 20);
+    // After wait, deliver a second message which triggers done. The
+    // director's own counter reports that the first message was processed, so
+    // the second delivery is ordered against that rather than a delay.
+    await waitUntil(() => messageCount >= 1);
+    reactor.deliver(makeInboundMessage());
     await waitFor("reactor.done");
 
     expect(messageCount).toBe(2);
@@ -2563,8 +2606,10 @@ describe("createReactor — reply action", () => {
     reactor.start();
     reactor.deliver(makeInboundMessage());
 
-    // After reply, reactor waits for next event. Deliver another message.
-    setTimeout(() => reactor.deliver(makeInboundMessage()), 20);
+    // After reply, reactor waits for next event. Deliver another message
+    // once the director reports it handled the first one.
+    await waitUntil(() => messageCount >= 1);
+    reactor.deliver(makeInboundMessage());
     await waitFor("reactor.done");
 
     const replyEvent = getEvent(events, "connector.reply");
@@ -2646,8 +2691,11 @@ describe("createReactor — checkpoint failure", () => {
     reactor.start();
     reactor.deliver(makeInboundMessage());
 
-    // After checkpoint failure + wait, deliver another message.
-    setTimeout(() => reactor.deliver(makeInboundMessage()), 50);
+    // After checkpoint failure + wait, deliver another message. The
+    // non-fatal reactor.error the failed checkpoint emits is the signal that
+    // the first cycle got that far.
+    await waitFor("reactor.error");
+    reactor.deliver(makeInboundMessage());
     await waitFor("reactor.done");
 
     expect(checkpointCalled).toBe(true);
@@ -2898,7 +2946,7 @@ describe("createReactor — dequeue priority", () => {
     // director shuts down on it, and tool.done is never processed.
     const order: string[] = [];
 
-    const { reactor, waitFor } = createTestReactor({
+    const { reactor, events, waitFor } = createTestReactor({
       contextStore: makeContextStore([assistantToolCallTurn(["tc-pending"])]),
       director: {
         async decide(event, _state, caps) {
@@ -2920,12 +2968,22 @@ describe("createReactor — dequeue priority", () => {
         },
       },
       toolRunner: makeToolRunner(async (call) => {
-        // Deliver a second message while the tool runs, then yield to a real
-        // timer so deliver()'s async enqueue lands before executeTools
+        // Deliver a second message while the tool runs and wait for its
+        // enqueue, so deliver()'s async enqueue lands before executeTools
         // enqueues tool.done. This pins the queue order to
-        // [message.received, tool.done] — the interleave that triggers the bug.
-        reactor.deliver(makeInboundMessage());
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        // [message.received, tool.done] — the interleave that triggers the
+        // bug. processDelivery emits `message.received` in the same
+        // synchronous step as the enqueue, so the emitted event carrying this
+        // message's id is the enqueue's own signal.
+        const mail = makeInboundMessage();
+        reactor.deliver(mail);
+        await waitUntil(() =>
+          events.some(
+            (e) =>
+              e.type === "message.received" &&
+              e.data.message.headers.messageId === mail.headers.messageId,
+          ),
+        );
         return { callId: call.id, content: "ok" };
       }),
     });
@@ -2949,7 +3007,7 @@ describe("createReactor — dequeue priority", () => {
     const order: string[] = [];
     let toolDoneCount = 0;
 
-    const { reactor, waitFor } = createTestReactor({
+    const { reactor, events, waitFor } = createTestReactor({
       contextStore: makeContextStore([assistantToolCallTurn(["tc-a", "tc-b"])]),
       director: {
         async decide(event, _state, caps) {
@@ -2975,8 +3033,19 @@ describe("createReactor — dequeue priority", () => {
         },
       },
       toolRunner: makeToolRunner(async (call) => {
-        reactor.deliver(makeInboundMessage());
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        // Mail delivered mid-batch must be enqueued before this call's
+        // tool.done. The emitted `message.received` carrying this message's
+        // id is published in the same synchronous step as the enqueue, so it
+        // is the signal that the delivery landed.
+        const mail = makeInboundMessage();
+        reactor.deliver(mail);
+        await waitUntil(() =>
+          events.some(
+            (e) =>
+              e.type === "message.received" &&
+              e.data.message.headers.messageId === mail.headers.messageId,
+          ),
+        );
         return { callId: call.id, content: "ok" };
       }),
     });
@@ -3022,8 +3091,10 @@ describe("createReactor — dequeue priority", () => {
         },
       },
       toolRunner: makeToolRunner(async (call) => {
+        // abort() enqueues the abort event synchronously, so it is already
+        // queued ahead of this call's tool.done when abort() returns; no wait
+        // is needed to order the two.
         reactor.abort("admin_kill");
-        await new Promise((resolve) => setTimeout(resolve, 10));
         return { callId: call.id, content: "ok" };
       }),
     });
@@ -3044,7 +3115,7 @@ describe("createReactor — dequeue priority", () => {
     const order: string[] = [];
     let inferenceCount = 0;
 
-    const { reactor, waitFor } = createTestReactor({
+    const { reactor, events, waitFor } = createTestReactor({
       director: {
         async decide(event, _state, caps) {
           order.push(event.type);
@@ -3062,10 +3133,19 @@ describe("createReactor — dequeue priority", () => {
       },
       inferenceRunner: async function* (opts) {
         inferenceCount += 1;
-        // Deliver mail mid-inference, then yield to a real timer so the
-        // message is enqueued before inference.done.
-        reactor.deliver(makeInboundMessage());
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        // Deliver mail mid-inference and wait for its enqueue, so the message
+        // is queued before inference.done. The emitted `message.received`
+        // carrying this message's id is published in the same synchronous
+        // step as the enqueue.
+        const mail = makeInboundMessage();
+        reactor.deliver(mail);
+        await waitUntil(() =>
+          events.some(
+            (e) =>
+              e.type === "message.received" &&
+              e.data.message.headers.messageId === mail.headers.messageId,
+          ),
+        );
         yield {
           type: "inference.done",
           seq: opts.nextSeq(),
@@ -3488,7 +3568,8 @@ describe("createReactor — state snapshot inspection", () => {
     reactor.deliver(makeInboundMessage());
 
     // Wait for the first message to be processed, then deliver a second.
-    setTimeout(() => reactor.deliver(makeInboundMessage()), 30);
+    await waitUntil(() => messageCount >= 1);
+    reactor.deliver(makeInboundMessage());
     await waitFor("reactor.done");
 
     if (secondSnapshot === undefined) throw new Error("unreachable");
@@ -3524,8 +3605,13 @@ describe("createReactor — deliver after done", () => {
     reactor.deliver(makeInboundMessage());
     reactor.deliver(makeInboundMessage());
 
-    // Give the event loop a chance to process any spurious events.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // A macrotask boundary drains the microtask queue, which is the whole
+    // window in which a spurious event could appear: the only path from
+    // deliver() to an emitted event is processDelivery's async body, and for
+    // an uncorrelated message (these carry no correlationId) tryCorrelate
+    // returns on its first statement, so the emit would land in a microtask.
+    // If the done guard had regressed, the event would be here by now.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     // No new events should have been emitted after reactor.done.
     expect(events.length).toBe(eventsBeforeDeliver);
@@ -5725,9 +5811,8 @@ function createDirectReactor(opts: {
 
   function waitForType(
     type: ReactorEmittedEvent["type"],
-    timeoutMs = 2000,
   ): Promise<ReactorEmittedEvent> {
-    return waitForEvent(events, (e) => e.type === type, timeoutMs);
+    return waitForEvent(events, (e) => e.type === type);
   }
   return { reactor, events, waitFor: waitForType };
 }
@@ -5843,7 +5928,12 @@ describe("createReactor — transform chain ordering and compact action", () => 
 
     reactor.start();
     reactor.deliver(makeInboundMessage());
-    setTimeout(() => reactor.deliver(makeInboundMessage()), 30);
+    // The second message drives the terminal done; deliver it once the
+    // compact cycle it must follow has committed.
+    await waitUntil(() =>
+      recording.commits.some((c) => c.message.startsWith("Cycle: compaction")),
+    );
+    reactor.deliver(makeInboundMessage());
     await waitFor("reactor.done");
 
     expect(messages).toBeGreaterThanOrEqual(1);
@@ -5966,7 +6056,14 @@ describe("createReactor — transform chain ordering and compact action", () => 
     // The director did not chain compact + infer; it only emitted compact.
     // Drive the next infer by delivering another message that re-runs the
     // event loop. The director's message.received → infer rule will fire.
-    setTimeout(() => reactor.deliver(makeInboundMessage()), 30);
+    // The compactor's manifest record is written by the compact cycle, so it
+    // reports that the cycle this delivery must follow has happened.
+    await waitUntil(() =>
+      recording.manifests
+        .flat()
+        .some((r) => r.strategy === "overflow-compactor"),
+    );
+    reactor.deliver(makeInboundMessage());
 
     await waitFor("reactor.done");
     // The reactor ran inference twice: the first attempt failed with
@@ -6053,7 +6150,10 @@ describe("createReactor — transform chain ordering and compact action", () => 
 
     reactor.start();
     reactor.deliver(makeInboundMessage());
-    setTimeout(() => reactor.deliver(makeInboundMessage()), 80);
+    // The second message must land after the first cycle commits, since the
+    // assertions below key off commit order.
+    await waitUntil(() => recording.commits.length >= 1);
+    reactor.deliver(makeInboundMessage());
     await waitFor("reactor.done");
 
     expect(recording.commits.length).toBeGreaterThanOrEqual(1);
@@ -6117,7 +6217,10 @@ describe("createReactor — message.run bracket emission", () => {
 
     reactor.start();
     reactor.deliver(makeInboundMessage());
-    setTimeout(() => reactor.deliver(makeInboundMessage()), 20);
+    // One bracket per message run, so the second message is delivered after
+    // the director reports the first one handled.
+    await waitUntil(() => count >= 1);
+    reactor.deliver(makeInboundMessage());
     await waitFor("reactor.done");
 
     const endedEvents = events.filter((e) => e.type === "message.run.ended");
@@ -6143,7 +6246,10 @@ describe("createReactor — message.run bracket emission", () => {
 
     reactor.start();
     reactor.deliver(makeInboundMessage());
-    setTimeout(() => reactor.deliver(makeInboundMessage()), 20);
+    // One bracket per message run, so the second message is delivered after
+    // the director reports the first one handled.
+    await waitUntil(() => count >= 1);
+    reactor.deliver(makeInboundMessage());
     await waitFor("reactor.done");
 
     const replyIdx = events.findIndex((e) => e.type === "connector.reply");
@@ -6217,7 +6323,10 @@ describe("createReactor — message.run bracket emission", () => {
 
     reactor.start();
     reactor.deliver(makeInboundMessage());
-    setTimeout(() => reactor.deliver(makeInboundMessage()), 30);
+    // The second message drives the terminal done; deliver it once the
+    // director reports the first message handled.
+    await waitUntil(() => count >= 1);
+    reactor.deliver(makeInboundMessage());
     await waitFor("reactor.done");
 
     const types = events.map((e) => e.type);
@@ -6245,9 +6354,14 @@ describe("createReactor — message.run bracket emission", () => {
     });
 
     reactor.start();
+    // Three message runs, one per delivery. The director's counter reports
+    // each message handled, so each delivery follows the previous run rather
+    // than a delay chosen to separate them.
     reactor.deliver(makeInboundMessage());
-    setTimeout(() => reactor.deliver(makeInboundMessage()), 20);
-    setTimeout(() => reactor.deliver(makeInboundMessage()), 40);
+    await waitUntil(() => count >= 1);
+    reactor.deliver(makeInboundMessage());
+    await waitUntil(() => count >= 2);
+    reactor.deliver(makeInboundMessage());
     await waitFor("reactor.done");
 
     const started = events.filter((e) => e.type === "message.run.started");
@@ -6467,23 +6581,27 @@ describe("createReactor — source failover", () => {
     expect(getEvent(events, "inference.done").data.source.sourceId).toBe("s1");
   });
 
-  test("does not fail over on a source-invariant error", async () => {
-    const { reactor, events, waitFor, attemptedSourceIds } = multiSourceReactor(
-      {
-        sourceIds: ["s0", "s1"],
-        resultFor: () => ({ category: "context_overflow", message: "too big" }),
-      },
-    );
-    reactor.start();
-    reactor.deliver(makeInboundMessage());
-    await waitFor("reactor.done");
+  // `fatal` covers a provider's 400 and an adapter's refusal to build the
+  // request alike.
+  test.each([["context_overflow"], ["fatal"]] as const)(
+    "does not fail over on a source-invariant %p error",
+    async (category) => {
+      const { reactor, events, waitFor, attemptedSourceIds } =
+        multiSourceReactor({
+          sourceIds: ["s0", "s1"],
+          resultFor: () => ({ category, message: "refused" }),
+        });
+      reactor.start();
+      reactor.deliver(makeInboundMessage());
+      await waitFor("reactor.done");
 
-    // context_overflow aborts the cycle; s1 is never tried.
-    expect(attemptedSourceIds).toEqual(["s0"]);
-    expect(getEvent(events, "inference.error").data.error.category).toBe(
-      "context_overflow",
-    );
-  });
+      // The error aborts the cycle; s1 is never tried.
+      expect(attemptedSourceIds).toEqual(["s0"]);
+      expect(getEvent(events, "inference.error").data.error.category).toBe(
+        category,
+      );
+    },
+  );
 
   test("surfaces the last error when every source is exhausted", async () => {
     const { reactor, events, waitFor, attemptedSourceIds } = multiSourceReactor(
@@ -6572,5 +6690,806 @@ describe("createReactor — prompt well-formedness tripwire", () => {
     expect(error.data.error).toMatch(/duplicate tool_result for "tc-1"/);
     // The prompt never reached the inference runner.
     expect(inferenceRan).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-send inference options
+// ---------------------------------------------------------------------------
+
+describe("mergeInferenceOptions", () => {
+  test("a director-named option wins over the per-send value", () => {
+    expect(
+      mergeInferenceOptions(
+        { maxTokens: 500, effort: "low" },
+        { effort: "high", systemPrompt: "s" },
+      ),
+    ).toEqual({ maxTokens: 500, effort: "high", systemPrompt: "s" });
+  });
+
+  test("a director thinking setting does not clear a per-send effort", () => {
+    expect(
+      mergeInferenceOptions(
+        { maxTokens: 500, effort: "high" },
+        { thinking: { enabled: false } },
+      ),
+    ).toEqual({
+      maxTokens: 500,
+      effort: "high",
+      thinking: { enabled: false },
+    });
+  });
+
+  test("a director effort does not clear a per-send thinking setting", () => {
+    expect(
+      mergeInferenceOptions(
+        { thinking: { enabled: true, budgetTokens: 2048 } },
+        { effort: "low" },
+      ),
+    ).toEqual({
+      thinking: { enabled: true, budgetTokens: 2048 },
+      effort: "low",
+    });
+  });
+
+  test("a director thinking object replaces the per-send thinking object", () => {
+    expect(
+      mergeInferenceOptions(
+        { thinking: { enabled: true, budgetTokens: 2048 } },
+        { thinking: { enabled: true } },
+      ),
+    ).toEqual({
+      thinking: { enabled: true },
+    });
+  });
+
+  test("absent per-send options pass the director options through", () => {
+    const director = { systemPrompt: "s" };
+    expect(mergeInferenceOptions(undefined, director)).toBe(director);
+  });
+});
+
+describe("createReactor — per-send inference options", () => {
+  test("apply beneath the director for their own message run only", async () => {
+    const seen: (InferenceHarnessOptions["inferenceOptions"] | undefined)[] =
+      [];
+    const inferenceRunner = async function* (opts: InferenceHarnessOptions) {
+      seen.push(opts.inferenceOptions);
+      yield {
+        type: "inference.done" as const,
+        seq: opts.nextSeq(),
+        data: {
+          turn: {
+            role: "assistant" as const,
+            content: [{ type: "text" as const, text: "ok" }],
+            model: "test-model",
+            timestamp: 1000,
+          },
+          usage: emptyUsage(),
+          source: TEST_SOURCE,
+        },
+      };
+    };
+    const { reactor, events } = createTestReactor({
+      inferenceRunner,
+      director: directorFromTable(
+        {
+          "message.received": (_e, _s, caps) =>
+            caps.infer({ temperature: 0.9, systemPrompt: "director" }),
+          "inference.done": (_e, _s, caps) => caps.wait(),
+        },
+        "wait",
+      ),
+    });
+    const inferenceDone = (n: number) =>
+      waitUntil(
+        () => events.filter((e) => e.type === "inference.done").length >= n,
+      );
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage(), {
+      inference: { temperature: 0.1, maxTokens: 500, effort: "low" },
+    });
+    await inferenceDone(1);
+    reactor.deliver(makeInboundMessage());
+    await inferenceDone(2);
+
+    expect(seen).toEqual([
+      {
+        temperature: 0.9,
+        maxTokens: 500,
+        effort: "low",
+        systemPrompt: "director",
+      },
+      { temperature: 0.9, systemPrompt: "director" },
+    ]);
+    reactor.abort("admin_kill");
+  });
+
+  test("a correlated resume of a parked run adopts the resume's options", async () => {
+    // The run stays open across the park (suspend does not close the message
+    // run), so this exercises the gate-resume path distinct from the
+    // uncorrelated-message case above: options must reach the re-infer that
+    // follows the approval even though currentMessageRunId never went null.
+    const seen: (InferenceHarnessOptions["inferenceOptions"] | undefined)[] =
+      [];
+    const inferenceRunner = async function* (opts: InferenceHarnessOptions) {
+      seen.push(opts.inferenceOptions);
+      yield {
+        type: "inference.done" as const,
+        seq: opts.nextSeq(),
+        data: {
+          turn:
+            seen.length === 1
+              ? suspendToolCallTurn
+              : {
+                  role: "assistant" as const,
+                  content: [{ type: "text" as const, text: "resumed" }],
+                  model: "test-model",
+                  timestamp: 1000,
+                },
+          usage: emptyUsage(),
+          source: TEST_SOURCE,
+        },
+      };
+    };
+    const askExtension = createAuthzExtension({
+      authorize: async () => ({
+        effect: "ask" as const,
+        matchingGrants: [],
+        resolvedBy: null,
+      }),
+      approvalTimeoutMs: 60_000,
+    });
+
+    const { reactor, events, waitFor } = createTestReactor({
+      inferenceRunner,
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "charged",
+      })),
+      beforeToolExtensions: [askExtension],
+      director: directorFromTable(
+        {
+          "message.received": (_e, _s, caps) => caps.infer(),
+          "inference.done": (_e, _s, caps) =>
+            caps.executeTools([
+              { id: "call-ask", name: "charge_card", arguments: {} },
+            ]),
+          "resume.execute_tools": (e, _s, caps) =>
+            caps.executeTools(e.calls, false, true),
+          "tool.done": (_e, _s, caps) => caps.infer(),
+        },
+        "wait",
+      ),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage(), { inference: { temperature: 0.1 } });
+
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+
+    reactor.deliver(makeApprovalMessage(correlationId), {
+      inference: { temperature: 0.42 },
+    });
+    await waitUntil(
+      () => events.filter((e) => e.type === "inference.done").length >= 2,
+    );
+
+    expect(seen).toEqual([{ temperature: 0.1 }, { temperature: 0.42 }]);
+    reactor.abort("admin_kill");
+  });
+
+  test("a stale pending-marker correlation does not overwrite the open run's options", async () => {
+    // S1: infer then a tool returns a pendingMarker for C1; the director
+    // replies and the run closes, but C1 stays registered with no live gate.
+    // S2: a new send opens a run, infers, then parks on an ask-rail gate.
+    // S3: a stale C1 response must not adopt its inference into the still-open
+    // S2 slot; resuming S2's gate must still see S2's options.
+    const C1 = "corr-stale-c1";
+    const seen: (InferenceHarnessOptions["inferenceOptions"] | undefined)[] =
+      [];
+    let capturing = false;
+    let infers = 0;
+    const sendMessageTurn: AssistantTurn = {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_call",
+          id: "tc-async",
+          name: "send_message",
+          arguments: {},
+        },
+      ],
+      model: "test-model",
+      timestamp: 1000,
+    };
+    const inferenceRunner = async function* (opts: InferenceHarnessOptions) {
+      if (capturing) seen.push(opts.inferenceOptions);
+      const turn =
+        infers === 0
+          ? sendMessageTurn
+          : infers === 1
+            ? suspendToolCallTurn
+            : {
+                role: "assistant" as const,
+                content: [{ type: "text" as const, text: "resumed" }],
+                model: "test-model",
+                timestamp: 1000,
+              };
+      yield {
+        type: "inference.done" as const,
+        seq: opts.nextSeq(),
+        data: {
+          turn,
+          usage: emptyUsage(),
+          source: TEST_SOURCE,
+        },
+      };
+    };
+    const askExtension = createAuthzExtension({
+      authorize: async (resource) => ({
+        effect:
+          resource === "tool:charge_card"
+            ? ("ask" as const)
+            : ("allow" as const),
+        matchingGrants: [],
+        resolvedBy: null,
+      }),
+      approvalTimeoutMs: 60_000,
+    });
+
+    const { reactor, events, waitFor } = createTestReactor({
+      inferenceRunner,
+      toolRunner: {
+        async run(call) {
+          if (call.name === "send_message") {
+            return {
+              callId: call.id,
+              content: "sent",
+              pendingMarker: {
+                status: "pending" as const,
+                correlationId: C1,
+              },
+            };
+          }
+          return { callId: call.id, content: "charged" };
+        },
+      },
+      beforeToolExtensions: [askExtension],
+      director: directorFromTable(
+        {
+          "message.received": (_e, _s, caps) => caps.infer(),
+          "inference.done": (_e, _s, caps) => {
+            infers += 1;
+            if (infers === 1) {
+              return caps.executeTools([
+                { id: "tc-async", name: "send_message", arguments: {} },
+              ]);
+            }
+            if (infers === 2) {
+              return caps.executeTools([
+                { id: "call-ask", name: "charge_card", arguments: {} },
+              ]);
+            }
+            return caps.wait();
+          },
+          "resume.execute_tools": (e, _s, caps) =>
+            caps.executeTools(e.calls, false, true),
+          "tool.done": (e, _s, caps) => {
+            if (e.result.callId === "tc-async") return caps.reply("acked");
+            return caps.infer();
+          },
+        },
+        "wait",
+      ),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("connector.reply");
+    capturing = true;
+
+    reactor.deliver(makeInboundMessage(), { inference: { temperature: 0.2 } });
+    await waitUntil(
+      () => events.filter((e) => e.type === "inference.done").length >= 2,
+    );
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const openCorrelationId = blocked.data.correlationId;
+    if (openCorrelationId === undefined) {
+      throw new Error("expected correlationId");
+    }
+
+    reactor.deliver(makeInboundMessage(C1), {
+      inference: { temperature: 0.9 },
+    });
+    await waitFor("message.correlated");
+
+    reactor.deliver(makeApprovalMessage(openCorrelationId));
+    await waitUntil(
+      () => events.filter((e) => e.type === "inference.done").length >= 3,
+    );
+
+    expect(seen).toEqual([{ temperature: 0.2 }, { temperature: 0.2 }]);
+    reactor.abort("admin_kill");
+  });
+
+  test("a live gate from a closed run does not overwrite the open run's options", async () => {
+    // S1 parks on G1 (ask-rail gate) and stays open. S2, uncorrelated, closes
+    // run1 and opens run2, which itself parks on G2. G1 stays registered
+    // (closeMessageRun never touches gates), so a late correlated response
+    // for G1 must not adopt its options into the still-open run2 slot.
+    const askExtension = createAuthzExtension({
+      authorize: async () => ({
+        effect: "ask" as const,
+        matchingGrants: [],
+        resolvedBy: null,
+      }),
+      approvalTimeoutMs: 60_000,
+    });
+    const seen: (InferenceHarnessOptions["inferenceOptions"] | undefined)[] =
+      [];
+    // Each infer parks on a fresh tool_call id -- the shared history spans
+    // both runs, so reusing "call-ask" across them would trip the
+    // duplicate-tool_call-id well-formedness check.
+    let lastCallId = "";
+    const inferenceRunner = async function* (opts: InferenceHarnessOptions) {
+      seen.push(opts.inferenceOptions);
+      lastCallId = `call-ask-${seen.length}`;
+      yield {
+        type: "inference.done" as const,
+        seq: opts.nextSeq(),
+        data: {
+          turn: {
+            role: "assistant" as const,
+            content: [
+              {
+                type: "tool_call" as const,
+                id: lastCallId,
+                name: "charge_card",
+                arguments: {},
+              },
+            ],
+            model: "test-model",
+            timestamp: 1000,
+          },
+          usage: emptyUsage(),
+          source: TEST_SOURCE,
+        },
+      };
+    };
+
+    const { reactor, events, waitFor } = createTestReactor({
+      inferenceRunner,
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "charged",
+      })),
+      beforeToolExtensions: [askExtension],
+      director: directorFromTable(
+        {
+          "message.received": (_e, _s, caps) => caps.infer(),
+          "inference.done": (_e, _s, caps) =>
+            caps.executeTools([
+              { id: lastCallId, name: "charge_card", arguments: {} },
+            ]),
+          "resume.execute_tools": (e, _s, caps) =>
+            caps.executeTools(e.calls, false, true),
+          "tool.done": (_e, _s, caps) => caps.infer(),
+        },
+        "wait",
+      ),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage(), { inference: { temperature: 0.1 } });
+
+    const blocked1 = await waitFor("reactor.gate.blocked");
+    if (blocked1.type !== "reactor.gate.blocked") {
+      throw new Error("unreachable");
+    }
+    const correlationId1 = blocked1.data.correlationId;
+    if (correlationId1 === undefined) throw new Error("expected correlationId");
+
+    reactor.deliver(makeInboundMessage(), { inference: { temperature: 0.2 } });
+    await waitUntil(
+      () => events.filter((e) => e.type === "reactor.gate.blocked").length >= 2,
+    );
+
+    reactor.deliver(makeApprovalMessage(correlationId1), {
+      inference: { temperature: 0.9 },
+    });
+    await waitUntil(() => seen.length >= 3);
+
+    expect(seen).toEqual([
+      { temperature: 0.1 },
+      { temperature: 0.2 },
+      { temperature: 0.2 },
+    ]);
+    reactor.abort("admin_kill");
+  });
+
+  test("a resume of a director-chosen gate adopts its options", async () => {
+    // The tool's pending marker registers the operation under
+    // `pending-<correlationId>`, and the director then suspends under its own
+    // gate id with the same correlation id. The resume belongs to the open
+    // run, so its options must be adopted even though the gate id the pending
+    // operation records is not the gate that is live.
+    const CORR_ID = "corr-director-gate";
+    const seen: (InferenceHarnessOptions["inferenceOptions"] | undefined)[] =
+      [];
+    let infers = 0;
+    const inferenceRunner = async function* (opts: InferenceHarnessOptions) {
+      seen.push(opts.inferenceOptions);
+      infers += 1;
+      yield {
+        type: "inference.done" as const,
+        seq: opts.nextSeq(),
+        data: {
+          turn: {
+            role: "assistant" as const,
+            content:
+              infers === 1
+                ? [
+                    {
+                      type: "tool_call" as const,
+                      id: "call-send",
+                      name: "send_msg",
+                      arguments: {},
+                    },
+                  ]
+                : [{ type: "text" as const, text: "done" }],
+            model: "test-model",
+            timestamp: 1000,
+          },
+          usage: emptyUsage(),
+          source: TEST_SOURCE,
+        },
+      };
+    };
+
+    const { reactor, waitFor } = createTestReactor({
+      inferenceRunner,
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "sent",
+        pendingMarker: { status: "pending" as const, correlationId: CORR_ID },
+      })),
+      director: directorFromTable({
+        "message.received": (_e, _s, caps) => caps.infer(),
+        "inference.done": (_e, _s, caps) =>
+          infers === 1
+            ? caps.executeTools([
+                { id: "call-send", name: "send_msg", arguments: {} },
+              ])
+            : caps.done(),
+        "tool.done": (_e, _s, caps) =>
+          caps.suspend({
+            type: "message_response",
+            gateId: "director-chosen-gate",
+            timeoutMs: 5000,
+            correlationId: CORR_ID,
+          }),
+        "reactor.gate.cleared": (_e, _s, caps) => caps.infer(),
+      }),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage(), { inference: { temperature: 0.1 } });
+    await waitFor("reactor.gate.blocked");
+
+    reactor.deliver(makeInboundMessage(CORR_ID), {
+      inference: { temperature: 0.9 },
+    });
+    await waitFor("reactor.done");
+
+    expect(seen).toEqual([{ temperature: 0.1 }, { temperature: 0.9 }]);
+  });
+
+  test("a rehydrated gate does not overwrite the open run's options", async () => {
+    // Same hazard as the previous test, but the stale gate comes from
+    // rehydration (a restart) rather than from a run this process closed:
+    // rehydrateGates must not mark it as belonging to any open run either.
+    const correlationId1 = "rehydrated-corr-1";
+    // The pending op's suspended call must have a matching tool_call turn
+    // already in history, exactly as it would after the original suspend
+    // (the call landed in history before the park; only the resolution
+    // carries over the restart) -- otherwise resuming it and re-inferring
+    // trips the well-formedness check on an orphaned tool_result.
+    const cell: PersistedCell = {
+      turns: [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_call",
+              id: "call-ask-rehydrated",
+              name: "charge_card",
+              arguments: {},
+            },
+          ],
+          model: "test-model",
+          timestamp: 500,
+        },
+      ],
+      pendingOperations: [
+        {
+          correlationId: correlationId1,
+          kind: "approval",
+          registeredAt: Date.now(),
+          gateId: `pending-${correlationId1}`,
+          timeoutAt: Date.now() + 60_000,
+          suspendedCall: {
+            id: "call-ask-rehydrated",
+            name: "charge_card",
+            arguments: {},
+          },
+        },
+      ],
+      tokenUsage: emptyUsage(),
+    };
+    const askExtension = createAuthzExtension({
+      authorize: async () => ({
+        effect: "ask" as const,
+        matchingGrants: [],
+        resolvedBy: null,
+      }),
+      approvalTimeoutMs: 60_000,
+    });
+    const seen: (InferenceHarnessOptions["inferenceOptions"] | undefined)[] =
+      [];
+    let lastCallId = "";
+    const inferenceRunner = async function* (opts: InferenceHarnessOptions) {
+      seen.push(opts.inferenceOptions);
+      lastCallId = `call-ask-${seen.length}`;
+      yield {
+        type: "inference.done" as const,
+        seq: opts.nextSeq(),
+        data: {
+          turn: {
+            role: "assistant" as const,
+            content: [
+              {
+                type: "tool_call" as const,
+                id: lastCallId,
+                name: "charge_card",
+                arguments: {},
+              },
+            ],
+            model: "test-model",
+            timestamp: 1000,
+          },
+          usage: emptyUsage(),
+          source: TEST_SOURCE,
+        },
+      };
+    };
+
+    const { reactor, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      inferenceRunner,
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "charged",
+      })),
+      beforeToolExtensions: [askExtension],
+      director: directorFromTable(
+        {
+          "message.received": (_e, _s, caps) => caps.infer(),
+          "inference.done": (_e, _s, caps) =>
+            caps.executeTools([
+              { id: lastCallId, name: "charge_card", arguments: {} },
+            ]),
+          "resume.execute_tools": (e, _s, caps) =>
+            caps.executeTools(e.calls, false, true),
+          "tool.done": (_e, _s, caps) => caps.infer(),
+        },
+        "wait",
+      ),
+    });
+
+    reactor.start();
+    await waitFor("reactor.start");
+
+    reactor.deliver(makeInboundMessage(), { inference: { temperature: 0.2 } });
+    await waitFor("reactor.gate.blocked");
+
+    reactor.deliver(makeApprovalMessage(correlationId1), {
+      inference: { temperature: 0.9 },
+    });
+    await waitUntil(() => seen.length >= 2);
+
+    expect(seen).toEqual([{ temperature: 0.2 }, { temperature: 0.2 }]);
+    reactor.abort("admin_kill");
+  });
+
+  test("a correlated resume with no run open does not leak options into the next", async () => {
+    // Rehydrated gates resume without ever opening a message run (only
+    // message.received opens one), so the options a resume adopts must
+    // still be discarded when its cycle closes: a later resume that sets
+    // none infers with none.
+    const correlationIds = ["rehydrated-corr-a", "rehydrated-corr-b"];
+    const cell: PersistedCell = {
+      turns: [
+        {
+          role: "assistant",
+          content: correlationIds.map((id) => ({
+            type: "tool_call" as const,
+            id: `call-${id}`,
+            name: "charge_card",
+            arguments: {},
+          })),
+          model: "test-model",
+          timestamp: 500,
+        },
+      ],
+      pendingOperations: correlationIds.map((id) => ({
+        correlationId: id,
+        kind: "approval" as const,
+        registeredAt: Date.now(),
+        gateId: `pending-${id}`,
+        timeoutAt: Date.now() + 60_000,
+        suspendedCall: { id: `call-${id}`, name: "charge_card", arguments: {} },
+      })),
+      tokenUsage: emptyUsage(),
+    };
+    const seen: (InferenceHarnessOptions["inferenceOptions"] | undefined)[] =
+      [];
+    const inferenceRunner = async function* (opts: InferenceHarnessOptions) {
+      seen.push(opts.inferenceOptions);
+      yield {
+        type: "inference.done" as const,
+        seq: opts.nextSeq(),
+        data: {
+          turn: {
+            role: "assistant" as const,
+            content: [{ type: "text" as const, text: "ok" }],
+            model: "test-model",
+            timestamp: 1000,
+          },
+          usage: emptyUsage(),
+          source: TEST_SOURCE,
+        },
+      };
+    };
+
+    const { reactor, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      inferenceRunner,
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "charged",
+      })),
+      director: directorFromTable(
+        {
+          "resume.execute_tools": (e, _s, caps) =>
+            caps.executeTools(e.calls, false, true),
+          "tool.done": (_e, _s, caps) => caps.infer(),
+        },
+        "wait",
+      ),
+    });
+
+    reactor.start();
+    await waitFor("reactor.start");
+
+    reactor.deliver(makeApprovalMessage("rehydrated-corr-a"), {
+      inference: { temperature: 0.9 },
+    });
+    await waitUntil(() => seen.length >= 1);
+    reactor.deliver(makeApprovalMessage("rehydrated-corr-b"));
+    await waitUntil(() => seen.length >= 2);
+
+    expect(seen).toEqual([{ temperature: 0.9 }, undefined]);
+    reactor.abort("admin_kill");
+  });
+
+  test("systemPrompt, tools, and providerOptions on deliver do not reach the harness", async () => {
+    const seen: (InferenceHarnessOptions["inferenceOptions"] | undefined)[] =
+      [];
+    const inferenceRunner = async function* (opts: InferenceHarnessOptions) {
+      seen.push(opts.inferenceOptions);
+      yield {
+        type: "inference.done" as const,
+        seq: opts.nextSeq(),
+        data: {
+          turn: {
+            role: "assistant" as const,
+            content: [{ type: "text" as const, text: "ok" }],
+            model: "test-model",
+            timestamp: 1000,
+          },
+          usage: emptyUsage(),
+          source: TEST_SOURCE,
+        },
+      };
+    };
+    const { reactor } = createTestReactor({
+      inferenceRunner,
+      director: directorFromTable(
+        {
+          "message.received": (_e, _s, caps) =>
+            caps.infer({ temperature: 0.9 }),
+          "inference.done": (_e, _s, caps) => caps.wait(),
+        },
+        "wait",
+      ),
+    });
+
+    reactor.start();
+    // A wider bag is assignable to PerCallInferenceOptions; deliver must
+    // still drop the keys that displace the deployed agent definition.
+    const inference = {
+      maxTokens: 100,
+      temperature: 0.1,
+      systemPrompt: "sneak",
+      tools: [],
+      providerOptions: { foo: 1 },
+    };
+    reactor.deliver(makeInboundMessage(), { inference });
+    await waitUntil(() => seen.length >= 1);
+
+    expect(seen).toEqual([{ temperature: 0.9, maxTokens: 100 }]);
+    reactor.abort("admin_kill");
+  });
+
+  test("deliver copies every key PerCallInferenceOptions declares", async () => {
+    const seen: (InferenceHarnessOptions["inferenceOptions"] | undefined)[] =
+      [];
+    const inferenceRunner = async function* (opts: InferenceHarnessOptions) {
+      seen.push(opts.inferenceOptions);
+      yield {
+        type: "inference.done" as const,
+        seq: opts.nextSeq(),
+        data: {
+          turn: {
+            role: "assistant" as const,
+            content: [{ type: "text" as const, text: "ok" }],
+            model: "test-model",
+            timestamp: 1000,
+          },
+          usage: emptyUsage(),
+          source: TEST_SOURCE,
+        },
+      };
+    };
+    const { reactor } = createTestReactor({
+      inferenceRunner,
+      director: directorFromTable(
+        {
+          "message.received": (_e, _s, caps) => caps.infer(),
+          "inference.done": (_e, _s, caps) => caps.wait(),
+        },
+        "wait",
+      ),
+    });
+
+    reactor.start();
+    // Names every declared key alongside one the type does not declare.
+    // A key added to the type without an entry here fails the key-set
+    // comparison below, so the copy can never silently fall behind it.
+    const inference = {
+      maxTokens: 100,
+      temperature: 0.1,
+      thinking: { enabled: true, budgetTokens: 2048, sneak: true },
+      effort: "high" as const,
+      systemPrompt: "sneak",
+    };
+    reactor.deliver(makeInboundMessage(), { inference });
+    await waitUntil(() => seen.length >= 1);
+
+    const declared = PerCallInferenceOptions.props.map((p) => p.key).sort();
+    expect(Object.keys(seen[0] ?? {}).sort()).toEqual(declared);
+    expect(seen[0]).toEqual({
+      maxTokens: 100,
+      temperature: 0.1,
+      thinking: { enabled: true, budgetTokens: 2048 },
+      effort: "high",
+    });
+    reactor.abort("admin_kill");
   });
 });

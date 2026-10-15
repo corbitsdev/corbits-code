@@ -55,6 +55,7 @@ import { injectCredentials } from "./auth";
 import {
   classifyHTTPError,
   classifyNetworkError,
+  classifyRequestBuildError,
   classifyAbortError,
   classifyStreamError,
   classifyTimeoutError,
@@ -427,7 +428,7 @@ async function* runSingleAttempt(
       type: "inference.error",
       seq: nextSeq(),
       data: {
-        error: classifyNetworkError(cause),
+        error: classifyRequestBuildError(cause),
         partial: snapshotPartial(partial),
       },
     };

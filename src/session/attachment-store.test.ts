@@ -146,4 +146,61 @@ describe("ageImageBlocks / rehydrateAttachmentImages", () => {
     expect(aged.blobs).toHaveLength(1);
     expect(recorded).toEqual([]);
   });
+
+  test("identical markers across turns read the blob once (CL-10666)", async () => {
+    const text = formatAgedImageMarker({
+      uri: attachmentUri("img-shared"),
+      mimeType: "image/png",
+    });
+    const markerTurn: ConversationTurn = {
+      role: "user",
+      content: [{ type: "text", text }],
+      timestamp: 1,
+    };
+    const blob = new TextEncoder().encode(PNG_B64);
+    const reads: string[] = [];
+    const readBlob = async (key: string) => {
+      reads.push(key);
+      return blob;
+    };
+
+    const out = await rehydrateAttachmentImages(
+      [markerTurn, markerTurn, markerTurn],
+      readBlob,
+    );
+    expect(reads).toEqual(["img-shared"]);
+    for (const turn of out) {
+      expect(turn.content).toEqual([
+        {
+          type: "image",
+          source: { kind: "base64", mimeType: "image/png", data: PNG_B64 },
+        },
+      ]);
+    }
+    expect(reads).toHaveLength(1);
+  });
+
+  test("a missing shared blob keeps every copy of its marker from one read", async () => {
+    const text = formatAgedImageMarker({
+      uri: attachmentUri("img-gone"),
+      mimeType: "image/png",
+    });
+    const markerTurn: ConversationTurn = {
+      role: "user",
+      content: [{ type: "text", text }],
+      timestamp: 1,
+    };
+    const reads: string[] = [];
+    const out = await rehydrateAttachmentImages(
+      [markerTurn, markerTurn],
+      async (key) => {
+        reads.push(key);
+        throw new Error(`Blob not found: ${key}`);
+      },
+    );
+    expect(reads).toHaveLength(1);
+    for (const turn of out) {
+      expect(turn.content).toEqual([{ type: "text", text }]);
+    }
+  });
 });

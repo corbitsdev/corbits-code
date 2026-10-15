@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@intx/crypto": "0.3.0",
+    "@intx/log": "workspace:*",
     "@intx/mime": "workspace:*",
     "@intx/types": "workspace:*",
     "arktype": "catalog:"

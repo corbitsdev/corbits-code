@@ -180,7 +180,7 @@ describe("worker persist reaps leftover registry children", () => {
             ...delayedReplyAgent(),
             send: async () => {
               const captured = defined(registry);
-              const started = captured.start({
+              const started = await captured.start({
                 // pgrep -f sees only the exec'd sleep; a comment-only token would let waitUntilGone pass.
                 command: `bash -c 'exec -a ${token} sleep 600'`,
                 cwd,

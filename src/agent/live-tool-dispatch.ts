@@ -5,6 +5,8 @@ import {
   type BaseEnv,
 } from "@intx/agent";
 
+import { createApprovalProvenanceGate } from "../session/approval-provenance.js";
+
 // @intx/agent resolveTools snapshots `byName` from each bundle's definitions
 // at createAgent and never consults a live getter. MCP tools arrive later via
 // DynamicToolRunner.addTools (servers connect after the TUI is up; one
@@ -79,5 +81,10 @@ export function createAgentWithLiveToolDispatch<EnvReq extends BaseEnv>(
   def: AgentDefinition<EnvReq>,
   env: EnvReq,
 ): Promise<Agent> {
-  return withLiveToolDispatchMap(() => createAgent(def, env));
+  return withLiveToolDispatchMap(async () =>
+    // The vendored @intx/agent forwards no correlationValidator into the
+    // reactor assembly, so approval provenance is enforced at the app's
+    // inbound-delivery boundary (see src/session/approval-provenance.ts).
+    createApprovalProvenanceGate(await createAgent(def, env)),
+  );
 }

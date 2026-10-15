@@ -3,10 +3,9 @@ import {
   codexOAuthConfig,
   type CodexTokens,
 } from "@corbits/codex-provider";
-import {
-  openInBrowser,
-  type OAuthLoginHandle,
-  type StartOAuthLoginOptions,
+import type {
+  OAuthLoginHandle,
+  StartOAuthLoginOptions,
 } from "@corbits/oauth-core";
 import { startProviderLogin } from "../provider-login.js";
 
@@ -14,8 +13,6 @@ import type { CallbackPageCopy } from "../callback-page.js";
 import { saveCodexProfile } from "../../config/oauth-stores.js";
 import { startCodexCallbackServer } from "./callback-server.js";
 import { withDefaultCodexExpiry } from "./store.js";
-
-export { openInBrowser };
 
 export type CodexLoginHandle = OAuthLoginHandle<CodexTokens>;
 export type StartCodexLoginOptions = StartOAuthLoginOptions & {

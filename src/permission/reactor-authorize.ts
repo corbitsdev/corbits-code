@@ -23,7 +23,6 @@ import type { AuthorizeVerdict, GateVerdict, PermissionGate } from "./gate.js";
 import type { PermissionRequest } from "./types.js";
 import {
   createDeniedCallEnvelope,
-  fingerprintDeniedCall,
   formatWorkerDenyWithGrantId,
   getProcessWorkerGrantStore,
   type WorkerGrantStore,
@@ -164,17 +163,6 @@ function denyWorkerCallWithEnvelope(
   };
 }
 
-/** Mutex key covering the envelope match: concurrent identical worker calls
- * serialize through precheck-to-consume so one envelope allows exactly once. */
-function workerGrantKey(
-  sessionId: string,
-  call: ToolCallType,
-  cwd: string,
-): string {
-  const identity = workerCallIdentity(sessionId, call, cwd);
-  return `${sessionId}\n${fingerprintDeniedCall(identity.canonicalTool, identity.args, identity.cwd)}`;
-}
-
 async function authorizeWorkerCall(
   gate: PermissionGate,
   call: ToolCallType,
@@ -187,11 +175,13 @@ async function authorizeWorkerCall(
   if (sessionId === undefined)
     return authorizeWorkerCallInner(gate, call, grantOptions, workerCwd);
   const store = grantOptions?.store ?? getProcessWorkerGrantStore();
-  return store.runExclusive(workerGrantKey(sessionId, call, workerCwd), () =>
-    authorizeWorkerCallInner(gate, call, grantOptions, workerCwd, {
-      sessionId,
-      store,
-    }),
+  return store.runExclusiveIdentity(
+    workerCallIdentity(sessionId, call, workerCwd),
+    () =>
+      authorizeWorkerCallInner(gate, call, grantOptions, workerCwd, {
+        sessionId,
+        store,
+      }),
   );
 }
 
@@ -203,10 +193,10 @@ async function authorizeWorkerCallInner(
   grant?: { sessionId: string; store: WorkerGrantStore },
 ): Promise<{ effect: "allow" } | { effect: "deny"; reason: string }> {
   if (grant !== undefined) {
-    const precheck = grant.store.precheck(
-      workerCallIdentity(grant.sessionId, call, workerCwd),
-    );
+    const identity = workerCallIdentity(grant.sessionId, call, workerCwd);
+    const precheck = grant.store.precheck(identity);
     if (!precheck.ok) return { effect: "deny", reason: precheck.blocker };
+    if (grant.store.hasAuthorizedRetry(identity)) return { effect: "allow" };
   }
   const verdict = await gate.authorizeCall(call);
   // Authorize never consumes: it only permits the call to proceed to the
@@ -248,11 +238,13 @@ async function executionVerdictWorkerCall(
   if (sessionId === undefined)
     return executionVerdictWorkerCallInner(gate, call, grantOptions, workerCwd);
   const store = grantOptions?.store ?? getProcessWorkerGrantStore();
-  return store.runExclusive(workerGrantKey(sessionId, call, workerCwd), () =>
-    executionVerdictWorkerCallInner(gate, call, grantOptions, workerCwd, {
-      sessionId,
-      store,
-    }),
+  return store.runExclusiveIdentity(
+    workerCallIdentity(sessionId, call, workerCwd),
+    () =>
+      executionVerdictWorkerCallInner(gate, call, grantOptions, workerCwd, {
+        sessionId,
+        store,
+      }),
   );
 }
 
@@ -264,10 +256,11 @@ async function executionVerdictWorkerCallInner(
   grant?: { sessionId: string; store: WorkerGrantStore },
 ): Promise<AuthorizeVerdict> {
   if (grant !== undefined) {
-    const precheck = grant.store.precheck(
-      workerCallIdentity(grant.sessionId, call, workerCwd),
-    );
+    const identity = workerCallIdentity(grant.sessionId, call, workerCwd);
+    const precheck = grant.store.precheck(identity);
     if (!precheck.ok) return { effect: "deny", reason: precheck.blocker };
+    if (grant.store.consumeAuthorizedRetry(identity) !== undefined)
+      return { effect: "allow" };
   }
   const verdict = await gate.executionVerdict(call);
   // Sole consumption point: the execution backstop spends the envelope when

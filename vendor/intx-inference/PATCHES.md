@@ -139,6 +139,97 @@ new upstream moved under the patch:
   `src/config/source-credentials.ts`, handed to the vendored trees as
   their resolver).
 
+### 2026-10-14 re-sync (upstream `5453d0b0` — npm `0.4.0`, CL-10651)
+
+Every entry below re-verified against the pristine `5453d0b0` tree; none
+was dropped as upstream-absorbed. The ticket's carried-forward DROP
+suspicions are contradicted by direct greps of the `0.4.0` tree —
+`isStreamTerminal`, `isPollOnlyPendingBatch`, `ephemeralTurns`,
+`loadErrors`, `turnsRevision`/`deepFreeze`, `isCommitting`, and
+`ClassifiedAbortRaw`-grade `classifyAbortError(reason)` plumbing are all
+absent upstream at this pin — so every entry KEEPs and no disposition
+label changes. Upstream churn in this package for the range is limited
+to `reactor.test.ts` (test-infra: new `@intx/types/testing` `waitUntil`
+adoption and race-window rewrites) and `default-director.test.ts`; **no
+upstream-producing source file under a ledger entry changed**, so the
+src/ entries re-carried byte-identically with zero adaptation. Marker
+spot-checks at the recorded positions are unchanged for the same reason
+(`providers/openai.ts:574`, `harness.ts:644/1528/1606/1635/1875`,
+`errors.ts:54`, `providers/anthropic.ts:825/832/1084`,
+`providers/google-genai-files.ts:172-174`).
+
+- `reactor.test.ts` was the only file with both local content and
+  upstream changes; it was three-way merged (ours/base/theirs via
+  `git merge-file`). `reactor-test-frozen-turns-mutation` re-applied
+  onto upstream's rewritten probe; the local doom-loop trivial-shell
+  suite (`reactor-ts-doom-loop-trivial-shell-churn` companion tests) and
+  the credential-failure terminal tests
+  (`harness-ts-auth-recovery` companions) carried through intact.
+- `providers/anthropic.test.ts` (CL-7783/adaptive suites) was untouched
+  in this range and keeps its prior state.
+- New upstream test dependencies on `@intx/types/testing` (`waitUntil`)
+  resolve through the vendored `@intx/types` tree, which now carries the
+  `./testing` subpath export.
+- CL-7783's `stopReason` chain verified end-to-end at this pin:
+  `types/runtime.ts:1449/1715`, `providers/anthropic.ts:825/832/1084`,
+  and the harness sites `harness.ts:380/1128-1136/1200` all present.
+- Carried-patch coverage at this pin: `ephemeralTurns` and the
+  context-transforms `deps` channel are pinned by first-party
+  `e2e/vendored-carry.test.ts` (both integration tests pass) plus
+  `src/provider/anthropic-cache-breakpoint.test.ts` and
+  `src/subagent/nudge-director.test.ts`; the poll-exemption predicate by
+  `src/subagent/poll-exempt.test.ts` (wired verbatim through
+  `src/provider/inference-dependencies.ts`); the stream-terminal
+  consumer by `src/provider/grok-responses.test.ts` and
+  `src/provider/codex-responses-sse.test.ts`; `classifyAbortError`'s
+  reason now gains an in-tree companion test (added this sync) and is
+  exercised on the abort paths of `e2e/reactor-approval-acceptance.test.ts`.
+
+### 2026-10-14 re-sync to `4cc6972` (CL-10656, HEAD drift 0.4.0 → base)
+
+Every entry re-carried against the pristine `4cc6972` tree; none dropped as
+upstream-absorbed (grep of the pristine tree: `isStreamTerminal`,
+`isPollOnlyPendingBatch`, `ephemeralTurns`, `loadErrors`, `turnsRevision`/
+`deepFreeze`, `isCommitting`, `MAX_LINE_LENGTH` — all still absent).
+Nine upstream commits touch this package (`0f72f95`, `1ff8805`, `a0be30`,
+`660ef8`, `d1e05e`, `cb61da`, `d1835b`, `c8be7e`, `2d973a`). Adaptation
+surface: 22 upstream-changed files; 9 vendored files carry local content
+and were three-way merged (`git merge-file`, ours/base/theirs), the rest
+copied verbatim.
+
+- `errors.ts` conflict: upstream `c8be7e` added
+  `classifyRequestBuildError` between `classifyNetworkError` and the
+  patched `classifyAbortError(reason?)`; both kept (upstream function
+  adopted, patch re-carried with its `ClassifiedAbortRaw` type).
+- `reactor.ts` two conflicts: (1) `d1835b` added
+  `mergeInferenceOptions`/`PerCallInferenceOptions` strip-copy beside the
+  patched `ExtendedInferenceOptions` (`ephemeralTurns`) — both kept; (2)
+  `d1835b`/`0f72f95` restructured `processDelivery` (per-send `deliver`
+  options, `deliveredInference` adoption, `expectedFrom` removal) inside
+  the atomic-acceptance critical section — the upstream adoption block
+  was re-slit above the patched `disposition` declaration, and the
+  `reactor-ts-atomic-approval-acceptance` `try/finally` boundary is
+  intact.
+- Clean three-way merges on patched files: `assembly.ts`,
+  `correlation.ts`, `errors.test.ts`, `harness.ts`, `index.ts`,
+  `providers/anthropic.ts`, `providers/google-genai.ts`,
+  `providers/openai.ts`, `reactor.test.ts`; patch hunks carry with zero
+  adaptation (`providers-ts-openai-exclusive-cache-usage`,
+  `inference-ts-cl-7783-truncated-tool-call` stop-reason chain verified
+  against the new `@intx/types` `inference-events.ts` sites and
+  `providers/anthropic.ts`). The vendored `index.ts` merged with
+  upstream's barrel: upstream moved the `AdapterManifest` export to
+  `@intx/types` (`adapter-manifest.ts`); first-party
+  `src/provider/inference-dependencies.ts` imports it there now.
+- `effort.ts`/`effort.test.ts` (`c8be7e` reasoning-effort mapping) and
+  `manifest.ts`'s new callers (`2d973a` adapter manifest) adopted
+  verbatim; the vendored `package.json` gains the upstream `./manifest`
+  and `./default-director` subpath exports.
+- Post-merge divergence proof: `bin/vendor-patch-diff` against the
+  recorded SHA prints the same +/− line multiset as the pre-sync ledger
+  diff (1324 + / 230 − for this package), i.e. no patch content lost and
+  no unledgered divergence gained.
+
 ## adapter-ts-stream-terminal-detector
 
 `adapter.ts` — Adds `StreamTerminalDetector`/`ProviderAdapter.isStreamTerminal`.
@@ -225,6 +316,8 @@ four abort-check sites in `harness.ts`.
 optional `reason` param to `classifyAbortError` and enriching `raw`. **Removal
 path:** Upstream PR adding the optional `reason` parameter and `ClassifiedAbortRaw`
 type. No kill date until upstream ships it.
+Companion test: the "carries a caller-supplied reason as raw.origin" case in
+`errors.test.ts` (added at the CL-10651 sync).
 **Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk —
 `errors.ts` sees little upstream churn.
 

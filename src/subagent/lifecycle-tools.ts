@@ -31,6 +31,13 @@ import {
   type SubAgentSessionStore,
 } from "./session-store.js";
 import { parseEscalationResolution } from "./escalation-policy.js";
+import { runWithSubAgentIdentity } from "./identity-context.js";
+import type { PermissionGate } from "../permission/gate.js";
+import {
+  canonicalDeniedTool,
+  fingerprintDeniedCall,
+  getProcessWorkerGrantStore,
+} from "../permission/worker-grant.js";
 import {
   assertCanTargetAgent,
   FleetAuthorityError,
@@ -131,6 +138,10 @@ export interface LifecycleToolDeps {
   fleetRecords?: FleetMailboxHandle;
   authority?: LifecycleAuthority;
 }
+
+export type ApproveWorkerCallToolDeps = LifecycleToolDeps & {
+  permissionGate: PermissionGate;
+};
 
 /** close_agent always terminalizes the wait mailbox — no silent skip. */
 export type CloseAgentToolDeps = LifecycleToolDeps & {
@@ -619,6 +630,183 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
       return lifecycleResult(
         call.id,
         fleetJson({ agent_id: target, status: outcome.status }),
+      );
+    },
+  });
+}
+
+const ApproveWorkerCallArgs = type({
+  target: "string",
+  question_id: "string",
+  request_id: "string",
+});
+
+export const approveWorkerCallToolDefinition: ToolDefinition = {
+  name: "approve_worker_call",
+  description:
+    "Approve one exact pending worker-denied call. The target, question_id, and request_id must match the live retained envelope; this action evaluates only its frozen tool call through the parent permission gate before waking the worker.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      target: { type: "string", description: "agent_id." },
+      question_id: {
+        type: "string",
+        description: "Pending ask_director question id.",
+      },
+      request_id: {
+        type: "string",
+        description: "Denied-call grant request id.",
+      },
+    },
+    required: ["target", "question_id", "request_id"],
+  },
+};
+
+export function createApproveWorkerCallTool(
+  deps: ApproveWorkerCallToolDeps,
+): AgentTool {
+  return tool({
+    definition: approveWorkerCallToolDefinition,
+    handler: async (call, _signal): Promise<ToolResult> => {
+      const parsed = ApproveWorkerCallArgs(call.arguments);
+      if (parsed instanceof type.errors) {
+        return lifecycleResult(
+          call.id,
+          `Error: approve_worker_call arguments invalid: ${parsed.summary}`,
+        );
+      }
+      const target = parsed.target.trim();
+      const questionId = parsed.question_id.trim();
+      const requestId = parsed.request_id.trim();
+      const denied = gateTarget(deps, "approve_worker_call", target, call.id);
+      if (denied !== undefined) return denied;
+      if (
+        target.length === 0 ||
+        questionId.length === 0 ||
+        requestId.length === 0
+      ) {
+        return lifecycleResult(
+          call.id,
+          "Error: approve_worker_call requires non-empty target, question_id, and request_id.",
+        );
+      }
+
+      const grants = getProcessWorkerGrantStore();
+      const envelope = grants.peek(requestId);
+      if (envelope === undefined)
+        return lifecycleResult(
+          call.id,
+          "Error: approve_worker_call does not match a live pending worker-denied call.",
+        );
+      const approve = async (): Promise<ToolResult> => {
+        return grants.runExclusive(requestId, async () => {
+          const pending = deps.sessions.peekAsk(target);
+          const session = deps.sessions.get(target);
+          const validatedEnvelope = grants.peek(requestId);
+          if (
+            pending === undefined ||
+            session === undefined ||
+            pending.questionId !== questionId ||
+            pending.deniedCall !== validatedEnvelope ||
+            validatedEnvelope === undefined ||
+            validatedEnvelope.workerSessionId !== target ||
+            validatedEnvelope.questionId !== questionId ||
+            validatedEnvelope.status !== "pending" ||
+            validatedEnvelope.expiresAt <= Date.now() ||
+            canonicalDeniedTool(validatedEnvelope.canonicalTool) !==
+              validatedEnvelope.canonicalTool ||
+            fingerprintDeniedCall(
+              validatedEnvelope.canonicalTool,
+              validatedEnvelope.args,
+              validatedEnvelope.cwd,
+            ) !== validatedEnvelope.argsFingerprint
+          ) {
+            grants.sweepExpired();
+            return lifecycleResult(
+              call.id,
+              "Error: approve_worker_call does not match a live pending worker-denied call.",
+            );
+          }
+
+          const frozenCall = {
+            id: validatedEnvelope.deniedCallId,
+            name: validatedEnvelope.canonicalTool,
+            arguments: JSON.parse(
+              JSON.stringify(validatedEnvelope.args),
+            ) as Record<string, unknown>,
+          };
+          let verdict: Awaited<ReturnType<PermissionGate["evaluate"]>>;
+          try {
+            verdict = await runWithSubAgentIdentity(
+              { description: session.description, cwd: validatedEnvelope.cwd },
+              () => deps.permissionGate.evaluate(frozenCall),
+            );
+          } catch {
+            return lifecycleResult(
+              call.id,
+              "Error: parent permission evaluation failed; the worker remains blocked.",
+            );
+          }
+          if (!verdict.allowed) {
+            return lifecycleResult(
+              call.id,
+              `Error: parent permission evaluation denied the pending worker call: ${verdict.reason}`,
+            );
+          }
+
+          const current = deps.sessions.peekAsk(target);
+          const currentEnvelope = grants.peek(requestId);
+          if (
+            current === undefined ||
+            current.questionId !== questionId ||
+            current.deniedCall !== currentEnvelope ||
+            currentEnvelope !== envelope ||
+            currentEnvelope.status !== "pending" ||
+            currentEnvelope.expiresAt <= Date.now()
+          ) {
+            grants.sweepExpired();
+            return lifecycleResult(
+              call.id,
+              "Error: approve_worker_call became stale before authorization completed.",
+            );
+          }
+          if (!grants.authorizeRetry(requestId)) {
+            return lifecycleResult(
+              call.id,
+              "Error: approve_worker_call became stale before retry authorization completed.",
+            );
+          }
+          if (
+            !deps.sessions.resolveAsk(
+              target,
+              "Parent approved the exact denied call; retry it once.",
+            )
+          ) {
+            grants.revokeAuthorizedRetry(requestId);
+            return lifecycleResult(
+              call.id,
+              "Error: approve_worker_call could not wake the pending worker.",
+            );
+          }
+          return lifecycleResult(
+            call.id,
+            fleetJson({
+              agent_id: target,
+              question_id: questionId,
+              request_id: requestId,
+              status: "authorized",
+            }),
+          );
+        });
+      };
+      return grants.runExclusiveIdentity(
+        {
+          sessionId: envelope.workerSessionId,
+          canonicalTool: envelope.canonicalTool,
+          args: envelope.args,
+          cwd: envelope.cwd,
+        },
+        approve,
       );
     },
   });

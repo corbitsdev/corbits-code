@@ -11,6 +11,14 @@
     "./providers": {
       "types": "./src/providers/index.ts",
       "default": "./src/providers/index.ts"
+    },
+    "./default-director": {
+      "types": "./src/default-director.ts",
+      "default": "./src/default-director.ts"
+    },
+    "./manifest": {
+      "types": "./src/manifest.ts",
+      "default": "./src/manifest.ts"
     }
   },
   "dependencies": {

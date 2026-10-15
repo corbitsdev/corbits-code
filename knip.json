@@ -14,9 +14,9 @@
     "e2e/**/*.ts",
     "evals/**/*.ts",
     "scripts/**/*.ts",
-    "agents/**/*.ts",
-    "vendor/**/*.ts"
+    "agents/**/*.ts"
   ],
+  "ignore": ["vendor/**", "evals/completion/tasks/**/fixture/**"],
   "includeEntryExports": true,
   "rules": {
     "exports": "error",

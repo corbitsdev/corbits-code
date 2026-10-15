@@ -15,6 +15,31 @@ All three entries re-carried as-is; upstream has no `loadErrors`
 No adaptation needed — upstream did not touch these regions. Upstream's
 `credentialId` auth-model rewrite does not intersect these patches.
 
+### 2026-10-14 re-sync (upstream `5453d0b0` — npm `0.4.0`, CL-10651)
+
+All three entries re-carried unchanged: upstream did not touch
+`agent.ts` or `testing/audit-noop.ts` in this range, and `loadErrors` is
+still absent upstream. Upstream moved `waitForReactorDone` out of three
+test files into the new `testing/reactor-waiters.ts` (exported from
+`testing/index.ts`); `flush-errors.test.ts` and
+`audit-integration.test.ts` were three-way merged so the local
+`loadErrors` hooks and the FORBIDDEN_DEPS credential-failure companion
+suite re-carried onto the new shapes.
+
+### 2026-10-14 re-sync to `4cc6972` (CL-10656, HEAD drift 0.4.0 → base)
+
+All three entries re-carried; none dropped (`loadErrors` and error-seq
+resumption still absent upstream in this range). Upstream touched
+`agent.ts` (`d1835b` per-send `deliver` options adopted upstream, `660ef8`
+signature reflow); `agent.ts` three-way merged cleanly with zero
+adaptation — no upstream change intersects the two patch sites. New
+upstream files `authoring.ts` (authoring-only subpath barrel) and the
+`canonicalize.ts` helpers carried verbatim, with the `./authoring` and
+`./canonicalize` subpath exports wired into the vendored `package.json`
+(the inert `vendor/intx-workflow-host/workflow-definition-loader.ts` copy
+imports `./authoring` at its new pin). Upstream also deleted no vendored
+files and changed `testing/` not at all.
+
 ## agent-ts-resume-error-seq
 
 `agent.ts` — `createAgent` resumes `errorSeq` from `auditStore.loadErrors`

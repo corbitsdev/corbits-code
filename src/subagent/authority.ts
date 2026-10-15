@@ -23,6 +23,7 @@ export const FLEET_VERBS = new Set([
   "close_agent",
   "resume_agent",
   "read_agent_trace",
+  "approve_worker_call",
 ]);
 
 /** Fleet discovery is Tier 1 only: nested orchestrators spawn from a
