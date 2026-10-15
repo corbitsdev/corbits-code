@@ -878,11 +878,11 @@ sent messages. Once a real `paste` event has fired even once, the fallback
 heuristic is permanently skipped for the rest of the session
 (`src/tui/shell/keys.ts`, the `sawBracketedPaste` guard).
 
-Ctrl+V and Ctrl+P attach a PNG from the macOS clipboard
+Ctrl+V and Ctrl+P attach an image from the system clipboard
 (`attachClipboardImage` in `src/tui/shell/prompt.ts` → `readClipboardImage` in
-`image-attachments.ts`).
-Cmd+V stays text (bracketed paste above). Clipboard image attach is
-macOS-only; Linux/Windows bitmap clipboard paste is not supported.
+`image-attachments.ts`, which reads through the OpenTUI clipboard service).
+Cmd+V stays text (bracketed paste above). The host clipboard backend reads
+PNG, JPEG, GIF, and WebP where the platform supports image clipboard data.
 `/paste-image` is the same attach path.
 
 @-mention path completion opens a popup keyed off the `@token` under the
