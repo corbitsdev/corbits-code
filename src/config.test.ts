@@ -572,8 +572,6 @@ describe("loadConfig", () => {
     { argv: ["resume", "--pick"] },
     { argv: ["resume"] },
     { argv: ["continue", "--list"] },
-    // CL-10672: --pick/--list fold into the single --resume picker verb; both
-    // aliases remain accepted in any resume-flow position.
     { argv: ["resume", "--list"] },
     { argv: ["resume", "--pick", "--list"] },
   ] as const)("$argv opens the session picker", async ({ argv }) => {
@@ -586,8 +584,6 @@ describe("loadConfig", () => {
   });
 
   test("CL-10672 keeps --pick/--list out of flow as unrecognized flags", async () => {
-    // Without the resume verb these spellings were never recognized; the
-    // alias fold preserves that fallthrough instead of quietly opening a picker.
     await expect(
       loadConfig(["--pick"], { globalSettingsPath: NO_SETTINGS }),
     ).rejects.toThrow("unrecognized flag: --pick");

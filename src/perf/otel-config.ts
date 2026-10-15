@@ -209,7 +209,7 @@ function validateStringMap(
 }
 
 /**
- * Precedence (env wins wholesale per field):
+ * Precedence (env over settings):
  * - endpoint: env > settings
  * - headers: env list fully replaces settings when set; else settings
  * - serviceName: env > settings.serviceName > attrs["service.name"] > default
@@ -297,9 +297,6 @@ export function resolveOtelExportConfig(
 
   let resourceAttributes: Record<string, string> = {};
   if (envResourceAttrsRaw !== undefined) {
-    // Env wins wholesale: a set OTEL_RESOURCE_ATTRIBUTES replaces settings
-    // attrs entirely, matching the headers rule. An invalid settings map
-    // never blocks a fully-specified env list.
     const parsed = parseOtelKeyValueList(
       envResourceAttrsRaw,
       OTEL_ENV.resourceAttributes,

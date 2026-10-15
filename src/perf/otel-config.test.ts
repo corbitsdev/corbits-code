@@ -213,7 +213,6 @@ describe("resolveOtelExportConfig", () => {
       expect(result.config.resourceAttributes["deployment.environment"]).toBe(
         "prod",
       );
-      // Env wins wholesale: settings-only keys do not survive the merge.
       expect(result.config.resourceAttributes.team).toBeUndefined();
       expect(result.config.resourceAttributes["service.name"]).toBe(
         DEFAULT_OTEL_SERVICE_NAME,
@@ -240,9 +239,6 @@ describe("resolveOtelExportConfig", () => {
   });
 
   test("set-but-empty env resource attributes replace with nothing (regression: no settings fallback)", () => {
-    // OTEL_RESOURCE_ATTRIBUTES="" counts as set for the wholesale rule, matching
-    // the same edge on OTEL_EXPORTER_OTLP_HEADERS: the settings map is dropped,
-    // leaving only the service.name sync.
     const result = resolveOtelExportConfig(
       baseSettings({
         endpoint: "https://c.example",
