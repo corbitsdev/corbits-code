@@ -1744,12 +1744,10 @@ describe("buildProviderCatalog", () => {
       web: "exa",
       hiddenCommands: ["help"],
       onboarded: true,
-      compactionMode: "pruning",
       sessionMode: "orchestrator",
       agentModelFallback: "none",
       shell: { timeoutMs: 30_000, maxTimeoutMs: 120_000 },
       tools: { timeoutMs: 60_000 },
-      workflowProfiles: { fast: { implement: "fp-large" } },
     };
     const settings = providerCatalogToSettings(
       [

@@ -202,21 +202,6 @@ test("loadConfig --no-auto disables auto mode", async () => {
   });
 });
 
-test("loadConfig --no-workflow remains a recognized flag", async () => {
-  await withSettings(async ({ cwd, globalSettingsPath }) => {
-    const { impl } = offlineFetch();
-    const config = await loadConfig(
-      ["--cwd", cwd, "--no-workflow", "do something"],
-      {
-        globalSettingsPath,
-        pricing: { fetchImpl: impl },
-      },
-    );
-    expect(config.configured).toBe(true);
-    if (config.configured) expect(config.noWorkflow).toBe(true);
-  });
-});
-
 test("loadConfig uses the injected pricing fetchImpl instead of the network", async () => {
   await withSettings(async ({ cwd, globalSettingsPath }) => {
     resetPricingMetadataRefreshForTests();
@@ -419,7 +404,6 @@ test("loadSettings cannot silently drop a known optional key", async () => {
       defaultProvider: "p",
       mcpServers: [{ name: "s", command: "echo" }],
       tiers: { fast: { provider: "p", model: "m" } },
-      workflowProfiles: { default: { implement: "m" } },
       plugins: { "plug-a": { enabled: true } },
       pluginPaths: ["/tmp/plugin"],
       hooks: { "/tmp/hook.ts": { enabled: false } },
@@ -428,7 +412,6 @@ test("loadSettings cannot silently drop a known optional key", async () => {
       hiddenCommands: ["/help"],
       onboarded: true,
       lastChangelogVersion: "0.1.0",
-      compactionMode: "pruning" as const,
       subagentMaxTurns: 20,
       sessionMode: "orchestrator" as const,
       agentModelFallback: "none" as const,

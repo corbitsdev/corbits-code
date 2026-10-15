@@ -81,9 +81,6 @@ export interface Settings {
   defaultProvider?: string;
   providers: Record<string, ProviderSettings>;
   mcpServers?: MCPServerSettingsEntry[];
-  // Per-phase model overrides keyed by profile name, then workflow step
-  // profile key; a step's `profile` selects the entry.
-  workflowProfiles?: Record<string, Record<string, string>>;
   // Per-plugin config keyed by plugin id: enabled flag plus manifest-declared
   // credentials (e.g. an Exa API key). Global-only because it carries secrets;
   // the /plugins UI writes it.
@@ -111,9 +108,6 @@ export interface Settings {
   // Last package version whose release notes were shown (or stamped on first
   // interactive install).
   lastChangelogVersion?: string;
-  // Deprecated: compaction is always the evidence-backed LLM handoff now.
-  // Legacy values still load but are ignored; new writes omit this field.
-  compactionMode?: "llm" | "pruning";
   // Deprecated: orchestrator is the only product path. Legacy values still
   // load but are ignored.
   sessionMode?: SessionMode;
@@ -656,7 +650,6 @@ const SettingsSchema = type({
   // Model tiers were removed; older files may still carry this key. Accepted
   // and ignored so the file loads, then dropped on next save.
   "tiers?": "unknown",
-  "workflowProfiles?": type({ "[string]": type({ "[string]": "string" }) }),
   "plugins?": type({
     "[string]": type({
       "enabled?": "boolean",
@@ -671,7 +664,6 @@ const SettingsSchema = type({
   "hiddenCommands?": "string[]",
   "onboarded?": "boolean",
   "lastChangelogVersion?": "string",
-  "compactionMode?": "'llm' | 'pruning'",
   // Legacy disk values still load; product resolve ignores them.
   "sessionMode?": "'single' | 'orchestrator'",
 
@@ -891,7 +883,6 @@ type OptionalLocalSettingsFields = {
 export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "defaultProvider",
   "mcpServers",
-  "workflowProfiles",
   "plugins",
   "pluginPaths",
   "hooks",
@@ -900,7 +891,6 @@ export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "hiddenCommands",
   "onboarded",
   "lastChangelogVersion",
-  "compactionMode",
   "sessionMode",
   "agentModelFallback",
   "shell",
@@ -1089,9 +1079,6 @@ function normalizeParsedSettings(path: string, parsed: unknown): Settings {
       s.mcpServers !== undefined
         ? normalizeMcpServers(s.mcpServers)
         : undefined,
-    workflowProfiles: s.workflowProfiles as
-      | Settings["workflowProfiles"]
-      | undefined,
     plugins: s.plugins as Settings["plugins"] | undefined,
     pluginPaths: s.pluginPaths as string[] | undefined,
     hooks: s.hooks as Settings["hooks"] | undefined,
@@ -1103,10 +1090,6 @@ function normalizeParsedSettings(path: string, parsed: unknown): Settings {
       typeof s.lastChangelogVersion === "string" &&
       s.lastChangelogVersion.trim().length > 0
         ? s.lastChangelogVersion.trim()
-        : undefined,
-    compactionMode:
-      s.compactionMode === "llm" || s.compactionMode === "pruning"
-        ? s.compactionMode
         : undefined,
     // Drop legacy "single"; keep only explicit orchestrator if present.
     sessionMode: s.sessionMode === "orchestrator" ? "orchestrator" : undefined,
