@@ -16,7 +16,6 @@ import type {
   ContextStore,
   InboundMessage,
 } from "@intx/types/runtime";
-import { isDeepStrictEqual } from "node:util";
 import { type } from "arktype";
 
 import { getLogger } from "@intx/log";
@@ -37,7 +36,7 @@ import {
   LOCAL_APPROVAL_MAILBOX,
 } from "./approval-provenance.js";
 import { redactedCorrelationId } from "./redacted-correlation.js";
-import { canonicalSnapshotScrub } from "./pending-snapshot-scrub.js";
+import { snapshotArgumentsMatch } from "./pending-snapshot-scrub.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "approval-resume"]);
 
@@ -289,17 +288,19 @@ export async function resolveSuspendedApprovalFromStore(
   if (
     parked.name !== parsedPersisted.name ||
     parked.name !== parsedCaptured.name ||
-    // Both sides of each comparison run through the same canonical scrub, so
-    // the persisted snapshot (scrubbed at the metadata write boundary) still
-    // matches the live raw snapshot: secret-shaped values are redacted
-    // identically on both sides; benign values are unchanged.
-    !isDeepStrictEqual(
-      canonicalSnapshotScrub(parked.arguments),
-      canonicalSnapshotScrub(parsedPersisted.arguments ?? {}),
+    // The persisted copy is redacted at rest, so its compare still accepts the
+    // canonical scrub when that copy is fully redacted. The re-dispatch
+    // snapshot is compared raw: different credential values are a mismatch
+    // even though both would scrub to the same token.
+    !snapshotArgumentsMatch(
+      parked.arguments,
+      parsedPersisted.arguments ?? {},
+      true,
     ) ||
-    !isDeepStrictEqual(
-      canonicalSnapshotScrub(parked.arguments),
-      canonicalSnapshotScrub(parsedCaptured.arguments ?? {}),
+    !snapshotArgumentsMatch(
+      parked.arguments,
+      parsedCaptured.arguments ?? {},
+      false,
     )
   )
     return { ok: false, code: "snapshot-mismatch" };

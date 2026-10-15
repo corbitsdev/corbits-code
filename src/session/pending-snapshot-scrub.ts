@@ -7,10 +7,15 @@
 // metadata write boundary; `suspendedCall` stays untouched because the
 // re-dispatch of an approved call must see the raw arguments.
 //
-// Snapshot equality checks (`resolveSuspendedApprovalFromStore`) run through
-// the same canonical transform on BOTH sides, so a scrubbed persisted snapshot
-// still matches the live raw snapshot exactly the way the unscrubbed copies
-// used to — one transform, symmetrically applied.
+// Snapshot equality checks (`resolveSuspendedApprovalFromStore`) must not
+// collapse every secret to one redaction token before comparing: that made
+// two different credentials compare equal. Persisted snapshots are redacted
+// at the metadata write, so a fully redacted copy still matches the live raw
+// snapshot through the canonical scrub. A copy that still carries raw secret
+// material — and the in-memory re-dispatch snapshot — compare without that
+// lossy collapse.
+
+import { isDeepStrictEqual } from "node:util";
 
 import type { PendingOperation } from "@intx/types/runtime";
 
@@ -36,6 +41,59 @@ export function canonicalSnapshotScrub(value: unknown): unknown {
       return { scrubbed: "[unscrubbable approval arguments]" };
     }
   }
+}
+
+function jsonPlain(value: unknown): unknown {
+  return JSON.parse(JSON.stringify(value)) as unknown;
+}
+
+// True when `value` is already the redacted canonical form (the scrub is a
+// no-op). A snapshot that still holds a raw credential fails this check.
+function isRedactedCanonical(value: unknown): boolean {
+  try {
+    return isDeepStrictEqual(jsonPlain(value), canonicalSnapshotScrub(value));
+  } catch {
+    return false;
+  }
+}
+
+function rawArgumentsEqual(left: unknown, right: unknown): boolean {
+  try {
+    return isDeepStrictEqual(jsonPlain(left), jsonPlain(right));
+  } catch {
+    // Non-JSON-safe args cannot be compared raw. Fall back to the shared
+    // scrub stub so a parked call still lines up with its own snapshot;
+    // JSON-safe credentials never take this path.
+    return isDeepStrictEqual(
+      canonicalSnapshotScrub(left),
+      canonicalSnapshotScrub(right),
+    );
+  }
+}
+
+/**
+ * Integrity compare for approval arguments.
+ *
+ * `persisted` is the on-disk snapshot. When that copy was redacted at rest,
+ * secret fields are the stable redaction token and the canonical scrub still
+ * lines up with the live raw args. When it still contains a raw credential,
+ * compare the values themselves so a different secret is a mismatch.
+ *
+ * The in-memory re-dispatch snapshot (`persisted: false`) is never collapsed:
+ * two different credential values must not compare equal.
+ */
+export function snapshotArgumentsMatch(
+  parked: unknown,
+  other: unknown,
+  persisted: boolean,
+): boolean {
+  if (persisted && isRedactedCanonical(other)) {
+    return isDeepStrictEqual(
+      canonicalSnapshotScrub(parked),
+      canonicalSnapshotScrub(other),
+    );
+  }
+  return rawArgumentsEqual(parked, other);
 }
 
 export function scrubPersistedPendingOperations(

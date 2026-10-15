@@ -143,4 +143,47 @@ describe("scrubPersistedPendingOperations", () => {
     );
     expect(drifted).toEqual({ ok: false, code: "snapshot-mismatch" });
   });
+
+  test("a swapped credential in the re-dispatch payload is a snapshot mismatch", async () => {
+    const keyA = "sk-proj-aaaaaaaaaaaaaaaaaaaa";
+    const keyB = "sk-proj-bbbbbbbbbbbbbbbbbbbb";
+    const parkedArgs = { api_key: keyA, mode: "fast" };
+    const swappedArgs = { api_key: keyB, mode: "fast" };
+    const op: PendingOperation = {
+      correlationId: "corr-9",
+      kind: "approval",
+      registeredAt: 1_700_000_000_000,
+      gateId: "gate-9",
+      timeoutAt: Date.now() + 60_000,
+      suspendedCall: { id: "call-9", name: "run_shell", arguments: parkedArgs },
+      approvalSnapshot: {
+        name: "run_shell",
+        description: "runs a shell command",
+        inputSchema: {},
+        arguments: swappedArgs,
+      },
+    };
+    const swapped = await resolveSuspendedApprovalFromStore(
+      {
+        load: async () => ({
+          turns: [],
+          pendingOperations: [op],
+          tokenUsage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            thinking: 0,
+          },
+          connectorState: null,
+        }),
+      },
+      {
+        type: "suspended",
+        correlationId: "corr-9",
+        approvalSnapshot: op.approvalSnapshot,
+      } as Extract<SendResult, { type: "suspended" }>,
+    );
+    expect(swapped).toEqual({ ok: false, code: "snapshot-mismatch" });
+  });
 });
