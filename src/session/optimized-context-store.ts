@@ -361,8 +361,8 @@ async function readSessionMetadata(dir: string): Promise<SessionMetadata> {
       { cause: cause instanceof Error ? cause.message : String(cause) },
     );
   }
-  const tokenUsage =
-    sidecarUsage ?? document.legacyTokenUsage ?? { ...EMPTY_TOKEN_USAGE };
+  const tokenUsage = sidecarUsage ??
+    document.legacyTokenUsage ?? { ...EMPTY_TOKEN_USAGE };
   return {
     pendingOperations: document.pendingOperations,
     tokenUsage,
