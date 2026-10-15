@@ -20,7 +20,7 @@ import {
 } from "./runtime-bridge.js";
 import type { ShellOutputFeed } from "../session/shell-output-feed.js";
 import { openAddProviderOverlay, openModelPickerOverlay } from "./overlays.js";
-import { wireGates } from "./gate-wire.js";
+import { wireGates, type NotifierPort } from "./gate-wire.js";
 import { createSystemClipboard } from "./system-clipboard.js";
 import { programStatusForChrome } from "./program-status.js";
 import {
@@ -268,6 +268,8 @@ export interface ProductHostConfig {
   /** OSC 7501 sink. Default calls `renderer.setProgramStatus` and ignores a
    * false return (terminal inactive, output full, or destroyed). */
   readonly programStatus?: ProgramStatusPort;
+  /** Gate attention ping. Default calls `renderer.triggerNotification`. */
+  readonly notifier?: NotifierPort;
 }
 
 export interface ProgramStatusPort {
@@ -616,6 +618,15 @@ export async function mountProductHost(
         setOperatorInputRequiredGate(shell, event),
       onPrimaryOperatorSettled: (event) =>
         clearOperatorInputRequired(shell, event.id),
+      notify: config.notifier ?? {
+        notify: (message, title) => {
+          try {
+            return renderer.triggerNotification(message, title);
+          } catch {
+            return false;
+          }
+        },
+      },
     });
   } catch (err: unknown) {
     try {
