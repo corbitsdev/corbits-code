@@ -42,7 +42,6 @@ import {
 
 const mockState: ReactorState = { turns: [] } as unknown as ReactorState;
 
-
 // Varied arguments per call so the fingerprint changes turn to turn, like
 // real tool-only orchestration.
 function toolOnlyTurn(id: string): ReactorInboundEvent {

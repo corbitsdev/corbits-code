@@ -37,7 +37,6 @@ const state: ReactorState = {
   sessionId: "test-session",
 };
 
-
 const flow: Workflow = {
   name: "flow",
   description: "two steps",

@@ -458,10 +458,7 @@ describe("tool execution watchdog", () => {
       { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
     );
     parent.abort();
-    const outcome = await settleOrTimeout(
-      pending,
-      TEST_SALVAGE_GRACE_MS + 500,
-    );
+    const outcome = await settleOrTimeout(pending, TEST_SALVAGE_GRACE_MS + 500);
     if (outcome.kind === "timeout") {
       throw new Error("watchdog did not settle after parent abort + grace");
     }
@@ -498,10 +495,7 @@ describe("tool execution watchdog", () => {
       { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
     );
     parent.abort();
-    const outcome = await settleOrTimeout(
-      pending,
-      TEST_SALVAGE_GRACE_MS + 500,
-    );
+    const outcome = await settleOrTimeout(pending, TEST_SALVAGE_GRACE_MS + 500);
     if (outcome.kind === "timeout") {
       throw new Error("watchdog did not settle after parent abort + grace");
     }
