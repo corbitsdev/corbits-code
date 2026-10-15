@@ -195,6 +195,7 @@ import {
   createResumeAgentTool,
   createInterruptAgentTool,
   createSendInputTool,
+  createApproveWorkerCallTool,
 } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import type {
@@ -1023,6 +1024,7 @@ async function runSubAgentInner(
         "resume_agent",
         "interrupt_agent",
         "send_input",
+        "approve_worker_call",
       ]) {
         assertTierMayMountFleetVerb(tier, verb);
       }
@@ -1131,6 +1133,12 @@ async function runSubAgentInner(
           sessions: fleetSessions,
           fleetRecords,
           authority: lifecycleAuthority,
+        }),
+        createApproveWorkerCallTool({
+          sessions: fleetSessions,
+          fleetRecords,
+          authority: lifecycleAuthority,
+          permissionGate: nd.permissionGate,
         }),
       ];
     }
