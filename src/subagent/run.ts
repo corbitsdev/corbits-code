@@ -751,6 +751,7 @@ async function runSubAgentInner(
   let backgroundExitSink: ((exit: BackgroundShellExit) => void) | null = null;
   const backgroundShells = createBackgroundShellRegistry({
     onExit: (exit) => backgroundExitSink?.(exit),
+    ...(params.sandbox !== undefined ? { sandbox: params.sandbox } : {}),
   });
   // A worker whose capability filter drops run_shell has no bash to detach
   // from; the getter stays live so the filter below can unwire it first.
@@ -785,6 +786,7 @@ async function runSubAgentInner(
       ...(params.secretGuardExtraDeniedPaths !== undefined
         ? { secretGuardExtraDeniedPaths: params.secretGuardExtraDeniedPaths }
         : {}),
+      ...(params.sandbox !== undefined ? { sandbox: params.sandbox } : {}),
       readFileGuard: {
         blobReader: sessionBlobReader,
         canExecuteHostCommands: () => hostCommandsMounted,
@@ -1075,6 +1077,7 @@ async function runSubAgentInner(
         ...(nd.secretGuardExtraDeniedPaths !== undefined
           ? { secretGuardExtraDeniedPaths: nd.secretGuardExtraDeniedPaths }
           : {}),
+        ...(nd.sandbox !== undefined ? { sandbox: nd.sandbox } : {}),
         ...(nd.skillDirs !== undefined ? { skillDirs: nd.skillDirs } : {}),
         // Nested shared-cwd lanes reuse this worker's catalog, discovered
         // (or inherited) for exactly this cwd.

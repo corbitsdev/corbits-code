@@ -16,6 +16,7 @@ import type {
 import { onTurnBoundary } from "../agent/reactor-events.js";
 
 import { COMMAND_NAME, SETTINGS_DIR_NAME } from "../branding.js";
+import type { ShellSandbox } from "../shell/sandbox-config.js";
 
 export type HookKind = "postTurn" | "postRun";
 
@@ -318,6 +319,10 @@ export function createLifecycleHookManager(args: {
   // Persisted enable/disable state, keyed by hook id. A hook absent here
   // starts enabled, matching discovery's default before any state was saved.
   initialEnabled?: Record<string, boolean> | undefined;
+  // Live session OS-sandbox handle getter. Wired: every hook spawn wraps into
+  // the sandbox (fail closed when unavailable). Unwired (tests, non-sandbox
+  // sessions): the direct Bun.spawn behavior is preserved.
+  getSandbox?: (() => ShellSandbox | undefined) | undefined;
 }): LifecycleHookManager {
   const onEvent = args.onEvent ?? (() => undefined);
   const logError = args.logError ?? (() => undefined);
@@ -351,7 +356,7 @@ export function createLifecycleHookManager(args: {
     payload: TurnContext | RunSummary,
   ): Promise<void> {
     updateStatus(status.id, { lastFiredAt: Date.now(), lastKind: kind });
-    return runLifecycleHook(status, kind, payload).then(
+    return runLifecycleHook(status, kind, payload, args.getSandbox).then(
       (exitStatus) => updateStatus(status.id, { lastExitStatus: exitStatus }),
       (err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -395,11 +400,23 @@ async function runLifecycleHook(
   hook: LifecycleHook,
   kind: HookKind,
   payload: TurnContext | RunSummary,
+  getSandbox?: () => ShellSandbox | undefined,
 ): Promise<HookExitStatus> {
-  const command =
+  let command =
     hook.type === "typescript"
       ? await createTypeScriptHookCommand(hook, kind)
       : hookCommand(hook, kind);
+  // Sandbox wrap: hooks discovered under the (writable) session root are
+  // model-reachable, so a sandboxed session must never raw-spawn its hooks —
+  // both the ["sh", path, kind] and ["bun", runner] shapes wrap through the
+  // sandbox's argv form. Unwired sessions keep the direct spawn.
+  const sandbox = (getSandbox ?? (() => undefined))();
+  if (sandbox !== undefined) {
+    const [head, ...hookArgs] = command;
+    if (head === undefined) throw new Error("lifecycle hook command is empty");
+    const { argv } = await sandbox.wrapExecArgv(head, hookArgs);
+    command = [...argv];
+  }
   const proc = Bun.spawn(command, {
     stdin: "pipe",
     stdout: "ignore",
