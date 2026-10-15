@@ -1,8 +1,9 @@
-// Worker denied-call envelope: a worker tool call denied pending operator
+// Worker denied-call envelope: a worker tool call denied pending parent
 // approval. The deny text names only the requestId; the envelope carries the
-// exact denied call so the parent replays it through its own gate and the
-// worker retries via resume_agent. Prose is never authority: nothing here
-// parses message text, and send_input stays text-only.
+// exact denied call so the parent replays it through its own gate.
+// approve_worker_call authorizes the retry, then resolveAsk continues the
+// parked turn. Prose is never authority: nothing here parses message text,
+// and send_input stays text-only.
 
 import { createHash, randomUUID } from "node:crypto";
 
@@ -27,6 +28,7 @@ export interface WorkerGrantAuditEvent {
     | "denied"
     | "asked"
     | "authorized"
+    | "revoked"
     | "consumed"
     | "expired"
     | "interrupted";
@@ -324,7 +326,9 @@ export class WorkerGrantStore {
    * ask. No worker can receive the authorization without that wake. */
   revokeAuthorizedRetry(requestId: string): void {
     const envelope = this.envelopes.get(requestId);
-    if (envelope?.status === "authorized") envelope.status = "pending";
+    if (envelope?.status !== "authorized") return;
+    envelope.status = "pending";
+    audit(envelope, "revoked");
   }
 
   hasAuthorizedRetry(identity: WorkerCallIdentity): boolean {

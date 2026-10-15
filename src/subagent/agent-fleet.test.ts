@@ -10,6 +10,7 @@ import {
   createListAgentsTool,
   MAX_FLEET_RECORDS,
   type AgentFleetDeps,
+  waitAgentsToolDefinition,
 } from "./agent-fleet.js";
 import { createAdmissionQueue } from "./admission.js";
 import {
@@ -1995,6 +1996,19 @@ describe("list_agents", () => {
       (waited.results as { grant_request_id?: string }[])[0],
     );
     expect(waitedAgent.grant_request_id).toBe(envelope.requestId);
+    expect(waitAgentsToolDefinition.description).toContain(
+      "approve_worker_call",
+    );
+    expect(waitAgentsToolDefinition.description).toContain("grant_request_id");
+    expect(waitAgentsToolDefinition.description).toContain(
+      "send_input does not grant",
+    );
+
+    const refused = await callFleetToolRaw(list, {});
+    expect(refused.isError).toBe(true);
+    expect(refused.content).toContain("approve_worker_call");
+    expect(refused.content).toContain(envelope.requestId);
+    expect(refused.content).toContain("send_input does not grant");
   });
 
   test("does not rebind a resolved denial to a later generic ask", async () => {

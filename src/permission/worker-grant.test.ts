@@ -401,6 +401,25 @@ describe("WorkerGrantStore lifecycle", () => {
     ]);
   });
 
+  test("revokeAuthorizedRetry returns authorized to pending and audits revoked", () => {
+    const store = new WorkerGrantStore();
+    const envelope = store.register(createDeniedCallEnvelope(descriptor()));
+    expect(store.authorizeRetry(envelope.requestId, 1_000_001)).toBe(true);
+    store.revokeAuthorizedRetry(envelope.requestId);
+    expect(envelope.status).toBe("pending");
+    expect(envelope.audit.map((event) => event.event)).toEqual([
+      "denied",
+      "authorized",
+      "revoked",
+    ]);
+    store.revokeAuthorizedRetry(envelope.requestId);
+    expect(envelope.audit.map((event) => event.event)).toEqual([
+      "denied",
+      "authorized",
+      "revoked",
+    ]);
+  });
+
   test("no text API: state moves only on typed identities, never prose", () => {
     const store = new WorkerGrantStore();
     const envelope = store.register(createDeniedCallEnvelope(descriptor()));
