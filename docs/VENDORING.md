@@ -50,12 +50,12 @@ package; the date is the deadline even if it is not.
 | `vendor/intx-inference/`                                  | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | Yes — `PATCHES.md` | Local fixes not yet upstream                                                                                                                                                                      | runtime | 2027-03-14 or when patches land upstream and publish                                                   |
 | `vendor/intx-types/`                                      | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | Yes — `PATCHES.md` | Cross-package coupling with `@intx/inference`                                                                                                                                                     | runtime | 2027-03-14 or when the coupled trio publishes past `0.3.0`                                             |
 | `vendor/intx-storage-isogit/`                             | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | Yes — `PATCHES.md` | Cross-package coupling with `@intx/inference`                                                                                                                                                     | runtime | 2027-03-14 or when the coupled trio publishes past `0.3.0`                                             |
-| `vendor/intx-agent/`                                      | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | Yes — `PATCHES.md` | Vendored at Interchange head ahead of npm                                                                                                                                                         | runtime | 2027-03-14 or when `@intx/agent@>=0.4.0` publishes                                                     |
-| `vendor/intx-authz/`                                      | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | No                 | Vendored at Interchange head ahead of npm                                                                                                                                                         | runtime | 2027-03-14 or when `@intx/authz@>=0.4.0` publishes                                                     |
-| `vendor/intx-log/`                                        | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | No                 | Vendored at Interchange head ahead of npm                                                                                                                                                         | runtime | 2027-03-14 or when `@intx/log@>=0.4.0` publishes                                                       |
-| `vendor/intx-tools-posix/`                                | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | Yes — `PATCHES.md` | Vendored at Interchange head ahead of npm; the read_file paging description patch rides the coupled size-cap patch (see `vendor/intx-tools-posix/PATCHES.md`)                                     | runtime | 2027-03-14 or when `@intx/tools-posix@>=0.4.0` publishes                                               |
-| `vendor/intx-mailbox/`                                    | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | No                 | Never published to npm (verified 2026-09-07: registry 404 for all versions)                                                                                                                       | step-1  | 2027-03-14 or when any `@intx/mailbox` version publishes to npm                                        |
-| `vendor/intx-harness/`                                    | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | No                 | `driveConnectorReplies`/`AgentEventStream` (`src/reply-drain.ts`) is past npm `0.3.0` (verified 2026-09-07: absent from the published tarball)                                                    | step-1  | 2027-03-14 or when a published `@intx/harness` exports `driveConnectorReplies`                         |
+| `vendor/intx-agent/`                                      | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | Yes — `PATCHES.md` | Local patches (`vendor/intx-agent/PATCHES.md`); published `@intx/agent@0.4.0` does not include them                                                                                               | runtime | 2027-03-14 or when those patches land upstream and publish                                             |
+| `vendor/intx-authz/`                                      | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | No                 | Published at npm `0.4.0` (verbatim). Kept so the vendored set stays one workspace pin with the patched packages                                                                                   | runtime | 2027-03-14 or when patched siblings no longer need the shared vendored pin                             |
+| `vendor/intx-log/`                                        | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | No                 | Published at npm `0.4.0` (verbatim). Kept so the vendored set stays one workspace pin with the patched packages                                                                                   | runtime | 2027-03-14 or when patched siblings no longer need the shared vendored pin                             |
+| `vendor/intx-tools-posix/`                                | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | Yes — `PATCHES.md` | Local `registry.ts` paging patch (`vendor/intx-tools-posix/PATCHES.md`); `@intx/tools-posix@0.4.0` does not include it                                                                            | runtime | 2027-03-14 or when that patch lands upstream and publishes                                             |
+| `vendor/intx-mailbox/`                                    | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | No                 | Published at npm `0.4.0` (verbatim). Kept so the vendored set stays one workspace pin with the patched packages                                                                                   | step-1  | 2027-03-14 or when patched siblings no longer need the shared vendored pin                             |
+| `vendor/intx-harness/`                                    | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | No                 | Published `@intx/harness@0.4.0` exports `driveConnectorReplies` (verbatim). Kept on the shared vendored pin                                                                                       | step-1  | 2027-03-14 or when patched siblings no longer need the shared vendored pin                             |
 | `vendor/intx-mime/`                                       | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | No                 | `buildMessageHeaders` is past npm `0.3.0` (verified 2026-09-07: absent from the published tarball); `@intx/mailbox` re-exports it                                                                 | step-1  | 2027-03-14 or when a published `@intx/mime` exports `buildMessageHeaders`                              |
 | `vendor/intx-workflow-host/adapters/`                     | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | No                 | App-internal: `substrate-mailbox-store.ts` has never been published in any `@intx/workflow-host` release (verified 2026-09-07: absent from the `0.3.0` tarball)                                   | step-1  | 2027-03-14 or when a published `@intx/workflow-host` exports `createSubstrateMailboxStore`             |
 | `vendor/intx-workflow-host/workflow-definition-loader.ts` | `faremeter/interchange` | `5453d0b01da9d749aa446c4ba34fcf2aeb4549c0` | No                 | Director loading from a workflow closure (`loadWorkflowDirectorRegistryFromClosure`); never published in any `@intx/workflow-host` release (verified 2026-09-14: absent from the `0.3.0` tarball) | step-1  | 2027-03-14 or when a published `@intx/workflow-host` exports `loadWorkflowDirectorRegistryFromClosure` |
@@ -158,7 +158,7 @@ small: package version bumps across the board, plus
 three source files in `@intx/types` (`base64.ts` chunked encoding,
 `grants.ts` gaining `ApprovalItem`, `sidecar.ts` widening
 `approvedGrants` to `ApprovalItem[]`), a new `@intx/agent` testing helper
-(`testing/reactor-waiters.ts`, `waitForReactorDone` moved out of three
+(`testing/reactor-waiters.ts`, `waitForReactorDone` moved out of four
 agent test files), and a new `@intx/log` probe (`default-sink-probe.ts`).
 No vendored production source besides those three `@intx/types` files
 changed upstream in this range, so the four patched packages re-carried
@@ -170,6 +170,13 @@ were overwritten from the new pin; the two agent test files and the
 inference `reactor.test.ts` that had both local patches and upstream
 changes were three-way merged (`git merge-file`), and every other
 patched file kept its prior state because upstream did not touch it.
+Commit `865f63c6` is not a pristine byte-identical snapshot of
+`5453d0b0`: local lines remain in that commit, including
+`ephemeralTurns` and `Locally patched` in
+`vendor/intx-inference/src/reactor.ts`. No exhaustive `cmp` showed
+otherwise. The auditable artifact is the branch tip — upstream
+`5453d0b0` plus the carried local patches. Replaying the following
+commit onto a later pristine pin is not a patch-only replay.
 
 Ledger adjudication (ticket CL-10651, verified against upstream at this
 pin — all line-grep evidence below is against pristine `5453d0b0`):
@@ -402,13 +409,17 @@ does not resolve to a ledger heading, or if a ledger heading has no marker.
    `adapters/substrate-mailbox-store.test.ts`). Run
    `bun install`, `bun run typecheck`, `bun run build`, `bun run test`.
 3. For a **patched** package (`@intx/inference`, `@intx/types`,
-   `@intx/storage-isogit`, `@intx/agent`): before overwriting
-   anything, run `bin/vendor-patch-diff` (optionally
+   `@intx/storage-isogit`, `@intx/agent`, and `@intx/tools-posix`):
+   before overwriting anything, run `bin/vendor-patch-diff` (optionally
    `--upstream /path/to/interchange`) to re-derive the exact local
    divergences against the recorded SHA — do not trust `PATCHES.md`'s
-   prose alone. Then overwrite `src/` with the new upstream commit's
-   source, and re-apply each patch from the ledger by hand against the
-   new file shapes. For each patch, confirm from the new upstream source
+   prose alone. `@intx/tools-posix` is patched
+   (`vendor/intx-tools-posix/PATCHES.md`); `registry.ts` carries
+   `registry-ts-read-file-paging-description`. Copying that package as
+   verbatim drops the paging description on the next resync. Then
+   overwrite `src/` with the new upstream commit's source, and re-apply
+   each patch from the ledger by hand against the new file shapes. For
+   each patch, confirm from the new upstream source
    whether it: (a) still applies as-is, (b) needs adapting to a changed
    surrounding shape, or (c) has been subsumed by an equivalent upstream
    fix and can be dropped — verify (c) by reading the new upstream code,
@@ -424,13 +435,18 @@ does not resolve to a ledger heading, or if a ledger heading has no marker.
    vendoring — otherwise the trio drifts out of the single-commit coherence
    this document assumes.
 5. Update this document's table with the new commit hash and retrieval date.
-6. Land the sync as **two commits, in this order**: first the pristine
-   upstream copy with no local changes, then the re-applied patches. The
-   point is that the unmodified upstream state becomes a checkout rather
-   than a reconstruction — an auditor diffs one commit against the upstream
-   clone and is done, instead of subtracting a prose ledger from a merged
-   tree. It also makes the next upgrade cheaper, because the patch commit is
-   exactly the thing to replay. The 2026-08-08 sync landed as two
+6. Land the sync as **two commits, in this order**, only when the first
+   commit really is unmodified upstream: a pristine copy with no local
+   lines, then the re-applied patches. An auditor can then diff that
+   first commit against the upstream clone. The 2026-10-14 re-sync did
+   not meet that bar. Commit `865f63c6` is not a pristine byte-identical
+   snapshot of `5453d0b0` (local lines remain, including `ephemeralTurns`
+   and `Locally patched` in `vendor/intx-inference/src/reactor.ts`), and
+   there was no exhaustive `cmp` that proved otherwise. The auditable
+   artifact is the branch tip: upstream `5453d0b0` plus the carried
+   local patches. Replaying the second commit onto a later pristine pin
+   is not patch-only — that commit is not a clean patch set against an
+   unmodified `5453d0b0` tree. The 2026-08-08 sync landed as two
    commits split by package rather than by pristine-then-patched, so neither
    isolates an unmodified upstream tree; `PATCHES.md` is what makes that state
    reconstructible, which is why that ledger is load-bearing rather than
