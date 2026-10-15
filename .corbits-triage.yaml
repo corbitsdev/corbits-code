@@ -20,7 +20,6 @@ checks:
   no-forbidden-paths:
     enabled: true
     forbiddenGlobs:
-      - vendor/**
       - node_modules/**
 custom: []
 actions:
