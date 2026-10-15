@@ -6,7 +6,6 @@
 
 import type { PerfSpan, SpanName } from "./index.js";
 import type { PhaseSummary, TurnSummary } from "./rollup.js";
-import { spanDurationNs } from "./rollup.js";
 
 /** Verify at least one span with the given phase name exists. */
 export function assertPhasePresent(
@@ -112,6 +111,3 @@ export function assertPhaseSummary(
   }
   return phase;
 }
-
-/** Span duration helper re-export for eval scripts that only import assertions. */
-export { spanDurationNs };

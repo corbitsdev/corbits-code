@@ -4,15 +4,14 @@ import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Dead-export guard: runs knip and fails when a consumer-less export or an
-// unused file falls outside scripts/dead-export-allowlist.txt. knip replaces
-// the retired ts-prune scanner (CL-10655); it resolves the module graph, so an
-// export consumed through a re-export barrel or the closed director fan-in is
-// not reported, and exports used only inside their own module are skipped
-// (ignoreExportsUsedInFile in knip.json knits both semantics). knip.json pins
-// the scan (entry points per tree plus the workspace packages); this guard
-// owns only the allowlist and the fail-closed floor. New dead exports must be
-// deleted, not allowlisted — the allowlist covers entry-point API surfaces and
-// deferred-deletion lanes only.
+// unused file falls outside scripts/dead-export-allowlist.txt. knip resolves
+// the module graph, so an export consumed through a re-export barrel or the
+// closed director fan-in is not reported, and exports used only inside their
+// own module are skipped (ignoreExportsUsedInFile in knip.json). knip.json
+// pins the scan; this guard owns only the allowlist and the fail-closed floor.
+// New dead exports must be deleted, not allowlisted — the allowlist names
+// entry-point API surfaces only. vendor/ and path-loaded eval fixtures are
+// knip ignore entries, not allowlist blankets.
 //
 // Hardening: stale entries fail instead of warning, every entry must pass
 // shape validation and sit under a reason comment (the gate enforces the
@@ -33,10 +32,10 @@ const guardConfigPath = join(here, "dead-export-guard.json");
 const knipBin = join(repoRoot, "node_modules", ".bin", "knip");
 const tscBin = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
 
-// The integrated-monorepo knip config that drives the production agent scan;
-// a separate file so the default scan keeps knip.json's ts-prune-parity
-// project scope (the `workspaces` key switches knip into integrated mode,
-// which also widens its default file detection beyond that scope).
+// The integrated-monorepo knip config that drives the production agent scan.
+// A separate file so the default scan keeps knip.json's project scope (the
+// `workspaces` key switches knip into integrated mode, which also widens its
+// default file detection beyond that scope).
 export function agentsConfigPath(): string {
   return join(repoRoot, "knip.agents.json");
 }
@@ -366,8 +365,7 @@ export function knipDefaultSpawn(knipBinPath: string): {
 // `workspaces` key makes cross-workspace consumers visible in production
 // mode), so the registry fan-in still clears `director` while the laundered
 // worker names surface. Outside that surface the default scan owns
-// enforcement at ts-prune parity; the union of both scans is the guard's
-// finding set.
+// enforcement; the union of both scans is the guard's finding set.
 export function knipAgentProductionSpawn(
   knipBinPath: string,
   workspaces: readonly string[],
@@ -490,11 +488,11 @@ function fail(message: string): never {
 
 // The guard's finding set is the union of two knip reports:
 //
-// 1. the default scan over knip.json's project scope (ts-prune parity), and
+// 1. the default scan over knip.json's project scope, and
 // 2. the `--production` scan filtered to the agent workspaces, where knip
 //    does not count test-file consumers.
 //
-// Both run under the pinned pinned spawn contract; a failing or malformed
+// Both run under the pinned spawn contract; a failing or malformed
 // report fails the gate rather than narrowing it silently.
 export function runKnipScans(rules: readonly AllowRule[]): DeadExport[] {
   requireKnipConfigs();

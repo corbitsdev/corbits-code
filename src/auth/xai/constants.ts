@@ -2,12 +2,10 @@ import { callbackTargetFor } from "@corbits/oauth-core";
 import {
   XAI_DEFAULT_MODELS as VENDOR_XAI_DEFAULT_MODELS,
   XAI_OAUTH_PROXY_BASE_URL as XAI_BASE_URL,
-  XAI_REDIRECT_URI,
-  XAI_REFRESH_SKEW_MS,
   xaiOAuthConfig,
 } from "@corbits/xai-provider";
 
-export { XAI_BASE_URL, XAI_REDIRECT_URI, XAI_REFRESH_SKEW_MS };
+export { XAI_BASE_URL };
 
 const GROK_47 = "grok-4.7";
 

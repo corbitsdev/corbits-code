@@ -47,24 +47,19 @@ function liveScannedFileCount(): number {
 
 // Scoped exemptions cover only the named flags; a sibling probe still fails.
 describe("scoped exemptions", () => {
-  test("the real allowlist covers the named flags but not a sibling probe", () => {
+  test("the real allowlist covers the named public exports but not a sibling", () => {
     const rules = loadAllowlist();
+    expect(isAllowlisted(rules, "agents/coder/src/index.ts", "tools")).toBe(
+      true,
+    );
+    expect(isAllowlisted(rules, "agents/coder/src/index.ts", "config")).toBe(
+      true,
+    );
+    expect(isAllowlisted(rules, "agents/coder/src/index.ts", "director")).toBe(
+      false,
+    );
     expect(
-      isAllowlisted(
-        rules,
-        "src/auth/codex/constants.ts",
-        "CODEX_REFRESH_SKEW_MS",
-      ),
-    ).toBe(true);
-    expect(
-      isAllowlisted(
-        rules,
-        "src/auth/codex/constants.ts",
-        "CODEX_HEADLESS_REFRESH_INTERVAL_MS",
-      ),
-    ).toBe(true);
-    expect(
-      isAllowlisted(rules, "src/auth/codex/usage.ts", "someNewDeadExport"),
+      isAllowlisted(rules, "agents/coder/src/index.ts", "someNewDeadExport"),
     ).toBe(false);
   });
 
@@ -237,7 +232,7 @@ describe("live knip scan semantics", () => {
     expect(reported("agents/coder/src/index.ts", "director")).toBe(false);
     // knip counts the package contract test's import as consumption.
     expect(reported("agents/coder/src/index.ts", "tools")).toBe(false);
-    // The ts-prune parser false positives are gone.
+    // A `satisfies` token inside a live export is not itself an export.
     expect(reported("src/agent/directors/identity.ts", "satisfies")).toBe(
       false,
     );
@@ -459,7 +454,7 @@ describe("pinned scan invocation", () => {
       "agents/coder/src/index.ts: agent\n" +
         "agents/coder/src/index.ts: agent\n" +
         "agents/dispatch/src/index.ts: agent\n" +
-        "src/auth/codex/constants.ts: CODEX_REFRESH_SKEW_MS\n",
+        "src/auth/codex/constants.ts: CODEX_BASE_URL\n",
     );
     // Parse dedupes nothing at rule level; the derivation dedupes ids.
     expect(agentWorkspaceIds(rules)).toEqual([
@@ -475,7 +470,7 @@ describe("pinned scan invocation", () => {
     expect(() => parseGuardConfig({ ...valid, minScannedFiles: 0 })).toThrow();
     expect(() => parseGuardConfig({ ...valid, tsconfig: "" })).toThrow();
     expect(() =>
-      parseGuardConfig({ ...valid, tsPruneArgs: ["-p", "x"] }),
+      parseGuardConfig({ ...valid, scanArgs: ["-p", "x"] }),
     ).toThrow();
     expect(() => parseGuardConfig(null)).toThrow();
     expect(() => parseGuardConfig([])).toThrow();
