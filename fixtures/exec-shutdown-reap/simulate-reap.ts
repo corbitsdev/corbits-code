@@ -2,7 +2,6 @@
 // sleep through the real shell-guard plugin, registers exec dispose as the
 // process dispose host, then takes the requested exit path so the parent can
 // assert the child was reaped.
-import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
