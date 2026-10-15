@@ -6,6 +6,22 @@ export type ScopedSearchTool = "grep" | "search_files";
 
 export const TIMEOUT_PREFIX = "[timed out before completing]";
 
+// The single walk-caveat hint surfaced by every search cap/timeout notice.
+export const NARROW_SEARCH_HINT = "narrow path/glob";
+
+const NOT_A_NO_MATCH_TAIL = 'This is not the same as "no matches".';
+
+// Timeout notices carry whatever partial output already streamed so the agent
+// never loses the bytes it did get; empty partials attach the bare notice.
+function withPartialResult(
+  notice: string,
+  partialResult?: string,
+): string {
+  const trimmed = partialResult?.trim();
+  if (trimmed === undefined || trimmed.length === 0) return notice;
+  return `${trimmed}\n\n${notice}`;
+}
+
 export function scopedSearchRetryHints(tool: ScopedSearchTool): string {
   const base =
     "Scope to a subdirectory (narrow `path`), add a `glob` filter, or use a more specific pattern";
@@ -19,12 +35,10 @@ export function formatSearchTimeoutMessage(
   tool: ScopedSearchTool,
   partialResult?: string,
 ): string {
-  const notice =
-    `${tool} ${TIMEOUT_PREFIX} — ${scopedSearchRetryHints(tool)}. ` +
-    `This is not the same as "no matches".`;
-  const trimmed = partialResult?.trim();
-  if (trimmed === undefined || trimmed.length === 0) return notice;
-  return `${trimmed}\n\n${notice}`;
+  return withPartialResult(
+    `${tool} ${TIMEOUT_PREFIX} — ${scopedSearchRetryHints(tool)}. ${NOT_A_NO_MATCH_TAIL}`,
+    partialResult,
+  );
 }
 
 // Whole-tree search_files patterns: recursive descent or a bare star with no
@@ -87,8 +101,7 @@ export function formatUnboundedSearchMessage(
 ): string {
   return (
     `${tool} refused an unbounded workspace-root walk for pattern "${pattern}" — ` +
-    `${scopedSearchRetryHints(tool)}. ` +
-    `This is not the same as "no matches".`
+    `${scopedSearchRetryHints(tool)}. ${NOT_A_NO_MATCH_TAIL}`
   );
 }
 

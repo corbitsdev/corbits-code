@@ -8,6 +8,7 @@ import {
   type RootsProvider,
 } from "../permission/worktree-roots.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import { denyResult, errorMessage, resolveAllowOutside } from "./tool-args.js";
 
 export interface PathEscapeOptions {
   // When true (yolo / --dangerously-skip-permissions), paths outside the
@@ -20,13 +21,6 @@ export interface PathEscapeOptions {
   // denies (grants can still apply). Writes and deletes stay denied — plugin
   // trust is not write consent.
   trustedPluginRoots?: RootsProvider;
-}
-
-function resolveAllowOutside(
-  value: boolean | (() => boolean) | undefined,
-): boolean {
-  if (typeof value === "function") return value();
-  return value === true;
 }
 
 const PLUGIN_READ_TOOLS = new Set([
@@ -71,8 +65,7 @@ export function pathEscapePlugin(
           options.trustedPluginRoots,
         );
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { callId: call.id, content: message, isError: true };
+        return denyResult(call.id, errorMessage(err));
       }
       return next({ ...call, arguments: escaped }, signal);
     },
@@ -87,56 +80,37 @@ function escapeArgs(
   toolName: string,
   trustedPluginRoots?: RootsProvider,
 ): Record<string, unknown> {
-  if (!allowOutside) {
-    const reason = pathEscapeBlockReason(
-      args,
-      cwd,
-      rootsProvider,
-      toolName,
-      trustedPluginRoots,
-    );
-    if (reason !== undefined) throw new Error(reason);
-  }
-  const combined = rootsForEscape(toolName, rootsProvider, trustedPluginRoots);
-  return escapeValue(
+  // One fused walk: sanitizePath throws the same deny strings
+  // pathEscapeBlockReason computes, so a surviving call is exactly one the
+  // block-reason leg would have passed.
+  const roots = rootsForEscape(toolName, rootsProvider, trustedPluginRoots);
+  return walkPathArgs(
     args,
-    cwd,
-    combined,
-    allowOutside,
     undefined,
-    toolName,
+    (value) => sanitizePath(value, cwd, roots, allowOutside, toolName),
   ) as Record<string, unknown>;
 }
 
-function escapeValue(
+/**
+ * Deep-walk shared by every path-argument pass: strings under path-keyed
+ * arguments (innermost key wins; array entries inherit the array key) go to
+ * `visit`, everything else passes through untouched.
+ */
+function walkPathArgs(
   value: unknown,
-  cwd: string,
-  rootsProvider: RootsProvider,
-  allowOutside: boolean,
   key: string | undefined,
-  toolName: string,
+  visit: (value: string) => unknown,
 ): unknown {
   if (typeof value === "string") {
-    return key !== undefined && looksLikePath(key)
-      ? sanitizePath(value, cwd, rootsProvider, allowOutside, toolName)
-      : value;
+    return key !== undefined && looksLikePath(key) ? visit(value) : value;
   }
   if (Array.isArray(value)) {
-    return value.map((entry) =>
-      escapeValue(entry, cwd, rootsProvider, allowOutside, key, toolName),
-    );
+    return value.map((entry) => walkPathArgs(entry, key, visit));
   }
   if (typeof value === "object" && value !== null) {
     const out: Record<string, unknown> = {};
     for (const [entryKey, entryValue] of Object.entries(value)) {
-      out[entryKey] = escapeValue(
-        entryValue,
-        cwd,
-        rootsProvider,
-        allowOutside,
-        entryKey,
-        toolName,
-      );
+      out[entryKey] = walkPathArgs(entryValue, entryKey, visit);
     }
     return out;
   }
@@ -194,12 +168,16 @@ export function looksLikePath(key: string): boolean {
 const TOOL_OUTPUT_URI_TOOL = "read_file";
 const ARCHIVE_URI_TOOLS = new Set(["read_file", "grep", "search_files"]);
 
+function toolOutputUriDenial(toolName: string, value: string): string {
+  return `cannot ${toolName} a tool-output:// URI: ${value}. Use read_file with that URI to read the spilled output instead.`;
+}
+
 // "skip" when this tool may receive the virtual ref, a block message when it
 // may not, undefined when the value is an ordinary filesystem path. An omitted
 // toolName denies rather than skips: both production callers (the middleware
 // and the permission gate) always pass a name, so an omission is a caller bug
 // and must fail closed instead of silently skipping the deny.
-function virtualRefVerdict(
+export function virtualRefVerdict(
   value: string,
   toolName: string | undefined,
 ): "skip" | string | undefined {
@@ -210,7 +188,7 @@ function virtualRefVerdict(
     if (toolName === undefined) {
       return `cannot use a tool-output:// URI without a tool identity: ${value}. Use read_file with that URI to read the spilled output instead.`;
     }
-    return `cannot ${toolName} a tool-output:// URI: ${value}. Use read_file with that URI to read the spilled output instead.`;
+    return toolOutputUriDenial(toolName, value);
   }
   if (isArchiveLike(value)) {
     if (toolName !== undefined && ARCHIVE_URI_TOOLS.has(toolName)) {
@@ -260,70 +238,42 @@ export function normalizePathArguments(
     args,
     cwd,
     rootsForEscape("read_file", rootsProvider, trustedPluginRoots),
-  ) as Record<string, unknown>;
+  );
 }
 
 function normalizeValue(
-  value: unknown,
+  args: Record<string, unknown>,
   cwd: string,
   rootsProvider: RootsProvider,
-  key?: string,
-): unknown {
-  if (typeof value === "string") {
-    if (key === undefined || !looksLikePath(key)) return value;
+): Record<string, unknown> {
+  return walkPathArgs(args, undefined, (value) => {
     if (isToolOutputLike(value) || isArchiveLike(value)) return value;
     return resolveWorkspacePath(cwd, value, rootsProvider) ?? value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => normalizeValue(entry, cwd, rootsProvider, key));
-  }
-  if (typeof value === "object" && value !== null) {
-    const out: Record<string, unknown> = {};
-    for (const [entryKey, entryValue] of Object.entries(value)) {
-      out[entryKey] = normalizeValue(entryValue, cwd, rootsProvider, entryKey);
-    }
-    return out;
-  }
-  return value;
+  }) as Record<string, unknown>;
 }
 
 function blockReasonFor(
-  value: unknown,
+  args: Record<string, unknown>,
   cwd: string,
   rootsProvider: RootsProvider,
   key: string | undefined,
   toolName: string,
 ): string | undefined {
-  if (typeof value === "string") {
-    if (key === undefined || !looksLikePath(key)) return undefined;
+  let reason: string | undefined = undefined;
+  walkPathArgs(args, key, (value) => {
+    if (reason !== undefined) return value;
     const verdict = virtualRefVerdict(value, toolName);
-    if (verdict === "skip") return undefined;
-    if (typeof verdict === "string") return verdict;
+    if (verdict === "skip") return value;
+    if (typeof verdict === "string") {
+      reason = verdict;
+      return value;
+    }
     if (resolveWorkspacePath(cwd, value, rootsProvider) === undefined) {
-      return `Path escapes working directory: ${value}`;
+      reason = `Path escapes working directory: ${value}`;
     }
-    return undefined;
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const reason = blockReasonFor(entry, cwd, rootsProvider, key, toolName);
-      if (reason !== undefined) return reason;
-    }
-    return undefined;
-  }
-  if (typeof value === "object" && value !== null) {
-    for (const [entryKey, entryValue] of Object.entries(value)) {
-      const reason = blockReasonFor(
-        entryValue,
-        cwd,
-        rootsProvider,
-        entryKey,
-        toolName,
-      );
-      if (reason !== undefined) return reason;
-    }
-  }
-  return undefined;
+    return value;
+  });
+  return reason;
 }
 
 function sanitizePath(

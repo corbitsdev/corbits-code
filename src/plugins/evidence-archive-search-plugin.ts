@@ -1,10 +1,8 @@
 import type { ToolDefinition } from "@intx/types/runtime";
 import type { ToolPlugin } from "@intx/tools-posix";
 
-import {
-  READ_FILE_DEFAULT_MAX_LINES,
-  readBytesBounded,
-} from "./read-file-guard-plugin.js";
+import { READ_FILE_DEFAULT_MAX_LINES } from "./read-file-guard-plugin.js";
+import { readBytesBounded } from "../io/bounded-read.js";
 import type { CompactionArchive } from "../session/compaction-archive.js";
 import type { ArchiveOccurrence } from "../session/compaction-archive-schema.js";
 import {
@@ -12,49 +10,16 @@ import {
   isArchiveLike,
   parseArchiveTarget,
 } from "../session/compaction-archive.js";
+import {
+  denyResult,
+  errorMessage,
+  optionalNumber,
+  optionalString,
+} from "./tool-args.js";
+import { compileUserRegex, globToRegExp } from "../util/glob-regex.js";
 
 const SEARCH_DEFAULT_MAX = 1000;
 const GREP_DEFAULT_MAX = 500;
-
-function str(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function num(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
-}
-
-function globToRegExp(pattern: string): RegExp {
-  let regex = "";
-  let i = 0;
-  while (i < pattern.length) {
-    const c = pattern.charAt(i);
-    if (c === "*" && pattern[i + 1] === "*") {
-      i += 2;
-      if (pattern[i] === "/") {
-        i++;
-        regex += "(?:.+/)?";
-      } else {
-        regex += ".*";
-      }
-    } else if (c === "*") {
-      regex += "[^/]*";
-      i++;
-    } else if (c === "?") {
-      regex += "[^/]";
-      i++;
-    } else if (".+^${}()|[]\\".includes(c)) {
-      regex += `\\${c}`;
-      i++;
-    } else {
-      regex += c;
-      i++;
-    }
-  }
-  return new RegExp(`^${regex}$`);
-}
 
 function matchesArchiveName(pattern: string, occ: ArchiveOccurrence): boolean {
   const matcher = globToRegExp(pattern);
@@ -156,16 +121,15 @@ export function evidenceArchiveSearchPlugin(
       ) {
         return next(call, signal);
       }
-      const path = str(call.arguments.path);
+      const path = optionalString(call.arguments.path);
       if (path === undefined || !isArchiveLike(path)) return next(call, signal);
 
       const archive = getArchive();
       if (archive === undefined) {
-        return {
-          callId: call.id,
-          content: "Error: evidence archive is not available in this session.",
-          isError: true,
-        };
+        return denyResult(
+          call.id,
+          "Error: evidence archive is not available in this session.",
+        );
       }
 
       const target = parseArchiveTarget(path);
@@ -184,16 +148,15 @@ export function evidenceArchiveSearchPlugin(
           };
         }
         if (call.name === "search_files") {
-          const pattern = str(call.arguments.pattern);
+          const pattern = optionalString(call.arguments.pattern);
           if (pattern === undefined) {
-            return {
-              callId: call.id,
-              content: "Error: search_files requires pattern (string).",
-              isError: true,
-            };
+            return denyResult(
+              call.id,
+              "Error: search_files requires pattern (string).",
+            );
           }
           const maxResults =
-            num(call.arguments.max_results) ?? SEARCH_DEFAULT_MAX;
+            optionalNumber(call.arguments.max_results) ?? SEARCH_DEFAULT_MAX;
           return {
             callId: call.id,
             content: await searchArchiveFiles(
@@ -205,17 +168,13 @@ export function evidenceArchiveSearchPlugin(
             ),
           };
         }
-        const pattern = str(call.arguments.pattern);
+        const pattern = optionalString(call.arguments.pattern);
         if (pattern === undefined) {
-          return {
-            callId: call.id,
-            content: "Error: grep requires pattern (string).",
-            isError: true,
-          };
+          return denyResult(call.id, "Error: grep requires pattern (string).");
         }
-        const maxResults = num(call.arguments.max_results) ?? GREP_DEFAULT_MAX;
-        const glob = str(call.arguments.glob);
-        const contextArg = num(call.arguments.context);
+        const maxResults = optionalNumber(call.arguments.max_results) ?? GREP_DEFAULT_MAX;
+        const glob = optionalString(call.arguments.glob);
+        const contextArg = optionalNumber(call.arguments.context);
         const context =
           contextArg !== undefined && contextArg > 0
             ? Math.floor(contextArg)
@@ -233,11 +192,7 @@ export function evidenceArchiveSearchPlugin(
           ),
         };
       } catch (err) {
-        return {
-          callId: call.id,
-          content: `Error: ${err instanceof Error ? err.message : String(err)}`,
-          isError: true,
-        };
+        return denyResult(call.id, `Error: ${errorMessage(err)}`);
       }
     },
   };
@@ -253,10 +208,10 @@ async function readArchiveOccurrence(
     throw new Error("read_file archive path must be archive:///{occurrenceId}");
   }
   const text = await archive.readAuthorizedPayload(occurrenceId);
-  const offsetArg = num(args.offset);
+  const offsetArg = optionalNumber(args.offset);
   const offset =
     offsetArg !== undefined && offsetArg > 0 ? Math.floor(offsetArg) : 0;
-  const limitArg = num(args.limit);
+  const limitArg = optionalNumber(args.limit);
   const limit =
     limitArg !== undefined && limitArg > 0
       ? Math.floor(limitArg)
@@ -348,14 +303,7 @@ async function grepArchive(
   signal: AbortSignal,
 ): Promise<string> {
   signal.throwIfAborted();
-  let regex: RegExp;
-  try {
-    regex = new RegExp(pattern);
-  } catch (err) {
-    throw new Error(
-      `invalid regex: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  const regex = compileUserRegex(pattern);
   const occurrences = await selectOccurrences(archive, occurrenceId);
   const hits: string[] = [];
   let matchCount = 0;
