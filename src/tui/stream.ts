@@ -12,6 +12,10 @@ import {
   type Thought,
 } from "./thinking.js";
 import { UI, onThemeChange } from "./theme.js";
+import {
+  syntaxStyleForGeneration,
+  destroyUnpaintedSyntaxStyles,
+} from "./syntax-style-cache.js";
 import { pastTenseToolLabel } from "./tool-formatter.js";
 
 /** One pre-coloured body line (an expanded call's structured args). */
@@ -776,30 +780,42 @@ function markdownStyles() {
 /** 0.6.x native styles must name the Context that owns them; the owner is the
  * live renderer, so the shared style is keyed per renderer instead of held in
  * a module global. A theme pin bumps the generation; the next reader rebuilds
- * from the new `UI` colors, matching the old invalidation. */
+ * from the new `UI` colors, matching the old invalidation. The previous
+ * style stays alive until rows drop it (`dropRetiredTranscriptSyntaxStyles`). */
 const transcriptStylesByRenderer = new WeakMap<
   CliRenderer,
   { generation: number; style: SyntaxStyle }
 >();
+
+const retiredTranscriptStyles = new WeakMap<CliRenderer, SyntaxStyle[]>();
 
 let transcriptStyleGeneration = 0;
 
 /** Shared transcript SyntaxStyle for `ctx`, built lazily — the native render
  * lib is unreachable until a renderer exists. */
 export function transcriptSyntaxStyle(ctx: CliRenderer): SyntaxStyle {
-  const cached = transcriptStylesByRenderer.get(ctx);
-  if (cached !== undefined && cached.generation === transcriptStyleGeneration) {
-    return cached.style;
-  }
-  const style = SyntaxStyle.fromStyles(
-    { ...markdownStyles() },
-    ctx.nativeScene,
+  return syntaxStyleForGeneration(
+    transcriptStylesByRenderer,
+    retiredTranscriptStyles,
+    ctx,
+    transcriptStyleGeneration,
+    () => SyntaxStyle.fromStyles({ ...markdownStyles() }, ctx.nativeScene),
   );
-  transcriptStylesByRenderer.set(ctx, {
-    generation: transcriptStyleGeneration,
-    style,
-  });
-  return style;
+}
+
+/** Destroy transcript styles this renderer no longer paints. `painted` runs
+ * only when a previous style is queued, and only after rows have been
+ * rebuilt — a style the thunk still reports stays queued. */
+export function dropRetiredTranscriptSyntaxStyles(
+  ctx: CliRenderer,
+  painted: () => ReadonlySet<SyntaxStyle>,
+): void {
+  const pending = retiredTranscriptStyles.get(ctx);
+  if (pending === undefined || pending.length === 0) return;
+  const held = painted();
+  destroyUnpaintedSyntaxStyles(retiredTranscriptStyles, ctx, (style) =>
+    held.has(style),
+  );
 }
 
 onThemeChange(() => {

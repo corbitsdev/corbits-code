@@ -11,13 +11,16 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { RGBA, type CapturedSpan } from "@opentui/core";
+import { RGBA, SyntaxStyle, type CapturedSpan } from "@opentui/core";
 
 import { corbitsDark, corbitsLight, setTheme, UI } from "../theme.js";
 import { transcriptSyntaxStyle } from "../stream.js";
 import { withTestRenderer, type Harness } from "../harness.js";
+import { settleSpans } from "../test-helpers.js";
 import { appendStreamRow } from "../shell/chrome.js";
 import { createAppShell } from "../shell/index.js";
+import { setPromptRecognitionSource } from "../shell/internals.js";
+import { syncPromptHighlights } from "../shell/prompt.js";
 import { applyThemePinLive, repaintShellForTheme } from "./settings.js";
 
 afterEach(() => {
@@ -31,34 +34,20 @@ function registryHeadingFg(h: Harness): RGBA | undefined {
     .get("markup.heading.1")?.fg;
 }
 
-function painted(spans: CapturedSpan[], text: string, fg: RGBA): boolean {
-  return spans.some((s) => s.text.includes(text) && s.fg.equals(fg));
-}
-
-/** 0.6.x leases a session buffer around each presented frame; a capture
- * landing inside that window throws OutputBusy. The poll retries on the
- * next round anyway, so a losing capture keeps polling instead of
- * throwing — the ready predicate, never the trace, decides the outcome. */
-function readSpans(h: Harness): CapturedSpan[] {
+/** `destroy()` frees the native style and there is no finalizer; a later
+ * read throws instead of returning a palette. */
+function syntaxStyleAlive(style: SyntaxStyle): boolean {
   try {
-    return h.captureSpans().lines.flatMap((line) => line.spans);
+    style.getStyleCount();
+    return true;
   } catch (err) {
-    if (err instanceof Error && err.message.includes("OutputBusy")) return [];
+    if (err instanceof Error && err.message.includes("destroyed")) return false;
     throw err;
   }
 }
 
-async function settleSpans(
-  h: Harness,
-  ready: (spans: CapturedSpan[]) => boolean,
-): Promise<CapturedSpan[]> {
-  let spans = readSpans(h);
-  for (let i = 0; i < 400 && !ready(spans); i++) {
-    await h.renderOnce();
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    spans = readSpans(h);
-  }
-  return spans;
+function painted(spans: CapturedSpan[], text: string, fg: RGBA): boolean {
+  return spans.some((s) => s.text.includes(text) && s.fg.equals(fg));
 }
 
 describe("applyThemePinLive", () => {
@@ -152,5 +141,110 @@ describe("applyThemePinLive", () => {
       expect(UI.name).toBe(applied);
       expect(registryHeadingFg(h)?.equals(RGBA.fromHex(UI.heading))).toBe(true);
     });
+  });
+
+  test("a second pin destroys the transcript style the rows dropped", async () => {
+    await withTestRenderer(
+      async (h) => {
+        setTheme("corbits-dark");
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 40 },
+          wireKeys: false,
+        });
+        try {
+          appendStreamRow(shell, { role: "assistant", text: "# pin cycle" });
+          const first = transcriptSyntaxStyle(h.renderer);
+          applyThemePinLive("light", () => repaintShellForTheme(shell));
+          const second = transcriptSyntaxStyle(h.renderer);
+          expect(second).not.toBe(first);
+          expect(syntaxStyleAlive(first)).toBe(false);
+          expect(syntaxStyleAlive(second)).toBe(true);
+
+          applyThemePinLive("dark", () => repaintShellForTheme(shell));
+          const third = transcriptSyntaxStyle(h.renderer);
+          expect(third).not.toBe(second);
+          expect(syntaxStyleAlive(second)).toBe(false);
+          expect(syntaxStyleAlive(third)).toBe(true);
+        } finally {
+          shell.dispose();
+          setTheme("corbits-dark");
+        }
+      },
+      { width: 80, height: 40 },
+    );
+  });
+
+  test("refreshing the transcript cache leaves a style rows still paint", async () => {
+    await withTestRenderer(
+      async (h) => {
+        setTheme("corbits-dark");
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 40 },
+          wireKeys: false,
+        });
+        try {
+          appendStreamRow(shell, { role: "assistant", text: "# pin cycle" });
+          const painted = transcriptSyntaxStyle(h.renderer);
+          setTheme("corbits-light");
+          const rebuilt = transcriptSyntaxStyle(h.renderer);
+          expect(rebuilt).not.toBe(painted);
+          expect(syntaxStyleAlive(painted)).toBe(true);
+          repaintShellForTheme(shell);
+          expect(syntaxStyleAlive(painted)).toBe(false);
+          expect(syntaxStyleAlive(transcriptSyntaxStyle(h.renderer))).toBe(
+            true,
+          );
+        } finally {
+          shell.dispose();
+          setTheme("corbits-dark");
+        }
+      },
+      { width: 80, height: 40 },
+    );
+  });
+
+  test("a pin destroys the prompt style only after the prompt drops it", async () => {
+    await withTestRenderer(
+      async (h) => {
+        setTheme("corbits-dark");
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 40 },
+          wireKeys: false,
+        });
+        setPromptRecognitionSource(shell, () => ({
+          commandNames: ["implement"],
+        }));
+        const originalDestroy = SyntaxStyle.prototype.destroy;
+        let destroyedWhileHeld = false;
+        try {
+          shell.prompt.value = "/implement";
+          syncPromptHighlights(shell);
+          const painted = shell.prompt.syntaxStyle;
+          expect(painted).not.toBeNull();
+          if (painted === null) return;
+          SyntaxStyle.prototype.destroy = function destroy(this: SyntaxStyle) {
+            if (this === painted && shell.prompt.syntaxStyle === painted) {
+              destroyedWhileHeld = true;
+            }
+            return originalDestroy.call(this);
+          };
+          applyThemePinLive("light", () => repaintShellForTheme(shell));
+          expect(shell.prompt.syntaxStyle).toBe(painted);
+          expect(syntaxStyleAlive(painted)).toBe(true);
+          syncPromptHighlights(shell);
+          expect(destroyedWhileHeld).toBe(false);
+          expect(shell.prompt.syntaxStyle).not.toBe(painted);
+          expect(syntaxStyleAlive(painted)).toBe(false);
+          const current = shell.prompt.syntaxStyle;
+          expect(current).not.toBeNull();
+          if (current !== null) expect(syntaxStyleAlive(current)).toBe(true);
+        } finally {
+          SyntaxStyle.prototype.destroy = originalDestroy;
+          shell.dispose();
+          setTheme("corbits-dark");
+        }
+      },
+      { width: 80, height: 40 },
+    );
   });
 });

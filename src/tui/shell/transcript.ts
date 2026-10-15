@@ -9,6 +9,7 @@ import {
   StyledText,
   type BaseRenderable,
   type CliRenderer,
+  type SyntaxStyle,
 } from "@opentui/core";
 import { stringWidth } from "../view/height.js";
 import { viewToTableContent, type McpStructuredView } from "../mcp-view.js";
@@ -37,6 +38,7 @@ import {
   toolRowLines,
   toolSentenceLines,
   transcriptSyntaxStyle,
+  dropRetiredTranscriptSyntaxStyles,
   type PaintedStreamLine,
   type RowLayout,
   type StreamRow,
@@ -462,6 +464,27 @@ function createMarkdownBody(
     streaming: row.streaming === true,
   });
   return column;
+}
+
+/** Markdown bodies still holding a syntax style. A theme pin must not free
+ * a style that one of these nodes is still painting. */
+function paintedMarkdownSyntaxStyles(node: BaseRenderable): Set<SyntaxStyle> {
+  const painted = new Set<SyntaxStyle>();
+  const walk = (current: BaseRenderable): void => {
+    if (current instanceof MarkdownRenderable) {
+      painted.add(current.syntaxStyle);
+    }
+    for (const child of current.getChildren()) walk(child);
+  };
+  walk(node);
+  return painted;
+}
+
+/** After the transcript rows have been rebuilt, free styles they dropped. */
+export function releaseRetiredTranscriptSyntaxStyles(shell: AppShell): void {
+  dropRetiredTranscriptSyntaxStyles(shell.renderer as CliRenderer, () =>
+    paintedMarkdownSyntaxStyles(shell.renderer.root as BaseRenderable),
+  );
 }
 
 /** Gutter + one pre-coloured text line per body row (a diff, expanded tool

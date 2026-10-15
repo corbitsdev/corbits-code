@@ -10,6 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import { MarkdownRenderable, RGBA, type CapturedSpan } from "@opentui/core";
 import { withTestRenderer, type Harness } from "./harness";
+import { settleSpans } from "./test-helpers";
 import { appendStreamRow } from "./shell/chrome.js";
 import { createAppShell } from "./shell/index.js";
 import { transcriptSyntaxStyle } from "./stream";
@@ -50,32 +51,6 @@ function renderFence(h: Harness, fence: string): void {
       streaming: false,
     }),
   );
-}
-
-function readSpans(h: Harness): CapturedSpan[] {
-  try {
-    return h.captureSpans().lines.flatMap((line) => line.spans);
-  } catch (err) {
-    // 0.6.x leases a session buffer around each presented frame; a capture
-    // landing inside that window throws OutputBusy. The poll retries on the
-    // next round anyway, so a losing capture keeps polling instead of
-    // throwing — the ready predicate, never the trace, decides the outcome.
-    if (err instanceof Error && err.message.includes("OutputBusy")) return [];
-    throw err;
-  }
-}
-
-async function settleSpans(
-  h: Harness,
-  ready: (spans: CapturedSpan[]) => boolean,
-): Promise<CapturedSpan[]> {
-  for (let i = 0; i < 400; i += 1) {
-    const spans = readSpans(h);
-    if (ready(spans)) return spans;
-    await h.renderOnce();
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  return readSpans(h);
 }
 
 function coloured(spans: CapturedSpan[], text: string, fg: RGBA): boolean {

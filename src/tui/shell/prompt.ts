@@ -36,6 +36,10 @@ import {
   interrupt,
 } from "../delivery-queue.js";
 import { UI, onThemeChange } from "../theme.js";
+import {
+  destroyUnpaintedSyntaxStyles,
+  syntaxStyleForGeneration,
+} from "../syntax-style-cache.js";
 
 import {
   type AppShell,
@@ -180,11 +184,14 @@ export function setPromptCostContext(
 
 /** 0.6.x native styles must name their owning Context — the live renderer's
  * native scene — so the style is keyed per renderer instead of a module
- * global; `promptStyleGeneration` invalidates it like the old cache did. */
+ * global; `promptStyleGeneration` invalidates it like the old cache did.
+ * The previous style stays queued until the prompt assignment drops it. */
 const promptStylesByRenderer = new WeakMap<
   ShellRenderer,
   { generation: number; style: SyntaxStyle }
 >();
+
+const retiredPromptStyles = new WeakMap<ShellRenderer, SyntaxStyle[]>();
 
 let promptStyleGeneration = 0;
 
@@ -199,19 +206,17 @@ onThemeChange(() => {
  * render lib.
  */
 function promptStyleFor(renderer: ShellRenderer): SyntaxStyle {
-  const cached = promptStylesByRenderer.get(renderer);
-  if (cached !== undefined && cached.generation === promptStyleGeneration) {
-    return cached.style;
-  }
-  const style = SyntaxStyle.fromStyles(
-    { recognized: { fg: UI.action } },
-    renderer.nativeScene,
+  return syntaxStyleForGeneration(
+    promptStylesByRenderer,
+    retiredPromptStyles,
+    renderer,
+    promptStyleGeneration,
+    () =>
+      SyntaxStyle.fromStyles(
+        { recognized: { fg: UI.action } },
+        renderer.nativeScene,
+      ),
   );
-  promptStylesByRenderer.set(renderer, {
-    generation: promptStyleGeneration,
-    style,
-  });
-  return style;
 }
 
 const promptHighlightedValue = new WeakMap<AppShell, string>();
@@ -235,6 +240,11 @@ export function syncPromptHighlights(shell: AppShell): void {
   const style = promptStyleFor(shell.renderer);
   const styleId = style.resolveStyleId("recognized") ?? 0;
   shell.prompt.syntaxStyle = style;
+  destroyUnpaintedSyntaxStyles(
+    retiredPromptStyles,
+    shell.renderer,
+    (pending) => shell.prompt.syntaxStyle === pending,
+  );
   shell.prompt.clearAllHighlights();
   const matcher = resolvePromptRecognitionMatcher(source);
   for (const span of resolvePromptHighlightSpans(value, matcher)) {
