@@ -24,7 +24,8 @@ export type LifecycleHookType = "typescript" | "shell";
 
 export interface HookExitStatus {
   code: number | null;
-  signal: string | null;
+  // bun-types 1.4.3 widened Subprocess.signalCode to NodeJS.Signals | number | null.
+  signal: string | number | null;
   stderr: string;
 }
 

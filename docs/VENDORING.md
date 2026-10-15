@@ -67,7 +67,7 @@ covered by published packages, so they are **dependencies, not vendored
 trees**:
 
 - `@intx/hub-sessions` `./substrate` — `createAgentRepoStore({ dataDir,
-signingKey })` (local disk + keypair, no hub, no database) is present in
+  signingKey })` (local disk + keypair, no hub, no database) is present in
   the published `0.3.0` tarball. Root `dependencies` pins `0.3.0`.
 - `@intx/mail-memory` — `InMemoryTransport`/`createInMemoryTransport` are
   present in the published `0.3.0`. Root `dependencies` pins `0.3.0`.
@@ -75,7 +75,7 @@ signingKey })` (local disk + keypair, no hub, no database) is present in
   `createWorkflowStepInvoker` lives in `@intx/workflow-host`'s
   `adapters/step-invoker.ts`, and the published `@intx/workflow-host@0.3.0`
   tarball already carries it (its `subscribeAgentEvents(agent,
-opts.onEvent)` wiring). Root `dependencies` pins `0.3.0`.
+  opts.onEvent)` wiring). Root `dependencies` pins `0.3.0`.
 
 CL-9021 later dropped the `@intx/hub-sessions` root pin: no first-party
 tree imports it (the only references are the inert
