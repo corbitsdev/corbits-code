@@ -23,8 +23,7 @@ export type LifecycleHookType = "typescript" | "shell";
 
 export interface HookExitStatus {
   code: number | null;
-  // Bun's Subprocess.signalCode is a signal name, a raw numeric signal, or
-  // null (bun-types 1.4.3 narrowed it to NodeJS.Signals | number | null).
+  // bun-types 1.4.3 widened Subprocess.signalCode to NodeJS.Signals | number | null.
   signal: string | number | null;
   stderr: string;
 }
