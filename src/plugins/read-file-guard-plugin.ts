@@ -25,13 +25,6 @@ import {
   readStreamBounded,
 } from "../io/bounded-read.js";
 
-export {
-  READ_FILE_MAX_BYTES,
-  READ_FILE_MAX_LINE_LENGTH,
-  READ_FILE_MAX_SCAN_BYTES,
-  readBytesBounded,
-} from "../io/bounded-read.js";
-
 export const READ_FILE_DEFAULT_MAX_LINES = 2000;
 /** Refuse tool-output blobs larger than this before bounded paging. */
 export const READ_FILE_MAX_TOOL_OUTPUT_BYTES = READ_FILE_MAX_SCAN_BYTES;

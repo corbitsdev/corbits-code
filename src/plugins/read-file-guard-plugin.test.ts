@@ -11,12 +11,14 @@ import type {
   ToolResult,
 } from "@intx/types/runtime";
 import {
-  READ_FILE_DEFAULT_MAX_LINES,
   READ_FILE_MAX_BYTES,
   READ_FILE_MAX_LINE_LENGTH,
   READ_FILE_MAX_SCAN_BYTES,
-  READ_FILE_MAX_TOOL_OUTPUT_BYTES,
   readBytesBounded,
+} from "../io/bounded-read.js";
+import {
+  READ_FILE_DEFAULT_MAX_LINES,
+  READ_FILE_MAX_TOOL_OUTPUT_BYTES,
   readFileBounded,
   readFileGuardPlugin,
 } from "./read-file-guard-plugin.js";

@@ -227,7 +227,7 @@ export async function runBoundedGrep(
 ): Promise<string> {
   signal.throwIfAborted();
 
-  const regex = compileUserRegex(rejectBraceExpansion(args.pattern));
+  const regex = compileUserRegex(args.pattern);
 
   const maxDirectoryEntries =
     limits.maxDirectoryEntries ?? BOUNDED_GREP_MAX_DIRECTORY_ENTRIES;
