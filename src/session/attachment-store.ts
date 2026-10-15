@@ -85,11 +85,33 @@ export async function ageImageBlocks(
   return { turn: { ...turn, content }, blobs };
 }
 
-/** Restore aged markers to image blocks via a blob reader; missing blobs leave the marker text. */
+/** Restore aged markers to image blocks via a blob reader; missing blobs leave
+ * the marker text. The same attachment id only reads its blob once per
+ * restore: compaction copies (excerpted spines, folded handoffs) repeat the
+ * identical marker, and each copy then deserializes from the one read. */
 export async function rehydrateAttachmentImages(
   turns: readonly ConversationTurn[],
   readBlob: (key: string) => Promise<Uint8Array>,
 ): Promise<ConversationTurn[]> {
+  const blobReads = new Map<
+    string,
+    Promise<{ bytes: Uint8Array } | { error: unknown }>
+  >();
+  const blobFor = (
+    key: string,
+  ): Promise<{ bytes: Uint8Array } | { error: unknown }> => {
+    const shared = blobReads.get(key);
+    if (shared !== undefined) return shared;
+    // One failure is memoized for the id too: missing blobs keep their
+    // markers, and re-serving that outcome avoids a retry storm per copy.
+    // Each marker still warns; the shared read does not hide the failure.
+    const sharedRead = readBlob(key).then(
+      (bytes) => ({ bytes }),
+      (error: unknown) => ({ error }),
+    );
+    blobReads.set(key, sharedRead);
+    return sharedRead;
+  };
   const out: ConversationTurn[] = [];
   for (const turn of turns) {
     let changed = false;
@@ -104,22 +126,23 @@ export async function rehydrateAttachmentImages(
         content.push(block);
         continue;
       }
-      try {
-        const bytes = await readBlob(marker.id);
-        const data = new TextDecoder().decode(bytes);
-        content.push({
-          type: "image",
-          source: {
-            kind: "base64",
-            mimeType: marker.mimeType,
-            data,
-          },
-        });
-        changed = true;
-      } catch (err) {
+      const read = await blobFor(marker.id);
+      if ("error" in read) {
+        const err = read.error;
         logger.warn`aged image marker stays dead in context image=${marker.id} error=${err instanceof Error ? err.message : String(err)}`;
         content.push(block);
+        continue;
       }
+      const data = new TextDecoder().decode(read.bytes);
+      content.push({
+        type: "image",
+        source: {
+          kind: "base64",
+          mimeType: marker.mimeType,
+          data,
+        },
+      });
+      changed = true;
     }
     out.push(changed ? { ...turn, content } : turn);
   }
