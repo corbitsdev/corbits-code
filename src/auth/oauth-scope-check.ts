@@ -106,9 +106,6 @@ function classifyStatus(
   return unavailable(providerLabel, `provider HTTP ${status}`);
 }
 
-// One probe shape per provider: refresh staged tokens into the request
-// headers, hit the provider's catalog/list endpoint, and classify the
-// response. Only the headers, endpoint, and timeout differ.
 async function probeOAuthScope(
   providerLabel: string,
   authorizeHeaders: () => Promise<Record<string, string>>,

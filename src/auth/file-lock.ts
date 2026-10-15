@@ -9,14 +9,6 @@ import {
 import { dirname } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-// File-lock primitives shared by every credential lock in this repo. The
-// invariants that make them safe: per-waiter unique claims name the holder,
-// kill(pid, 0) liveness takes over a crashed holder's lock, an untagged lock
-// older than the stale horizon is presumed orphaned, a steal re-reads before
-// unlinking so a concurrent winner's fresh lock is never removed, and both a
-// post-create content check and a fenced release keep a loser from deleting
-// or releasing under a live winner.
-
 export function isErrnoCode(err: unknown, code: string): boolean {
   return (
     typeof err === "object" &&
@@ -26,7 +18,7 @@ export function isErrnoCode(err: unknown, code: string): boolean {
   );
 }
 
-export function isEnoent(err: unknown): boolean {
+function isEnoent(err: unknown): boolean {
   return isErrnoCode(err, "ENOENT");
 }
 
@@ -34,11 +26,11 @@ export function isEnoent(err: unknown): boolean {
 // so the counter leg tells our claim from a concurrent winner's.
 let lockClaimCounter = 0;
 
-export function newLockClaim(): string {
+function newLockClaim(): string {
   return `${String(process.pid)}:${String((lockClaimCounter += 1))}`;
 }
 
-export function holderPid(content: string): number | null {
+function holderPid(content: string): number | null {
   const pid = Number(content.split(":")[0]?.trim());
   return Number.isInteger(pid) && pid > 0 ? pid : null;
 }
@@ -46,7 +38,7 @@ export function holderPid(content: string): number | null {
 // kill(pid, 0) liveness: success or EPERM means alive; ESRCH/EINVAL mean
 // dead. Any other failure reads as alive — never steal a live holder's lock
 // on a confused signal check; the waiter times out with a recovery hint.
-export function isPidAlive(pid: number): boolean {
+function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -57,9 +49,7 @@ export function isPidAlive(pid: number): boolean {
 
 // Null when the lock vanished under the waiter (a release raced the read);
 // anything but ENOENT propagates — permission and disk errors must surface.
-export async function readLockContent(
-  lockPath: string,
-): Promise<string | null> {
+async function readLockContent(lockPath: string): Promise<string | null> {
   try {
     return await readFile(lockPath, "utf8");
   } catch (err) {
@@ -71,7 +61,7 @@ export async function readLockContent(
 // True when the lock is safe to take over: a tagged holder with a dead PID
 // (crashed), or a legacy untagged lock older than the stale horizon. A
 // vanished lock reads as not stale; the acquire loop retries the create.
-export async function isLockStale(
+async function isLockStale(
   lockPath: string,
   staleMs: number,
   content: string,
@@ -114,9 +104,6 @@ export interface FileLockOptions {
   timeoutError: FileLockTimeoutError;
 }
 
-// Credential locks in this repo serialize on exactly this acquire/release
-// pairing: exclusive-create with a holder tag, stale takeover, and a fenced
-// claim-matched release. Do not fork a variant that drops any of the three.
 export async function withFileLock<TResult>(
   lockPath: string,
   work: () => Promise<TResult>,

@@ -14,9 +14,7 @@ import { withFileLock } from "../file-lock.js";
 
 // Stale horizon for legacy locks that carry no holder PID (foreign writers,
 // pre-tagging locks). Kept far above any legitimate hold and contender
-// timeout so a live holder is never declared stale mid-wait. The provider
-// auth store's own lock horizon is deliberately smaller (5s, short auth-file
-// mutations); these two horizons are pinned invariants and must not unify.
+// timeout so a live holder is never declared stale mid-wait.
 const DEFAULT_STALE_MS = 120_000;
 
 export interface CodexRefreshLockOptions {

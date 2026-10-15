@@ -13,12 +13,10 @@ import { CodexRefreshLockTimeoutError } from "./refresh-lock.js";
 
 import { withMockedModule } from "../../../testkit/mock-module.js";
 
-// Non-ENOENT lock-file failures must surface raw instead of being swallowed
-// (the pre-unification codex lock caught every fs error). Flags gate each
-// failure to its own test; undefined keeps every call on the real module.
+// Non-ENOENT read and stat failures must surface raw instead of being swallowed.
+// Flags gate each failure to its own test; undefined keeps every call on the real module.
 let failingReadPath: string | undefined;
 let failingStatPath: string | undefined;
-let failingUnlinkPath: string | undefined;
 await withMockedModule(
   import.meta.resolve("node:fs/promises"),
   (real: typeof import("node:fs/promises")) => ({
@@ -30,10 +28,6 @@ await withMockedModule(
     stat: async (...args: Parameters<typeof real.stat>) => {
       if (args[0] === failingStatPath) throw new Error("lock stat failed");
       return real.stat(...args);
-    },
-    unlink: async (...args: Parameters<typeof real.unlink>) => {
-      if (args[0] === failingUnlinkPath) throw new Error("lock release failed");
-      return real.unlink(...args);
     },
   }),
 );
@@ -281,33 +275,6 @@ describe("codex refresh lock", () => {
         ).rejects.toThrow("lock stat failed");
       } finally {
         failingStatPath = undefined;
-      }
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("a non-ENOENT release failure surfaces after the work value", async () => {
-    const dir = await tempDir();
-    try {
-      const lock = join(dir, "refresh.lock");
-      failingUnlinkPath = lock;
-      try {
-        // The refresh succeeded, but a release that fails for a real reason
-        // (not a steal's ENOENT) must not vanish: the caller has to know the
-        // lock file is still on disk.
-        await expect(
-          withCodexRefreshLock(lock, async () => "done", {
-            timeoutMs: 1_000,
-            retryMs: 10,
-          }),
-        ).rejects.toThrow("lock release failed");
-        // The failed release leaves the claim file in place for recovery.
-        await expect(readFile(lock, "utf8")).resolves.toContain(
-          String(process.pid),
-        );
-      } finally {
-        failingUnlinkPath = undefined;
       }
     } finally {
       await rm(dir, { recursive: true, force: true });

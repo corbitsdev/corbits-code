@@ -23,8 +23,6 @@ export interface ProviderLoginSpec<TTokens extends BaseTokens = BaseTokens> {
   }) => Promise<void>;
 }
 
-// The shared PKCE login skeleton: every provider supplies its OAuth config,
-// exchange, and persistence while the loopback flow stays in one place.
 export function startProviderLogin<TTokens extends BaseTokens>(
   opts: StartOAuthLoginOptions,
   spec: ProviderLoginSpec<TTokens>,

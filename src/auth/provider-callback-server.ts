@@ -14,8 +14,6 @@ export interface ProviderCallbackServerConfig {
   path: string;
 }
 
-// One loopback OAuth redirect server per provider: identical plumbing, with
-// only the provider's callback target and its name in the callback pages.
 export async function startProviderCallbackServer(
   providerLabel: string,
   config: ProviderCallbackServerConfig,

@@ -15,10 +15,6 @@ import {
 
 export type ProviderAuthErrorReason = "missing" | "refresh-failed";
 
-// The auth failure every provider surfaces: the profile name plus a reason
-// ("missing" vs "refresh-failed") for re-login messaging. Classification is
-// identity-based, so each provider keeps its own Error subclass and passes
-// its constructor here.
 export type ProviderAuthError = Error & {
   readonly profile: string;
   readonly reason: ProviderAuthErrorReason;
@@ -68,13 +64,7 @@ export interface ProviderTokenSessionSpec<TTokens extends BaseTokens, TAccess> {
     now: number,
     previous?: TTokens,
   ) => Promise<TTokens>;
-  // Token-shape extensions stay per provider: codex keeps the chatgpt
-  // account id when a refresh response omits id_token. Absent = pass-through.
   mergeRefreshed?: (refreshed: TTokens, previous: TTokens) => TTokens;
-  // Post-wrap of getValidToken for every session over a credential home.
-  // Codex serializes inter-process refresh acquisitions behind a lock file;
-  // xAI recovers a committed concurrent winner after a lost invalid_grant
-  // race. Absent hook = no wrapping at all (no lock by design).
   serializeRefresh?: (
     ctx: TokenSessionCallContext<TTokens, TAccess>,
   ) => Promise<TAccess>;
@@ -92,10 +82,6 @@ export interface ProviderTokenSessionApi<TTokens extends BaseTokens, TAccess> {
   refreshStaged: (tokens: TTokens, now?: number) => Promise<TTokens>;
 }
 
-// The provider token-session lifecycle, once: per-home session cache, the
-// refresh-basis WeakMap feeding the store's credential CAS, sanitized
-// endpoint failures, and the profile errors. Only the spec's provider hooks
-// differ between providers (see ProviderTokenSessionSpec).
 export function createProviderTokenSession<TTokens extends BaseTokens, TAccess>(
   spec: ProviderTokenSessionSpec<TTokens, TAccess>,
 ): ProviderTokenSessionApi<TTokens, TAccess> {

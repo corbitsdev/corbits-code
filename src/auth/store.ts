@@ -49,9 +49,6 @@ const LOCK_TIMEOUT_MS = 1_000;
 // Age at which a lock file with no holder PID (a foreign writer, or one
 // predating PID tagging) is presumed orphaned and taken over. Far above
 // LOCK_TIMEOUT_MS so a waiter never declares a live holder stale mid-wait.
-// Deliberately smaller than the codex refresh-lock horizon (120s, refresh
-// grants are long); these two horizons are pinned invariants and must not
-// unify.
 const LOCK_STALE_MS = 5_000;
 
 // Per-call unique temp (pid + counter); pid alone is not unique if

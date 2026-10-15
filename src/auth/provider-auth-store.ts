@@ -8,8 +8,6 @@ export interface ProviderAuthStoreDefinition<TTokens extends BaseTokens> {
   tokensShape: Type<TTokens>;
 }
 
-// The per-provider auth store definition: one filename plus the arktype
-// shape guarding what may load from disk; nothing else differs.
 export function defineProviderAuthStore<TTokens extends BaseTokens>(
   definition: ProviderAuthStoreDefinition<TTokens>,
 ): (settingsDirName: string) => AuthStore<TTokens> {

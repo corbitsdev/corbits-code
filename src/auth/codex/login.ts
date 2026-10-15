@@ -27,7 +27,6 @@ export async function startCodexLogin(
   return startProviderLogin<CodexTokens>(loginOpts, {
     oauthConfig: codexOAuthConfig,
     startCallbackServer: (state) => startCodexCallbackServer(state, copy),
-    // The mapper leaves expiresAt unset when the response omits expires_in.
     exchangeCode: async (code, verifier, now) =>
       withDefaultCodexExpiry(await exchangeCodexCode(code, verifier, now), now),
     saveProfile: (profile) => saveCodexProfile(profile, home),
