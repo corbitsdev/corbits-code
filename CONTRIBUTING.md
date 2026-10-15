@@ -197,14 +197,18 @@ Rules:
   under the Summary section (not a separate heading).
 - Scan for past-tense journey verbs (`was`, `added`, `fixed`, `refactored`,
   `I changed`) and rewrite to present-tense product statements.
-- When the work tracks an issue, end the body with a magic-word link (see
-  below). When it does not, omit the link line entirely — do not invent IDs.
+- End the body with a magic-word link to a Linear or GitHub issue (see
+  below). One of those magic words is required. Do not invent issue IDs.
 
 GitHub auto-fills this shape from `.github/PULL_REQUEST_TEMPLATE.md`.
 
 ## Issue tracking (Linear and GitHub)
 
-Link trackers at the **PR boundary**, not inside every commit.
+Every pull request must reference a Linear issue or a GitHub issue. Link
+trackers at the **PR boundary**, not inside every commit. The pull-request body
+must include one of the magic words documented below (`Fixes`, `Refs`, or
+another closing or non-closing word in those lists). Do not invent issue IDs
+or a new issue-id format.
 
 ### When work tracks a Linear issue (MUST)
 
@@ -249,9 +253,11 @@ Same pattern in the PR body:
 Fixes #123
 ```
 
-### When there is no tracker
+### When there is no tracker yet
 
-Omit magic words. Do not invent issue IDs.
+Open a Linear or GitHub issue first, then reference it from the pull-request
+body with one of the magic words above. Do not omit the link, and do not
+invent issue IDs.
 
 ### At PR-open (SHOULD)
 
