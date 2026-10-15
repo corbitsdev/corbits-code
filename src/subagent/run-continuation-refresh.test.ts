@@ -15,7 +15,7 @@ import {
   peekSourceCredentialSecret,
   registerSourceCredentialRecord,
 } from "../config/source-credentials.js";
-import { createTestCapabilities } from "./director-test-harness.js";
+import { stubReactorCapabilities } from "../../testkit/reactor-stubs.js";
 import { SubAgentDirector } from "./nudge-director.js";
 import type { ContinuationRefreshOptions } from "./refresh-inference-source.js";
 import { withContinuationOAuthRefresh } from "./refresh-inference-source.js";
@@ -120,7 +120,7 @@ describe("run continuation OAuth refresh", () => {
       retryPolicyStub,
     );
     const wrapped = withContinuationOAuthRefresh(inner, options);
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
     return { getValid, setSourcesCalls, wrapped, caps, source };
   }
 
@@ -175,7 +175,7 @@ describe("run continuation OAuth refresh", () => {
       defaultSource: "codex/default",
       catalog: [],
     });
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
     await wrapped.decide(inferenceDone(["call-1"]), state, caps);
     const result = await wrapped.decide(toolDone("call-1"), state, caps);
     expect(actions(result).some((action) => action.type === "infer")).toBe(
@@ -215,7 +215,7 @@ describe("run continuation OAuth refresh", () => {
     };
     const wrapped = withContinuationOAuthRefresh(fakeInner, options);
     expect(withContinuationOAuthRefresh(wrapped, options)).toBe(wrapped);
-    await wrapped.decide(toolDone("call-1"), state, createTestCapabilities());
+    await wrapped.decide(toolDone("call-1"), state, stubReactorCapabilities);
     expect(getValid).toHaveBeenCalledTimes(1);
     expect(setSources).toBe(1);
   });
@@ -251,7 +251,7 @@ describe("run continuation OAuth refresh", () => {
         capabilities: ReactorCapabilities,
       ) => capabilities.infer(),
     };
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
     const first = withContinuationOAuthRefresh(fakeInner, options);
     const second = withContinuationOAuthRefresh(fakeInner, options);
     const pending = [

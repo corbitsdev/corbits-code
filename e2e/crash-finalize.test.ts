@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 
 import { generateSessionId, sessionDir } from "../src/session/index.js";
 import type { RunState } from "../src/session/state.js";
-import { createTempDirs } from "../testkit/temporary-dirs.js";
+import { spawnSignalFixture } from "./signal-helpers.js";
 
 const FIXTURE = join(
   import.meta.dirname,
@@ -18,28 +18,23 @@ const RUN_END_FIXTURE = join(
 
 describe("integration — crash finalizes run.json", () => {
   test("uncaughtException writes status: crashed with finishedAt, racing in-flight snapshot writes", async () => {
-    const { cwd, home, cleanup } = createTempDirs(
-      "corbits-crash-cwd-",
-      "corbits-crash-home-",
-    );
     const sessionId = generateSessionId();
+    const { proc, output, cleanup } = await spawnSignalFixture({
+      fixture: FIXTURE,
+      cwdPrefix: "corbits-crash-cwd-",
+      homePrefix: "corbits-crash-home-",
+      sessionId,
+      sessionIdEnv: "CRASH_TEST_SESSION_ID",
+    });
 
     try {
-      const proc = Bun.spawn(["bun", "run", FIXTURE], {
-        cwd,
-        env: { ...process.env, HOME: home, CRASH_TEST_SESSION_ID: sessionId },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-
       const exitCode = await proc.exited;
-      const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
 
       expect(exitCode).toBe(1);
       expect(stderr).toContain("uncaughtException: Error: simulated crash");
 
-      const runJsonPath = join(stdout.trim(), "run.json");
+      const runJsonPath = join(output.trim(), "run.json");
       const raw = readFileSync(runJsonPath, "utf8");
       const state = JSON.parse(raw) as RunState;
 
@@ -57,28 +52,19 @@ describe("integration — crash finalizes run.json", () => {
   }, 15_000);
 
   test("a crash after session rotation still writes crashed for the new session", async () => {
-    const { cwd, home, cleanup } = createTempDirs(
-      "corbits-crash-cwd-",
-      "corbits-crash-home-",
-    );
     const sessionId = generateSessionId();
     const rotatedSessionId = generateSessionId();
+    const { proc, cwd, home, output, cleanup } = await spawnSignalFixture({
+      fixture: FIXTURE,
+      cwdPrefix: "corbits-crash-cwd-",
+      homePrefix: "corbits-crash-home-",
+      sessionId,
+      sessionIdEnv: "CRASH_TEST_SESSION_ID",
+      extraEnv: { CRASH_TEST_ROTATED_SESSION_ID: rotatedSessionId },
+    });
 
     try {
-      const proc = Bun.spawn(["bun", "run", FIXTURE], {
-        cwd,
-        env: {
-          ...process.env,
-          HOME: home,
-          CRASH_TEST_SESSION_ID: sessionId,
-          CRASH_TEST_ROTATED_SESSION_ID: rotatedSessionId,
-        },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-
       const exitCode = await proc.exited;
-      const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
 
       expect(exitCode).toBe(1);
@@ -95,7 +81,7 @@ describe("integration — crash finalizes run.json", () => {
       expect(outgoingState.status).toBe("done");
       expect(outgoingState.turnsUsed).toBe(3);
 
-      const rotatedRunJsonPath = join(stdout.trim(), "run.json");
+      const rotatedRunJsonPath = join(output.trim(), "run.json");
       const rotatedState = JSON.parse(
         readFileSync(rotatedRunJsonPath, "utf8"),
       ) as RunState;
@@ -112,22 +98,17 @@ describe("integration — crash finalizes run.json", () => {
   }, 15_000);
 
   test("an unrelated crash while the run-end write is in flight does not report crashed", async () => {
-    const { cwd, home, cleanup } = createTempDirs(
-      "corbits-crash-cwd-",
-      "corbits-crash-home-",
-    );
     const sessionId = generateSessionId();
+    const { proc, output, cleanup } = await spawnSignalFixture({
+      fixture: RUN_END_FIXTURE,
+      cwdPrefix: "corbits-crash-cwd-",
+      homePrefix: "corbits-crash-home-",
+      sessionId,
+      sessionIdEnv: "RUN_END_TEST_SESSION_ID",
+    });
 
     try {
-      const proc = Bun.spawn(["bun", "run", RUN_END_FIXTURE], {
-        cwd,
-        env: { ...process.env, HOME: home, RUN_END_TEST_SESSION_ID: sessionId },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-
       const exitCode = await proc.exited;
-      const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
 
       expect(exitCode).toBe(1);
@@ -139,7 +120,7 @@ describe("integration — crash finalizes run.json", () => {
       // saveState write resolved; the crash handler then saw a live run and
       // wrote "crashed" via saveCrashState, clobbering the clean finish.
       // Clearing the handle before the await closes that window.
-      const runJsonPath = join(stdout.trim(), "run.json");
+      const runJsonPath = join(output.trim(), "run.json");
       const raw = readFileSync(runJsonPath, "utf8");
       const state = JSON.parse(raw) as RunState;
       expect(state.status).not.toBe("crashed");

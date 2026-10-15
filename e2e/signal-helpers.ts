@@ -25,14 +25,14 @@ function spawnFixtureProc(
   fixture: string,
   cwd: string,
   home: string,
-  sessionId: string,
+  sessionEnv: Record<string, string>,
 ) {
   return Bun.spawn(["bun", "run", fixture], {
     cwd,
     env: {
       ...process.env,
       HOME: home,
-      SIGNAL_TEST_SESSION_ID: sessionId,
+      ...sessionEnv,
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -54,7 +54,21 @@ export interface SpawnSignalFixtureOptions {
   readonly fixture: string;
   readonly cwdPrefix: string;
   readonly homePrefix: string;
-  readonly sessionId: string;
+  /** Optional session id, handed to the fixture child in `sessionIdEnv`. */
+  readonly sessionId?: string;
+  /** Env var name carrying `sessionId` (default `SIGNAL_TEST_SESSION_ID`). */
+  readonly sessionIdEnv?: string;
+  /**
+   * Extra child env for fixture variants (rotation ids, reap tokens). As a
+   * function it receives the spawned cwd/home so files can live inside the
+   * isolated pair; HOME is already set to `home`.
+   */
+  readonly extraEnv?:
+    | Record<string, string>
+    | ((dirs: {
+        readonly cwd: string;
+        readonly home: string;
+      }) => Record<string, string>);
 }
 
 /**
@@ -67,12 +81,20 @@ export async function spawnSignalFixture(
   options: SpawnSignalFixtureOptions,
 ): Promise<SpawnedSignalFixture> {
   const dirs = createTempDirs(options.cwdPrefix, options.homePrefix);
-  const proc = spawnFixtureProc(
-    options.fixture,
-    dirs.cwd,
-    dirs.home,
-    options.sessionId,
-  );
+  const extra =
+    typeof options.extraEnv === "function"
+      ? options.extraEnv({ cwd: dirs.cwd, home: dirs.home })
+      : options.extraEnv;
+  const sessionEnv =
+    options.sessionId === undefined
+      ? {}
+      : {
+          [options.sessionIdEnv ?? "SIGNAL_TEST_SESSION_ID"]: options.sessionId,
+        };
+  const proc = spawnFixtureProc(options.fixture, dirs.cwd, dirs.home, {
+    ...sessionEnv,
+    ...extra,
+  });
   const output = await readLine(proc.stdout);
   return {
     proc,
