@@ -33,6 +33,6 @@ actions:
   fail: []
   unsure: []
 labels:
-  pass: 'Triage: Ready'
-  fail: 'Triage: Not Ready'
-  unsure: 'Triage: Needs Human Review'
+  pass: "Triage: Ready"
+  fail: "Triage: Not Ready"
+  unsure: "Triage: Needs Human Review"
