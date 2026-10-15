@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -382,22 +382,30 @@ export function knipAgentProductionSpawn(
   ]);
 }
 
-// The agent workspaces the production scan must cover, derived from the
-// allowlist's `agents/<id>/src/index.ts` entries so the scan stays pinned to
-// the surface the allowlist governs. Fails closed when the surface names no
+// Every agents/ workspace, not the allowlist. A package whose entry exports
+// are imported only by its own test is invisible to the default scan (knip
+// counts test files there) and would skip this production scan if membership
+// came from allowlist entries. Fails closed when the directory names no
 // workspace: a silent no-op scan cannot be trusted.
-export function agentWorkspaceIds(rules: readonly AllowRule[]): string[] {
-  const ids = new Set<string>();
-  for (const rule of rules) {
-    if (rule.kind === "exact" && rule.file.startsWith("agents/")) {
-      const id = rule.file.slice("agents/".length).split("/")[0];
-      if (id !== undefined && id !== "") ids.add(`agents/${id}`);
-    }
+export function agentWorkspaceIds(agentsRoot: string): string[] {
+  let names: string[];
+  try {
+    names = readdirSync(agentsRoot, { withFileTypes: true }).flatMap((entry) =>
+      entry.isDirectory() &&
+      !entry.name.startsWith(".") &&
+      existsSync(join(agentsRoot, entry.name, "package.json"))
+        ? [entry.name]
+        : [],
+    );
+  } catch (err) {
+    throw new Error(
+      `agent workspace root not readable (${agentsRoot}): ${(err as Error).message}`,
+    );
   }
-  const sorted = [...ids].sort();
+  const sorted = names.map((name) => `agents/${name}`).sort();
   if (sorted.length === 0) {
     throw new Error(
-      "dead-export allowlist names no agents/<id>/src/index.ts surface: " +
+      `agents directory names no workspace (${agentsRoot}): ` +
         "the agent-workspace production scan has nothing to cover",
     );
   }
@@ -494,7 +502,7 @@ function fail(message: string): never {
 //
 // Both run under the pinned spawn contract; a failing or malformed
 // report fails the gate rather than narrowing it silently.
-export function runKnipScans(rules: readonly AllowRule[]): DeadExport[] {
+export function runKnipScans(): DeadExport[] {
   requireKnipConfigs();
   const merge = (reports: readonly DeadExport[]): DeadExport[] => {
     const seen = new Set<string>();
@@ -534,7 +542,7 @@ export function runKnipScans(rules: readonly AllowRule[]): DeadExport[] {
     knipDefaultSpawn(knipBin),
     "knip default scan",
   );
-  const agentWorkspaces = agentWorkspaceIds(rules);
+  const agentWorkspaces = agentWorkspaceIds(join(repoRoot, "agents"));
   const agentFindings = spawnAndParse(
     knipAgentProductionSpawn(knipBin, agentWorkspaces),
     "knip production agent scan",
@@ -561,7 +569,7 @@ function main(): void {
     );
   }
   const rules = parseAllowlistText(allowlistText);
-  const findings = runKnipScans(rules);
+  const findings = runKnipScans();
   const outcome = evaluateGuard(rules, findings);
   let scannedFiles: number;
   const injectedCount = parseInjectedScannedFiles(process.env[scannedFilesEnv]);

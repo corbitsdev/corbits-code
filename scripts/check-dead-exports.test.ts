@@ -1,11 +1,14 @@
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { describe, expect, test } from "bun:test";
 
@@ -240,7 +243,10 @@ describe("live knip scan semantics", () => {
 
   test("production agent scan removes test-file consumers from the surface", () => {
     const rules = loadAllowlist();
-    const spawn = knipAgentProductionSpawn(knipBin, agentWorkspaceIds(rules));
+    const spawn = knipAgentProductionSpawn(
+      knipBin,
+      agentWorkspaceIds(join(repoRoot, "agents")),
+    );
     const ran = spawnSync(spawn.command, spawn.args, {
       cwd: repoRoot,
       encoding: "utf8",
@@ -449,19 +455,24 @@ describe("pinned scan invocation", () => {
     expect(() => knipAgentProductionSpawn("/repo/x", [])).toThrow();
   });
 
-  test("agent workspace ids derive from the allowlist and fail closed", () => {
-    const rules = parseAllowlistText(
-      "agents/coder/src/index.ts: agent\n" +
-        "agents/coder/src/index.ts: agent\n" +
-        "agents/dispatch/src/index.ts: agent\n" +
-        "src/auth/codex/constants.ts: CODEX_BASE_URL\n",
-    );
-    // Parse dedupes nothing at rule level; the derivation dedupes ids.
-    expect(agentWorkspaceIds(rules)).toEqual([
-      "agents/coder",
-      "agents/dispatch",
-    ]);
-    expect(() => agentWorkspaceIds(parseAllowlistText("vendor/\n"))).toThrow();
+  test("agent workspace ids are the agents directory and fail closed", () => {
+    const agentsRoot = join(repoRoot, "agents");
+    const fromDisk = readdirSync(agentsRoot, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          existsSync(join(agentsRoot, entry.name, "package.json")),
+      )
+      .map((entry) => `agents/${entry.name}`)
+      .sort();
+    expect(fromDisk.length).toBeGreaterThan(0);
+    expect(agentWorkspaceIds(agentsRoot)).toEqual(fromDisk);
+    const empty = mkdtempSync(join(tmpdir(), "dead-export-agents-"));
+    try {
+      expect(() => agentWorkspaceIds(empty)).toThrow();
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
   });
 
   test("parseGuardConfig rejects a missing tsconfig or floor and extra keys", () => {
@@ -541,6 +552,65 @@ describe("violation end to end", () => {
       );
     } finally {
       rmSync(probePath, { force: true });
+    }
+  }, 240_000);
+
+  test("a test-only export in an extra agent workspace fails the guard", () => {
+    const id = `dead-export-guard-agent-${process.pid}`;
+    const exportName = `deadExportGuardAgentProbe${process.pid}`;
+    const dir = join(repoRoot, "agents", id);
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: `@corbits/code-agent-${id}`,
+        private: true,
+        type: "module",
+      }),
+    );
+    writeFileSync(
+      join(dir, "src", "index.ts"),
+      `export const ${exportName} = 1;\n`,
+    );
+    writeFileSync(
+      join(dir, "src", "index.test.ts"),
+      `import { ${exportName} } from "./index.js";\nvoid ${exportName};\n`,
+    );
+    try {
+      const knipBin = join(repoRoot, "node_modules", ".bin", "knip");
+      const defaultSpawn = knipDefaultSpawn(knipBin);
+      const defaultRun = spawnSync(defaultSpawn.command, defaultSpawn.args, {
+        cwd: repoRoot,
+        encoding: "utf8",
+      });
+      expect(defaultRun.status).toBe(0);
+      const defaultFindings = parseKnipReport(String(defaultRun.stdout));
+      expect(
+        defaultFindings.some(
+          (finding) =>
+            finding.file === `agents/${id}/src/index.ts` &&
+            finding.name === exportName,
+        ),
+      ).toBe(false);
+
+      const ran = spawnSync(
+        process.execPath,
+        ["scripts/check-dead-exports.ts"],
+        {
+          cwd: repoRoot,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            DEAD_EXPORT_GUARD_SCANNED_FILES: String(liveScannedFileCount()),
+          },
+        },
+      );
+      expect(ran.status).toBe(1);
+      expect(`${ran.stdout}\n${ran.stderr}`).toContain(
+        `agents/${id}/src/index.ts: ${exportName}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   }, 240_000);
 });
