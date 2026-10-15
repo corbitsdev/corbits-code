@@ -222,6 +222,13 @@ export interface GateLifecycleHooks {
   readonly onPrimaryOperatorAdmitted?: (event: OperatorGateEvent) => void;
   /** A marked primary ask_operator gate settled. */
   readonly onPrimaryOperatorSettled?: (event: OperatorGateEvent) => void;
+  /** Desktop/terminal notification. Fired once per gate id when that gate
+   * reaches the screen. Absent means no notification. */
+  readonly notify?: NotifierPort;
+}
+
+export interface NotifierPort {
+  notify(message: string, title?: string): boolean;
 }
 
 const NOOP_GATE_HOOKS: GateLifecycleHooks = {
@@ -275,6 +282,17 @@ export function wireGates(
   // tell whether the host has since opened a newer gate; comparing the
   // open-time capture against the current value closes only its own overlay.
   let overlayGeneration = 0;
+  const notifiedGateIds = new Set<string>();
+
+  function notifyOnce(id: string, message: string, title: string): void {
+    if (notifiedGateIds.has(id)) return;
+    notifiedGateIds.add(id);
+    try {
+      hooks.notify?.notify(message, title);
+    } catch {
+      // A notifier that throws must not block the gate.
+    }
+  }
 
   function openHost(open: () => void): void {
     overlayGeneration++;
@@ -388,6 +406,7 @@ export function wireGates(
       // screen, distinct from when it was raised (see
       // PermissionRequest.markDisplayed).
       ev.request.markDisplayed?.();
+      notifyOnce(ev.id, "Approval needed", "corbits");
       if (ev.timeoutMs !== undefined) {
         timer = setTimeout(() => {
           autoDeny(ev.timeoutMessage ?? "approval timed out; request denied");
@@ -489,6 +508,7 @@ export function wireGates(
 
     const open = (): void => {
       openedGeneration = overlayGeneration;
+      notifyOnce(ev.id, "Input needed", "corbits");
       if (ev.timeoutMs !== undefined) {
         timer = setTimeout(() => {
           autoCancel();

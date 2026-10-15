@@ -235,10 +235,10 @@ a path into the prompt (`spliceMentionCompletion`). Attachments land at send
 time, not at accept time.
 
 Ctrl+V / Ctrl+P and `/paste-image` call `attachClipboardImage` (`shell.ts`) →
-`readClipboardImage` (`image-attachments.ts`), which reads a macOS clipboard
-PNG via osascript `«class PNGf»`. Cmd+V is terminal bracketed paste and stays
-text. Linux and Windows bitmap clipboard paste is a separate product gap; do
-not treat bracketed-paste path text as a paste-time image gesture.
+`readClipboardImage` (`image-attachments.ts`), which reads PNG, JPEG, GIF, or
+WebP through the OpenTUI clipboard service. Cmd+V is terminal bracketed paste
+and stays text. Do not treat bracketed-paste path text as a paste-time image
+gesture.
 
 ## Configuration
 

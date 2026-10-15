@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import type { ClipboardService, ClipboardWriteResult } from "@opentui/core";
 import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 
-import { createSystemClipboard } from "./system-clipboard.js";
+import {
+  createSystemClipboard,
+  readSystemClipboardImage,
+} from "./system-clipboard.js";
 
 const boundary = {
   capabilities: null,
@@ -87,5 +90,31 @@ describe("system clipboard", () => {
     await expect(
       createSystemClipboard(boundary, service).writeText("payload"),
     ).rejects.toThrow(/host: failed, terminal: local-failure/);
+  });
+
+  test("reads an image representation from the clipboard service", async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const seen: string[][] = [];
+    const image = await readSystemClipboardImage({
+      read: (options) => {
+        seen.push([...options.preferredTypes]);
+        return Promise.resolve({
+          status: "read",
+          representation: { mimeType: "image/png", bytes },
+        });
+      },
+    });
+    expect(seen[0]).toContain("image/png");
+    expect(image).toEqual({ ok: true, mimeType: "image/png", bytes });
+  });
+
+  test("maps an empty clipboard read to a miss", async () => {
+    const image = await readSystemClipboardImage({
+      read: () => Promise.resolve({ status: "empty" }),
+    });
+    expect(image).toEqual({
+      ok: false,
+      reason: "no image found on the clipboard",
+    });
   });
 });
