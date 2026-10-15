@@ -152,6 +152,7 @@ interface FleetRecord {
   hint?: string;
   question?: string;
   questionId?: string;
+  grantRequestId?: string;
   assessment?: EscalationAssessment;
   terminalOutcome?: TerminalOutcome;
   description?: string;
@@ -539,6 +540,9 @@ class FleetMailbox {
         ? {
             question: ask.question,
             questionId: ask.questionId,
+            ...(ask.deniedCall !== undefined
+              ? { grantRequestId: ask.deniedCall.requestId }
+              : {}),
             ...(ask.assessment !== undefined
               ? { assessment: ask.assessment }
               : {}),
@@ -2042,6 +2046,9 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
             ...(record.questionId !== undefined
               ? { question_id: record.questionId }
               : {}),
+            ...(record.grantRequestId !== undefined
+              ? { grant_request_id: record.grantRequestId }
+              : {}),
             ...(record.assessment !== undefined
               ? { assessment: record.assessment }
               : {}),
@@ -2195,6 +2202,10 @@ export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
           ...(record?.status === "awaiting_director" &&
           record.questionId !== undefined
             ? { question_id: record.questionId }
+            : {}),
+          ...(record?.status === "awaiting_director" &&
+          record.grantRequestId !== undefined
+            ? { grant_request_id: record.grantRequestId }
             : {}),
           ...(record?.assessment !== undefined
             ? { assessment: record.assessment }

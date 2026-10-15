@@ -5,6 +5,7 @@ import {
   createResumeAgentTool,
   createInterruptAgentTool,
   createSendInputTool,
+  createApproveWorkerCallTool,
   resumeAgentToolDefinition,
 } from "./lifecycle-tools.js";
 import {
@@ -18,12 +19,83 @@ import {
   type SubAgentSession,
 } from "./session-store.js";
 import { createAdmissionQueue } from "./admission.js";
+import { runWithSubAgentIdentity } from "./identity-context.js";
+import { createPermissionGate } from "../permission/gate.js";
+import {
+  createWorkerAuthorize,
+  workerPermissionGate,
+} from "../permission/reactor-authorize.js";
+import {
+  createDeniedCallEnvelope,
+  getProcessWorkerGrantStore,
+} from "../permission/worker-grant.js";
 import { defined } from "../../testkit/defined.js";
 import { callFleetTool, callFleetToolRaw } from "./fleet-test-harness.js";
 
 const callTool = callFleetTool;
 
 type SessionStore = ReturnType<typeof createSubAgentSessionStore>;
+
+function parentGate(cwd: string, allow: boolean) {
+  return createPermissionGate({
+    approvals: [],
+    cwd,
+    interactive: true,
+    skipPermissions: false,
+    reactorGated: false,
+    requestApproval: async (request) => {
+      if (!allow) return { allow: false };
+      const exact = request.scopes[0];
+      return exact === undefined
+        ? { allow: true }
+        : { allow: true, persist: { ...exact, grant: "session" as const } };
+    },
+  });
+}
+
+function pendingDeniedAsk(
+  sessions: SessionStore,
+  options: {
+    id: string;
+    cwd: string;
+    command: string;
+    expiresAt?: number;
+    parentSessionId?: string;
+  },
+) {
+  const session = startSession(sessions, {
+    id: options.id,
+    description: "worker",
+    ...(options.parentSessionId !== undefined
+      ? { parentSessionId: options.parentSessionId }
+      : {}),
+  });
+  sessions.markRunning(session.id);
+  const envelope = getProcessWorkerGrantStore().register(
+    createDeniedCallEnvelope({
+      callId: `${session.id}-denied`,
+      tool: "run_shell",
+      action: "Run",
+      subject: options.command,
+      args: { command: options.command },
+      cwd: options.cwd,
+      workerSessionId: session.id,
+    }),
+  );
+  if (options.expiresAt !== undefined) envelope.expiresAt = options.expiresAt;
+  const received: string[] = [];
+  expect(
+    sessions.registerAsk(session.id, {
+      question: "approve exact denied call",
+      questionId: `${session.id}-question`,
+      grantRequestId: envelope.requestId,
+      assessment: assessedAsk,
+      resolve: (answer) => received.push(answer),
+      reject: () => undefined,
+    }),
+  ).toBe(true);
+  return { session, envelope, received };
+}
 
 /** Valid assessed ask payload for the structured-resolution tests. */
 const assessedAsk = {
@@ -1305,4 +1377,278 @@ describe("nested lifecycle authority", () => {
       }
     },
   );
+});
+
+describe("approve_worker_call", () => {
+  test("nested parent reaches the approval handler through worker authz while its gate still denies the child call", async () => {
+    const grants = getProcessWorkerGrantStore();
+    grants.clear();
+    const cwd = "/tmp/nested-worker-approval";
+    const sessions = createSubAgentSessionStore();
+    const nested = startSession(sessions, {
+      id: "nested-parent",
+      description: "nested parent",
+    });
+    const { session, envelope } = pendingDeniedAsk(sessions, {
+      id: "nested-child",
+      cwd,
+      command: "printf changed > generated.txt",
+      parentSessionId: nested.id,
+    });
+    const permissionGate = parentGate(cwd, false);
+    const args = {
+      target: session.id,
+      question_id: `${session.id}-question`,
+      request_id: envelope.requestId,
+    };
+
+    expect(
+      (
+        await createWorkerAuthorize(permissionGate)(
+          "tool:approve_worker_call",
+          "invoke",
+          { id: "approve-1", name: "approve_worker_call", arguments: args },
+        )
+      ).effect,
+    ).toBe("allow");
+
+    const approve = createApproveWorkerCallTool({
+      sessions,
+      authority: {
+        actorId: nested.id,
+        tier: "nested-orchestrator",
+        getNodes: () => sessions.list(),
+      },
+      permissionGate,
+    });
+    const denied = await callFleetToolRaw(approve, args);
+    expect(denied.isError).toBe(true);
+    expect(denied.content).toContain("parent permission evaluation denied");
+    expect(sessions.hasPendingAsk(session.id)).toBe(true);
+    expect(envelope.status).toBe("pending");
+    grants.clear();
+  });
+
+  test.each([
+    ["read-only Git-shaped", "git status --short"],
+    ["consequential shell", "printf changed > generated.txt"],
+  ])(
+    "%s authorizes only the exact pending retry once",
+    async (_name, command) => {
+      const grants = getProcessWorkerGrantStore();
+      grants.clear();
+      const cwd = "/tmp/worker-approval";
+      const sessions = createSubAgentSessionStore();
+      const gate = parentGate(cwd, true);
+      const { session, envelope, received } = pendingDeniedAsk(sessions, {
+        id: `worker-${command.length}`,
+        cwd,
+        command,
+      });
+      const approve = createApproveWorkerCallTool({
+        sessions,
+        permissionGate: gate,
+      });
+
+      const approved = await callTool(approve, {
+        target: session.id,
+        question_id: `${session.id}-question`,
+        request_id: envelope.requestId,
+      });
+      expect(approved.status).toBe("authorized");
+      expect(received).toEqual([
+        "Parent approved the exact denied call; retry it once.",
+      ]);
+      expect(sessions.hasPendingAsk(session.id)).toBe(false);
+
+      const workerGate = workerPermissionGate(gate, { sessionId: session.id });
+      expect(
+        await runWithSubAgentIdentity({ description: "worker", cwd }, () =>
+          workerGate.authorizeCall({
+            id: "retry-1",
+            name: "run_shell",
+            arguments: { command },
+          }),
+        ),
+      ).toEqual({ effect: "allow" });
+      expect(
+        await runWithSubAgentIdentity({ description: "worker", cwd }, () =>
+          workerGate.executionVerdict({
+            id: "retry-1",
+            name: "run_shell",
+            arguments: { command },
+          }),
+        ),
+      ).toEqual({ effect: "allow" });
+      expect(grants.peek(envelope.requestId)?.status).toBe("consumed");
+      const duplicateExecution = await runWithSubAgentIdentity(
+        { description: "worker", cwd },
+        () =>
+          workerGate.executionVerdict({
+            id: "retry-2",
+            name: "run_shell",
+            arguments: { command },
+          }),
+      );
+      expect(duplicateExecution.effect).toBe("deny");
+      grants.clear();
+    },
+  );
+
+  test("an in-flight allowed retry cannot leave an authorized replay", async () => {
+    const grants = getProcessWorkerGrantStore();
+    grants.clear();
+    const cwd = "/tmp/worker-approval-race";
+    const command = "printf changed > generated.txt";
+    const sessions = createSubAgentSessionStore();
+    const { session, envelope } = pendingDeniedAsk(sessions, {
+      id: "worker-race",
+      cwd,
+      command,
+    });
+    const baseGate = parentGate(cwd, true);
+    let enteredExecution!: () => void;
+    const executionEntered = new Promise<void>((resolve) => {
+      enteredExecution = resolve;
+    });
+    let resumeExecution!: () => void;
+    const executionGate = new Promise<void>((resolve) => {
+      resumeExecution = resolve;
+    });
+    const gate = {
+      ...baseGate,
+      executionVerdict: async () => {
+        enteredExecution();
+        await executionGate;
+        return { effect: "allow" } as const;
+      },
+    };
+    const workerGate = workerPermissionGate(gate, { sessionId: session.id });
+    const execution = runWithSubAgentIdentity(
+      { description: "worker", cwd },
+      () =>
+        workerGate.executionVerdict({
+          id: "retry-racing",
+          name: "run_shell",
+          arguments: { command },
+        }),
+    );
+    await executionEntered;
+
+    const approve = createApproveWorkerCallTool({
+      sessions,
+      permissionGate: gate,
+    });
+    const approval = callFleetToolRaw(approve, {
+      target: session.id,
+      question_id: `${session.id}-question`,
+      request_id: envelope.requestId,
+    });
+    resumeExecution();
+
+    await expect(execution).resolves.toEqual({ effect: "allow" });
+    const approvalResult = await approval;
+    expect(approvalResult.isError).toBe(true);
+    expect(String(approvalResult.content)).toContain("does not match");
+    expect(envelope.status).toBe("consumed");
+    await expect(
+      runWithSubAgentIdentity({ description: "worker", cwd }, () =>
+        workerGate.executionVerdict({
+          id: "retry-replay",
+          name: "run_shell",
+          arguments: { command },
+        }),
+      ),
+    ).resolves.toMatchObject({ effect: "deny" });
+    grants.clear();
+  });
+
+  test("rejects wrong or stale IDs, altered envelope args/CWD, expiry, decline, failed evaluation, and duplicate approval", async () => {
+    const grants = getProcessWorkerGrantStore();
+    grants.clear();
+    const cwd = "/tmp/worker-approval-fail-closed";
+    const sessions = createSubAgentSessionStore();
+    const { session, envelope } = pendingDeniedAsk(sessions, {
+      id: "worker-fail-closed",
+      cwd,
+      command: "git status --short",
+    });
+    const approve = createApproveWorkerCallTool({
+      sessions,
+      permissionGate: parentGate(cwd, true),
+    });
+    const args = {
+      target: session.id,
+      question_id: `${session.id}-question`,
+      request_id: envelope.requestId,
+    };
+
+    for (const invalid of [
+      { ...args, target: "wrong-worker" },
+      { ...args, question_id: "wrong-question" },
+      { ...args, request_id: "wrong-request" },
+    ]) {
+      const result = await callFleetToolRaw(approve, invalid);
+      expect(result.isError).toBe(true);
+      expect(sessions.hasPendingAsk(session.id)).toBe(true);
+    }
+
+    envelope.args.command = "git reset --hard";
+    expect((await callFleetToolRaw(approve, args)).isError).toBe(true);
+    envelope.args.command = "git status --short";
+    envelope.cwd = "/tmp/altered-cwd";
+    expect((await callFleetToolRaw(approve, args)).isError).toBe(true);
+    envelope.cwd = cwd;
+
+    envelope.expiresAt = Date.now() - 1;
+    expect((await callFleetToolRaw(approve, args)).isError).toBe(true);
+    expect(envelope.status).toBe("expired");
+    grants.clear();
+
+    const declinedSessions = createSubAgentSessionStore();
+    const declined = pendingDeniedAsk(declinedSessions, {
+      id: "worker-declined",
+      cwd,
+      command: "printf changed > generated.txt",
+    });
+    const declineTool = createApproveWorkerCallTool({
+      sessions: declinedSessions,
+      permissionGate: parentGate(cwd, false),
+    });
+    const declinedArgs = {
+      target: declined.session.id,
+      question_id: `${declined.session.id}-question`,
+      request_id: declined.envelope.requestId,
+    };
+    expect((await callFleetToolRaw(declineTool, declinedArgs)).isError).toBe(
+      true,
+    );
+    expect(declinedSessions.hasPendingAsk(declined.session.id)).toBe(true);
+
+    const failedTool = createApproveWorkerCallTool({
+      sessions: declinedSessions,
+      permissionGate: {
+        ...parentGate(cwd, true),
+        evaluate: async () => {
+          throw new Error("gate unavailable");
+        },
+      },
+    });
+    expect((await callFleetToolRaw(failedTool, declinedArgs)).isError).toBe(
+      true,
+    );
+    expect(declinedSessions.hasPendingAsk(declined.session.id)).toBe(true);
+
+    const successTool = createApproveWorkerCallTool({
+      sessions: declinedSessions,
+      permissionGate: parentGate(cwd, true),
+    });
+    expect((await callTool(successTool, declinedArgs)).status).toBe(
+      "authorized",
+    );
+    expect((await callFleetToolRaw(successTool, declinedArgs)).isError).toBe(
+      true,
+    );
+    grants.clear();
+  });
 });

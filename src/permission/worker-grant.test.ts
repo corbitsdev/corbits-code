@@ -45,12 +45,15 @@ describe("fingerprintDeniedCall", () => {
     expect(a).toBe(b);
   });
 
-  test("differs across args and tool (cwd binds at precheck, not in the hash)", () => {
+  test("differs across args, tool, and cwd", () => {
     const base = fingerprintDeniedCall("run_shell", ARGS, CWD);
     expect(
       fingerprintDeniedCall("run_shell", { command: "npm run evil" }, CWD),
     ).not.toBe(base);
     expect(fingerprintDeniedCall("read_file", ARGS, CWD)).not.toBe(base);
+    expect(fingerprintDeniedCall("run_shell", ARGS, "/elsewhere")).not.toBe(
+      base,
+    );
     expect(
       fingerprintDeniedCall("read_file", { path: "a.md" }, "/repo") ===
         fingerprintDeniedCall("read_file", { path: "b.md" }, "/repo"),
@@ -283,19 +286,32 @@ describe("WorkerGrantStore lifecycle", () => {
     expect(store.invalidateSession("worker-1", "again")).toBe(0);
   });
 
-  test("attachToAsk stamps the questionId and keeps pending", () => {
+  test("attachToAsk binds only an explicit requestId and keeps it pending", () => {
     const store = new WorkerGrantStore();
     const envelope = store.register(createDeniedCallEnvelope(descriptor()));
     // Reads pin the clock: fixture now predates wall time, so an unpinned
     // read would sweep the envelope as expired.
-    expect(store.attachToAsk("worker-1", "ask-7", undefined, 1_000_001)).toBe(
-      envelope,
-    );
-    expect(envelope.questionId).toBe("ask-7");
+    expect(
+      store.attachToAsk("worker-1", "ask-generic", undefined, 1_000_001),
+    ).toBeUndefined();
+    expect(envelope.questionId).toBeUndefined();
     expect(envelope.status).toBe("pending");
     expect(store.peek(envelope.requestId)).toBe(envelope);
     expect(
-      store.attachToAsk("worker-9", "ask-8", undefined, 1_000_001),
+      store.attachToAsk("worker-1", "ask-7", envelope.requestId, 1_000_001),
+    ).toBe(envelope);
+    expect(envelope.questionId).toBe("ask-7");
+    expect(
+      store.attachToAsk(
+        "worker-1",
+        "ask-rebound",
+        envelope.requestId,
+        1_000_001,
+      ),
+    ).toBeUndefined();
+    expect(envelope.questionId).toBe("ask-7");
+    expect(
+      store.attachToAsk("worker-9", "ask-8", envelope.requestId, 1_000_001),
     ).toBeUndefined();
     expect(envelope.audit.map((event) => event.event)).toEqual([
       "denied",
@@ -329,12 +345,12 @@ describe("WorkerGrantStore lifecycle", () => {
       expect(store.peek(envelopeB.requestId)?.questionId).toBe("ask-B");
     });
 
-    test("unnamed ask keeps the legacy first-pending bind", () => {
+    test("unnamed ask does not bind a pending denial", () => {
       const { store, envelopeA, envelopeB } = twoDenies();
-      expect(store.attachToAsk("worker-1", "ask-x", undefined, 1_000_001)).toBe(
-        envelopeA,
-      );
-      expect(envelopeA.questionId).toBe("ask-x");
+      expect(
+        store.attachToAsk("worker-1", "ask-x", undefined, 1_000_001),
+      ).toBeUndefined();
+      expect(envelopeA.questionId).toBeUndefined();
       expect(envelopeB.questionId).toBeUndefined();
     });
 
@@ -370,7 +386,7 @@ describe("WorkerGrantStore lifecycle", () => {
   test("audit trail orders deny → ask → consume", () => {
     const store = new WorkerGrantStore();
     const envelope = store.register(createDeniedCallEnvelope(descriptor()));
-    store.attachToAsk("worker-1", "ask-1", undefined, 1_000_001);
+    store.attachToAsk("worker-1", "ask-1", envelope.requestId, 1_000_001);
     store.consumeOnAllow({
       sessionId: "worker-1",
       canonicalTool: "run_shell",
