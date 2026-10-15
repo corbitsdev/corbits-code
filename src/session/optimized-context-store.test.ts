@@ -2214,6 +2214,21 @@ describe("createOptimizedContextStore metadata ownership (CL-10667)", () => {
     expect((await store.load()).tokenUsage).toEqual(USAGE_TWO);
   });
 
+  test("torn metadata.json does not zero a valid sidecar", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, "metadata.json"), "{not-json");
+    fs.writeFileSync(
+      path.join(dir, "token-usage.jsonl"),
+      `${JSON.stringify({ turnIndex: 1, usage: USAGE_ONE })}\n`,
+    );
+    const store = await createOptimizedContextStore(dir);
+    const loaded = await store.load();
+    expect(loaded.tokenUsage).toEqual(USAGE_ONE);
+    expect(loaded.tokenUsage.input).toBe(10);
+    expect(loaded.pendingOperations).toEqual([]);
+    expect(loaded.connectorState).toBeNull();
+  });
+
   test("a torn last sidecar line drops and the prior record survives", async () => {
     const dir = tempDir();
     fs.writeFileSync(

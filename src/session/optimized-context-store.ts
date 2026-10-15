@@ -337,19 +337,32 @@ function readMetadataDocument(raw: string): Pick<
 }
 
 /**
- * metadata.json + sidecar merge behind the same soft-default contract the
- * base store had: a throw from the caller's catch falls back to empty
- * defaults so a poisoned file cannot block resume.
+ * metadata.json + sidecar merge. Sidecar wins over a legacy tokenUsage field,
+ * which wins over empty. Parse failures stay inside this function: a torn
+ * "{not-json" document soft-defaults pending ops and connector state, but the
+ * sidecar is read anyway. Letting the throw escape made load()'s catch assign
+ * emptyMetadata() and report all-zero usage.
  */
 async function readSessionMetadata(dir: string): Promise<SessionMetadata> {
-  const raw = await readTextOrNull(path.join(dir, METADATA_FILE));
-  const document =
-    raw !== null && raw.length > 0
-      ? readMetadataDocument(raw)
-      : { pendingOperations: [], connectorState: null, legacyTokenUsage: null };
   const sidecarUsage = await readLatestSidecarUsage(dir);
-  const tokenUsage = sidecarUsage ??
-    document.legacyTokenUsage ?? { ...EMPTY_TOKEN_USAGE };
+  let document: ReturnType<typeof readMetadataDocument> = {
+    pendingOperations: [],
+    connectorState: null,
+    legacyTokenUsage: null,
+  };
+  try {
+    const raw = await readTextOrNull(path.join(dir, METADATA_FILE));
+    if (raw !== null && raw.length > 0) {
+      document = readMetadataDocument(raw);
+    }
+  } catch (cause) {
+    log.warn(
+      "session metadata document unreadable; keeping sidecar usage and empty document defaults",
+      { cause: cause instanceof Error ? cause.message : String(cause) },
+    );
+  }
+  const tokenUsage =
+    sidecarUsage ?? document.legacyTokenUsage ?? { ...EMPTY_TOKEN_USAGE };
   return {
     pendingOperations: document.pendingOperations,
     tokenUsage,
@@ -1121,6 +1134,32 @@ export interface SessionStoreOptions {
   ownerId?: string;
 }
 
+let metadataPublishSeq = 0;
+
+/**
+ * Publish metadata.json only once the bytes are complete. writeFile on the
+ * published name can crash mid-write and leave "{not-json" as metadata.json;
+ * a temp sibling in the same directory plus rename is the published name
+ * appearing with a finished document, same as partial.jsonl.
+ */
+async function publishMetadataDocument(
+  dir: string,
+  desired: string,
+): Promise<void> {
+  const target = path.join(dir, METADATA_FILE);
+  const tmp = path.join(
+    dir,
+    `.${METADATA_FILE}.${process.pid}.${(metadataPublishSeq += 1)}.tmp`,
+  );
+  try {
+    await fs.promises.writeFile(tmp, desired);
+    await fs.promises.rename(tmp, target);
+  } catch (cause) {
+    await fs.promises.rm(tmp, { force: true }).catch(() => undefined);
+    throw cause;
+  }
+}
+
 /**
  * Interchange git-store wrapper that avoids O(session length) work per
  * checkpoint: turns and prompts write as rolling segments so only the active
@@ -1200,7 +1239,7 @@ export async function createSessionStores(
       metadataJsonSeeded = true;
     }
     if (writtenMetadataJson !== desired) {
-      await fs.promises.writeFile(path.join(dir, METADATA_FILE), desired);
+      await publishMetadataDocument(dir, desired);
       writtenMetadataJson = desired;
     }
   }
