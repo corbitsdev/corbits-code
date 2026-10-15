@@ -718,6 +718,8 @@ test("mid-run steer paints QUEUED INPUT until the real director reads it", async
               deliver: (text, pending, settle) => {
                 const message = userInboundMessage(text, pending);
                 const messageId = message.headers.messageId;
+                if (messageId === undefined)
+                  throw new Error("userInboundMessage set no messageId");
                 steerMessageId.current = messageId;
                 bridge.beginQueuedInputDelivery(messageId);
                 void deliverAgentMessage({

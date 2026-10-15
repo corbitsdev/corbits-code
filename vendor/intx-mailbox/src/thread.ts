@@ -76,9 +76,7 @@ function orderedSubjectThread(
 
   const threads: Thread[] = [];
   for (const [, msgs] of bySubject) {
-    const sorted = msgs.sort(
-      (a, b) => a.envelope.date.getTime() - b.envelope.date.getTime(),
-    );
+    const sorted = msgs.sort((a, b) => messageDate(a) - messageDate(b));
     const root = sorted[0]!;
     const rootThread: Thread = {
       ref: { uid: root.uid, mailbox: mailboxName },
@@ -93,7 +91,7 @@ function orderedSubjectThread(
   return threads.sort((a, b) => {
     const aMsg = messages.find((m) => m.uid === a.ref.uid)!;
     const bMsg = messages.find((m) => m.uid === b.ref.uid)!;
-    return aMsg.envelope.date.getTime() - bMsg.envelope.date.getTime();
+    return messageDate(aMsg) - messageDate(bMsg);
   });
 }
 
@@ -195,7 +193,7 @@ function buildRefList(references: string[], inReplyTo?: string): string[] {
     }
   }
 
-  if (inReplyTo !== undefined && inReplyTo !== "" && !seen.has(inReplyTo)) {
+  if (inReplyTo !== undefined && !seen.has(inReplyTo)) {
     result.push(inReplyTo);
   }
 
@@ -231,17 +229,35 @@ function pruneContainers(containers: Container[]): Container[] {
   return result;
 }
 
+/**
+ * The sort key for a message that named no date. `Number.MAX_SAFE_INTEGER`
+ * exceeds the largest time value a `Date` can hold (8.64e15), so a message
+ * carrying this key sorts after every dated message. The epoch would do the
+ * opposite: it is the earliest representable instant, which would hand the
+ * root of an ascending-sorted thread to a message that placed itself nowhere
+ * in time.
+ */
+const UNDATED_SORT_KEY = Number.MAX_SAFE_INTEGER;
+
+/** The sort key for a message's position in a thread (RFC 5256 orders by date). */
+function messageDate(msg: StoredMessage): number {
+  const date = msg.envelope.date;
+  return date === undefined ? UNDATED_SORT_KEY : date.getTime();
+}
+
 function containerDate(c: Container): number {
   if (c.message !== null) {
-    return c.message.envelope.date.getTime();
+    return messageDate(c.message);
   }
-  // For dummy containers, use the earliest child date.
-  let earliest = Infinity;
+  // A dummy container carries no date of its own, so it borrows the earliest
+  // date among its descendants. With no dated descendant it keeps
+  // `UNDATED_SORT_KEY` and sorts last, as an undated message does.
+  let earliest = UNDATED_SORT_KEY;
   for (const child of c.children) {
     const d = containerDate(child);
     if (d < earliest) earliest = d;
   }
-  return earliest === Infinity ? 0 : earliest;
+  return earliest;
 }
 
 function containersToThreads(

@@ -1218,7 +1218,7 @@ describe("buildCompactionContinuationMessage", () => {
     expect(message.ref).toEqual({ uid: 0, mailbox: "system" });
     expect(message.headers.from).toBe("user@local");
     expect(message.headers.to).toEqual(["agent@local"]);
-    expect(message.headers.messageId.startsWith("compact-continue-")).toBe(
+    expect(message.headers.messageId?.startsWith("compact-continue-")).toBe(
       true,
     );
   });
@@ -1251,6 +1251,6 @@ describe("buildMailboxMailMessage", () => {
     expect(message.ref).toEqual({ uid: 0, mailbox: "system" });
     expect(message.headers.from).toBe("user@local");
     expect(message.headers.to).toEqual(["agent@local"]);
-    expect(message.headers.messageId.startsWith("mailbox-mail-")).toBe(true);
+    expect(message.headers.messageId?.startsWith("mailbox-mail-")).toBe(true);
   });
 });

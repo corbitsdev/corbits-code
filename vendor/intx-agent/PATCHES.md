@@ -26,6 +26,20 @@ test files into the new `testing/reactor-waiters.ts` (exported from
 `loadErrors` hooks and the FORBIDDEN_DEPS credential-failure companion
 suite re-carried onto the new shapes.
 
+### 2026-10-14 re-sync to `4cc6972` (CL-10656, HEAD drift 0.4.0 → base)
+
+All three entries re-carried; none dropped (`loadErrors` and error-seq
+resumption still absent upstream in this range). Upstream touched
+`agent.ts` (`d1835b` per-send `deliver` options adopted upstream, `660ef8`
+signature reflow); `agent.ts` three-way merged cleanly with zero
+adaptation — no upstream change intersects the two patch sites. New
+upstream files `authoring.ts` (authoring-only subpath barrel) and the
+`canonicalize.ts` helpers carried verbatim, with the `./authoring` and
+`./canonicalize` subpath exports wired into the vendored `package.json`
+(the inert `vendor/intx-workflow-host/workflow-definition-loader.ts` copy
+imports `./authoring` at its new pin). Upstream also deleted no vendored
+files and changed `testing/` not at all.
+
 ## agent-ts-resume-error-seq
 
 `agent.ts` — `createAgent` resumes `errorSeq` from `auditStore.loadErrors`

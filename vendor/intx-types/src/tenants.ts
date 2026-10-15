@@ -1,22 +1,46 @@
 import { type } from "arktype";
 
 import { SidecarCapabilityPolicy } from "./sidecar-capabilities";
+import { WorkflowLifecyclePolicy } from "./workflow-lifecycle";
 
 export const TenantConfig = type({
+  "lifecycle?": WorkflowLifecyclePolicy,
   "sidecarPlacement?": SidecarCapabilityPolicy,
   "[string]": "unknown",
 });
 export type TenantConfig = typeof TenantConfig.infer;
 
+/**
+ * A tenant slug, constrained to a single DNS label: the create route derives
+ * `tenant.domain` from the lowercased slug, and that domain is both the sender
+ * stamp on outbound mail and the recipient run address. The grammar is RFC 1035
+ * section 2.3.1 as relaxed by RFC 1123 section 2.1.
+ *
+ * https://www.rfc-editor.org/rfc/rfc1035#section-2.3.1
+ * https://www.rfc-editor.org/rfc/rfc1123#section-2.1
+ */
+export const TenantSlug = type(
+  /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/,
+).and("string<=63");
+export type TenantSlug = typeof TenantSlug.infer;
+
+/** Top-level `config` keys to change; `null` removes a key. */
+export const TenantConfigPatch = type({
+  "lifecycle?": WorkflowLifecyclePolicy.or("null"),
+  "sidecarPlacement?": SidecarCapabilityPolicy.or("null"),
+  "[string]": "unknown",
+});
+export type TenantConfigPatch = typeof TenantConfigPatch.infer;
+
 export const CreateTenant = type({
   name: "string",
-  slug: "string",
+  slug: TenantSlug,
   "parentId?": "string | null",
 });
 
 export const UpdateTenant = type({
   "name?": "string",
-  "config?": TenantConfig,
+  "config?": TenantConfigPatch,
 });
 
 export const TenantResponse = type({

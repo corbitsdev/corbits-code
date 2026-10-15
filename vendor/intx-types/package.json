@@ -24,6 +24,10 @@
       "types": "./src/runtime.ts",
       "default": "./src/runtime.ts"
     },
+    "./runtime-core": {
+      "types": "./src/runtime-core.ts",
+      "default": "./src/runtime-core.ts"
+    },
     "./runtime-capabilities": {
       "types": "./src/runtime-capabilities.ts",
       "default": "./src/runtime-capabilities.ts"
@@ -55,6 +59,82 @@
     "./testing": {
       "types": "./src/testing/index.ts",
       "default": "./src/testing/index.ts"
+    },
+    "./attachments": {
+      "types": "./src/attachments.ts",
+      "default": "./src/attachments.ts"
+    },
+    "./credential-delivery": {
+      "types": "./src/credential-delivery.ts",
+      "default": "./src/credential-delivery.ts"
+    },
+    "./format-safety-rating": {
+      "types": "./src/format-safety-rating.ts",
+      "default": "./src/format-safety-rating.ts"
+    },
+    "./inference-events": {
+      "types": "./src/inference-events.ts",
+      "default": "./src/inference-events.ts"
+    },
+    "./inbound-mail-policy": {
+      "types": "./src/inbound-mail-policy.ts",
+      "default": "./src/inbound-mail-policy.ts"
+    },
+    "./workflow-definition": {
+      "types": "./src/workflow-definition.ts",
+      "default": "./src/workflow-definition.ts"
+    },
+    "./hex": {
+      "types": "./src/hex.ts",
+      "default": "./src/hex.ts"
+    },
+    "./grant-snapshot": {
+      "types": "./src/grant-snapshot.ts",
+      "default": "./src/grant-snapshot.ts"
+    },
+    "./repo": {
+      "types": "./src/repo.ts",
+      "default": "./src/repo.ts"
+    },
+    "./base64": {
+      "types": "./src/base64.ts",
+      "default": "./src/base64.ts"
+    },
+    "./signals": {
+      "types": "./src/signals.ts",
+      "default": "./src/signals.ts"
+    },
+    "./agent-address": {
+      "types": "./src/agent-address.ts",
+      "default": "./src/agent-address.ts"
+    },
+    "./has-code": {
+      "types": "./src/has-code.ts",
+      "default": "./src/has-code.ts"
+    },
+    "./concat": {
+      "types": "./src/concat.ts",
+      "default": "./src/concat.ts"
+    },
+    "./workflow-run-id": {
+      "types": "./src/workflow-run-id.ts",
+      "default": "./src/workflow-run-id.ts"
+    },
+    "./message-id": {
+      "types": "./src/message-id.ts",
+      "default": "./src/message-id.ts"
+    },
+    "./credential-cipher": {
+      "types": "./src/credential-cipher.ts",
+      "default": "./src/credential-cipher.ts"
+    },
+    "./grants": {
+      "types": "./src/grants.ts",
+      "default": "./src/grants.ts"
+    },
+    "./adapter-manifest": {
+      "types": "./src/adapter-manifest.ts",
+      "default": "./src/adapter-manifest.ts"
     }
   },
   "dependencies": {

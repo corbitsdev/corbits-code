@@ -178,6 +178,7 @@
       "version": "0.2.2",
       "dependencies": {
         "@intx/crypto": "0.3.0",
+        "@intx/log": "workspace:*",
         "@intx/mime": "workspace:*",
         "@intx/types": "workspace:*",
         "arktype": "catalog:",

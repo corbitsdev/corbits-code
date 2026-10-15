@@ -185,6 +185,51 @@ spot-checks at the recorded positions are unchanged for the same reason
   reason now gains an in-tree companion test (added this sync) and is
   exercised on the abort paths of `e2e/reactor-approval-acceptance.test.ts`.
 
+### 2026-10-14 re-sync to `4cc6972` (CL-10656, HEAD drift 0.4.0 → base)
+
+Every entry re-carried against the pristine `4cc6972` tree; none dropped as
+upstream-absorbed (grep of the pristine tree: `isStreamTerminal`,
+`isPollOnlyPendingBatch`, `ephemeralTurns`, `loadErrors`, `turnsRevision`/
+`deepFreeze`, `isCommitting`, `MAX_LINE_LENGTH` — all still absent).
+Nine upstream commits touch this package (`0f72f95`, `1ff8805`, `a0be30`,
+`660ef8`, `d1e05e`, `cb61da`, `d1835b`, `c8be7e`, `2d973a`). Adaptation
+surface: 22 upstream-changed files; 9 vendored files carry local content
+and were three-way merged (`git merge-file`, ours/base/theirs), the rest
+copied verbatim.
+
+- `errors.ts` conflict: upstream `c8be7e` added
+  `classifyRequestBuildError` between `classifyNetworkError` and the
+  patched `classifyAbortError(reason?)`; both kept (upstream function
+  adopted, patch re-carried with its `ClassifiedAbortRaw` type).
+- `reactor.ts` two conflicts: (1) `d1835b` added
+  `mergeInferenceOptions`/`PerCallInferenceOptions` strip-copy beside the
+  patched `ExtendedInferenceOptions` (`ephemeralTurns`) — both kept; (2)
+  `d1835b`/`0f72f95` restructured `processDelivery` (per-send `deliver`
+  options, `deliveredInference` adoption, `expectedFrom` removal) inside
+  the atomic-acceptance critical section — the upstream adoption block
+  was re-slit above the patched `disposition` declaration, and the
+  `reactor-ts-atomic-approval-acceptance` `try/finally` boundary is
+  intact.
+- Clean three-way merges on patched files: `assembly.ts`,
+  `correlation.ts`, `errors.test.ts`, `harness.ts`, `index.ts`,
+  `providers/anthropic.ts`, `providers/google-genai.ts`,
+  `providers/openai.ts`, `reactor.test.ts`; patch hunks carry with zero
+  adaptation (`providers-ts-openai-exclusive-cache-usage`,
+  `inference-ts-cl-7783-truncated-tool-call` stop-reason chain verified
+  against the new `@intx/types` `inference-events.ts` sites and
+  `providers/anthropic.ts`). The vendored `index.ts` merged with
+  upstream's barrel: upstream moved the `AdapterManifest` export to
+  `@intx/types` (`adapter-manifest.ts`); first-party
+  `src/provider/inference-dependencies.ts` imports it there now.
+- `effort.ts`/`effort.test.ts` (`c8be7e` reasoning-effort mapping) and
+  `manifest.ts`'s new callers (`2d973a` adapter manifest) adopted
+  verbatim; the vendored `package.json` gains the upstream `./manifest`
+  and `./default-director` subpath exports.
+- Post-merge divergence proof: `bin/vendor-patch-diff` against the
+  recorded SHA prints the same +/− line multiset as the pre-sync ledger
+  diff (1324 + / 230 − for this package), i.e. no patch content lost and
+  no unledgered divergence gained.
+
 ## adapter-ts-stream-terminal-detector
 
 `adapter.ts` — Adds `StreamTerminalDetector`/`ProviderAdapter.isStreamTerminal`.
