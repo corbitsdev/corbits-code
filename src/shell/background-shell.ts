@@ -4,6 +4,7 @@ import {
   BoundedShellOutput,
   MAX_SHELL_OUTPUT_BYTES,
 } from "../plugins/shell-guard-plugin.js";
+import { wrapWithShellSandbox, type ShellSandbox } from "./sandbox-config.js";
 
 // Background run_shell: start returns a handle at once and the process keeps
 // running past the end of the turn, so queued steers land while builds and dev
@@ -58,16 +59,25 @@ export interface BackgroundShellExit {
 }
 
 export interface BackgroundShellRegistry {
-  start: (args: StartBackgroundShellArgs) => { id: string } | { error: string };
+  // Async only because the sandbox wrap is async: a sandboxed start must
+  // refuse to spawn when wrapping fails, which is unknowable synchronously.
+  start: (
+    args: StartBackgroundShellArgs,
+  ) => Promise<{ id: string } | { error: string }>;
   cancel: (id: string) => boolean;
   disposeAll: () => void;
   runningCount: () => number;
 }
 
 export function createBackgroundShellRegistry(
-  options: { onExit?: (exit: BackgroundShellExit) => void } = {},
+  options: {
+    onExit?: (exit: BackgroundShellExit) => void;
+    // Session sandbox wrapping for spawned commands; omitted = raw spawn.
+    sandbox?: ShellSandbox;
+  } = {},
 ): BackgroundShellRegistry {
   const { onExit } = options;
+  const sandbox = options.sandbox;
   const running = new Map<string, ChildProcess>();
 
   const record =
@@ -86,13 +96,25 @@ export function createBackgroundShellRegistry(
       onExit?.(exit);
     };
 
-  const start = (
+  const start = async (
     args: StartBackgroundShellArgs,
-  ): { id: string } | { error: string } => {
+  ): Promise<{ id: string } | { error: string }> => {
     if (running.size >= MAX_RUNNING_BACKGROUND_SHELLS) {
       return {
         error: `background shell limit reached (${MAX_RUNNING_BACKGROUND_SHELLS} running); stop one first`,
       };
+    }
+    // Fail closed before any bookkeeping: an unwrappable command spawns
+    // nothing and reports the sandbox error as the start failure.
+    let command = args.command;
+    if (sandbox !== undefined) {
+      try {
+        command = await wrapWithShellSandbox(sandbox, args.command);
+      } catch (err) {
+        return {
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
     }
     const id = randomUUID();
     const collector = new BoundedShellOutput(
@@ -100,7 +122,7 @@ export function createBackgroundShellRegistry(
     );
     // detached so the shell leads a process group and cancel/timeout can
     // SIGKILL the whole tree.
-    const child = spawn(args.command, {
+    const child = spawn(command, {
       shell: true,
       stdio: ["ignore", "pipe", "pipe"],
       cwd: args.cwd,

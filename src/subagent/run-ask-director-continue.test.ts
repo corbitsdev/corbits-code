@@ -17,7 +17,7 @@ import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams } from "./types.js";
 import type { AskDirectorState } from "./ask-director.js";
 import { SubAgentDirector } from "./nudge-director.js";
-import { createTestCapabilities } from "./director-test-harness.js";
+import { stubReactorCapabilities } from "../../testkit/reactor-stubs.js";
 import { DIRECTOR_RESOLVABLE_ESCALATION } from "../../testkit/escalation.js";
 
 const testPermissionGate = createPermissionGate({
@@ -235,7 +235,7 @@ describe("runSubAgent ask_director compact-continue wiring", () => {
                       await director.decide(
                         emptyContinuation(),
                         state,
-                        createTestCapabilities(),
+                        stubReactorCapabilities,
                       ),
                     );
                     expect(parkedPing).toEqual([{ type: "wait" }]);

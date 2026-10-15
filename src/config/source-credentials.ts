@@ -19,11 +19,32 @@ export interface SourceCredentialRecord {
 
 const cell = new Map<string, SourceCredentialRecord>();
 
+// The material rides process memory long after registration (per-use resolver
+// reads, subagent failover chains). Freezing at the cell boundary means every
+// downstream holder sees an immutable snapshot: a mutated "material" never
+// masquerades as the registered secret, and an attempted header mutation fails
+// loudly instead of silently diverging from what the provider sent. Secrets
+// are strings; the headers record is the mutable part being contained.
+function freezeCredentialMaterial(
+  material: CredentialMaterial,
+): CredentialMaterial {
+  const frozen: CredentialMaterial = {
+    ...material,
+    ...(material.headers !== undefined
+      ? { headers: Object.freeze({ ...material.headers }) }
+      : {}),
+  };
+  return Object.freeze(frozen);
+}
+
 export function registerSourceCredentialRecord(
   credentialId: string,
   record: SourceCredentialRecord,
 ): void {
-  cell.set(credentialId, record);
+  cell.set(credentialId, {
+    ...record,
+    material: freezeCredentialMaterial(record.material),
+  });
 }
 
 export function rotateSourceCredentialMaterialIfCurrent(
@@ -32,7 +53,10 @@ export function rotateSourceCredentialMaterialIfCurrent(
   material: CredentialMaterial,
 ): boolean {
   if (cell.get(credentialId) !== expected) return false;
-  cell.set(credentialId, { provenance: expected.provenance, material });
+  cell.set(credentialId, {
+    provenance: expected.provenance,
+    material: freezeCredentialMaterial(material),
+  });
   return true;
 }
 

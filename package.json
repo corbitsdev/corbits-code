@@ -83,10 +83,10 @@
     "hono": "^4.11.9",
     "isomorphic-git": "^1.27.2",
     "semver": "^7.7.2",
-    "ssri": "^12.0.0",
     "tar": "^7.5.1"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.79",
     "@corbits/codex-provider": "0.1.1",
     "@corbits/oauth-core": "0.2.0",
     "@corbits/openai-responses": "0.2.1",

@@ -87,6 +87,13 @@ describe("classifyAbortError", () => {
     const err = classifyAbortError();
     expect(err.category).toBe("aborted");
   });
+
+  // Locally patched — see vendor/intx-inference/PATCHES.md#errors-ts-classify-abort-reason
+  test("carries a caller-supplied reason as raw.origin", () => {
+    const err = classifyAbortError("user-stop");
+    expect(err.category).toBe("aborted");
+    expect(err.raw).toEqual({ origin: "user-stop" });
+  });
 });
 
 describe("classifyStreamError", () => {

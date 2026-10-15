@@ -226,3 +226,32 @@ describe("runSubAgent list_agents mount (mailbox-scoped, nested ok)", () => {
     expect(listAgentsMounts).toBe(1);
   }, 15_000);
 });
+
+describe("runSubAgent approve_worker_call mount (nested control plane)", () => {
+  test("nested-orchestrator mounts approve_worker_call", async () => {
+    const cwd = await tmpCwd();
+    let approvalMounts = 0;
+
+    await probeMount(
+      cwd,
+      import.meta.resolve("./lifecycle-tools.js"),
+      (real: typeof import("./lifecycle-tools.js")) => ({
+        ...real,
+        createApproveWorkerCallTool: (
+          deps: Parameters<typeof real.createApproveWorkerCallTool>[0],
+        ) => {
+          approvalMounts++;
+          return real.createApproveWorkerCallTool(deps);
+        },
+      }),
+      (baseURL) => ({
+        id: "nested-parent-session",
+        orchestrator: true,
+        orchestratorTier: "nested-orchestrator",
+        nestedDispatch: nestedDispatch(cwd, baseURL),
+      }),
+    );
+
+    expect(approvalMounts).toBe(1);
+  }, 15_000);
+});
