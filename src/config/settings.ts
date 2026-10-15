@@ -124,8 +124,16 @@ export interface Settings {
   // Shell command timeouts. `timeoutMs` overrides the 120s foreground run_shell
   // default when the model omits a per-command timeout; `maxTimeoutMs` clamps
   // that default path only — a per-call timeout is the bound, no ceiling.
-  // Background run_shell has no default.
-  shell?: { timeoutMs?: number; maxTimeoutMs?: number };
+  // Background run_shell has no default. `sandbox` opts spawns and stdio MCP
+  // servers into the OS sandbox runtime (@anthropic-ai/sandbox-runtime):
+  // enabled is false by default, network.allowedHosts is the operator's
+  // pre-approved allowlist — any other host asks through the permission gate,
+  // and the OS sandbox itself stays on even in yolo mode.
+  shell?: {
+    timeoutMs?: number;
+    maxTimeoutMs?: number;
+    sandbox?: { enabled?: boolean; network?: { allowedHosts?: string[] } };
+  };
   // Outer wall-clock budget for each tool run(). waitForApproval (default true)
   // freezes the budget while a permission prompt is open so a late approve
   // still runs the tool; false keeps ticking and expiry skips the tool.
@@ -366,6 +374,25 @@ export function shellTimeoutFromSettings(
   return {
     ...(shell.timeoutMs !== undefined ? { defaultMs: shell.timeoutMs } : {}),
     ...(shell.maxTimeoutMs !== undefined ? { maxMs: shell.maxTimeoutMs } : {}),
+  };
+}
+
+/** Resolved shell.sandbox block: the enable flag plus the network allowlist. */
+export interface SandboxSettings {
+  enabled: boolean;
+  network?: { allowedHosts?: string[] };
+}
+
+// Sandbox enablement rides the same global-settings block as the shell
+// timeouts (shellTimeoutFromSettings): no local-settings leg, no CLI flag —
+// the composition roots read it once at session assembly.
+export function sandboxFromSettings(
+  settings?: Settings | null,
+): SandboxSettings {
+  const sandbox = settings?.shell?.sandbox;
+  return {
+    enabled: sandbox?.enabled === true,
+    ...(sandbox?.network !== undefined ? { network: sandbox.network } : {}),
   };
 }
 
@@ -658,7 +685,14 @@ const SettingsSchema = type({
   "sessionMode?": "'single' | 'orchestrator'",
 
   "agentModelFallback?": "'active' | 'none'",
-  "shell?": type({ "timeoutMs?": "number", "maxTimeoutMs?": "number" }),
+  "shell?": type({
+    "timeoutMs?": "number",
+    "maxTimeoutMs?": "number",
+    "sandbox?": type({
+      "enabled?": "boolean",
+      "network?": type({ "allowedHosts?": "string[]" }),
+    }),
+  }),
   "tools?": type({
     "timeoutMs?": "number",
     "maxTimeoutMs?": "number",

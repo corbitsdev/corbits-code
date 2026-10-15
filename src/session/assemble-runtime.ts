@@ -110,6 +110,7 @@ import {
   type LifecycleHookEvent,
   type LifecycleHookManager,
 } from "./hooks.js";
+import type { ShellSandbox } from "../shell/sandbox-config.js";
 import { createRunSink, type RunSink } from "./run-sink.js";
 import {
   createCycleTextRecorder,
@@ -840,6 +841,9 @@ export interface SessionLifecycleWiring {
   ) => void;
   hookEnabled?: Record<string, boolean> | undefined;
   onHookEvent?: ((event: LifecycleHookEvent) => void) | undefined;
+  // Live getter for the session OS-sandbox handle: wired sessions wrap every
+  // lifecycle hook spawn into the sandbox; unwired sessions raw-spawn.
+  getSandbox?: (() => ShellSandbox | undefined) | undefined;
   resolveContextDir: () => string;
 }
 
@@ -863,6 +867,9 @@ export async function assembleSessionLifecycle(
     hooks: await discoverLifecycleHooks(hookDirectories(wiring.cwd)),
     initialEnabled: wiring.hookEnabled,
     onEvent: wiring.onHookEvent,
+    ...(wiring.getSandbox !== undefined
+      ? { getSandbox: wiring.getSandbox }
+      : {}),
   });
   const turnObserver = createTurnObserver({
     telemetry: wiring.getTelemetry,

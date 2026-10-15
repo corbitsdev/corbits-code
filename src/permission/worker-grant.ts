@@ -1,8 +1,9 @@
-// Worker denied-call envelope: a worker tool call denied pending operator
+// Worker denied-call envelope: a worker tool call denied pending parent
 // approval. The deny text names only the requestId; the envelope carries the
-// exact denied call so the parent replays it through its own gate and the
-// worker retries via resume_agent. Prose is never authority: nothing here
-// parses message text, and send_input stays text-only.
+// exact denied call so the parent replays it through its own gate.
+// approve_worker_call authorizes the retry, then resolveAsk continues the
+// parked turn. Prose is never authority: nothing here parses message text,
+// and send_input stays text-only.
 
 import { createHash, randomUUID } from "node:crypto";
 
@@ -17,12 +18,20 @@ export const WORKER_GRANT_TTL_MS = 10 * 60 * 1000;
 
 export type WorkerGrantStatus =
   | "pending"
+  | "authorized"
   | "consumed"
   | "expired"
   | "interrupted";
 
 export interface WorkerGrantAuditEvent {
-  event: "denied" | "asked" | "consumed" | "expired" | "interrupted";
+  event:
+    | "denied"
+    | "asked"
+    | "authorized"
+    | "revoked"
+    | "consumed"
+    | "expired"
+    | "interrupted";
   at: number;
   detail?: string;
 }
@@ -73,7 +82,11 @@ export function fingerprintDeniedCall(
     { name: canonicalTool, arguments: sortKeys(args) } as ToolCall,
     cwd,
   );
-  return createHash("sha256").update(stable).digest("hex");
+  return createHash("sha256")
+    .update(stable)
+    .update("\0")
+    .update(cwd)
+    .digest("hex");
 }
 
 function sortKeys(value: unknown): unknown {
@@ -173,6 +186,8 @@ function terminalBlocker(
   switch (envelope.status) {
     case "consumed":
       return `Grant request ${envelope.requestId} was already consumed by its one retry — replaying ${expected} is denied.`;
+    case "authorized":
+      return `Grant request ${envelope.requestId} is reserved for its exact pending retry — replaying ${expected} is denied.`;
     case "expired":
       return `Grant request ${envelope.requestId} expired — retrying ${expected} is denied. Re-ask instead.`;
     case "interrupted":
@@ -206,6 +221,17 @@ export class WorkerGrantStore {
       release();
       if (this.turns.get(key) === next) this.turns.delete(key);
     }
+  }
+
+  /** Serialize work that mutates an exact worker-call envelope. */
+  runExclusiveIdentity<T>(
+    identity: WorkerCallIdentity,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    return this.runExclusive(
+      `${identity.sessionId}\n${fingerprintOf(identity)}`,
+      fn,
+    );
   }
 
   register(envelope: WorkerDeniedCallEnvelope): WorkerDeniedCallEnvelope {
@@ -257,10 +283,10 @@ export class WorkerGrantStore {
     return undefined;
   }
 
-  /** Stamp the questionId the parent's retry references. A named requestId
-   * binds its exact denial (first-pending would join a question about B to
-   * call A); an unnamed ask keeps the legacy first-pending bind. Unresolvable
-   * ids fail closed; overdue envelopes sweep first. */
+  /** Stamp the questionId the parent's retry references. Only the exact
+   * requestId supplied by the worker can bind a denial: session-wide fallback
+   * would attach a stale denial to an unrelated ask. Unresolvable or already
+   * attached ids fail closed; overdue envelopes sweep first. */
   attachToAsk(
     sessionId: string,
     questionId: string,
@@ -268,24 +294,59 @@ export class WorkerGrantStore {
     now: number = Date.now(),
   ): WorkerDeniedCallEnvelope | undefined {
     this.sweepExpired(now);
-    const named = requestId?.trim() || undefined;
-    if (named !== undefined) {
-      const envelope = this.envelopes.get(named);
-      if (
-        envelope === undefined ||
-        envelope.workerSessionId !== sessionId ||
-        envelope.status !== "pending"
-      )
-        return undefined;
-      envelope.questionId = questionId;
-      audit(envelope, "asked", questionId);
-      return envelope;
-    }
-    const envelope = this.pendingForSession(sessionId, now);
-    if (envelope === undefined) return undefined;
+    const named = requestId?.trim();
+    if (named === undefined || named.length === 0) return undefined;
+    const envelope = this.envelopes.get(named);
+    if (
+      envelope === undefined ||
+      envelope.workerSessionId !== sessionId ||
+      envelope.status !== "pending" ||
+      envelope.questionId !== undefined
+    )
+      return undefined;
     envelope.questionId = questionId;
     audit(envelope, "asked", questionId);
     return envelope;
+  }
+
+  /** Parent-only transition after it has approved this exact live envelope.
+   * The authorized state remains bound to the retained envelope and is spent
+   * only by consumeAuthorizedRetry at the worker execution seam. */
+  authorizeRetry(requestId: string, now: number = Date.now()): boolean {
+    this.sweepExpired(now);
+    const envelope = this.envelopes.get(requestId);
+    if (envelope === undefined || envelope.status !== "pending") return false;
+    if (envelope.expiresAt <= now) return false;
+    envelope.status = "authorized";
+    audit(envelope, "authorized");
+    return true;
+  }
+
+  /** Undo an authorization when the parent could not wake its still-pending
+   * ask. No worker can receive the authorization without that wake. */
+  revokeAuthorizedRetry(requestId: string): void {
+    const envelope = this.envelopes.get(requestId);
+    if (envelope?.status !== "authorized") return;
+    envelope.status = "pending";
+    audit(envelope, "revoked");
+  }
+
+  hasAuthorizedRetry(identity: WorkerCallIdentity): boolean {
+    const now = identity.now ?? Date.now();
+    this.sweepExpired(now);
+    const fingerprint = fingerprintOf(identity);
+    for (const envelope of this.envelopes.values()) {
+      if (
+        envelope.argsFingerprint === fingerprint &&
+        envelope.cwd === identity.cwd &&
+        envelope.canonicalTool === identity.canonicalTool &&
+        envelope.workerSessionId === identity.sessionId &&
+        envelope.status === "authorized" &&
+        envelope.expiresAt > now
+      )
+        return true;
+    }
+    return false;
   }
 
   /**
@@ -301,9 +362,7 @@ export class WorkerGrantStore {
   ): { ok: true } | { ok: false; blocker: string } {
     const now = identity.now ?? Date.now();
     this.sweepExpired(now);
-    const fingerprint = fingerprintOf(identity);
     for (const envelope of this.envelopes.values()) {
-      if (envelope.argsFingerprint !== fingerprint) continue;
       // Own-session envelopes only (reactor retries share this session, so
       // consume-once survives).
       if (
@@ -312,8 +371,23 @@ export class WorkerGrantStore {
       ) {
         continue;
       }
+      // Compare against the envelope's CWD so a changed retry CWD reaches
+      // the explicit CWD rejection below rather than looking unrelated.
+      if (
+        envelope.argsFingerprint !==
+        fingerprintDeniedCall(
+          identity.canonicalTool,
+          identity.args,
+          envelope.cwd,
+        )
+      )
+        continue;
       if (envelope.cwd !== identity.cwd) {
-        if (envelope.status === "pending" || envelope.status === "consumed")
+        if (
+          envelope.status === "pending" ||
+          envelope.status === "authorized" ||
+          envelope.status === "consumed"
+        )
           return {
             ok: false,
             blocker:
@@ -327,7 +401,7 @@ export class WorkerGrantStore {
         };
       }
       if (envelope.status === "expired") continue;
-      if (envelope.status !== "pending") {
+      if (envelope.status !== "pending" && envelope.status !== "authorized") {
         return {
           ok: false,
           blocker: terminalBlocker(envelope, identity.canonicalTool),
@@ -369,6 +443,29 @@ export class WorkerGrantStore {
     return undefined;
   }
 
+  /** Atomically spend the parent-authorized exact retry at execution. */
+  consumeAuthorizedRetry(
+    identity: WorkerCallIdentity,
+  ): WorkerDeniedCallEnvelope | undefined {
+    const now = identity.now ?? Date.now();
+    const fingerprint = fingerprintOf(identity);
+    for (const envelope of this.envelopes.values()) {
+      if (
+        envelope.argsFingerprint !== fingerprint ||
+        envelope.cwd !== identity.cwd ||
+        envelope.canonicalTool !== identity.canonicalTool ||
+        envelope.workerSessionId !== identity.sessionId ||
+        envelope.status !== "authorized" ||
+        envelope.expiresAt <= now
+      )
+        continue;
+      envelope.status = "consumed";
+      audit(envelope, "consumed", identity.canonicalTool);
+      return envelope;
+    }
+    return undefined;
+  }
+
   /** Interrupt invalidation: tombstone the session's envelopes so a later
    * replay fails closed instead of riding whatever grant the gate now holds.
    * Retained completion does not invalidate — the resume_agent retry is a
@@ -378,7 +475,7 @@ export class WorkerGrantStore {
     for (const envelope of this.envelopes.values()) {
       if (
         envelope.workerSessionId !== sessionId ||
-        envelope.status !== "pending"
+        (envelope.status !== "pending" && envelope.status !== "authorized")
       )
         continue;
       envelope.status = "interrupted";
@@ -393,7 +490,11 @@ export class WorkerGrantStore {
   sweepExpired(now = Date.now()): number {
     let expired = 0;
     for (const envelope of this.envelopes.values()) {
-      if (envelope.status !== "pending" || envelope.expiresAt > now) continue;
+      if (
+        (envelope.status !== "pending" && envelope.status !== "authorized") ||
+        envelope.expiresAt > now
+      )
+        continue;
       envelope.status = "expired";
       audit(envelope, "expired");
       expired += 1;
@@ -408,7 +509,7 @@ export class WorkerGrantStore {
     for (const envelope of this.envelopes.values()) {
       if (
         envelope.workerSessionId !== sessionId ||
-        envelope.status !== "pending"
+        (envelope.status !== "pending" && envelope.status !== "authorized")
       )
         continue;
       envelope.status = "expired";
@@ -423,7 +524,8 @@ export class WorkerGrantStore {
   invalidateAll(reason: string): number {
     let invalidated = 0;
     for (const envelope of this.envelopes.values()) {
-      if (envelope.status !== "pending") continue;
+      if (envelope.status !== "pending" && envelope.status !== "authorized")
+        continue;
       envelope.status = "interrupted";
       audit(envelope, "interrupted", reason);
       invalidated += 1;

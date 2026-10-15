@@ -14,6 +14,7 @@ import type { ResolvedMCPServerConfig } from "./exa.js";
 import type { McpToolAnnotations } from "./tool-permissions.js";
 import { buildStdioMcpProcessEnv } from "./stdio-env.js";
 import { isHttpServer } from "./is-http-server.js";
+import type { ShellSandbox } from "../shell/sandbox-config.js";
 import {
   classifyMcpConnectResult,
   classifyMcpOAuthResult,
@@ -101,6 +102,10 @@ export interface MCPConnectOptions {
   // transport died under a live client; close() disarms it before
   // intentional teardown.
   onDisconnect?: () => void;
+  // Session OS-sandbox handle: a model-reachable stdio server spawn runs
+  // wrapped; an unwrappable command fails the connect (fail closed). Omitted
+  // keeps the direct spawn path byte-identical.
+  sandbox?: ShellSandbox;
 }
 
 export function unwrapToolContent(content: unknown): string {
@@ -680,6 +685,27 @@ async function connectStdio(
   };
   if (config.args !== undefined) transportOptions.args = config.args;
   if (options.stderr !== undefined) transportOptions.stderr = options.stderr;
+  // Sandbox wrap: the wrapped argv is [binShell, "-c", wrapped], executed
+  // without a shell so the caller's env staylist still governs the process
+  // env; the sandbox's own filesystem/network policy governs its access.
+  if (options.sandbox !== undefined) {
+    try {
+      const { argv } = await options.sandbox.wrapExecArgv(
+        config.command,
+        transportOptions.args ?? [],
+      );
+      const [head, ...rest] = argv;
+      if (head === undefined) throw new Error("sandbox wrap returned no argv");
+      transportOptions.command = head;
+      transportOptions.args = rest;
+    } catch (err) {
+      return {
+        ok: false,
+        serverName: config.name,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
   const client = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
   try {
     const transport = new StdioClientTransport(transportOptions);

@@ -26,6 +26,8 @@ import {
   shellCwdEscapesSessionMessage,
   wrapCommandWithPwdProbe,
 } from "../shell/persistent-shell-cwd.js";
+import type { ShellSandbox } from "../shell/sandbox-config.js";
+import { wrapWithShellSandbox } from "../shell/sandbox-config.js";
 
 // Corbits Code-side replacement for stock `@intx/tools-posix` run_shell.
 
@@ -198,6 +200,9 @@ interface RunShellArgs {
   cwd?: string;
   maxOutputBytes?: number;
   env?: Record<string, string>;
+  // Session OS-sandbox handle; present means wrap-then-spawn (fail closed),
+  // absent means the raw spawn path, byte-identical to pre-sandbox behavior.
+  sandbox?: ShellSandbox;
 }
 
 export interface GuardedShellResult {
@@ -367,10 +372,17 @@ export async function runGuardedShell(
   const outputCap = args.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
   const collector = new BoundedShellOutput(outputCap);
 
+  // Sandbox wrap before the spawn promise exists: a wrap failure rejects
+  // here, so the raw command can never reach spawn (fail closed).
+  const command =
+    args.sandbox === undefined
+      ? args.command
+      : await wrapWithShellSandbox(args.sandbox, args.command);
+
   return new Promise((resolve, reject) => {
     // detached so the shell becomes a process-group leader and timeout/abort
     // can SIGKILL the whole tree (otherwise find/grep orphans keep burning RAM).
-    const child = spawn(args.command, {
+    const child = spawn(command, {
       shell: true,
       stdio: ["ignore", "pipe", "pipe"],
       cwd: args.cwd,
@@ -485,7 +497,7 @@ export async function runGuardedShell(
 
     const onAbort = () => {
       killProcessTree(child);
-      settle(new Error(`command aborted: ${args.command}`));
+      settle(new Error(`command aborted: ${command}`));
     };
 
     signal.addEventListener("abort", onAbort, { once: true });
@@ -496,9 +508,7 @@ export async function runGuardedShell(
 
     child.on("error", (err) => {
       dropLive();
-      settle(
-        new Error(`failed to spawn command: ${args.command}`, { cause: err }),
-      );
+      settle(new Error(`failed to spawn command: ${command}`, { cause: err }));
     });
 
     child.on("close", (code, sig) => {
@@ -532,6 +542,9 @@ export interface ShellGuardPluginOptions {
   // Live getter for the per-call bounded shell-output feeds the transcript
   // polls for a running command's live tail. Unwired, the tail is simply not painted.
   getShellOutputFeeds?: () => ShellOutputFeedMap | undefined;
+  // Session OS-sandbox handle: wrapped spawns + unwrappable commands fail
+  // closed. Omitted (default off) keeps the raw spawn path untouched.
+  sandbox?: ShellSandbox;
 }
 
 function resolveAllowOutsideCwd(
@@ -659,7 +672,7 @@ export function shellGuardPlugin(
                 isError: true,
               };
             }
-            const started = registry.start({
+            const started = await registry.start({
               command,
               cwd: executionCwd,
               ...(effectiveTimeout !== undefined
@@ -695,6 +708,9 @@ export function shellGuardPlugin(
                     : {}),
                   maxOutputBytes,
                   ...(env !== undefined ? { env } : {}),
+                  ...(options.sandbox !== undefined
+                    ? { sandbox: options.sandbox }
+                    : {}),
                 },
                 signal,
                 liveChildren,

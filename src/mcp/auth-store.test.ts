@@ -321,4 +321,29 @@ describe("mcp auth-store", () => {
       final.tokens === undefined || final.tokens.access_token === "v1",
     ).toBe(true);
   });
+
+  test("a corrupt auth file is backed up before the next overwrite", async () => {
+    const home = await tempHome();
+    const path = authFilePath(linear, home);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, "{corrupt", { mode: 0o600 });
+
+    // Corrupt state reads as absent (a fresh authorization is offered), but
+    // the corrupt bytes survive for diagnosis.
+    expect(await loadAuthState(linear, home)).toEqual({});
+    expect(await readFile(`${path}.corrupt`, "utf8")).toBe("{corrupt");
+
+    // The overwrite behind a fresh authorization cannot consume the last copy.
+    await updateAuthState(
+      linear,
+      (state) => {
+        state.tokens = { access_token: "tok", token_type: "bearer" };
+      },
+      home,
+    );
+    expect((await loadAuthState(linear, home)).tokens?.access_token).toBe(
+      "tok",
+    );
+    expect(await readFile(`${path}.corrupt`, "utf8")).toBe("{corrupt");
+  });
 });

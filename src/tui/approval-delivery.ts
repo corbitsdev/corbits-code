@@ -19,6 +19,7 @@ import type { InboundMessage } from "@intx/types/runtime";
 import { getLogger } from "@intx/log";
 
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import { redactedCorrelationId } from "../session/redacted-correlation.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "approval-delivery"]);
 
@@ -52,7 +53,8 @@ export class ApprovalDeliveryTimeoutError extends Error {
           : "the decision may still be applied";
     super(
       `approval delivery timed out waiting for reactor acceptance ` +
-        `(correlationId=${args.correlationId}, stage=reactor-acceptance, ` +
+        // Redacted in text; the full ID stays on the structured property.
+        `(correlationId=${redactedCorrelationId(args.correlationId)}, stage=reactor-acceptance, ` +
         `timeoutMs=${args.timeoutMs}, outcome=${args.outcome}). ` +
         `The decision was handed to the reactor but no acceptance event was ` +
         `observed, so ${action}. Do not re-deliver: the delivery tail has ` +
@@ -119,7 +121,7 @@ export function createApprovalDeliverer(
               timeoutMs,
               outcome,
             });
-            logger.warn`approval acceptance timed out correlation=${correlationId} timeoutMs=${timeoutMs} outcome=${outcome}`;
+            logger.warn`approval acceptance timed out correlation=${redactedCorrelationId(correlationId)} timeoutMs=${timeoutMs} outcome=${outcome}`;
             deps.onTimeout?.(err);
             reject(err);
           }, timeoutMs);

@@ -16,7 +16,6 @@ import type {
   ContextStore,
   InboundMessage,
 } from "@intx/types/runtime";
-import { isDeepStrictEqual } from "node:util";
 import { type } from "arktype";
 
 import { getLogger } from "@intx/log";
@@ -32,6 +31,16 @@ import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../permission/decline-markers.js";
 import { buildRequests } from "../permission/classify.js";
 import type { PermissionGate } from "../permission/gate.js";
 import type { PermissionRequest } from "../permission/types.js";
+import { scrubSecretShapedContent } from "../plugins/tool-result-secret-scrub.js";
+import {
+  LOCAL_APPROVAL_FROM,
+  LOCAL_APPROVAL_MAILBOX,
+} from "./approval-provenance.js";
+import {
+  redactedCorrelationId,
+  scrubCorrelationShapedIds,
+} from "./redacted-correlation.js";
+import { snapshotArgumentsMatch } from "./pending-snapshot-scrub.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "approval-resume"]);
 
@@ -62,10 +71,14 @@ export interface ApprovalResume {
 /**
  * What a watchdog resume attempt did. `code` is content-free (a fixed
  * vocabulary, never approval or tool payload) so it can go into a turn marker.
+ * `detail` carries the failed attempt's cause — the error class plus a
+ * secret-scrubbed message — for warn logs and diagnostics; it stays out of
+ * turn markers, which inherit `code`'s content-free guarantee.
  */
 export interface StallResumeResult {
   readonly handled: boolean;
   readonly code: string;
+  readonly detail?: string;
 }
 
 /** The `reactor.gate.blocked` payload fields recovery reads. */
@@ -108,9 +121,22 @@ export function createSuspendedApprovalRecovery(args: {
   ) => {
     candidate = { result, stillCurrent, attempted: false };
   };
-  const refused = (code: string): StallResumeResult => ({
+  // A refused attempt's cause: the error class plus a secret-scrubbed,
+  // correlation-redacted message. Content is drained from thrown Errors,
+  // never from approval or tool payloads, so warn lines stay safe to persist
+  // unauthenticated: a bearer token or an embedded live correlation ID —
+  // both re-grant a parked call — never lands in full form.
+  const causeOf = (err: unknown): string => {
+    const cls = err instanceof Error ? err.name : typeof err;
+    const message = err instanceof Error ? err.message : String(err);
+    return `${cls}: ${scrubCorrelationShapedIds(
+      scrubSecretShapedContent(message),
+    )}`;
+  };
+  const refused = (code: string, detail?: string): StallResumeResult => ({
     handled: false,
     code,
+    ...(detail !== undefined ? { detail } : {}),
   });
   return {
     capture,
@@ -137,7 +163,7 @@ export function createSuspendedApprovalRecovery(args: {
           if (candidate === owned) candidate = undefined;
         },
         () => {
-          logger.warn`parked approval not presented correlation=${correlationId}`;
+          logger.warn`parked approval not presented correlation=${redactedCorrelationId(correlationId)}`;
         },
       );
     },
@@ -179,8 +205,15 @@ export function createSuspendedApprovalRecovery(args: {
           return refused("not-delivered");
         candidate = undefined;
         return { handled: true, code: "resumed" };
-      } catch {
-        return refused("error");
+      } catch (err) {
+        // Opaque "error" hid the case where the approval was dropped by a
+        // real failure and looked system-declined. Keep the content-free
+        // code for the turn marker; the scrubbed cause goes to the warn
+        // log and the returned detail so diagnostics can tell a dropped
+        // approval from a refusal.
+        const detail = causeOf(err);
+        logger.warn`stall resume attempt failed correlation=${redactedCorrelationId(correlationId)} error=${detail}`;
+        return refused("error", detail);
       }
     },
   };
@@ -283,8 +316,20 @@ export async function resolveSuspendedApprovalFromStore(
   if (
     parked.name !== parsedPersisted.name ||
     parked.name !== parsedCaptured.name ||
-    !isDeepStrictEqual(parked.arguments, parsedPersisted.arguments ?? {}) ||
-    !isDeepStrictEqual(parked.arguments, parsedCaptured.arguments ?? {})
+    // The persisted copy is redacted at rest, so its compare still accepts the
+    // canonical scrub when that copy is fully redacted. The re-dispatch
+    // snapshot is compared raw: different credential values are a mismatch
+    // even though both would scrub to the same token.
+    !snapshotArgumentsMatch(
+      parked.arguments,
+      parsedPersisted.arguments ?? {},
+      true,
+    ) ||
+    !snapshotArgumentsMatch(
+      parked.arguments,
+      parsedCaptured.arguments ?? {},
+      false,
+    )
   )
     return { ok: false, code: "snapshot-mismatch" };
   return { ok: true, parkedCallId: parked.id };
@@ -355,9 +400,9 @@ function decisionMessage(
   };
   if (message !== undefined && message.length > 0) body.message = message;
   return {
-    ref: { uid: 0, mailbox: "approval" },
+    ref: { uid: 0, mailbox: LOCAL_APPROVAL_MAILBOX },
     headers: {
-      from: "approval@local",
+      from: LOCAL_APPROVAL_FROM,
       to: ["agent@local"],
       date: new Date().toISOString(),
       messageId: `approval-${correlationId}`,
@@ -520,7 +565,7 @@ export function createApprovalResume(args: {
         return true;
       }
       if (timedOut) {
-        logger.warn`late approval decision dropped correlation=${correlationId} timeoutCall=${parkedCallId} outcome=${outcome?.allow === true ? "approved" : "rejected"}`;
+        logger.warn`late approval decision dropped correlation=${redactedCorrelationId(correlationId)} timeoutCall=${parkedCallId} outcome=${outcome?.allow === true ? "approved" : "rejected"}`;
         return true;
       }
       await deliverDecision(
@@ -551,7 +596,7 @@ export function createApprovalResume(args: {
       if (result.type !== "suspended") return Promise.resolve(false);
       const { correlationId } = result;
       if (handedOver.has(correlationId)) {
-        logger.warn`duplicate approval resume ignored correlation=${correlationId}`;
+        logger.warn`duplicate approval resume ignored correlation=${redactedCorrelationId(correlationId)}`;
         return Promise.resolve(true);
       }
       const ongoing = inflight.get(correlationId);

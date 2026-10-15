@@ -6,6 +6,7 @@ import type {
   ConversationTurn,
   StrategyBlob,
 } from "@intx/types/runtime";
+import { getLogger } from "@intx/log";
 import {
   attachmentIdFromBase64,
   attachmentUri,
@@ -13,6 +14,9 @@ import {
   parseAgedImageMarker,
 } from "./attachment-uri.js";
 import { type CompactionArchive } from "./compaction-archive.js";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "session", "attachment"]);
 
 export interface AgeImageResult {
   turn: ConversationTurn;
@@ -89,15 +93,21 @@ export async function rehydrateAttachmentImages(
   turns: readonly ConversationTurn[],
   readBlob: (key: string) => Promise<Uint8Array>,
 ): Promise<ConversationTurn[]> {
-  const blobReads = new Map<string, Promise<Uint8Array | null>>();
-  const blobFor = (key: string): Promise<Uint8Array | null> => {
+  const blobReads = new Map<
+    string,
+    Promise<{ bytes: Uint8Array } | { error: unknown }>
+  >();
+  const blobFor = (
+    key: string,
+  ): Promise<{ bytes: Uint8Array } | { error: unknown }> => {
     const shared = blobReads.get(key);
     if (shared !== undefined) return shared;
     // One failure is memoized for the id too: missing blobs keep their
     // markers, and re-serving that outcome avoids a retry storm per copy.
+    // Each marker still warns; the shared read does not hide the failure.
     const sharedRead = readBlob(key).then(
-      (bytes) => bytes,
-      () => null,
+      (bytes) => ({ bytes }),
+      (error: unknown) => ({ error }),
     );
     blobReads.set(key, sharedRead);
     return sharedRead;
@@ -116,12 +126,14 @@ export async function rehydrateAttachmentImages(
         content.push(block);
         continue;
       }
-      const bytes = await blobFor(marker.id);
-      if (bytes === null) {
+      const read = await blobFor(marker.id);
+      if ("error" in read) {
+        const err = read.error;
+        logger.warn`aged image marker stays dead in context image=${marker.id} error=${err instanceof Error ? err.message : String(err)}`;
         content.push(block);
         continue;
       }
-      const data = new TextDecoder().decode(bytes);
+      const data = new TextDecoder().decode(read.bytes);
       content.push({
         type: "image",
         source: {

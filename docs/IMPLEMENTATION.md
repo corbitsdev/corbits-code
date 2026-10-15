@@ -278,6 +278,22 @@ Provider and model configuration lives in JSON settings files. The global file h
   - `timeoutMs` — default bound when foreground `run_shell` omits `timeout`. Unset keeps the built-in 120000ms default. A positive per-call `timeout` is the bound with no ceiling.
   - `maxTimeoutMs` — clamps that default path only; it does not clamp a per-call override.
 
+  Optional `shell.sandbox` opts shell spawns and stdio MCP servers into an OS-level sandbox via `@anthropic-ai/sandbox-runtime` (path sandboxing on macOS `sandbox-exec`, bubblewrap on Linux). **Default off**; with the sandbox disabled the spawn paths run exactly as before, byte-identical:
+
+  ```json
+  "shell": {
+    "sandbox": {
+      "enabled": true,
+      "network": { "allowedHosts": ["api.github.com", "*.example.com"] }
+    }
+  }
+  ```
+
+  - `enabled` — default **false**. When true, foreground + background `run_shell`, stdio MCP server launches, and lifecycle hooks (discovered under the sandbox-writable session `.corbits/hooks`) wrap into the sandbox: writes are allowed only inside the workspace, the OS tmpdir, and `/tmp/claude`; reads deny the secret-guard denylist classes (`.env*`, `.ssh/`, `.aws/`, key material, credential stores, browser cookie stores, shell history, ...) plus the active `--config` settings path; known provider API-key env vars are unset inside the sandbox. A sandboxed command that cannot be wrapped (missing/broken runtime) **fails closed** — the command never runs — with a `shell sandbox is enabled but unavailable` error; disable the setting to restore raw spawns. Linux additionally needs bubblewrap + socat + ripgrep installed.
+  - `network.allowedHosts` — operator pre-approved domain allowlist (supports `*.wildcards`). Every other host asks through the normal permission gate (auto mode and yolo auto-allow it as they would a `web_fetch`; yolo relaxes the _asks_, never the sandbox itself).
+
+  One sandboxed composition per process: sandbox-runtime's manager is a process-global singleton, so a second `shell.sandbox` composition with a different workspace/allowlist while one is live fails loudly instead of inheriting it. Matching compositions share the singleton by refcount; the last session's teardown resets it.
+
   Optional `tools` block to arm the outer per-tool wall-clock budget (unset leaves the watchdog unarmed):
 
   ```json
@@ -313,14 +329,16 @@ Provider and model configuration lives in JSON settings files. The global file h
 
 All `tools.*` keys live in the global settings file only — there is no per-repo override in `.corbits/settings.json` (unlike `sessionMode`).
 
-| Key                     | Default                                    | Effect                                                                                                                                                 |
-| ----------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tools.timeoutMs`       | unset (watchdog unarmed)                   | Outer wall-clock budget per tool `run()` when set                                                                                                      |
-| `tools.maxTimeoutMs`    | unset                                      | Cap on the outer budget when set; does not cap a longer requested `run_shell`                                                                          |
-| `tools.waitForApproval` | `true`                                     | Freeze the budget while a permission prompt is open (freeze capped at 30 min); `false` keeps the clock ticking and auto-dismisses the prompt on expiry |
-| `mcp.timeoutMs`         | **300000** (5 min) — armed even when unset | Outer wall-clock budget for `mcp__*` tool calls specifically; capped by `tools.maxTimeoutMs` when set                                                  |
-| `shell.timeoutMs`       | **120000** (2 min) foreground default      | Foreground `run_shell` bound when the call omits `timeout`; background has no default; a per-call `timeout` is the bound with no ceiling               |
-| `shell.maxTimeoutMs`    | unset                                      | Clamps the foreground default path only; does not clamp a per-call `run_shell` timeout                                                                 |
+| Key                                  | Default                                         | Effect                                                                                                                                                 |
+| ------------------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tools.timeoutMs`                    | unset (watchdog unarmed)                        | Outer wall-clock budget per tool `run()` when set                                                                                                      |
+| `tools.maxTimeoutMs`                 | unset                                           | Cap on the outer budget when set; does not cap a longer requested `run_shell`                                                                          |
+| `tools.waitForApproval`              | `true`                                          | Freeze the budget while a permission prompt is open (freeze capped at 30 min); `false` keeps the clock ticking and auto-dismisses the prompt on expiry |
+| `mcp.timeoutMs`                      | **300000** (5 min) — armed even when unset      | Outer wall-clock budget for `mcp__*` tool calls specifically; capped by `tools.maxTimeoutMs` when set                                                  |
+| `shell.timeoutMs`                    | **120000** (2 min) foreground default           | Foreground `run_shell` bound when the call omits `timeout`; background has no default; a per-call `timeout` is the bound with no ceiling               |
+| `shell.maxTimeoutMs`                 | unset                                           | Clamps the foreground default path only; does not clamp a per-call `run_shell` timeout                                                                 |
+| `shell.sandbox.enabled`              | `false` (opt-in, fail closed on runtime errors) | OS sandbox for `run_shell` and stdio MCP launches via `@anthropic-ai/sandbox-runtime` (workspace+tmp writes, secret denylist reads)                    |
+| `shell.sandbox.network.allowedHosts` | `[]` (every other host asks)                    | Operator pre-approved host allowlist; unmatched hosts ask through the permission gate — yolo auto-allows the ask, the OS sandbox stays on              |
 
 The `waitForApproval` default is resolved once at the watchdog boundary (`resolveWaitForApproval`); toggling **Settings → Tools** updates the live config for the next tool call and persists the value here.
 
