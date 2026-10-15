@@ -243,6 +243,10 @@ describe("checkForUpgrade", () => {
       },
     });
     expect(result.kind).toBe("skipped");
+    if (result.kind === "skipped")
+      // The generic reason must name the cause: an opaque "upgrade check
+      // failed" hides whether the probe was offline, rate-limited, or worse.
+      expect(result.reason).toContain("Error: offline");
   });
 
   test("detects method from probe when not forced", async () => {

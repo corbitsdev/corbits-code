@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SETTINGS_DIR_NAME } from "../branding.js";
 import {
   loadGlobalApprovals,
   loadPendingProjectApprovals,
@@ -185,6 +186,61 @@ describe("provider-model store", () => {
     ]);
     expect(await loadProviderModelApprovals(dir)).toEqual([
       { tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-5" },
+    ]);
+  });
+});
+
+// A torn (non-JSON) store file must surface, never silently report an empty
+// store: the empty read is the first half of read-modify-write, so a swallowed
+// corruption reconciles the file's grants away on the next write. Repairs
+// always work because the write path refuses to touch the corrupt bytes.
+describe("torn store recovery", () => {
+  const globalStorePathFor = (): string =>
+    join(home, SETTINGS_DIR_NAME, "permissions.json");
+
+  test("a corrupt global store surfaces on load instead of reporting zero grants", async () => {
+    await saveGlobalApproval({ tool: "run_shell", pattern: "git *" }, home);
+    await writeFile(globalStorePathFor(), "{torn");
+    await expect(loadGlobalApprovals(home)).rejects.toThrow(
+      /permissions store is corrupt/,
+    );
+  });
+
+  test("a corrupt provider-model store surfaces on load instead of reporting zero grants", async () => {
+    await saveProviderModelApproval(
+      "openai:gpt-5",
+      { tool: "run_shell", pattern: "npm *" },
+      home,
+    );
+    await writeFile(globalStorePathFor(), "{torn");
+    await expect(loadProviderModelApprovals(home)).rejects.toThrow(
+      /permissions store is corrupt/,
+    );
+  });
+
+  test("a later grant write cannot clobber a torn store's prior grants", async () => {
+    await saveGlobalApproval({ tool: "run_shell", pattern: "git *" }, home);
+    await saveGlobalApproval({ tool: "run_shell", pattern: "npm *" }, home);
+    const path = globalStorePathFor();
+    const original = await readFile(path, "utf-8");
+    // Simulate a torn write: the bytes are a shortened prefix of the store.
+    const torn = original.slice(0, Math.max(original.length - 4, 0));
+    await writeFile(path, torn);
+
+    await expect(
+      saveGlobalApproval({ tool: "run_shell", pattern: "cargo *" }, home),
+    ).rejects.toThrow(/permissions store is corrupt/);
+
+    // The failed write left the corrupt bytes untouched for an operator repair.
+    expect(await readFile(path, "utf-8")).toBe(torn);
+
+    // Repair regains the prior grants; the deferred grant re-applies on retry.
+    await writeFile(path, original);
+    await saveGlobalApproval({ tool: "run_shell", pattern: "cargo *" }, home);
+    expect(await loadGlobalApprovals(home)).toEqual([
+      { tool: "run_shell", pattern: "git *" },
+      { tool: "run_shell", pattern: "npm *" },
+      { tool: "run_shell", pattern: "cargo *" },
     ]);
   });
 });

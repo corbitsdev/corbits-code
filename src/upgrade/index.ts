@@ -274,8 +274,15 @@ export async function checkForUpgrade(
       kind: "available",
       notice: { current, latest, method, message },
     };
-  } catch {
-    return { kind: "skipped", reason: "upgrade check failed" };
+  } catch (err) {
+    // The class + message make the skip diagnosable (offline, rate limit,
+    // TLS) instead of one opaque generic reason; nothing here is sensitive.
+    return {
+      kind: "skipped",
+      reason: `upgrade check failed: ${
+        err instanceof Error ? err.name : typeof err
+      }: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 }
 

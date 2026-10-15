@@ -20,3 +20,16 @@ export function redactedCorrelationId(correlationId: string): string {
   const digest = createHash("sha256").update(correlationId).digest("hex");
   return `${correlationId.slice(0, PREFIX_CHARS)}#${digest.slice(0, HASH_CHARS)}`;
 }
+
+// Correlation IDs on the approval rail are UUIDv4-shaped; error text from the
+// storage/resume path can embed one (a store lookup failure, a driver log
+// echo), which would leak the full bearer capability into an unauthenticated
+// warn line. Each match is replaced with the same redacted form used for
+// declared correlation IDs, so a receipt trail stays cross-line consistent.
+const CORRELATION_ID_SHAPE =
+  /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g;
+
+/** Replaces correlation-ID-shaped substrings with their redacted form. */
+export function scrubCorrelationShapedIds(text: string): string {
+  return text.replace(CORRELATION_ID_SHAPE, (id) => redactedCorrelationId(id));
+}
