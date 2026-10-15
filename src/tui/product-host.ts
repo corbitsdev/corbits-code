@@ -552,6 +552,15 @@ export async function mountProductHost(
       return;
     }
     setStatusFlash(shell, notice.text, { ttlMs: RUNTIME_FLASH_MS });
+    // The status flash stays the operator-visible confirmation. The console
+    // overlay is the durable observation surface (hidden unless SHOW_CONSOLE).
+    // Headless tests leave consoleMode disabled, so this must not call the
+    // real console and paint the test runner.
+    if (renderer.consoleMode === "console-overlay") {
+      // Intentional: TerminalConsole captures console.* into the overlay.
+      // eslint-disable-next-line no-console
+      console.info(notice.text);
+    }
   }
 
   function onHook(event: unknown): void {
