@@ -16,6 +16,19 @@ usage emission. Upstream deleted `packages/types/src/sidecar-placement.ts`;
 no entry lived there. Unaffected by upstream's `credentialId` auth-model
 rewrite.
 
+### 2026-10-14 re-sync (upstream `5453d0b0` — npm `0.4.0`, CL-10651)
+
+All three entries re-carried; upstream did not touch `runtime.ts` or
+`mediated-credential.ts` in this range, so both entries re-applied
+byte-identically with zero adaptation (`stopReason` chain verified at
+`runtime.ts:1449/1715`, auth-recovery context at
+`mediated-credential.ts:27`). Upstream did change `base64.ts`
+(chunked encoding), `grants.ts` (new `ApprovalItem` type),
+`sidecar.ts`/`sidecar.test.ts` (`approvedGrants` widened to
+`ApprovalItem[]`) — all carried verbatim — and added the new
+`src/testing/` subpackage (`waitUntil`), which the vendored
+`package.json` now exposes via the upstream `./testing` subpath export.
+
 ## runtime-ts-auth-recovery-context
 
 `mediated-credential.ts` and `runtime.ts` — credential material can atomically

@@ -10,7 +10,11 @@
  * is the failure mode this check removes.
  */
 
-import { resolveRenderLib, type WidthMethod } from "@opentui/core";
+import {
+  OptimizedBuffer,
+  ResourceContext,
+  type WidthMethod,
+} from "@opentui/core";
 
 import { stringWidth, WIDTH_PROBE } from "./view/height.js";
 
@@ -22,18 +26,39 @@ export interface WidthContractReport {
   readonly widthMethod: WidthMethod;
 }
 
-/** Width OpenTUI's own table assigns `text`, or null when it cannot encode it. */
+/** Width OpenTUI's own table assigns `text`, or null when it cannot encode it.
+ *
+ * 0.6.x moves `encodeUnicode` off the render lib onto a Context-owned buffer,
+ * so the measure builds its own throwaway Context. `objectCapacity: 1,
+ * renderCellsMax: 1` is not OpenTUI's internal shape (ImageOwner keeps a live
+ * 4096/1 context); this call is one-shot and self-destroying, and 1/1 is the
+ * tightest capacity the probe verifies as sufficient to encode and free. An
+ * encode failure still reads as null — this check reports, never throws. */
 export function measureRendererWidth(
   text: string,
   widthMethod: WidthMethod,
 ): number | null {
-  const lib = resolveRenderLib();
-  const encoded = lib.encodeUnicode(text, widthMethod);
-  if (encoded === null) return null;
+  const owner = new ResourceContext({ objectCapacity: 1, renderCellsMax: 1 });
+  const buffer = OptimizedBuffer.create(1, 1, widthMethod, { owner });
   try {
-    return encoded.data.reduce((n, cell) => n + cell.width, 0);
+    let encoded;
+    try {
+      encoded = buffer.encodeUnicode(text);
+    } catch {
+      return null;
+    }
+    if (encoded === null) return null;
+    try {
+      return encoded.data.reduce((n, cell) => n + cell.width, 0);
+    } finally {
+      buffer.freeUnicode(encoded);
+    }
   } finally {
-    lib.freeUnicode(encoded);
+    try {
+      buffer.destroy();
+    } finally {
+      owner.destroy();
+    }
   }
 }
 

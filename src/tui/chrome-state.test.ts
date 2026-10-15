@@ -651,6 +651,11 @@ describe("chromeFromSession", () => {
     expect(zones.agents?.[0]?.label).toContain("explorer");
   });
 
+  test("copies a turn-level stall flag onto the live snapshot", () => {
+    expect(chromeFromSession({ stalled: true }).stalled).toBe(true);
+    expect(chromeFromSession({}).stalled).toBeUndefined();
+  });
+
   test("falls back agent id; empty bags hide", () => {
     const state = chromeFromSession({
       tasks: [],

@@ -6,6 +6,7 @@ import type {
   ConversationTurn,
   StrategyBlob,
 } from "@intx/types/runtime";
+import { getLogger } from "@intx/log";
 import {
   attachmentIdFromBase64,
   attachmentUri,
@@ -13,6 +14,9 @@ import {
   parseAgedImageMarker,
 } from "./attachment-uri.js";
 import { type CompactionArchive } from "./compaction-archive.js";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "session", "attachment"]);
 
 export interface AgeImageResult {
   turn: ConversationTurn;
@@ -112,7 +116,8 @@ export async function rehydrateAttachmentImages(
           },
         });
         changed = true;
-      } catch {
+      } catch (err) {
+        logger.warn`aged image marker stays dead in context image=${marker.id} error=${err instanceof Error ? err.message : String(err)}`;
         content.push(block);
       }
     }

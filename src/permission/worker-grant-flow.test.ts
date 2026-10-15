@@ -186,7 +186,7 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
     expect(store.peek(requestId)?.status).toBe("pending");
   });
 
-  test("send_input text answers the ask but grants nothing", () => {
+  test("send_input text answers an unbound ask but grants nothing", () => {
     const sessions = createSubAgentSessionStore();
     const session = sessions.start({
       id: "fleet-1",
@@ -221,9 +221,8 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
         },
       }),
     ).toBe(true);
-    expect(sessions.peekAsk(session.id)?.deniedCall?.requestId).toBe(
-      envelope.requestId,
-    );
+    // A request ID quoted in prose is not an authority-bearing binding.
+    expect(sessions.peekAsk(session.id)?.deniedCall).toBeUndefined();
 
     const echo = JSON.stringify({
       requestId: envelope.requestId,

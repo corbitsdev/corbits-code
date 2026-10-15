@@ -2094,8 +2094,8 @@ export function createSubAgentSessionStore(
       if (pendingAsks.has(id)) return false;
       // Attach the harness-owned denied-call envelope (exact ToolCall + hash)
       // to the ask record, stamping its questionId for the parent's retry
-      // ref. A named grantRequestId binds that exact denial; an unnamed ask
-      // falls back to the session's first pending envelope.
+      // ref. Only a named grantRequestId binds its exact denial; generic asks
+      // must not inherit a pending envelope from an earlier question.
       let deniedCall: WorkerDeniedCallEnvelope | undefined;
       try {
         deniedCall =

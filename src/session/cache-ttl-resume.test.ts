@@ -1,6 +1,3 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createInboundMessage } from "@intx/mime";
 import { createReactor, type ReactorEmittedEvent } from "@intx/inference";
@@ -23,6 +20,8 @@ import {
   buildZenSource,
 } from "../config/index.js";
 import { resumeCacheWriteSeed } from "../provider/cache-ttl.js";
+import { settleOrTimeout } from "../../testkit/settle.js";
+import { withTempDir } from "../../testkit/temporary-dirs.js";
 import { HANDOFF_LATEST_KEY } from "./compaction-handoff.js";
 import { createPruningCompactor } from "./compactor.js";
 import { createOptimizedContextStore } from "./optimized-context-store.js";
@@ -71,8 +70,7 @@ async function resumeAndInfer(args: {
   seed: ConversationTurn[];
 }> {
   const seed = seedTurns();
-  const dir = await mkdtemp(join(tmpdir(), "cache-ttl-resume-"));
-  try {
+  return withTempDir("cache-ttl-resume-", async (dir) => {
     const store = await createOptimizedContextStore(dir);
     await store.writeTurns(seed);
     await store.writeMetadata({
@@ -111,6 +109,10 @@ async function resumeAndInfer(args: {
     let resolveDone: (() => void) | undefined;
     const done = new Promise<void>((resolve) => {
       resolveDone = resolve;
+    });
+    let resolveStarted: (() => void) | undefined;
+    const startedGate = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
     });
 
     const reactor = createReactor({
@@ -167,6 +169,9 @@ async function resumeAndInfer(args: {
       },
       onEvent(event) {
         events.push(event);
+        if (event.type === "reactor.start") {
+          resolveStarted?.();
+        }
         if (event.type === COMPACTION_CONTINUATION_EVENT) {
           reactor.deliver(buildCompactionContinuationMessage());
         }
@@ -177,24 +182,8 @@ async function resumeAndInfer(args: {
     });
 
     reactor.start();
-    const started = events.some((event) => event.type === "reactor.start");
-    if (!started) {
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(
-          () => reject(new Error("reactor did not start")),
-          5_000,
-        );
-        const poll = (): void => {
-          if (events.some((event) => event.type === "reactor.start")) {
-            clearTimeout(timer);
-            resolve();
-            return;
-          }
-          setTimeout(poll, 10);
-        };
-        poll();
-      });
-    }
+    const begin = await settleOrTimeout(startedGate, 5_000);
+    if (begin.kind === "timeout") throw new Error("reactor did not start");
     reactor.deliver(
       createInboundMessage({
         from: "user@local",
@@ -202,12 +191,8 @@ async function resumeAndInfer(args: {
         content: "continue the task",
       }),
     );
-    await Promise.race([
-      done,
-      new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("resume infer timed out")), 15_000);
-      }),
-    ]);
+    const outcome = await settleOrTimeout(done, 15_000);
+    if (outcome.kind === "timeout") throw new Error("resume infer timed out");
     reactor.abort("admin_kill");
     if (first === undefined) throw new Error("director never decided");
     if (prompt === undefined || storedAtInfer === undefined) {
@@ -216,9 +201,7 @@ async function resumeAndInfer(args: {
       );
     }
     return { first, stored: storedAtInfer, prompt, handoff, seed };
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  });
 }
 
 describe("resumed Anthropic cache write does not compact", () => {
