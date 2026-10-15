@@ -55,6 +55,7 @@ import {
   type RunnerState,
 } from "./state.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
+import { caughtDebug } from "../../logging/caught.js";
 import { buildCredentialRecoveryAlternatives } from "./credential-recovery.js";
 import type { PendingCredentialRecovery } from "./credential-recovery.js";
 import type { PendingReconnectRecovery } from "./reconnect-recovery.js";
@@ -447,11 +448,7 @@ export function createSubmitPath(
     state.sendAborted = false;
     if (text.trim().length > 0) {
       void appendSentMessage(state.config.cwd, state.sessionId, text).catch(
-        (err: unknown) => {
-          tuiLogger.debug("sent-message append failed: {error}", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        },
+        caughtDebug(tuiLogger, "sent-message append failed"),
       );
     }
     const ingested = await ingestOperatorPrompt(
@@ -547,11 +544,7 @@ export function createDeliverRouting(
         if (text.startsWith(ASK_DIRECTOR_WAKE_PREFIX)) return;
         if (text.startsWith(MAILBOX_MAIL_WAKE_PREFIX)) return;
         void appendSentMessage(state.config.cwd, state.sessionId, text).catch(
-          (err: unknown) => {
-            tuiLogger.debug("sent-message append failed: {error}", {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          },
+          caughtDebug(tuiLogger, "sent-message append failed"),
         );
       },
       captureGeneration: services.deliveryGeneration.capture,

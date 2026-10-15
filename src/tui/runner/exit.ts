@@ -64,6 +64,7 @@ import {
   type SnapshotStatus,
 } from "./state.js";
 import { handleChatDirectorEvent } from "../../agent/chat-event-subscribers.js";
+import { caughtDebug } from "../../logging/caught.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -137,9 +138,10 @@ export async function closeAgentForRebuild(
     await agent.close();
     return true;
   } catch (err) {
-    tuiLogger.debug(`agent.close during ${context} teardown failed: {error}`, {
-      error: err instanceof Error ? err.message : String(err),
-    });
+    caughtDebug(
+      tuiLogger,
+      `agent.close during ${context} teardown failed`,
+    )(err);
     return false;
   }
 }
@@ -495,14 +497,9 @@ export async function createRunLifecycle(
       try {
         const old = liveAgent(state);
         const closedCleanly = await closeAgentForRebuild(old, "reload");
-        await state.streamPromise?.catch((err: unknown) => {
-          tuiLogger.debug(
-            "stream drain during reload teardown failed: {error}",
-            {
-              error: err instanceof Error ? err.message : String(err),
-            },
-          );
-        });
+        await state.streamPromise?.catch(
+          caughtDebug(tuiLogger, "stream drain during reload teardown failed"),
+        );
         if (!closedCleanly) {
           throw new AgentContextLockError(state.workdir);
         }
@@ -654,14 +651,12 @@ export async function createRunLifecycle(
             liveAgent(state),
             "interrupt",
           );
-          await state.streamPromise?.catch((err: unknown) => {
-            tuiLogger.debug(
-              "stream drain during interrupt teardown failed: {error}",
-              {
-                error: err instanceof Error ? err.message : String(err),
-              },
-            );
-          });
+          await state.streamPromise?.catch(
+            caughtDebug(
+              tuiLogger,
+              "stream drain during interrupt teardown failed",
+            ),
+          );
           if (!closedCleanly) {
             throw new AgentContextLockError(state.workdir);
           }
@@ -715,22 +710,18 @@ export async function createRunLifecycle(
         // targets the new, unlocked directory (see closeAgentForRebuild).
         await liveAgent(state)
           .close()
-          .catch((err: unknown) => {
-            tuiLogger.debug(
-              "agent.close during session-rotation teardown failed: {error}",
-              {
-                error: err instanceof Error ? err.message : String(err),
-              },
-            );
-          });
-        await state.streamPromise?.catch((err: unknown) => {
-          tuiLogger.debug(
-            "stream drain during session-rotation teardown failed: {error}",
-            {
-              error: err instanceof Error ? err.message : String(err),
-            },
+          .catch(
+            caughtDebug(
+              tuiLogger,
+              "agent.close during session-rotation teardown failed",
+            ),
           );
-        });
+        await state.streamPromise?.catch(
+          caughtDebug(
+            tuiLogger,
+            "stream drain during session-rotation teardown failed",
+          ),
+        );
         // CL-10667: the rotation terminal write supersets the pending
         // snapshot for the outgoing session; flush so the debounced write
         // cannot straddle the id repoint below.
@@ -833,6 +824,7 @@ export async function finalizeTUIRun(
   } catch (err) {
     teardownFailed = true;
     tuiLogger.error("runtime shutdown failed: {error}", {
+      sessionId: state.sessionId,
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -904,9 +896,7 @@ export async function finalizeTUIRun(
   try {
     await state.streamPromise;
   } catch (err: unknown) {
-    tuiLogger.debug("stream promise rejected during exit: {error}", {
-      error: err instanceof Error ? err.message : String(err),
-    });
+    caughtDebug(tuiLogger, "stream promise rejected during exit")(err);
   }
 
   // Last word on the restored terminal: every normal quit (exit/quit command,

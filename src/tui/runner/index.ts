@@ -302,6 +302,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       await start.crashGuard.invokeDisposeHost();
     } catch (disposeErr: unknown) {
       tuiLogger.warn("crash finalize: host dispose failed: {error}", {
+        sessionId: state.sessionId,
         error:
           disposeErr instanceof Error ? disposeErr.message : String(disposeErr),
       });

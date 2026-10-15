@@ -1506,7 +1506,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               : {}),
           });
         } catch (err: unknown) {
-          log.error("spawn_agent worktree cleanup failed: {error}", {
+          log.warn("spawn_agent worktree cleanup failed: {error}", {
             error: errorMessage(err),
           });
         }

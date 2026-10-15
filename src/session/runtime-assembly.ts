@@ -145,14 +145,11 @@ export async function loadSeededApprovals(
 ): Promise<Approval[]> {
   // One-time migration: purge persisted update_plan keys (dropped at load but
   // never rewritten) so removing the normalizer later cannot resurrect them.
-  // Best-effort and guarded so a throw cannot break session start.
+  // The migration reports its own per-file failures; this guard only keeps a
+  // residual throw from breaking session start.
   try {
     await migratePersistedApprovalStores(cwd, sessionId, home);
-  } catch (err) {
-    persistLogger.warn("Skipping approval-store migration: {error}", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
+  } catch {}
   const sessionApprovals = await loadApprovals(cwd, sessionId, home);
   const [
     projectApprovals,

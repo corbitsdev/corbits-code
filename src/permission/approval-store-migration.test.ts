@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { installFileLogSink } from "../logging/sink.js";
 import { generateSessionId, sessionDir } from "../session/index.js";
 import { loadSeededApprovals } from "../session/runtime-assembly.js";
 import { normalizeSeededApprovals } from "./authz-grants.js";
@@ -294,6 +295,56 @@ describe("migratePersistedApprovalStores", () => {
       expect(await readFile(path, "utf-8")).toBe(liveBytes);
     } finally {
       await chmod(dir, 0o755);
+    }
+  });
+
+  test("per-file migration failures surface once as a single summary warn", async () => {
+    const logDir = await mkdtemp(join(tmpdir(), "approval-migration-log-"));
+    installFileLogSink(join(logDir, "corbits.log"));
+    const sessionOriginal = {
+      approvals: [
+        { tool: "update_plan", pattern: "plan *" },
+        { tool: "run_shell", pattern: "npm *" },
+      ],
+    };
+    await writeFile(sessionStorePath(), JSON.stringify(sessionOriginal));
+    await mkdir(join(cwd, ".corbits"), { recursive: true });
+    await writeFile(
+      projectStorePath(),
+      JSON.stringify({
+        approvals: [{ tool: "update_plan", pattern: "plan *" }],
+      }),
+    );
+    // Read-only store dirs make the backup step fail, so both stores skip
+    // untouched while the global path (absent) stays a clean no-op.
+    const sessionStoreDir = dirname(sessionStorePath());
+    const projectStoreDir = join(cwd, ".corbits");
+    await chmod(sessionStoreDir, 0o555);
+    await chmod(projectStoreDir, 0o555);
+    try {
+      const result = await migratePersistedApprovalStores(cwd, sessionId, home);
+      expect(result.purged).toBe(0);
+      const failed = result.files.filter((file) => file.error !== undefined);
+      expect(failed).toHaveLength(2);
+      for (const file of failed) {
+        expect(file.error).toContain("backup failed");
+        expect(file.purged).toBe(0);
+      }
+
+      const lines = (await readFile(join(logDir, "corbits.log"), "utf8"))
+        .split("\n")
+        .filter((line) => line.includes("Skipped approval-store migration"));
+      // One summary warn for the whole migration, not one per failing store.
+      expect(lines).toHaveLength(1);
+      const summary = lines[0];
+      if (summary === undefined) throw new Error("summary warn missing");
+      expect(summary).toMatch(/"level":"warning"/);
+      expect(summary).toContain(sessionStorePath());
+      expect(summary).toContain(projectStorePath());
+    } finally {
+      await chmod(sessionStoreDir, 0o755);
+      await chmod(projectStoreDir, 0o755);
+      await rm(logDir, { recursive: true, force: true });
     }
   });
 

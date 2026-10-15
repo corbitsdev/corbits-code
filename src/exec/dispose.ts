@@ -1,6 +1,7 @@
 import { getLogger } from "@intx/log";
 
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import { caughtDebug } from "../logging/caught.js";
 import { awaitCloseWithoutHidingLeftover } from "../subagent/dispose.js";
 import type { SubAgentSessionStore } from "../subagent/index.js";
 
@@ -59,9 +60,11 @@ async function runExecDispose(args: {
     try {
       await args.toolset.dispose();
     } catch (err: unknown) {
-      logger.debug("toolset.dispose during exec finally failed: {error}", {
-        error: (args.sanitizeDiagnostic ?? String)(formatCaughtError(err)),
-      });
+      caughtDebug(
+        logger,
+        "toolset.dispose during exec finally failed",
+        args.sanitizeDiagnostic,
+      )(err);
       failures.push(err);
     }
   }
@@ -74,9 +77,11 @@ async function runExecDispose(args: {
     try {
       await awaitCloseWithoutHidingLeftover(args.agent.close(), failures[0]);
     } catch (err: unknown) {
-      logger.debug("agent.close during exec finally failed: {error}", {
-        error: (args.sanitizeDiagnostic ?? String)(formatCaughtError(err)),
-      });
+      caughtDebug(
+        logger,
+        "agent.close during exec finally failed",
+        args.sanitizeDiagnostic,
+      )(err);
       failures.push(err);
     }
   }

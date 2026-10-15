@@ -59,15 +59,19 @@ export async function readPathTrustStore(
   }
   // Grants are recorded absolute (see requireAbsolute); a relative entry
   // would bind to process.cwd(), so drop it here.
-  const paths: string[] = [];
-  for (const p of validated.trustedPluginPaths) {
-    if (!isAbsolute(p)) {
-      logger.warn`ignoring non-absolute path trust entry: ${p}`;
-      continue;
-    }
-    paths.push(resolve(p));
+  let nonAbsolute = 0;
+  const paths = validated.trustedPluginPaths.filter((p) => {
+    if (isAbsolute(p)) return true;
+    nonAbsolute += 1;
+    return false;
+  });
+  if (nonAbsolute > 0) {
+    logger.warn`path trust store at ${path} dropping ${nonAbsolute} non-absolute entries`;
   }
-  return { state: "valid", store: { trustedPluginPaths: paths } };
+  return {
+    state: "valid",
+    store: { trustedPluginPaths: paths.map((p) => resolve(p)) },
+  };
 }
 
 export async function loadPathTrust(
@@ -205,13 +209,14 @@ export async function migratePathTrustFromPluginPaths(
   }
   // A relative pluginPaths entry would bind to the launch cwd permanently;
   // drop it, matching readPathTrustStore on load.
-  const absolutePaths: string[] = [];
-  for (const p of pluginPaths) {
-    if (!isAbsolute(p)) {
-      logger.warn`skipping relative pluginPaths entry during path-trust migration: ${p}`;
-      continue;
-    }
-    absolutePaths.push(p);
+  let nonAbsolute = 0;
+  const absolutePaths = pluginPaths.filter((p) => {
+    if (isAbsolute(p)) return true;
+    nonAbsolute += 1;
+    return false;
+  });
+  if (nonAbsolute > 0) {
+    logger.warn`skipping ${nonAbsolute} relative pluginPaths entries during path-trust migration`;
   }
   const members: string[] = [];
   for (const p of absolutePaths) {

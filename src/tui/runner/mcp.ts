@@ -75,7 +75,8 @@ export function wireMcp(
       )
       .catch((err: unknown) => {
         if (err instanceof Error && err.name === "AbortError") return;
-        tuiLogger.error("Late MCP connect failed: {error}", {
+        tuiLogger.warn("Late MCP connect failed for {server}: {error}", {
+          server: server.name,
           error: err instanceof Error ? err.message : String(err),
         });
       });
@@ -246,7 +247,8 @@ function createMcpSurface(
           services.mcpConnectController.signal,
         )
         .catch((err: unknown) => {
-          tuiLogger.error("MCP retry failed: {error}", {
+          tuiLogger.warn("MCP retry failed for {server}: {error}", {
+            server: server.name,
             error: err instanceof Error ? err.message : String(err),
           });
         });
