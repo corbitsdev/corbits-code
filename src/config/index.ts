@@ -44,10 +44,7 @@ import {
   xaiProfilesToCatalogEntries,
   xaiProvidersAsSettings,
 } from "./xai-providers.js";
-import { fetchBifrostModels } from "./bifrost.js";
 import { customReasoningSettings } from "./providers.js";
-
-export { fetchBifrostModels };
 import { CODEX_BASE_URL } from "../auth/codex/constants.js";
 import { XAI_BASE_URL } from "../auth/xai/constants.js";
 import {

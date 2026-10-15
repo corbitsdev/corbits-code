@@ -209,6 +209,35 @@ function queryIdentityFromArguments(
 }
 
 // callId → tool name/path for readable stubs. Inverse of path-to-reads.
+// Persisted tool_call blocks are immutable once appended, and re-parsed
+// history rebuilds its own entries anyway, so identity work on a block pays
+// once per object instead of once per compaction pass over the transcript.
+const callIdentityMemo = new WeakMap<
+  Extract<ConversationTurn["content"][number], { type: "tool_call" }>,
+  ToolCallInfo
+>();
+
+function toolCallInfoFor(
+  block: Extract<ConversationTurn["content"][number], { type: "tool_call" }>,
+): ToolCallInfo {
+  const memo = callIdentityMemo.get(block);
+  if (memo !== undefined) return memo;
+  // Persisted calls keep the wire name (read/glob/…); the read/query
+  // classification sets are engine-keyed.
+  const info: ToolCallInfo = { name: canonicalToolName(block.name) };
+  const identity = readIdentityFromArguments(block.arguments);
+  if (identity !== undefined) {
+    info.pathArg = identity.path;
+    info.readKey = identity.readKey;
+  }
+  if (QUERY_TOOLS.has(block.name)) {
+    const queryKey = queryIdentityFromArguments(block.name, block.arguments);
+    if (queryKey !== undefined) info.readKey = queryKey;
+  }
+  callIdentityMemo.set(block, info);
+  return info;
+}
+
 function buildCallIndex(
   turns: readonly ConversationTurn[],
 ): Map<string, ToolCallInfo> {
@@ -216,22 +245,7 @@ function buildCallIndex(
   for (const turn of turns) {
     for (const block of turn.content) {
       if (block.type !== "tool_call") continue;
-      // Persisted calls keep the wire name (read/glob/…); the read/query
-      // classification sets are engine-keyed.
-      const info: ToolCallInfo = { name: canonicalToolName(block.name) };
-      const identity = readIdentityFromArguments(block.arguments);
-      if (identity !== undefined) {
-        info.pathArg = identity.path;
-        info.readKey = identity.readKey;
-      }
-      if (QUERY_TOOLS.has(block.name)) {
-        const queryKey = queryIdentityFromArguments(
-          block.name,
-          block.arguments,
-        );
-        if (queryKey !== undefined) info.readKey = queryKey;
-      }
-      index.set(block.id, info);
+      index.set(block.id, toolCallInfoFor(block));
     }
   }
   return index;

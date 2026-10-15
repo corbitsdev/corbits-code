@@ -237,6 +237,9 @@ export interface SessionBridge {
   dispose: () => void;
   /** Current derived turn phase (progress label, stall clock, quota window). */
   readonly turn: TurnState;
+  /** Turn-level stall the program-status roll-up paints. Same predicate as
+   * the lockup (`isStalledForDisplay`). */
+  readonly isTurnStalled: () => boolean;
   readonly shell: AppShell;
   /** Refresh `spawn_agent` rows with live progress for the worker lifetime. */
   syncAgentProgress: (sessions: readonly TaskProgressSession[]) => void;
@@ -2250,6 +2253,7 @@ export function attachSessionBridge(
     get turn() {
       return bag.turn;
     },
+    isTurnStalled: () => isStalledForDisplay(stallArgsFor(now())),
     syncAgentProgress: (sessions) => {
       if (bag.disposed) return;
       bag.agentSessions = sessions;

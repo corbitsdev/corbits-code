@@ -18,6 +18,56 @@ import {
 
 import type { ClipboardPort } from "./copy-path.js";
 
+const IMAGE_PREFERRED_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+] as const;
+
+export type ClipboardImageBytes =
+  | { readonly ok: true; readonly mimeType: string; readonly bytes: Uint8Array }
+  | { readonly ok: false; readonly reason: string };
+
+export async function readSystemClipboardImage(
+  service: Pick<ClipboardService, "read"> = createClipboard({
+    host: createHostClipboard(),
+    terminal: {
+      remote: false,
+      writeText: () => ({ status: "not-attempted", capability: "unsupported" }),
+      clear: () => ({ status: "not-attempted", capability: "unsupported" }),
+    },
+  }),
+): Promise<ClipboardImageBytes> {
+  const result = await service.read({
+    preferredTypes: IMAGE_PREFERRED_TYPES,
+  });
+  if (result.status === "read") {
+    const mimeType = result.representation.mimeType;
+    if (
+      !IMAGE_PREFERRED_TYPES.includes(
+        mimeType as (typeof IMAGE_PREFERRED_TYPES)[number],
+      )
+    ) {
+      return { ok: false, reason: "clipboard did not contain an image" };
+    }
+    return { ok: true, mimeType, bytes: result.representation.bytes };
+  }
+  if (result.status === "empty") {
+    return { ok: false, reason: "no image found on the clipboard" };
+  }
+  if (result.status === "unsupported") {
+    return {
+      ok: false,
+      reason: "clipboard image paste is not supported here",
+    };
+  }
+  if (result.status === "failed") {
+    return { ok: false, reason: result.error.message };
+  }
+  return { ok: false, reason: "could not read an image from the clipboard" };
+}
+
 export function createSystemClipboard(
   renderer: RendererClipboardBoundary,
   service: ClipboardService = createClipboard({

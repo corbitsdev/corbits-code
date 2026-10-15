@@ -1,14 +1,9 @@
 export {
   claudeRow,
-  defaultRow,
-  FAMILY_IDS,
-  FAMILY_ROWS,
   gptRow,
   grokRow,
   grokToolBudgetResidual,
   museRow,
-  type PromptVarianceFamily,
-  type PromptVarianceRow,
 } from "./rows.js";
 
 // Astra tool-evasion residual: the gpt-6-astra leaf re-issues the same

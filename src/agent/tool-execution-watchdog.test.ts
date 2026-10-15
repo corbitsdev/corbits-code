@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentTool } from "@intx/agent";
 import { defined } from "../../testkit/defined.js";
+import { settleOrTimeout } from "../../testkit/settle.js";
 import { createDynamicToolRunner } from "./dynamic-tool-runner.js";
 import {
   DEFAULT_MCP_TOOL_TIMEOUT_MS,
@@ -457,18 +458,11 @@ describe("tool execution watchdog", () => {
       { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
     );
     parent.abort();
-    const afterAbort = await Promise.race([
-      pending,
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error("watchdog did not settle after parent abort + grace"),
-            ),
-          TEST_SALVAGE_GRACE_MS + 500,
-        ),
-      ),
-    ]);
+    const outcome = await settleOrTimeout(pending, TEST_SALVAGE_GRACE_MS + 500);
+    if (outcome.kind === "timeout") {
+      throw new Error("watchdog did not settle after parent abort + grace");
+    }
+    const afterAbort = await pending;
     expect(afterAbort.isError).toBe(true);
     expect(afterAbort.content).toBe("hang aborted");
   });
@@ -501,18 +495,11 @@ describe("tool execution watchdog", () => {
       { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
     );
     parent.abort();
-    const afterAbort = await Promise.race([
-      pending,
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error("watchdog did not settle after parent abort + grace"),
-            ),
-          TEST_SALVAGE_GRACE_MS + 500,
-        ),
-      ),
-    ]);
+    const outcome = await settleOrTimeout(pending, TEST_SALVAGE_GRACE_MS + 500);
+    if (outcome.kind === "timeout") {
+      throw new Error("watchdog did not settle after parent abort + grace");
+    }
+    const afterAbort = await pending;
     expect(afterAbort.isError).toBe(true);
     expect(afterAbort.content).toBe("wait_agents aborted");
   });

@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 
 import { createRgCollector, type RgOutcome } from "./rg-output.js";
+import {
+  killProcessTree,
+  processGroupLeaderSpawnOptions,
+} from "../shell/spawn-tree.js";
 
 const RG_TIMEOUT_MS = 10_000;
 // Cap collected stdout so a runaway pattern cannot OOM the process before the
@@ -41,8 +45,7 @@ const spawnRg: SpawnRg = (rgArgs, cwd, signal) =>
   spawn("rg", rgArgs, {
     cwd,
     signal,
-    // Process-group leader so a kill reaches any grandchildren.
-    detached: process.platform !== "win32",
+    ...processGroupLeaderSpawnOptions(),
   }) as unknown as RgChild;
 
 export function runRg(
@@ -60,19 +63,7 @@ export function runRg(
     let stderr = "";
     let settled = false;
 
-    const killTree = (): void => {
-      if (child.pid === undefined) return;
-      try {
-        if (process.platform === "win32") child.kill("SIGKILL");
-        else process.kill(-child.pid, "SIGKILL");
-      } catch {
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // already dead
-        }
-      }
-    };
+    const killTree = (): void => killProcessTree(child);
 
     // Every path settles here, so whichever of data/close/timeout arrives first
     // stops the timer and reaps the child exactly once.

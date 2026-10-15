@@ -8,7 +8,8 @@ import type {
   ToolCall,
   ToolResult,
 } from "@intx/types/runtime";
-import { attachmentCategory, base64Encode } from "@intx/types";
+import { attachmentCategory } from "@intx/types/attachments";
+import { base64Encode } from "@intx/types/base64";
 import { getLogger } from "@intx/log";
 
 const logger = getLogger(["interchange", "inference", "turns"]);
@@ -77,7 +78,7 @@ export function createInboundTurn(
   if (content.length > 0) {
     const { from, subject } = message.headers;
     const envelope: string[] = [];
-    if (from.length > 0) envelope.push(`[From: ${from}]`);
+    if (from !== undefined && from.length > 0) envelope.push(`[From: ${from}]`);
     if (subject !== undefined && subject.length > 0) {
       envelope.push(`[Subject: ${subject}]`);
     }

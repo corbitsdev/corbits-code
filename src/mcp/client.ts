@@ -405,11 +405,13 @@ export function fetchWithConnectAbort(
   };
 }
 
-function streamableHTTPTransportOptions(
+export function streamableHTTPTransportOptions(
   authProvider: CorbitsOAuthProvider | undefined,
   signal: AbortSignal | undefined,
 ) {
-  if (authProvider === undefined && signal === undefined) return undefined;
+  // Leave redirectPolicy unset. SDK 1.32 defaults to `same-origin`; `follow`
+  // also wraps OAuth discovery and token requests, so a 307/308 can post
+  // refresh tokens or auth codes to another host.
   return {
     ...(authProvider === undefined ? {} : { authProvider }),
     ...(signal === undefined

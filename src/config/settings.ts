@@ -433,15 +433,6 @@ export function toolWatchdogFromSettings(settings?: Settings | null):
   };
 }
 
-// Maps settings.env (per-project) to the extra env vars the shell-guard plugin
-// merges into the run_shell spawn environment. Returns undefined when unset so
-// callers inherit process.env unmodified.
-export function shellEnvFromSettings(
-  local?: LocalSettings | null,
-): Record<string, string> | undefined {
-  return local?.env;
-}
-
 export interface PluginConfig {
   enabled?: boolean;
   // One-time consent for a tool plugin (kind "tool"): its tools add

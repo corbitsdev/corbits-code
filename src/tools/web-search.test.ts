@@ -36,6 +36,7 @@ const {
   resolveWebSearchProvider,
   EXA_MCP_URL,
   PARALLEL_MCP_URL,
+  webSearchDefinition,
 } = await import("./web-search.js");
 const { createAgentToolset } = await import("../agent/tools.js");
 const { resolveMcpServers } = await import("../config/index.js");
@@ -178,5 +179,63 @@ describe("createWebSearchTool", () => {
     const result = await tool.handler({ query: "" }, neverAbortedSignal);
     expect(result).toContain("Error");
     expect(connectConfigs.length).toBe(0);
+  });
+});
+
+// The served schema must stay the toJsonSchema projection of WebSearchArgs:
+// pinning it here asserts the arktype-generated args type remains the single
+// source of truth (descriptions flow from the type's @ metadata, not from a
+// hand-written JSON copy).
+describe("webSearchDefinition.inputSchema", () => {
+  test("is generated from WebSearchArgs via toJsonSchema", () => {
+    expect(webSearchDefinition.inputSchema).toEqual({
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query", minLength: 1 },
+        numResults: {
+          type: "number",
+          description: "Maximum number of results (default 8).",
+        },
+        type: {
+          anyOf: [
+            {
+              const: "auto",
+              description: "Search depth/strategy. Defaults to auto.",
+            },
+            {
+              const: "deep",
+              description: "Search depth/strategy. Defaults to auto.",
+            },
+            {
+              const: "fast",
+              description: "Search depth/strategy. Defaults to auto.",
+            },
+          ],
+          description: "Search depth/strategy. Defaults to auto.",
+        },
+        livecrawl: {
+          anyOf: [
+            {
+              const: "fallback",
+              description:
+                "Whether to prefer or only fall back to a live crawl. Defaults to fallback.",
+            },
+            {
+              const: "preferred",
+              description:
+                "Whether to prefer or only fall back to a live crawl. Defaults to fallback.",
+            },
+          ],
+          description:
+            "Whether to prefer or only fall back to a live crawl. Defaults to fallback.",
+        },
+        contextMaxCharacters: {
+          type: "number",
+          description:
+            "Cap on returned context length in characters (default 10000).",
+        },
+      },
+      required: ["query"],
+    });
   });
 });

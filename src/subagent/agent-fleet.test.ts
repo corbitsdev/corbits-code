@@ -10,6 +10,7 @@ import {
   createListAgentsTool,
   MAX_FLEET_RECORDS,
   type AgentFleetDeps,
+  waitAgentsToolDefinition,
 } from "./agent-fleet.js";
 import { createAdmissionQueue } from "./admission.js";
 import {
@@ -23,6 +24,10 @@ import { agentLaneIsLive, fleetProgress } from "./agent-progress.js";
 import { forcedStopReport } from "./stop-policy.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 import { INTERVENTION_FILE } from "./intervention-log.js";
+import {
+  createDeniedCallEnvelope,
+  getProcessWorkerGrantStore,
+} from "../permission/worker-grant.js";
 import { defined } from "../../testkit/defined.js";
 import {
   callFleetTool,
@@ -1935,6 +1940,192 @@ describe("list_agents", () => {
       resolution: "declined",
     });
     gate.resolve({ report: "done" });
+  });
+
+  test("projects a bound grant_request_id without relying on ask prose", async () => {
+    getProcessWorkerGrantStore().clear();
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const id = "grant-projection";
+    sessions.start({
+      id,
+      description: "need approval",
+      agentId: "a",
+      brief: "b",
+    });
+    sessions.markRunning(id);
+    fleetRecords.register(id);
+    const envelope = getProcessWorkerGrantStore().register(
+      createDeniedCallEnvelope({
+        callId: "denied-call",
+        tool: "run_shell",
+        action: "Run",
+        subject: "git status",
+        args: { command: "git status" },
+        cwd: process.cwd(),
+        workerSessionId: id,
+      }),
+    );
+    expect(
+      sessions.registerAsk(id, {
+        question: "Please decide how to proceed.",
+        questionId: "ask-1",
+        grantRequestId: envelope.requestId,
+        assessment: assessedAsk,
+        resolve: () => undefined,
+        reject: () => undefined,
+      }),
+    ).toBe(true);
+
+    const list = createListAgentsTool({ sessions, fleetRecords });
+    const listed = parseFleetJson(
+      (await callFleetToolRaw(list, {})).content,
+    ) as {
+      agents: { question?: string; grant_request_id?: string }[];
+    };
+    const listedAgent = defined(listed.agents[0]);
+    expect(listedAgent.question).toBe("Please decide how to proceed.");
+    expect(listedAgent.grant_request_id).toBe(envelope.requestId);
+
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+    const waited = await callFleetTool(wait, {
+      targets: [id],
+      timeout_ms: 1,
+    });
+    const waitedAgent = defined(
+      (waited.results as { grant_request_id?: string }[])[0],
+    );
+    expect(waitedAgent.grant_request_id).toBe(envelope.requestId);
+    expect(waitAgentsToolDefinition.description).toContain(
+      "approve_worker_call",
+    );
+    expect(waitAgentsToolDefinition.description).toContain("grant_request_id");
+    expect(waitAgentsToolDefinition.description).toContain(
+      "send_input does not grant",
+    );
+
+    const refused = await callFleetToolRaw(list, {});
+    expect(refused.isError).toBe(true);
+    expect(refused.content).toContain("approve_worker_call");
+    expect(refused.content).toContain(envelope.requestId);
+    expect(refused.content).toContain("send_input does not grant");
+  });
+
+  test("does not rebind a resolved denial to a later generic ask", async () => {
+    getProcessWorkerGrantStore().clear();
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const id = "grant-projection-no-rebind";
+    sessions.start({
+      id,
+      description: "need approval",
+      agentId: "a",
+      brief: "b",
+    });
+    sessions.markRunning(id);
+    fleetRecords.register(id);
+    const grantStore = getProcessWorkerGrantStore();
+    const envelopeA = grantStore.register(
+      createDeniedCallEnvelope({
+        callId: "denied-call-A",
+        tool: "run_shell",
+        action: "Run",
+        subject: "git status",
+        args: { command: "git status" },
+        cwd: process.cwd(),
+        workerSessionId: id,
+      }),
+    );
+    expect(
+      sessions.registerAsk(id, {
+        question: "Please decide how to proceed.",
+        questionId: "ask-1",
+        grantRequestId: envelopeA.requestId,
+        assessment: assessedAsk,
+        resolve: () => undefined,
+        reject: () => undefined,
+      }),
+    ).toBe(true);
+    expect(
+      sessions.resolveEscalationAsk(id, {
+        kind: "minimum_grant_available",
+        answer: "continue",
+        questionId: "ask-1",
+      }),
+    ).toBe(true);
+    expect(grantStore.peek(envelopeA.requestId)?.status).toBe("pending");
+
+    expect(
+      sessions.registerAsk(id, {
+        question: "What should I do next?",
+        questionId: "ask-2",
+        assessment: assessedAsk,
+        resolve: () => undefined,
+        reject: () => undefined,
+      }),
+    ).toBe(true);
+    expect(sessions.peekAsk(id)?.deniedCall).toBeUndefined();
+
+    const list = createListAgentsTool({ sessions, fleetRecords });
+    const listed = parseFleetJson(
+      (await callFleetToolRaw(list, {})).content,
+    ) as { agents: { grant_request_id?: string }[] };
+    expect(defined(listed.agents[0]).grant_request_id).toBeUndefined();
+
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+    const waited = await callFleetTool(wait, {
+      targets: [id],
+      timeout_ms: 1,
+    });
+    expect(
+      defined((waited.results as { grant_request_id?: string }[])[0])
+        .grant_request_id,
+    ).toBeUndefined();
+
+    expect(sessions.resolveAsk(id, "continue")).toBe(true);
+    const envelopeB = grantStore.register(
+      createDeniedCallEnvelope({
+        callId: "denied-call-B",
+        tool: "run_shell",
+        action: "Run",
+        subject: "git diff",
+        args: { command: "git diff" },
+        cwd: process.cwd(),
+        workerSessionId: id,
+      }),
+    );
+    expect(
+      sessions.registerAsk(id, {
+        question: "May I retry git diff?",
+        questionId: "ask-3",
+        grantRequestId: envelopeB.requestId,
+        assessment: assessedAsk,
+        resolve: () => undefined,
+        reject: () => undefined,
+      }),
+    ).toBe(true);
+    expect(sessions.peekAsk(id)?.deniedCall?.requestId).toBe(
+      envelopeB.requestId,
+    );
+    expect(grantStore.peek(envelopeA.requestId)?.questionId).toBe("ask-1");
+
+    const listB = createListAgentsTool({ sessions, fleetRecords });
+    const listedB = parseFleetJson(
+      (await callFleetToolRaw(listB, {})).content,
+    ) as { agents: { grant_request_id?: string }[] };
+    expect(defined(listedB.agents[0]).grant_request_id).toBe(
+      envelopeB.requestId,
+    );
+
+    const waitB = createWaitAgentsTool({ sessions, fleetRecords });
+    const waitedB = await callFleetTool(waitB, {
+      targets: [id],
+      timeout_ms: 1,
+    });
+    expect(
+      defined((waitedB.results as { grant_request_id?: string }[])[0])
+        .grant_request_id,
+    ).toBe(envelopeB.requestId);
   });
 
   test("errors after wait_agents surfaces awaiting_director with a question", async () => {

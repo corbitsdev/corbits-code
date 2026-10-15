@@ -412,6 +412,47 @@ describe("operatorChoicesFromOptions / operatorResultFromSelection", () => {
 });
 
 describe("wireGates", () => {
+  test("notifies once when a permission gate reaches the screen", async () => {
+    const seen: string[] = [];
+    await withGates(
+      async ({ emitter }) => {
+        emitPermission(emitter, { id: "req-9" });
+        emitPermission(emitter, { id: "req-9" });
+      },
+      {
+        hooks: {
+          notify: {
+            notify: (message) => {
+              seen.push(message);
+              return true;
+            },
+          },
+        },
+      },
+    );
+    expect(seen).toEqual(["Approval needed"]);
+  });
+
+  test("notifies when an operator gate reaches the screen", async () => {
+    const seen: string[] = [];
+    await withGates(
+      async ({ emitter }) => {
+        emitOperator(emitter);
+      },
+      {
+        hooks: {
+          notify: {
+            notify: (message) => {
+              seen.push(message);
+              return true;
+            },
+          },
+        },
+      },
+    );
+    expect(seen).toEqual(["Input needed"]);
+  });
+
   test("subscribes exactly permission.gate and operator.gate; dispose removes both", async () => {
     await withGates(async ({ emitter, disposeGates }) => {
       expect(emitter.listenerCount("permission.gate")).toBe(1);

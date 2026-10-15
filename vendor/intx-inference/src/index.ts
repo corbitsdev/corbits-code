@@ -21,7 +21,6 @@ export type {
   AdapterRegistry,
   AdapterFactory,
 } from "./adapter";
-export { AdapterManifest, AdapterManifestEntry } from "./manifest";
 export { CREDENTIAL_SENTINEL, BEARER_CREDENTIAL_SENTINEL } from "./auth";
 export {
   classifyHTTPError,

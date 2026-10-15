@@ -11,6 +11,14 @@
     "./testing": {
       "types": "./src/testing/index.ts",
       "default": "./src/testing/index.ts"
+    },
+    "./authoring": {
+      "types": "./src/authoring.ts",
+      "default": "./src/authoring.ts"
+    },
+    "./canonicalize": {
+      "types": "./src/canonicalize.ts",
+      "default": "./src/canonicalize.ts"
     }
   },
   "dependencies": {

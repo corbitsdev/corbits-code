@@ -580,7 +580,7 @@ export function createDeliverRouting(
           () => targetAgent.deliver(message),
           (result) => {
             if (result.status === "accepted" && isOperatorMessage) {
-              state.acceptedInputObserver?.(message.headers.messageId);
+              state.acceptedInputObserver?.(messageId);
             } else if (isOperatorMessage) {
               state.discardAcceptedInputObserver?.(messageId);
             }

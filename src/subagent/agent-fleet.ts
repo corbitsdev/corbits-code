@@ -152,6 +152,7 @@ interface FleetRecord {
   hint?: string;
   question?: string;
   questionId?: string;
+  grantRequestId?: string;
   assessment?: EscalationAssessment;
   terminalOutcome?: TerminalOutcome;
   description?: string;
@@ -539,6 +540,9 @@ class FleetMailbox {
         ? {
             question: ask.question,
             questionId: ask.questionId,
+            ...(ask.deniedCall !== undefined
+              ? { grantRequestId: ask.deniedCall.requestId }
+              : {}),
             ...(ask.assessment !== undefined
               ? { assessment: ask.assessment }
               : {}),
@@ -683,7 +687,7 @@ export const MAX_WAIT_TIMEOUT_MS = 300_000;
 export const waitAgentsToolDefinition: ToolDefinition = {
   name: "wait_agents",
   description:
-    "Block until targets finish, fail, or ask (awaiting_director), or timeout_ms. mode any (default) or all. Timeout is not an error; workers keep running. Answer awaiting_director with send_input. failed+continuable:true: recover once via spawn_agent recovers=agent_id.",
+    "Block until targets finish, fail, or ask (awaiting_director), or timeout_ms. mode any (default) or all. Timeout is not an error; workers keep running. awaiting_director with grant_request_id: approve_worker_call using that id (send_input does not grant). Other asks: send_input (soft). failed+continuable:true: recover once via spawn_agent recovers=agent_id.",
   inputSchema: {
     type: "object",
     properties: {
@@ -2044,6 +2048,9 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
             ...(record.questionId !== undefined
               ? { question_id: record.questionId }
               : {}),
+            ...(record.grantRequestId !== undefined
+              ? { grant_request_id: record.grantRequestId }
+              : {}),
             ...(record.assessment !== undefined
               ? { assessment: record.assessment }
               : {}),
@@ -2124,10 +2131,18 @@ export const listAgentsToolDefinition: ToolDefinition = {
   },
 };
 
-function collectParkedAsks(
-  fleetRecords: FleetMailboxHandle,
-): { id: string; questionId: string; question: string }[] {
-  const parked: { id: string; questionId: string; question: string }[] = [];
+function collectParkedAsks(fleetRecords: FleetMailboxHandle): {
+  id: string;
+  questionId: string;
+  question: string;
+  grantRequestId?: string;
+}[] {
+  const parked: {
+    id: string;
+    questionId: string;
+    question: string;
+    grantRequestId?: string;
+  }[] = [];
   for (const id of fleetRecords.ids()) {
     const record = fleetRecords.peek(id);
     if (
@@ -2141,6 +2156,9 @@ function collectParkedAsks(
       id,
       questionId: record.questionId,
       question: record.question,
+      ...(record.grantRequestId !== undefined
+        ? { grantRequestId: record.grantRequestId }
+        : {}),
     });
   }
   return parked;
@@ -2148,16 +2166,28 @@ function collectParkedAsks(
 
 function refuseSurfacedParkedAsks(
   callId: string,
-  parked: readonly { id: string; questionId: string; question: string }[],
+  parked: readonly {
+    id: string;
+    questionId: string;
+    question: string;
+    grantRequestId?: string;
+  }[],
 ): ToolResult {
   const targets = parked.map((row) => row.id).join(", ");
-  const lines = parked.map(
-    (row) => `target ${row.id} question_id ${row.questionId}: ${row.question}`,
-  );
+  const lines = parked.map((row) => {
+    const grant =
+      row.grantRequestId !== undefined
+        ? ` grant_request_id ${row.grantRequestId}`
+        : "";
+    return `target ${row.id} question_id ${row.questionId}${grant}: ${row.question}`;
+  });
+  const steer = parked.some((row) => row.grantRequestId !== undefined)
+    ? `Approve a denied worker call with approve_worker_call using its grant_request_id (send_input does not grant). Other parked asks: send_input (soft) using target ${targets}, or escalate with ask_operator.`
+    : `Answer with send_input (soft) using target ${targets}, or escalate with ask_operator.`;
   return fleetResult(
     callId,
     [
-      `Error: list_agents is not progress while parked ask_director questions are already surfaced. Answer with send_input (soft) using target ${targets}, or escalate with ask_operator.`,
+      `Error: list_agents is not progress while parked ask_director questions are already surfaced. ${steer}`,
       ...lines,
     ].join("\n"),
   );
@@ -2197,6 +2227,10 @@ export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
           ...(record?.status === "awaiting_director" &&
           record.questionId !== undefined
             ? { question_id: record.questionId }
+            : {}),
+          ...(record?.status === "awaiting_director" &&
+          record.grantRequestId !== undefined
+            ? { grant_request_id: record.grantRequestId }
             : {}),
           ...(record?.assessment !== undefined
             ? { assessment: record.assessment }

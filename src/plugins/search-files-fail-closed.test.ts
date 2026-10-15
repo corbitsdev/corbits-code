@@ -11,7 +11,7 @@ import {
   TIMEOUT_PREFIX,
 } from "./tool-time-budget.js";
 import { ripgrepPlugin } from "./ripgrep-plugin.js";
-import type { RgChild, SpawnRg } from "./rg-run.js";
+import type { RgChild, SpawnRg } from "../search/rg-run.js";
 
 /**
  * search_files must fail closed on unbounded root walks instead of timing
