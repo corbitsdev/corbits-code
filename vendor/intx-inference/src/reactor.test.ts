@@ -2436,6 +2436,91 @@ describe("createReactor — tool runner failures", () => {
     );
     expect(hasUserText).toBe(true);
   });
+
+  test("tool cycles write turns without a per-batch commit; the terminal commits once", async () => {
+    // CL-10667 coalescing: each tool batch touches the store's segments only
+    // (writeTurns); the full commitCycle defers to the done terminal. Counts
+    // the behavior a regressed per-batch commit would break.
+    let commits = 0;
+    let turnWrites = 0;
+    const countingStore: ContextStore = {
+      async load() {
+        return {
+          turns: [],
+          pendingOperations: [],
+          tokenUsage: emptyUsage(),
+          connectorState: null,
+        };
+      },
+      setConnectorState() {
+        /* noop */
+      },
+      async commit(options) {
+        commits += 1;
+        return { hash: "abc", message: options.message, timestamp: Date.now() };
+      },
+      async branch() {
+        /* noop */
+      },
+      async log() {
+        return [];
+      },
+      async readAt() {
+        return [];
+      },
+      async writeBlob() {
+        throw new Error("not implemented");
+      },
+      async readBlob() {
+        throw new Error("not implemented");
+      },
+      async writePrompt() {
+        /* noop */
+      },
+      async writeResponse() {
+        throw new Error("not implemented");
+      },
+      async writeManifest() {
+        /* noop */
+      },
+      async writeTurns() {
+        turnWrites += 1;
+      },
+      async writeMetadata() {
+        /* noop */
+      },
+      async readManifestHistory() {
+        throw new Error("not implemented");
+      },
+    };
+
+    let batches = 0;
+    const { reactor, waitFor } = createTestReactor({
+      contextStore: countingStore,
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "ok",
+      })),
+      director: directorFromTable({
+        "message.received": (_e, _s, caps) =>
+          caps.executeTools([{ id: "c1", name: "tool" }], true, true),
+        "tool.done": (_e, _s, caps) => {
+          batches += 1;
+          return batches === 1
+            ? [caps.executeTools([{ id: "c2", name: "tool" }], true, true)]
+            : caps.done();
+        },
+      }),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    // One segment write per tool batch; exactly one commit, at the terminal.
+    expect(turnWrites).toBe(2);
+    expect(commits).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ import { setAgentSourceUnlessClosed } from "../agent-source-sync.js";
 import { billingIdentityFromSource } from "../../cost/session-cost.js";
 import { createRunSummary, type RunSummary } from "../../session/hooks.js";
 import {
+  createRunSnapshotDebouncer,
   finalizeRunState,
   saveState,
   type RunState,
@@ -189,12 +190,22 @@ export function clearsActiveRun(kind: SnapshotKind): boolean {
 /**
  * The run.json snapshot writers. Pure over (state, services), so the
  * lifecycle and the finalize tail can each build their own instance.
+ * Exported for tests building the minimal (state, services) stub.
  */
-function createRunPersistence(state: RunnerState, services: RunnerServices) {
+export function createRunPersistence(
+  state: RunnerState,
+  services: RunnerServices,
+) {
+  // Identical-payload skip (CL-10667): the last written snapshot is the
+  // compare baseline; an unchanged progress snapshot skips the atomicWrite
+  // (terminal kinds always write — the skipped path never clears the active
+  // run handle, which finalizeRunState does).
+  let lastProgressJson: string | null = null;
   const writeRunSnapshot = async (
     status: SnapshotStatus,
     extra?: SnapshotExtra,
     kind: SnapshotKind = "progress",
+    force = false,
   ): Promise<void> => {
     const task =
       state.runTaskTitle.trim().length > 0
@@ -225,11 +236,20 @@ function createRunPersistence(state: RunnerState, services: RunnerServices) {
         : {}),
       ...extra,
     };
+    const payloadJson = JSON.stringify(persisted, null, 2);
+    // force = heartbeat tick: mtime freshness is the write's job even when
+    // the payload is byte-identical to the baseline.
+    if (!force && kind === "progress" && payloadJson === lastProgressJson) {
+      return;
+    }
     if (clearsActiveRun(kind)) {
       await finalizeRunState(state.config.cwd, state.sessionId, persisted);
     } else {
       await saveState(state.config.cwd, state.sessionId, persisted);
     }
+    // Baseline only what landed: a failed save must not suppress the next
+    // attempt at the same payload.
+    lastProgressJson = payloadJson;
   };
 
   // Progress snapshots fire unsequenced (model switch, MCP connect, turn
@@ -249,7 +269,30 @@ function createRunPersistence(state: RunnerState, services: RunnerServices) {
     await writeRunSnapshot(status, extra, kind);
   };
 
-  return { writeRunSnapshot, persistRunSnapshot };
+  // The run-liveness heartbeat must bypass the identical-payload skip: its
+  // payload is often byte-identical (a long quiet turn), but run.json's
+  // mtime is what `ageStaleRunningState` reads cross-process — a skipped
+  // heartbeat would age a live run to "interrupted" after two missed beats.
+  const heartbeatRunSnapshot = async (): Promise<void> => {
+    if (services.crashGuard.isFinalized()) return;
+    await writeRunSnapshot("running", undefined, "progress", true);
+  };
+
+  // CL-10667: per-turn boundary snapshots coalesce behind the debounce
+  // window plus the identical-payload skip above (lazy payoff — the deferred
+  // write recomputes state at fire time, so nothing scheduled goes stale).
+  // Observable exposes flush before they observe or supersede run.json.
+  const runSnapshotDebouncer = createRunSnapshotDebouncer({
+    write: () => persistRunSnapshot("running"),
+  });
+
+  return {
+    writeRunSnapshot,
+    persistRunSnapshot,
+    heartbeatRunSnapshot,
+    scheduleRunSnapshot: runSnapshotDebouncer.schedule,
+    flushRunSnapshot: runSnapshotDebouncer.flush,
+  };
 }
 
 /**
@@ -295,8 +338,18 @@ export async function createRunLifecycle(
   newSession: () => void;
   agentProxy: Agent;
 }> {
-  const { persistRunSnapshot } = createRunPersistence(state, services);
+  const {
+    persistRunSnapshot,
+    heartbeatRunSnapshot,
+    scheduleRunSnapshot,
+    flushRunSnapshot,
+  } = createRunPersistence(state, services);
   state.persistRunSnapshot = persistRunSnapshot;
+  // CL-10667: per-turn boundary snapshots schedule behind the debounce
+  // window; observable exposes (interrupt rebuild, rotation, finalize) flush
+  // the pending write before they observe or supersede run.json.
+  state.scheduleRunSnapshot = scheduleRunSnapshot;
+  state.flushRunSnapshot = flushRunSnapshot;
   const activateAndCommitWire = (names: string[]): void => {
     if (!services.activatedToolNames.activate(names)) return;
     if (services.flushPromotions()) {
@@ -310,7 +363,9 @@ export async function createRunLifecycle(
   };
   const stopHeartbeat = startRunHeartbeat({
     shouldTick: () => !services.crashGuard.isFinalized(),
-    tick: () => persistRunSnapshot("running"),
+    // The heartbeat's job is mtime freshness, not payload change: force the
+    // write past the identical-payload skip (see heartbeatRunSnapshot).
+    tick: () => heartbeatRunSnapshot(),
   });
   state.stopRunHeartbeat = stopHeartbeat;
 
@@ -586,6 +641,10 @@ export async function createRunLifecycle(
       enqueue: enqueueOp,
       rebuild: async () => {
         try {
+          // CL-10667: run.json is observable the moment the rebuild starts
+          // reading store state, so the pending debounced snapshot flushes
+          // first.
+          await state.flushRunSnapshot?.();
           // close() tears down stream consumers before the aborted cycle's
           // inference.error is delivered, so the recorder never sees a
           // terminal event. Dispose before that teardown salvages the buffer
@@ -672,6 +731,10 @@ export async function createRunLifecycle(
             },
           );
         });
+        // CL-10667: the rotation terminal write supersets the pending
+        // snapshot for the outgoing session; flush so the debounced write
+        // cannot straddle the id repoint below.
+        await state.flushRunSnapshot?.();
         await persistRunSnapshot(
           "done",
           { finishedAt: Date.now() },
@@ -755,6 +818,9 @@ export async function finalizeTUIRun(
   await hostOf(state).waitUntilExit();
   state.stopRunHeartbeat?.();
   delete state.stopRunHeartbeat;
+  // CL-10667: pending debounced snapshots flush ahead of the terminal write
+  // so a failed or dropped terminal write cannot leave run.json stale.
+  await state.flushRunSnapshot?.();
   // Stop workers before awaiting the session-op tail so a hung enqueue cannot
   // delay abort/reap; persistence, hooks, and telemetry stay after stop.
   // Toolset dispose lives inside shutdownRuntime so quit, crash, and signals

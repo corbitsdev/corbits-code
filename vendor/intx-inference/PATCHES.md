@@ -454,22 +454,32 @@ doom-loop accounting.
 accounting block, re-verify the reset branch after upstream changes to batch
 signatures or repeat counting.
 
-## reactor-ts-checkpoint-after-tool-cycle
+## reactor-ts-tool-cycle-turns-only
 
-`reactor.ts` — Checkpoint after a tool cycle that appends to history.
-`executeTools` now calls `commitCycle()` when `addToHistory` is true, so an
-interrupt that rebuilds the agent from the store reloads the completed tool
-exchange instead of losing an uncommitted tool turn (context previously
-committed only at cycle terminals).
+`reactor.ts` — Tool-cycle persistence coalescing (CL-10667; supersedes
+#reactor-ts-checkpoint-after-tool-cycle). A tool cycle that appends to history
+now touches the store's on-disk segments only: `executeTools` calls
+`contextStore.writeTurns(stateManager.getTurns())` (guarded by
+`pendingCompactOutput === null` and the shared `lastWrittenTurnsRevision`
+revision gate from #reactor-ts-last-written-turns-revision) and defers the
+full `commitCycle` (manifest, metadata, git index + commit) to the next
+reply/wait/done/suspend/shutdown terminal. Durability contract is the
+segments-on-disk story: the optimized context store keeps uncommitted turn
+segments in the working tree, and `load()` (the path an interrupt-rebuild
+takes) reads them, so the tool exchange survives a rebuild exactly as the
+old per-batch commit did.
 
-**Disposition:** Promotion candidate. Durability correctness fix —
-interrupting after a tool cycle must not lose committed tool turns.
-**Removal path:** Upstream PR adding `commitCycle()` call in
-`executeTools` when `addToHistory` is true.
+**Disposition:** Promotion candidate. Performance coalescing — collapses K
+git commits per agentic turn to one deferred commit while preserving
+rebuild-from-disk durability.
+**Removal path:** Upstream PR replacing the `executeTools` checkpoint with a
+writeTurns-only segments touch and deferring the cycle commit to cycle
+terminals.
 **Re-carry:** clean three-way at `0205b07b`, zero conflicts. Moderate risk —
-upstream's doom-loop fatal break fires from inside the tool cycle; re-verify
-that a doom-loop break still commits (or intentionally does not commit) the
-in-flight cycle.
+a doom-loop abort skips the deferred terminal (previously the in-flight
+batch committed); the turns still reach disk segments, so only the cycle's
+manifest records and metadata staging stay uncommitted. Intentionally not
+committed; re-verify after upstream doom-loop accounting changes.
 
 ## reactor-ts-skip-unchanged-history
 
@@ -486,6 +496,17 @@ in `commitCycle`.
 **Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk;
 depends on the `turnsRevision` plumbing in `state.ts`, which is itself a
 patch (below).
+
+**Known pre-existing hazard (documented, file-for-later — do not fix inside
+this lane):** `lastWrittenTurnsRevision` advances only after a successful
+`commitCycle`. When a commit fails after `contextStore.writeTurns` already
+landed, the revision stays behind the turns actually on disk. Consequences
+are bounded: the next checkpoint re-serializes and re-writes the same
+generation (a perf cost, never a staleness bug — a larger revision is
+always written on the next success, and the reactor resets accumulators on
+the failure path). A staged compaction between revisions is guarded by
+`pendingCompactOutput === null` in every writeTurns site. Keep this guard
+intact when touching either site.
 
 ## reactor-ts-after-checkpoint-director-only
 
@@ -689,7 +710,7 @@ revisit point is the next vendored sync (see `docs/VENDORING.md`).
 | errors-ts-classify-abort-reason | Add optional `reason` param to `classifyAbortError`, carried as `raw: { origin }` | Alexander Guy <alexander.guy@pm.me> | This ledger (#errors-ts-classify-abort-reason) | Next vendored sync |
 | harness-ts-inactivity-on-semantic-progress | Gate the inactivity watchdog's re-arm on parsed events, not raw SSE bytes | Alexander Guy <alexander.guy@pm.me> | This ledger (#harness-ts-inactivity-on-semantic-progress) | Next vendored sync |
 | reactor-ts-correlating-ids-leak | Wrap `tryCorrelate` in try/finally so `correlatingIds` clears on success dispatch paths | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-correlating-ids-leak) | Next vendored sync |
-| reactor-ts-checkpoint-after-tool-cycle | Call `commitCycle()` in `executeTools` when `addToHistory` is true | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-checkpoint-after-tool-cycle) | Next vendored sync |
+| reactor-ts-tool-cycle-turns-only (supersedes reactor-ts-checkpoint-after-tool-cycle) | `executeTools` writes turns to store segments only and defers the cycle commit to terminals | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-tool-cycle-turns-only) | Next vendored sync |
 | reactor-ts-skip-unchanged-history (+ reactor-ts-last-written-turns-revision) | Skip `contextStore.writeTurns` when `getTurnsRevision()` is unchanged | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-skip-unchanged-history) | Next vendored sync |
 | reactor-ts-compact-publish-then-memory | Persist compact blobs, stage `writeTurns`, commit, then `replaceTurns` so memory stays on the old generation until publication | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-compact-publish-then-memory) | Next vendored sync |
 | reactor-ts-after-checkpoint-director-only | Gate `afterCheckpoint` on `hasOverride` so auto-commits do not emit it | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-after-checkpoint-director-only) | Next vendored sync |

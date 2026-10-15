@@ -1,5 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import type { ToolCall } from "@intx/types/runtime";
+import { defined } from "../../testkit/defined.js";
 import type { AgentTool } from "@intx/agent";
 import { submitOutputDefinition } from "../agent/director.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
@@ -557,6 +558,99 @@ describe("runExec", () => {
             expect(getActiveRun()).toBeNull();
           },
         );
+      });
+    } finally {
+      if (previous !== null) setActiveRun(previous);
+      else clearActiveRun();
+      cleanup();
+    }
+  });
+
+  test("heartbeat forces identical-payload writes; a failed save does not take the baseline", async () => {
+    // CL-10667 review fix: the exec heartbeat tick must bypass the
+    // identical-payload skip (mtime freshness is a liveness contract read
+    // cross-process by ageStaleRunningState), and the baseline must record
+    // only successes so a transient save failure cannot freeze run.json.
+    const previous = getActiveRun();
+    clearActiveRun();
+    const sessionId = "exec-heartbeat-fail";
+    const { cwd, home, cleanup } = createTempDirs(
+      "corbits-exec-heartbeat-cwd-",
+      "corbits-exec-heartbeat-home-",
+    );
+    try {
+      const saveCalls: { ok: boolean; status?: string }[] = [];
+      await withMockedHomedir(home, () =>
+        withMockedModuleDuring(
+          import.meta.resolve("../session/state.js"),
+          (real: typeof import("../session/state.js")) =>
+            ({
+              ...real,
+              saveState(
+                cwd: string,
+                sessionId: string,
+                state: import("../session/state.js").RunState,
+                dir?: string,
+              ) {
+                if (saveCalls.length === 0) {
+                  saveCalls.push({ ok: false, status: state.status });
+                  // Transient failure on the first running write.
+                  return Promise.reject(new Error("ENOSPC-like"));
+                }
+                saveCalls.push({ ok: true, status: state.status });
+                return real.saveState(cwd, sessionId, state, dir);
+              },
+            }) as typeof real,
+          () =>
+            withMockedModuleDuring(
+              import.meta.resolve("../session/run-liveness.js"),
+              (real: typeof import("../session/run-liveness.js")) =>
+                ({
+                  ...real,
+                  RUN_HEARTBEAT_INTERVAL_MS: 10,
+                }) as typeof real,
+              () =>
+                withMockedModuleDuring(
+                  import.meta.resolve("../session/assemble-runtime.js"),
+                  (inner: typeof import("../session/assemble-runtime.js")) =>
+                    ({
+                      ...inner,
+                      assembleInferenceBase: () =>
+                        // Delay the bootstrap failure so heartbeat ticks run
+                        // while the run is unsettled.
+                        new Promise<never>((_, reject) => {
+                          setTimeout(
+                            () => reject(new Error("bootstrap failed")),
+                            80,
+                          );
+                        }),
+                    }) as typeof inner,
+                  async () => {
+                    const { runExec: runExecUnderMock } =
+                      await import("./runner.js");
+                    const result = await runExecUnderMock({
+                      ...bareConfig("do the thing"),
+                      cwd,
+                      sessionId,
+                    });
+                    expect(result.status).toBe("failed");
+                  },
+                ),
+            ),
+        ),
+      );
+
+      // Write 1 (running) failed; the heartbeat retried the identical payload
+      // and forced a disk write past any baseline; the terminal wrote last.
+      expect(saveCalls[0]).toEqual({ ok: false, status: "running" });
+      const runningOk = saveCalls.findIndex((call) => call.ok);
+      expect(runningOk).toBeGreaterThan(0);
+      expect(defined(saveCalls[runningOk]).status).toBe("running");
+      expect(defined(saveCalls[saveCalls.length - 1]).status).toBe("failed");
+      const finalPersisted = await loadState(cwd, sessionId, home);
+      expect(finalPersisted).toMatchObject({
+        kind: "ok",
+        state: { status: "failed" },
       });
     } finally {
       if (previous !== null) setActiveRun(previous);
