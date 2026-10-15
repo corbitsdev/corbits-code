@@ -139,6 +139,97 @@ new upstream moved under the patch:
   `src/config/source-credentials.ts`, handed to the vendored trees as
   their resolver).
 
+### 2026-10-14 re-sync (upstream `5453d0b0` — npm `0.4.0`, CL-10651)
+
+Every entry below re-verified against the pristine `5453d0b0` tree; none
+was dropped as upstream-absorbed. The ticket's carried-forward DROP
+suspicions are contradicted by direct greps of the `0.4.0` tree —
+`isStreamTerminal`, `isPollOnlyPendingBatch`, `ephemeralTurns`,
+`loadErrors`, `turnsRevision`/`deepFreeze`, `isCommitting`, and
+`ClassifiedAbortRaw`-grade `classifyAbortError(reason)` plumbing are all
+absent upstream at this pin — so every entry KEEPs and no disposition
+label changes. Upstream churn in this package for the range is limited
+to `reactor.test.ts` (test-infra: new `@intx/types/testing` `waitUntil`
+adoption and race-window rewrites) and `default-director.test.ts`; **no
+upstream-producing source file under a ledger entry changed**, so the
+src/ entries re-carried byte-identically with zero adaptation. Marker
+spot-checks at the recorded positions are unchanged for the same reason
+(`providers/openai.ts:574`, `harness.ts:644/1528/1606/1635/1875`,
+`errors.ts:54`, `providers/anthropic.ts:825/832/1084`,
+`providers/google-genai-files.ts:172-174`).
+
+- `reactor.test.ts` was the only file with both local content and
+  upstream changes; it was three-way merged (ours/base/theirs via
+  `git merge-file`). `reactor-test-frozen-turns-mutation` re-applied
+  onto upstream's rewritten probe; the local doom-loop trivial-shell
+  suite (`reactor-ts-doom-loop-trivial-shell-churn` companion tests) and
+  the credential-failure terminal tests
+  (`harness-ts-auth-recovery` companions) carried through intact.
+- `providers/anthropic.test.ts` (CL-7783/adaptive suites) was untouched
+  in this range and keeps its prior state.
+- New upstream test dependencies on `@intx/types/testing` (`waitUntil`)
+  resolve through the vendored `@intx/types` tree, which now carries the
+  `./testing` subpath export.
+- CL-7783's `stopReason` chain verified end-to-end at this pin:
+  `types/runtime.ts:1449/1715`, `providers/anthropic.ts:825/832/1084`,
+  and the harness sites `harness.ts:380/1128-1136/1200` all present.
+- Carried-patch coverage at this pin: `ephemeralTurns` and the
+  context-transforms `deps` channel are pinned by first-party
+  `e2e/vendored-carry.test.ts` (both integration tests pass) plus
+  `src/provider/anthropic-cache-breakpoint.test.ts` and
+  `src/subagent/nudge-director.test.ts`; the poll-exemption predicate by
+  `src/subagent/poll-exempt.test.ts` (wired verbatim through
+  `src/provider/inference-dependencies.ts`); the stream-terminal
+  consumer by `src/provider/grok-responses.test.ts` and
+  `src/provider/codex-responses-sse.test.ts`; `classifyAbortError`'s
+  reason now gains an in-tree companion test (added this sync) and is
+  exercised on the abort paths of `e2e/reactor-approval-acceptance.test.ts`.
+
+### 2026-10-14 re-sync to `4cc6972` (CL-10656, HEAD drift 0.4.0 → base)
+
+Every entry re-carried against the pristine `4cc6972` tree; none dropped as
+upstream-absorbed (grep of the pristine tree: `isStreamTerminal`,
+`isPollOnlyPendingBatch`, `ephemeralTurns`, `loadErrors`, `turnsRevision`/
+`deepFreeze`, `isCommitting`, `MAX_LINE_LENGTH` — all still absent).
+Nine upstream commits touch this package (`0f72f95`, `1ff8805`, `a0be30`,
+`660ef8`, `d1e05e`, `cb61da`, `d1835b`, `c8be7e`, `2d973a`). Adaptation
+surface: 22 upstream-changed files; 9 vendored files carry local content
+and were three-way merged (`git merge-file`, ours/base/theirs), the rest
+copied verbatim.
+
+- `errors.ts` conflict: upstream `c8be7e` added
+  `classifyRequestBuildError` between `classifyNetworkError` and the
+  patched `classifyAbortError(reason?)`; both kept (upstream function
+  adopted, patch re-carried with its `ClassifiedAbortRaw` type).
+- `reactor.ts` two conflicts: (1) `d1835b` added
+  `mergeInferenceOptions`/`PerCallInferenceOptions` strip-copy beside the
+  patched `ExtendedInferenceOptions` (`ephemeralTurns`) — both kept; (2)
+  `d1835b`/`0f72f95` restructured `processDelivery` (per-send `deliver`
+  options, `deliveredInference` adoption, `expectedFrom` removal) inside
+  the atomic-acceptance critical section — the upstream adoption block
+  was re-slit above the patched `disposition` declaration, and the
+  `reactor-ts-atomic-approval-acceptance` `try/finally` boundary is
+  intact.
+- Clean three-way merges on patched files: `assembly.ts`,
+  `correlation.ts`, `errors.test.ts`, `harness.ts`, `index.ts`,
+  `providers/anthropic.ts`, `providers/google-genai.ts`,
+  `providers/openai.ts`, `reactor.test.ts`; patch hunks carry with zero
+  adaptation (`providers-ts-openai-exclusive-cache-usage`,
+  `inference-ts-cl-7783-truncated-tool-call` stop-reason chain verified
+  against the new `@intx/types` `inference-events.ts` sites and
+  `providers/anthropic.ts`). The vendored `index.ts` merged with
+  upstream's barrel: upstream moved the `AdapterManifest` export to
+  `@intx/types` (`adapter-manifest.ts`); first-party
+  `src/provider/inference-dependencies.ts` imports it there now.
+- `effort.ts`/`effort.test.ts` (`c8be7e` reasoning-effort mapping) and
+  `manifest.ts`'s new callers (`2d973a` adapter manifest) adopted
+  verbatim; the vendored `package.json` gains the upstream `./manifest`
+  and `./default-director` subpath exports.
+- Post-merge divergence proof: `bin/vendor-patch-diff` against the
+  recorded SHA prints the same +/− line multiset as the pre-sync ledger
+  diff (1324 + / 230 − for this package), i.e. no patch content lost and
+  no unledgered divergence gained.
+
 ## adapter-ts-stream-terminal-detector
 
 `adapter.ts` — Adds `StreamTerminalDetector`/`ProviderAdapter.isStreamTerminal`.
@@ -225,6 +316,8 @@ four abort-check sites in `harness.ts`.
 optional `reason` param to `classifyAbortError` and enriching `raw`. **Removal
 path:** Upstream PR adding the optional `reason` parameter and `ClassifiedAbortRaw`
 type. No kill date until upstream ships it.
+Companion test: the "carries a caller-supplied reason as raw.origin" case in
+`errors.test.ts` (added at the CL-10651 sync).
 **Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk —
 `errors.ts` sees little upstream churn.
 
@@ -361,22 +454,32 @@ doom-loop accounting.
 accounting block, re-verify the reset branch after upstream changes to batch
 signatures or repeat counting.
 
-## reactor-ts-checkpoint-after-tool-cycle
+## reactor-ts-tool-cycle-turns-only
 
-`reactor.ts` — Checkpoint after a tool cycle that appends to history.
-`executeTools` now calls `commitCycle()` when `addToHistory` is true, so an
-interrupt that rebuilds the agent from the store reloads the completed tool
-exchange instead of losing an uncommitted tool turn (context previously
-committed only at cycle terminals).
+`reactor.ts` — Tool-cycle persistence coalescing (CL-10667; supersedes
+#reactor-ts-checkpoint-after-tool-cycle). A tool cycle that appends to history
+now touches the store's on-disk segments only: `executeTools` calls
+`contextStore.writeTurns(stateManager.getTurns())` (guarded by
+`pendingCompactOutput === null` and the shared `lastWrittenTurnsRevision`
+revision gate from #reactor-ts-last-written-turns-revision) and defers the
+full `commitCycle` (manifest, metadata, git index + commit) to the next
+reply/wait/done/suspend/shutdown terminal. Durability contract is the
+segments-on-disk story: the optimized context store keeps uncommitted turn
+segments in the working tree, and `load()` (the path an interrupt-rebuild
+takes) reads them, so the tool exchange survives a rebuild exactly as the
+old per-batch commit did.
 
-**Disposition:** Promotion candidate. Durability correctness fix —
-interrupting after a tool cycle must not lose committed tool turns.
-**Removal path:** Upstream PR adding `commitCycle()` call in
-`executeTools` when `addToHistory` is true.
+**Disposition:** Promotion candidate. Performance coalescing — collapses K
+git commits per agentic turn to one deferred commit while preserving
+rebuild-from-disk durability.
+**Removal path:** Upstream PR replacing the `executeTools` checkpoint with a
+writeTurns-only segments touch and deferring the cycle commit to cycle
+terminals.
 **Re-carry:** clean three-way at `0205b07b`, zero conflicts. Moderate risk —
-upstream's doom-loop fatal break fires from inside the tool cycle; re-verify
-that a doom-loop break still commits (or intentionally does not commit) the
-in-flight cycle.
+a doom-loop abort skips the deferred terminal (previously the in-flight
+batch committed); the turns still reach disk segments, so only the cycle's
+manifest records and metadata staging stay uncommitted. Intentionally not
+committed; re-verify after upstream doom-loop accounting changes.
 
 ## reactor-ts-skip-unchanged-history
 
@@ -393,6 +496,17 @@ in `commitCycle`.
 **Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk;
 depends on the `turnsRevision` plumbing in `state.ts`, which is itself a
 patch (below).
+
+**Known pre-existing hazard (documented, file-for-later — do not fix inside
+this lane):** `lastWrittenTurnsRevision` advances only after a successful
+`commitCycle`. When a commit fails after `contextStore.writeTurns` already
+landed, the revision stays behind the turns actually on disk. Consequences
+are bounded: the next checkpoint re-serializes and re-writes the same
+generation (a perf cost, never a staleness bug — a larger revision is
+always written on the next success, and the reactor resets accumulators on
+the failure path). A staged compaction between revisions is guarded by
+`pendingCompactOutput === null` in every writeTurns site. Keep this guard
+intact when touching either site.
 
 ## reactor-ts-after-checkpoint-director-only
 
@@ -596,7 +710,7 @@ revisit point is the next vendored sync (see `docs/VENDORING.md`).
 | errors-ts-classify-abort-reason | Add optional `reason` param to `classifyAbortError`, carried as `raw: { origin }` | Alexander Guy <alexander.guy@pm.me> | This ledger (#errors-ts-classify-abort-reason) | Next vendored sync |
 | harness-ts-inactivity-on-semantic-progress | Gate the inactivity watchdog's re-arm on parsed events, not raw SSE bytes | Alexander Guy <alexander.guy@pm.me> | This ledger (#harness-ts-inactivity-on-semantic-progress) | Next vendored sync |
 | reactor-ts-correlating-ids-leak | Wrap `tryCorrelate` in try/finally so `correlatingIds` clears on success dispatch paths | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-correlating-ids-leak) | Next vendored sync |
-| reactor-ts-checkpoint-after-tool-cycle | Call `commitCycle()` in `executeTools` when `addToHistory` is true | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-checkpoint-after-tool-cycle) | Next vendored sync |
+| reactor-ts-tool-cycle-turns-only (supersedes reactor-ts-checkpoint-after-tool-cycle) | `executeTools` writes turns to store segments only and defers the cycle commit to terminals | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-tool-cycle-turns-only) | Next vendored sync |
 | reactor-ts-skip-unchanged-history (+ reactor-ts-last-written-turns-revision) | Skip `contextStore.writeTurns` when `getTurnsRevision()` is unchanged | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-skip-unchanged-history) | Next vendored sync |
 | reactor-ts-compact-publish-then-memory | Persist compact blobs, stage `writeTurns`, commit, then `replaceTurns` so memory stays on the old generation until publication | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-compact-publish-then-memory) | Next vendored sync |
 | reactor-ts-after-checkpoint-director-only | Gate `afterCheckpoint` on `hasOverride` so auto-commits do not emit it | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-after-checkpoint-director-only) | Next vendored sync |

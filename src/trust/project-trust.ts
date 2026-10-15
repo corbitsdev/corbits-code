@@ -52,8 +52,7 @@ const emptyStore = (): ProjectTrustStore => ({
 
 /**
  * Extract a schema-confirmed array field: missing → [], non-strings dropped.
- * Hand-edited partial files must not wipe consent. Issues accumulate on
- * `issues` for the caller's one summary warn per store.
+ * Hand-edited partial files must not wipe consent.
  */
 function extractStringArrayField(
   value: unknown[] | undefined,
@@ -147,8 +146,6 @@ export async function readProjectTrustStore(
     logger.warn`project trust store has an invalid shape at ${path}: ${validated.summary}`;
     return { state: "invalid", store: emptyStore() };
   }
-  // Field/entry issues collect; the store gets one summary warn, not one
-  // per field or entry.
   const issues: string[] = [];
   const trustedPluginPaths = extractStringArrayField(
     validated.trustedPluginPaths,
@@ -193,7 +190,6 @@ export async function readProjectTrustStore(
       `trustedPluginPaths: dropped ${nonAbsolute} non-absolute entries`,
     );
   }
-  // One summary warn per store, not one warn per field or per entry.
   if (issues.length > 0) {
     logger.warn`project trust store issues at ${path} (${issues.length}): ${issues.join("; ")}`;
   }

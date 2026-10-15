@@ -7,7 +7,6 @@ import type {
   AppShell,
   ItemDescription,
   OverlaySelection,
-  PrimaryOverlayKind,
 } from "./shell/internals.js";
 import {
   closeReplaceableOverlay,
@@ -15,7 +14,7 @@ import {
   reserveOverlayHost,
 } from "./shell/overlay-host.js";
 import type { KeyEvent } from "@opentui/core";
-export type { OverlaySelection, PrimaryOverlayKind };
+export type { OverlaySelection };
 
 export interface OpenPermissionsOpts {
   /** Choices to offer; there is no fallback list — callers supply their own. */

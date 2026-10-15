@@ -3,6 +3,8 @@ import {
   isToolOutputLike,
   normalizeToolOutputUri,
 } from "../util/tool-output-uri.js";
+import { virtualRefVerdict } from "./path-escape-plugin.js";
+import { denyResult } from "./tool-args.js";
 
 /**
  * Normalize read_file tool-output URIs before the posix handler or read-file
@@ -17,12 +19,14 @@ export function toolOutputUriPlugin(): ToolPlugin {
       if (typeof path !== "string" || !isToolOutputLike(path)) {
         return next(call, signal);
       }
-      if (call.name !== "read_file") {
-        return {
-          callId: call.id,
-          content: `cannot ${call.name} a tool-output:// URI: ${path}. Use read_file with that URI to read the spilled output instead.`,
-          isError: true,
-        };
+      // path-escape's verdict is the single wording home for the
+      // tool-output:// deny; this plugin just applies it earlier in the stack.
+      const verdict = virtualRefVerdict(path, call.name);
+      if (verdict !== "skip") {
+        if (typeof verdict === "string") {
+          return denyResult(call.id, verdict);
+        }
+        return next(call, signal);
       }
       const normalized = normalizeToolOutputUri(path);
       if (normalized === path) {

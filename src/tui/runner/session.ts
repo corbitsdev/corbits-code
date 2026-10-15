@@ -176,7 +176,8 @@ export async function assembleTUISession(
             start.activeRunHandle.cacheWriteModel = `${event.data.source.provider}:${event.data.source.model}`;
           }
         }
-        void state.persistRunSnapshot?.("running");
+        // CL-10667: debounced — the write recomputes state when it fires.
+        state.scheduleRunSnapshot?.();
       },
       hookEnabled: initialHookEnabled,
       onHookEvent: (event) => emitter.emit("hook", event),
@@ -745,9 +746,14 @@ export async function assembleTUISession(
           // that never landed. Capture the signal at apply start: onBuilt
           // reset() replaces the live controller.
           getSignal: () => compactionLifecycle.getSignal(),
-          // Stub notice waits until the fold commits (verify abort and
-          // completeness-gate discard stay silent).
+          // A committed stub notices after the fold lands. Verify abort
+          // notices that compaction failed and kept prior context.
+          // Completeness-gate discard stays silent. Lifecycle abort uses
+          // the interrupted notice, not this callback.
           onFailure: (text) => state.systemNotice?.(text),
+          onKeptPrior: () => {
+            directorHolder.instance?.noteCompactionKeptPrior();
+          },
           // Main-session folds only — exec runner and subagents stay silent.
           onFolded: (info) => {
             // Fold restarts the cached prefix — drop idle execute-promoted

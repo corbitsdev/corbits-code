@@ -55,19 +55,13 @@ import {
   type RunnerState,
 } from "./state.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
+import { caughtDebug } from "../../logging/caught.js";
 import { buildCredentialRecoveryAlternatives } from "./credential-recovery.js";
 import type { PendingCredentialRecovery } from "./credential-recovery.js";
 import type { PendingReconnectRecovery } from "./reconnect-recovery.js";
 import { listCommands } from "../commands/registry.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
-
-// Shared tail for both recordSent paths; append is best-effort recall.
-const logSentAppendFailure = (err: unknown): void => {
-  tuiLogger.debug("sent-message append failed: {error}", {
-    error: err instanceof Error ? err.message : String(err),
-  });
-};
 
 export type SubmissionRoute =
   | { kind: "empty" }
@@ -454,7 +448,7 @@ export function createSubmitPath(
     state.sendAborted = false;
     if (text.trim().length > 0) {
       void appendSentMessage(state.config.cwd, state.sessionId, text).catch(
-        logSentAppendFailure,
+        caughtDebug(tuiLogger, "sent-message append failed"),
       );
     }
     const ingested = await ingestOperatorPrompt(
@@ -550,7 +544,7 @@ export function createDeliverRouting(
         if (text.startsWith(ASK_DIRECTOR_WAKE_PREFIX)) return;
         if (text.startsWith(MAILBOX_MAIL_WAKE_PREFIX)) return;
         void appendSentMessage(state.config.cwd, state.sessionId, text).catch(
-          logSentAppendFailure,
+          caughtDebug(tuiLogger, "sent-message append failed"),
         );
       },
       captureGeneration: services.deliveryGeneration.capture,
@@ -580,7 +574,7 @@ export function createDeliverRouting(
           () => targetAgent.deliver(message),
           (result) => {
             if (result.status === "accepted" && isOperatorMessage) {
-              state.acceptedInputObserver?.(message.headers.messageId);
+              state.acceptedInputObserver?.(messageId);
             } else if (isOperatorMessage) {
               state.discardAcceptedInputObserver?.(messageId);
             }

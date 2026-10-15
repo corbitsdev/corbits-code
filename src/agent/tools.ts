@@ -87,6 +87,7 @@ import {
   createResumeAgentTool,
   createInterruptAgentTool,
   createSendInputTool,
+  createApproveWorkerCallTool,
 } from "../subagent/lifecycle-tools.js";
 import { createManageTasksRunner } from "./tasks.js";
 import { createSpillingBackgroundShellExitNotifier } from "./background-shell-tool.js";
@@ -618,6 +619,11 @@ export async function createAgentToolset(
         createResumeAgentTool({ sessions: fleetSessions, fleetRecords }),
         createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),
         createSendInputTool({ sessions: fleetSessions, fleetRecords }),
+        createApproveWorkerCallTool({
+          sessions: fleetSessions,
+          fleetRecords,
+          permissionGate: args.permissionGate,
+        }),
       );
       // Exec-primary opt-in only; TUI primary and nested orchestrators
       // collect via mailbox mail, so wait_agents stays unmounted there.

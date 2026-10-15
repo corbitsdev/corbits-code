@@ -208,6 +208,52 @@ describe("mcp auth-store", () => {
     );
   });
 
+  test("persists the SDK's nested issuer stamps unchanged", async () => {
+    const home = await tempHome();
+    await saveAuthState(
+      linear,
+      {
+        clientInformation: {
+          client_id: "c1",
+          redirect_uris: ["http://127.0.0.1:1/callback"],
+          issuer: "https://as.example",
+        },
+        tokens: {
+          access_token: "tok",
+          token_type: "bearer",
+          issuer: "https://as.example",
+        },
+      },
+      home,
+    );
+    const final = await loadAuthState(linear, home);
+    expect(final.tokens?.access_token).toBe("tok");
+    expect(final.tokens?.issuer).toBe("https://as.example");
+    expect(final.clientInformation?.client_id).toBe("c1");
+    expect(final.clientInformation?.issuer).toBe("https://as.example");
+  });
+
+  test("loads legacy credentials saved before issuer stamps", async () => {
+    const home = await tempHome();
+    // Pre-1.31 shape: no binding yet; the SDK consumes these as-is and
+    // re-stamps on first successful use, so loading must not require the key
+    // or invent one.
+    await saveAuthState(
+      linear,
+      {
+        tokens: {
+          access_token: "tok",
+          token_type: "bearer",
+          refresh_token: "r",
+        },
+      },
+      home,
+    );
+    const final = await loadAuthState(linear, home);
+    expect(final.tokens?.access_token).toBe("tok");
+    expect(final.tokens?.issuer).toBeUndefined();
+  });
+
   test("ignores legacy name-only auth state without modifying it", async () => {
     const home = await tempHome();
     const dir = join(home, ".corbits", "mcp-auth");
@@ -320,5 +366,30 @@ describe("mcp auth-store", () => {
     expect(
       final.tokens === undefined || final.tokens.access_token === "v1",
     ).toBe(true);
+  });
+
+  test("a corrupt auth file is backed up before the next overwrite", async () => {
+    const home = await tempHome();
+    const path = authFilePath(linear, home);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, "{corrupt", { mode: 0o600 });
+
+    // Corrupt state reads as absent (a fresh authorization is offered), but
+    // the corrupt bytes survive for diagnosis.
+    expect(await loadAuthState(linear, home)).toEqual({});
+    expect(await readFile(`${path}.corrupt`, "utf8")).toBe("{corrupt");
+
+    // The overwrite behind a fresh authorization cannot consume the last copy.
+    await updateAuthState(
+      linear,
+      (state) => {
+        state.tokens = { access_token: "tok", token_type: "bearer" };
+      },
+      home,
+    );
+    expect((await loadAuthState(linear, home)).tokens?.access_token).toBe(
+      "tok",
+    );
+    expect(await readFile(`${path}.corrupt`, "utf8")).toBe("{corrupt");
   });
 });

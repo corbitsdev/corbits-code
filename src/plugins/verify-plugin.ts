@@ -7,6 +7,7 @@ import {
   parseEditFileMode,
 } from "./edit-file-line-range.js";
 import { formatChangeDiff } from "./change-diff.js";
+import { errorMessage } from "./tool-args.js";
 
 function mutationPath(call: ToolCall): string | undefined {
   if (call.name !== "edit_file" && call.name !== "write_file") return undefined;
@@ -63,7 +64,7 @@ export function verifyPlugin(): ToolPlugin {
           } catch (err) {
             return {
               callId: call.id,
-              content: `Write verification failed: could not re-read file: ${err instanceof Error ? err.message : String(err)}`,
+              content: `Write verification failed: could not re-read file: ${errorMessage(err)}`,
               isError: true,
             };
           }
@@ -107,7 +108,7 @@ export function verifyPlugin(): ToolPlugin {
           } catch (err) {
             return {
               callId: call.id,
-              content: `Edit verification failed: could not re-read file: ${err instanceof Error ? err.message : String(err)}`,
+              content: `Edit verification failed: could not re-read file: ${errorMessage(err)}`,
               isError: true,
             };
           }

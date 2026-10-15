@@ -71,6 +71,22 @@ describe("hookNotice", () => {
       },
     });
     expect(notice?.kind).toBe("row");
+    expect(notice?.text).toContain("failed (SIGKILL)");
+  });
+
+  test("a numerically-signalled run renders the raw signal", () => {
+    // bun-types 1.4.3 lets Subprocess.signalCode be a raw number; the display
+    // layer stringifies it (String() identity) so both shapes render sanely.
+    const notice = hookNotice({
+      type: "hook.updated",
+      hook: {
+        ...hook,
+        lastFiredAt: 1,
+        lastExitStatus: { code: null, signal: 15, stderr: "" },
+      },
+    });
+    expect(notice?.kind).toBe("row");
+    expect(notice?.text).toContain("failed (15)");
   });
 });
 

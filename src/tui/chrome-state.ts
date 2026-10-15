@@ -82,6 +82,9 @@ export interface ChromeLiveState {
     readonly agentId: string;
     readonly description: string;
   } | null;
+  /** Turn-level stall (`isStalledForDisplay`). Absent means the host reads
+   * the live watchdog instead of this snapshot. */
+  readonly stalled?: boolean;
 }
 
 /** One rendered agents-panel row. `stalled` comes precomputed so the
@@ -513,6 +516,7 @@ export interface ChromeSessionInput {
   readonly tasks?: readonly ChromeSessionTask[] | null;
   readonly agents?: readonly ChromeSessionAgent[] | null;
   readonly observe?: ChromeLiveState["observe"];
+  readonly stalled?: boolean;
 }
 
 /** Map real session shapes (tasks / subagent store) into ChromeLiveState.
@@ -521,11 +525,13 @@ export function chromeFromSession(input: ChromeSessionInput): ChromeLiveState {
   const task = mapSessionTasks(input.tasks);
   const agents = mapSessionAgents(input.agents);
   const observe = input.observe ?? null;
+  const stalled = input.stalled;
 
   return {
     ...(task !== undefined ? { task } : {}),
     ...(agents !== undefined ? { agents } : {}),
     ...(observe !== null && observe !== undefined ? { observe } : {}),
+    ...(stalled !== undefined ? { stalled } : {}),
   };
 }
 

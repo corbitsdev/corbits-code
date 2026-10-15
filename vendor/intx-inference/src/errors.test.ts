@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   classifyHTTPError,
   classifyNetworkError,
+  classifyRequestBuildError,
   classifyAbortError,
   classifyStreamError,
   classifyProtocolMismatch,
@@ -82,10 +83,27 @@ describe("classifyNetworkError", () => {
   });
 });
 
+describe("classifyRequestBuildError", () => {
+  test("Error instance → fatal with message", () => {
+    const cause = new Error("set maxTokens above 8192.");
+    const err = classifyRequestBuildError(cause);
+    expect(err.category).toBe("fatal");
+    expect(err.message).toBe("set maxTokens above 8192.");
+    expect(err.raw).toBe(cause);
+  });
+});
+
 describe("classifyAbortError", () => {
   test("always returns aborted category", () => {
     const err = classifyAbortError();
     expect(err.category).toBe("aborted");
+  });
+
+  // Locally patched — see vendor/intx-inference/PATCHES.md#errors-ts-classify-abort-reason
+  test("carries a caller-supplied reason as raw.origin", () => {
+    const err = classifyAbortError("user-stop");
+    expect(err.category).toBe("aborted");
+    expect(err.raw).toEqual({ origin: "user-stop" });
   });
 });
 

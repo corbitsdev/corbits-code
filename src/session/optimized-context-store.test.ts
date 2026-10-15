@@ -1,4 +1,5 @@
 import { defined } from "../../testkit/defined.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 import { describe, test, expect } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -67,6 +68,53 @@ function jsonl(turns: ConversationTurn[]): string {
 function turnTexts(turns: ConversationTurn[]): string[] {
   return turns.map((t) => (t.content[0] as { text: string }).text);
 }
+
+describe("createOptimizedContextStore writeMetadata approval snapshot scrubbing", () => {
+  test("persists approvalSnapshot args redacted while suspendedCall keeps raw args", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const secretArg = { api_key: "sk-test-0123456789abcdefghij" };
+    const op = {
+      correlationId: "corr-1",
+      kind: "approval" as const,
+      registeredAt: 1_700_000_000_000,
+      gateId: "gate-1",
+      suspendedCall: { id: "call-1", name: "run_shell", arguments: secretArg },
+      approvalSnapshot: {
+        name: "run_shell",
+        description: "runs a shell command",
+        inputSchema: {},
+        arguments: secretArg,
+      },
+    };
+    await store.writeMetadata({
+      pendingOperations: [op],
+      tokenUsage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        thinking: 0,
+      },
+    });
+    await store.commit({ message: "checkpoint: pending" });
+
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(dir, "metadata.json"), "utf8"),
+    ) as { pendingOperations: { approvalSnapshot: { arguments: object } }[] };
+    const persistedSubset = JSON.stringify(
+      persisted.pendingOperations[0]?.approvalSnapshot?.arguments,
+    );
+    // The approver-facing snapshot is redacted at rest ...
+    expect(persistedSubset).not.toContain("sk-test-0123456789abcdefghij");
+    // ... while the re-dispatch artifact round-trips raw: the approved call
+    // runs with the same arguments the operator saw when approving.
+    const loaded = await store.load();
+    expect(loaded.pendingOperations[0]?.suspendedCall?.arguments).toEqual(
+      secretArg,
+    );
+  });
+});
 
 describe("createOptimizedContextStore load", () => {
   test("resumes turns spread across multiple segments in order", async () => {
@@ -1725,5 +1773,498 @@ describe("createOptimizedContextStore prompt dedupe (CL-9026)", () => {
     expect(tree).not.toContain(PROMPT_FILE);
     expect(tree).not.toContain(extraPrompt);
     expect(turnTexts((await store.load()).turns)).toEqual(turnTexts(live));
+  });
+
+  test("one remove failure still unstages the other paths in one index write", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const huge = "x".repeat(300_000);
+    const live = [turn(`live-${huge}`), turn("live-tail")];
+    await store.writeTurns([...live]);
+    await store.writePrompt([turn(`prompt-${huge}`), turn("prompt-tail")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "two prompt segments" });
+    const extraPrompt = segmentFileName(PROMPT_FILE, 1);
+    expect(await gitLsTree(dir)).toEqual(
+      expect.arrayContaining([PROMPT_FILE, extraPrompt]),
+    );
+
+    await store.writePrompt(cloneTurns(live));
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+
+    const removeCalls: (string | string[])[] = [];
+    await withMockedModuleDuring(
+      import.meta.resolve("isomorphic-git"),
+      (real: typeof import("isomorphic-git")) => {
+        const remove: typeof real.default.remove = async (args) => {
+          removeCalls.push(args.filepath);
+          const paths = Array.isArray(args.filepath)
+            ? args.filepath
+            : [args.filepath];
+          if (paths.includes(extraPrompt)) {
+            throw new Error("index write failed");
+          }
+          return real.default.remove(args);
+        };
+        return { ...real, default: { ...real.default, remove } };
+      },
+      () => store.commit({ message: "drop prompt segments" }),
+    );
+
+    const tree = await gitLsTree(dir);
+    expect(tree).not.toContain(PROMPT_FILE);
+    expect(tree).toContain(extraPrompt);
+    const written = removeCalls.filter((filepath) => {
+      const paths = Array.isArray(filepath) ? filepath : [filepath];
+      return !paths.includes(extraPrompt);
+    });
+    expect(written).toEqual([[PROMPT_FILE]]);
+  });
+});
+
+describe("createOptimizedContextStore per-turn perf (CL-10666)", () => {
+  const SEGMENT_MANIFEST_FILE = "segment-manifest.json";
+
+  test("an orphan extra in the middle drops it and everything after it", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const callId = "call-middle-orphan";
+
+    const head: ConversationTurn[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: callId, name: "grep", arguments: {} },
+        ],
+        timestamp: 1,
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            callId,
+            content: [{ type: "text", text: "ok" }],
+          },
+        ],
+        timestamp: 2,
+      },
+    ];
+    // [well-formed, orphan, well-formed] — the incremental pass must stop at
+    // the orphan exactly where the old rescan-per-length loop did: keep 1 of
+    // 3 extras (segment 1), unlink segments 2 and 3.
+    const good: ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "kept" }],
+        timestamp: 10,
+      },
+    ];
+    const orphan: ConversationTurn[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            callId,
+            content: [{ type: "text", text: "again" }],
+          },
+        ],
+        timestamp: 20,
+      },
+    ];
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl(good),
+    );
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 2)),
+      jsonl(orphan),
+    );
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 3)),
+      jsonl([turn("last")]),
+    );
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl(head));
+
+    const loaded = await store.load();
+    expect(loaded.turns).toHaveLength(3);
+    expect(turnTexts(loaded.turns)).toEqual([...turnTexts(head), "kept"]);
+    expect(await listSegmentFiles(dir, TURNS_FILE)).toEqual([
+      TURNS_FILE,
+      segmentFileName(TURNS_FILE, 1),
+    ]);
+  });
+
+  test("loads observe external segment mutations, byte-identical edits included", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a"), turn("b")]));
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl([turn("c")]),
+    );
+    expect(turnTexts((await store.load()).turns)).toEqual(["a", "b", "c"]);
+
+    // Crash-artifact appends land in the active segment between loads; the
+    // cached generation must invalidate (stat change) and merge them.
+    fs.appendFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl([turn("d")]),
+    );
+    expect(turnTexts((await store.load()).turns)).toEqual(["a", "b", "c", "d"]);
+
+    // Same-length rewrite of the active segment ("c" -> "x") still invalidates.
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl([turn("x"), turn("d")]),
+    );
+    expect(turnTexts((await store.load()).turns)).toEqual(["a", "b", "x", "d"]);
+
+    // Torn tail on the active segment keeps dropping it stably.
+    const active = path.join(dir, segmentFileName(TURNS_FILE, 1));
+    fs.writeFileSync(
+      active,
+      jsonl([turn("x"), turn("d")]) + '{"role":"user","content":[{"type":"te',
+    );
+    expect(turnTexts((await store.load()).turns)).toEqual(["a", "b", "x", "d"]);
+  });
+
+  test("commits a segment manifest only when turn extras exist and readAt consults it", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const bigText = "x".repeat(300 * 1024);
+    const bigTurn: ConversationTurn = {
+      role: "user",
+      content: [{ type: "text", text: bigText }],
+      timestamp: 1,
+    };
+    await store.writeTurns([bigTurn]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "base only" });
+    expect(fs.existsSync(path.join(dir, SEGMENT_MANIFEST_FILE))).toBe(false);
+
+    const last = turn("tail");
+    await store.writeTurns([bigTurn, last]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const second = await store.commit({ message: "with extra" });
+    const extraTurns = segmentFileName(TURNS_FILE, 1);
+    expect(fs.existsSync(path.join(dir, SEGMENT_MANIFEST_FILE))).toBe(true);
+    const tree = await gitLsTree(dir);
+    expect(tree).toContain(SEGMENT_MANIFEST_FILE);
+    expect(
+      fs.readFileSync(path.join(dir, SEGMENT_MANIFEST_FILE), "utf-8"),
+    ).toBe(JSON.stringify({ turnSegments: [extraTurns] }));
+
+    // Manifest path and tree-walk path agree.
+    expect(turnTexts(await store.readAt(second.hash))).toEqual([
+      bigText,
+      "tail",
+    ]);
+    expect(await store.readAt(first.hash)).toHaveLength(1);
+  });
+
+  test("a corrupt committed segment manifest falls back to the commit-tree walk", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const bigText = "x".repeat(300 * 1024);
+    const bigTurn: ConversationTurn = {
+      role: "user",
+      content: [{ type: "text", text: bigText }],
+      timestamp: 1,
+    };
+    await store.writeTurns([bigTurn, turn("tail")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "with extra" });
+
+    fs.writeFileSync(path.join(dir, SEGMENT_MANIFEST_FILE), "{torn");
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const after = await store.commit({ message: "corrupt manifest" });
+
+    expect(turnTexts(await store.readAt(after.hash))).toEqual([
+      bigText,
+      "tail",
+    ]);
+    await store.writeTurns([bigTurn, turn("tail"), turn("newer")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "heal manifest" });
+    expect(
+      fs.readFileSync(path.join(dir, SEGMENT_MANIFEST_FILE), "utf-8"),
+    ).toBe(JSON.stringify({ turnSegments: [segmentFileName(TURNS_FILE, 1)] }));
+  });
+});
+
+describe("createOptimizedContextStore response fold (CL-10667)", () => {
+  test("writeResponse touches no disk and a commit does not reintroduce the file", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeTurns([turn("a")]);
+    await store.writeResponse({
+      role: "assistant",
+      content: [{ type: "text", text: "reply" }],
+      model: "m",
+      timestamp: 2,
+    });
+    expect(fs.existsSync(path.join(dir, "response.jsonl"))).toBe(false);
+    await store.commit({ message: "fold" });
+    const tree = await git.listFiles({ fs, dir, ref: "HEAD" });
+    expect(tree.includes("response.jsonl")).toBe(false);
+    expect(fs.existsSync(path.join(dir, "response.jsonl"))).toBe(false);
+  });
+});
+
+describe("createOptimizedContextStore manifest skip (CL-10667)", () => {
+  test("an empty buffer converges manifest.jsonl to absent by the next commit", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeTurns([turn("a")]);
+    await store.writeManifest([
+      {
+        strategy: "test.transform",
+        version: "1",
+        parameters: {},
+        reason: "ingest",
+        decisions: {},
+      },
+    ]);
+    await store.commit({ message: "with manifest" });
+    expect(
+      (await git.listFiles({ fs, dir, ref: "HEAD" })).includes(
+        "manifest.jsonl",
+      ),
+    ).toBe(true);
+
+    await store.writeManifest([]);
+    expect(fs.existsSync(path.join(dir, "manifest.jsonl"))).toBe(false);
+    await store.commit({ message: "empty buffer" });
+    expect(
+      (await git.listFiles({ fs, dir, ref: "HEAD" })).includes(
+        "manifest.jsonl",
+      ),
+    ).toBe(false);
+    // readManifestHistory walks the commit chain: the earlier commit's
+    // records are still its history, exactly as they were when an empty
+    // write produced an empty blob; the converged worktree only removes the
+    // HEAD blob, not history.
+    expect(await store.readManifestHistory(5)).toEqual([
+      {
+        strategy: "test.transform",
+        version: "1",
+        parameters: {},
+        reason: "ingest",
+        decisions: {},
+      },
+    ]);
+  });
+
+  test("repeated empty buffers are disk no-ops", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeManifest([]);
+    await store.writeManifest([]);
+    expect(fs.existsSync(path.join(dir, "manifest.jsonl"))).toBe(false);
+  });
+
+  test("a non-empty buffer still writes and stages the manifest", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeTurns([turn("a")]);
+    await store.writeManifest([]);
+    await store.commit({ message: "prune" });
+    await store.writeManifest([
+      {
+        strategy: "test.transform",
+        version: "1",
+        parameters: {},
+        reason: "ingest",
+        decisions: {},
+      },
+    ]);
+    const committed = await store.commit({ message: "re-write manifest" });
+    expect(
+      (await git.listFiles({ fs, dir, ref: committed.hash })).includes(
+        "manifest.jsonl",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("createOptimizedContextStore metadata ownership (CL-10667)", () => {
+  const USAGE_ONE = {
+    input: 10,
+    output: 20,
+    cacheRead: 1,
+    cacheWrite: 2,
+    thinking: 3,
+  };
+  const USAGE_TWO = {
+    input: 110,
+    output: 220,
+    cacheRead: 1,
+    cacheWrite: 2,
+    thinking: 3,
+  };
+  const pendingOp = {
+    correlationId: "corr-1",
+    kind: "approval" as const,
+    registeredAt: 1_700_000_000_000,
+    gateId: "gate-1",
+  };
+
+  test("writeMetadata keeps pendingOperations on metadata.json and usage on the sidecar", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeMetadata({
+      pendingOperations: [pendingOp],
+      tokenUsage: USAGE_ONE,
+    });
+
+    const metadata = JSON.parse(
+      fs.readFileSync(path.join(dir, "metadata.json"), "utf8"),
+    );
+    expect(metadata.pendingOperations).toEqual([pendingOp]);
+    expect(metadata.connectorState).toBeNull();
+    expect(Object.keys(metadata).includes("tokenUsage")).toBe(false);
+
+    const sidecar = fs
+      .readFileSync(path.join(dir, "token-usage.jsonl"), "utf8")
+      .trim()
+      .split("\n");
+    expect(sidecar).toHaveLength(1);
+    expect(JSON.parse(defined(sidecar[0]))).toHaveProperty("usage", USAGE_ONE);
+
+    // A fresh store reads the sidecar over the rewritten metadata.
+    const fresh = await createOptimizedContextStore(dir);
+    const loaded = await fresh.load();
+    expect(loaded.pendingOperations).toEqual([pendingOp]);
+    expect(loaded.tokenUsage).toEqual(USAGE_ONE);
+  });
+
+  test("unchanged usage appends no sidecar line and identical metadata skips the rewrite", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeMetadata({
+      pendingOperations: [pendingOp],
+      tokenUsage: USAGE_ONE,
+    });
+    const sidecarPath = path.join(dir, "token-usage.jsonl");
+    const metadataPath = path.join(dir, "metadata.json");
+    expect((await fs.promises.stat(sidecarPath)).mtimeMs).toBeGreaterThan(0);
+    expect(
+      fs.readFileSync(sidecarPath, "utf8").trim().split("\n"),
+    ).toHaveLength(1);
+    // Stamp a long-gone mtime: a rewrite would move it.
+    await fs.promises.utimes(metadataPath, new Date(9e11), new Date(9e11));
+    await store.writeMetadata({
+      pendingOperations: [pendingOp],
+      tokenUsage: USAGE_ONE,
+    });
+    expect(
+      fs.readFileSync(sidecarPath, "utf8").trim().split("\n"),
+    ).toHaveLength(1);
+    expect((await fs.promises.stat(metadataPath)).mtimeMs).toBe(9e11);
+
+    // A usage change appends exactly one more line.
+    await store.writeMetadata({
+      pendingOperations: [pendingOp],
+      tokenUsage: USAGE_TWO,
+    });
+    const lines = fs.readFileSync(sidecarPath, "utf8").trim().split("\n");
+    expect(lines).toHaveLength(2);
+    expect(JSON.parse(defined(lines[1]))).toHaveProperty("usage", USAGE_TWO);
+    const loaded = await (await createOptimizedContextStore(dir)).load();
+    expect(loaded.tokenUsage).toEqual(USAGE_TWO);
+  });
+
+  test("the sidecar overrides a legacy metadata.json tokenUsage", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(
+      path.join(dir, "metadata.json"),
+      JSON.stringify({
+        pendingOperations: [],
+        tokenUsage: {
+          input: 5,
+          output: 5,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
+        connectorState: null,
+      }),
+    );
+    fs.writeFileSync(
+      path.join(dir, "token-usage.jsonl"),
+      `${JSON.stringify({ turnIndex: 3, usage: USAGE_ONE })}\n`,
+    );
+    const store = await createOptimizedContextStore(dir);
+    expect((await store.load()).tokenUsage).toEqual(USAGE_ONE);
+  });
+
+  test("no sidecar falls back to the legacy metadata.json tokenUsage", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(
+      path.join(dir, "metadata.json"),
+      JSON.stringify({
+        pendingOperations: [],
+        tokenUsage: USAGE_TWO,
+        connectorState: null,
+      }),
+    );
+    const store = await createOptimizedContextStore(dir);
+    expect((await store.load()).tokenUsage).toEqual(USAGE_TWO);
+  });
+
+  test("torn metadata.json does not zero a valid sidecar", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, "metadata.json"), "{not-json");
+    fs.writeFileSync(
+      path.join(dir, "token-usage.jsonl"),
+      `${JSON.stringify({ turnIndex: 1, usage: USAGE_ONE })}\n`,
+    );
+    const store = await createOptimizedContextStore(dir);
+    const loaded = await store.load();
+    expect(loaded.tokenUsage).toEqual(USAGE_ONE);
+    expect(loaded.tokenUsage.input).toBe(10);
+    expect(loaded.pendingOperations).toEqual([]);
+    expect(loaded.connectorState).toBeNull();
+  });
+
+  test("a torn last sidecar line drops and the prior record survives", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(
+      path.join(dir, "token-usage.jsonl"),
+      `${JSON.stringify({ turnIndex: 1, usage: USAGE_ONE })}\n` +
+        '{"turnIndex":2,"usage":{"input":',
+    );
+    const store = await createOptimizedContextStore(dir);
+    expect((await store.load()).tokenUsage).toEqual(USAGE_ONE);
+  });
+
+  test("resume restore picks the sidecar state the crashed turn reached", async () => {
+    const dir = tempDir();
+    const storeA = await createOptimizedContextStore(dir);
+    await storeA.writeTurns([turn("a")]);
+    await storeA.writeMetadata({
+      pendingOperations: [],
+      tokenUsage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        thinking: 0,
+      },
+    });
+    await storeA.commit({ message: "base" });
+    await storeA.writeTurns([turn("a"), turn("b")]);
+    await storeA.writeMetadata({
+      pendingOperations: [],
+      tokenUsage: USAGE_TWO,
+    });
+    // No commit: the crash happened before the turn's git checkpoint. The
+    // next store instance reads the sidecar the crash left on disk.
+    await storeA.commit({ message: "unused" });
+
+    const resumed = await createOptimizedContextStore(dir);
+    expect((await resumed.load()).tokenUsage).toEqual(USAGE_TWO);
   });
 });

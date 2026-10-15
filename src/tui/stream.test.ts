@@ -19,6 +19,7 @@ import { toolCallRow } from "./diff";
 import { toolResultRow } from "./mcp-view";
 import { mergeToolRows } from "./tool-rows";
 import { UI } from "./theme";
+import { withTestRenderer } from "./harness";
 
 const SOLO: RowLayout = { width: 56, multiAgent: false };
 const CREW: RowLayout = { width: 56, multiAgent: true };
@@ -577,9 +578,11 @@ describe("sub-agent dispatch row marks", () => {
 // underline-absence on the link scopes so a future hover style cannot
 // sneak one in.
 describe("transcriptSyntaxStyle markdown links", () => {
-  test("link cells carry no underline", () => {
-    const styles = transcriptSyntaxStyle().getAllStyles();
-    expect(styles.get("markup.link")?.underline).not.toBe(true);
-    expect(styles.get("markup.link.url")?.underline).not.toBe(true);
+  test("link cells carry no underline", async () => {
+    await withTestRenderer(async (h) => {
+      const styles = transcriptSyntaxStyle(h.renderer).getAllStyles();
+      expect(styles.get("markup.link")?.underline).not.toBe(true);
+      expect(styles.get("markup.link.url")?.underline).not.toBe(true);
+    });
   });
 });

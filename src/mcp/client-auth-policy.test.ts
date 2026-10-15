@@ -184,7 +184,9 @@ describe("HTTP MCP auth policy", () => {
     });
     expect(callbackStarts).toBe(0);
     expect(providerCreates).toBe(0);
-    expect(transportOptions).toEqual([undefined]);
+    // No signal and no provider: leave redirectPolicy unset so the SDK
+    // default `same-origin` applies. Do not pin `follow`.
+    expect(transportOptions).toEqual([{}]);
   });
 
   test("closes a bound OAuth callback server when provider setup fails", async () => {

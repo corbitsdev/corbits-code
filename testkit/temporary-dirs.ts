@@ -30,14 +30,30 @@ export function createTempDirs(
   };
 }
 
+export interface TempDir {
+  readonly dir: string;
+  cleanup(): void;
+}
+
+/** Creates one temp dir with `cleanup` removal, for files under test. */
+export function createTempDir(prefix: string): TempDir {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  return {
+    dir,
+    cleanup(): void {
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
 /** Runs `body` inside a fresh temp dir, always removing it afterwards. */
-export async function withTempDir(
+export async function withTempDir<R>(
   prefix: string,
-  body: (dir: string) => Promise<void>,
-): Promise<void> {
+  body: (dir: string) => Promise<R>,
+): Promise<R> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
   try {
-    await body(dir);
+    return await body(dir);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

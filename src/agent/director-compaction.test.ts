@@ -211,6 +211,36 @@ test("compaction is self-regulating: a cycle back under threshold does not re-co
   expect(hasContinuationEmit(arr)).toBe(false);
 });
 
+test("a failed handoff compact does not schedule the post-compact infer", async () => {
+  const director = makeChatDirector();
+  director.restoreCacheWrite({
+    at: 0,
+    source,
+    turns: manyTurnsState.turns,
+  });
+  expect(director.requestHandoff("now do the UI audit")).toBe("armed");
+  const armed = await director.decide(
+    {
+      type: "message.received",
+      message: { content: "now do the UI audit" },
+    } as ReactorInboundEvent,
+    manyTurnsState,
+    makeCapabilities(),
+  );
+  const armedArr = Array.isArray(armed) ? armed : [armed];
+  expect(armedArr.some((a) => a.type === "compact")).toBe(true);
+  expect(hasContinuationEmit(armedArr)).toBe(true);
+  director.noteCompactionKeptPrior();
+  const resume = await director.decide(
+    emptyMessageReceived(),
+    manyTurnsState,
+    makeCapabilities(),
+  );
+  const resumeArr = Array.isArray(resume) ? resume : [resume];
+  expect(resumeArr.some((a) => a.type === "infer")).toBe(false);
+  expect(resumeArr.some((a) => a.type === "compact")).toBe(false);
+});
+
 test("a fresh director answers an unsolicited empty continuation without inferring", async () => {
   const director = makeChatDirector();
 

@@ -1072,4 +1072,25 @@ describe("overlay host occupancy and opt-in deferral", () => {
       expect(isOverlayHostIdle(shell)).toBe(true);
     });
   });
+
+  test("a `/` right after the Ctrl+C arm still opens the popup", async () => {
+    // Smoke suspicion (2026-10-14 TUI QA): a `/` typed immediately after the
+    // first Ctrl+C press seemed suppressed, letting the slash text submit to
+    // the agent. Both path stages share the key wiring, so the arm must not
+    // eat the key or leave the popup host unusable — this pins the sequence
+    // end to end through the real keybinding dispatch (idle shell, empty
+    // prompt, no live workers — the arming press, never the quit).
+    await withShell(async ({ shell, press, render }) => {
+      press("Ctrl+C");
+      await render();
+      expect(isSlashPopupOpen(shell)).toBe(false);
+
+      press("/");
+      await render();
+      expect(shell.prompt.value).toBe("/");
+      expect(isSlashPopupOpen(shell)).toBe(true);
+      // The unfiltered catalog stays listed (popup opens; nothing filtered).
+      expect(shell.paletteCommands[0]?.id).toBe("help");
+    });
+  });
 });

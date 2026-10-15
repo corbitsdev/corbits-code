@@ -1,31 +1,38 @@
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import {
+  agentWorkspaceIds,
   countScannedFiles,
   evaluateGuard,
   isAllowlisted,
   isCoverageEnough,
   isGuardPassing,
+  knipAgentProductionSpawn,
+  agentsConfigPath,
+  knipDefaultSpawn,
   loadAllowlist,
   loadGuardConfig,
   parseAllowlistText,
   parseGuardConfig,
   parseInjectedScannedFiles,
-  parseTsPruneLine,
-  tsPruneSpawn,
+  parseKnipReport,
   validateAllowlistEntry,
   validateAllowlistOwnership,
   validateAllowlistText,
 } from "./check-dead-exports.js";
+import type { DeadExport } from "./check-dead-exports.js";
 
 const repoRoot = join(import.meta.dir, "..");
 
@@ -43,13 +50,19 @@ function liveScannedFileCount(): number {
 
 // Scoped exemptions cover only the named flags; a sibling probe still fails.
 describe("scoped exemptions", () => {
-  test("the real allowlist covers the named flags but not a sibling probe", () => {
+  test("the real allowlist covers the named public exports but not a sibling", () => {
     const rules = loadAllowlist();
+    expect(isAllowlisted(rules, "agents/coder/src/index.ts", "tools")).toBe(
+      true,
+    );
+    expect(isAllowlisted(rules, "agents/coder/src/index.ts", "config")).toBe(
+      true,
+    );
+    expect(isAllowlisted(rules, "agents/coder/src/index.ts", "director")).toBe(
+      false,
+    );
     expect(
-      isAllowlisted(rules, "src/provider/reasoning-effort.ts", "satisfies"),
-    ).toBe(true);
-    expect(
-      isAllowlisted(rules, "src/auth/codex/usage.ts", "someNewDeadExport"),
+      isAllowlisted(rules, "agents/coder/src/index.ts", "someNewDeadExport"),
     ).toBe(false);
   });
 
@@ -57,11 +70,10 @@ describe("scoped exemptions", () => {
     const rules = parseAllowlistText(
       "src/auth/codex/usage.ts: fetchCodexUsage\n",
     );
-    const outcome = evaluateGuard(
-      rules,
-      "src/auth/codex/usage.ts:114 - fetchCodexUsage\n" +
-        "src/auth/codex/usage.ts:200 - someNewDeadExport\n",
-    );
+    const outcome = evaluateGuard(rules, [
+      { file: "src/auth/codex/usage.ts", name: "fetchCodexUsage" },
+      { file: "src/auth/codex/usage.ts", name: "someNewDeadExport" },
+    ]);
     expect(outcome.dead).toBe(2);
     expect(outcome.violations).toEqual([
       "src/auth/codex/usage.ts: someNewDeadExport",
@@ -69,70 +81,238 @@ describe("scoped exemptions", () => {
     expect(outcome.unused).toEqual([]);
   });
 
-  test("exports used only inside their own module do not count", () => {
-    const outcome = evaluateGuard(
-      [],
-      "src/inference-abort.ts:5 - InferenceAbortReason (used in module)\n",
+  test("the whole-unreachable-file finding matches a full-file allowlist entry", () => {
+    const rules = parseAllowlistText(
+      "evals/completion/tasks/x/fixture/data.ts\n",
     );
-    expect(outcome.dead).toBe(0);
+    const outcome = evaluateGuard(rules, [
+      {
+        file: "evals/completion/tasks/x/fixture/data.ts",
+        name: "evals/completion/tasks/x/fixture/data.ts",
+      },
+    ]);
     expect(outcome.violations).toEqual([]);
+    expect(outcome.unused).toEqual([]);
   });
 
-  test("parseTsPruneLine skips blank and unparseable lines", () => {
-    expect(parseTsPruneLine("")).toBeUndefined();
-    expect(parseTsPruneLine("not a ts-prune line")).toBeUndefined();
-    expect(
-      parseTsPruneLine("src/auth/xai/usage.ts:89 - fetchXaiUsage"),
-    ).toEqual({ file: "src/auth/xai/usage.ts", name: "fetchXaiUsage" });
+  test("a vendor prefix covers every vendor finding regardless of count", () => {
+    const rules = parseAllowlistText("vendor/\n");
+    const outcome = evaluateGuard(rules, [
+      { file: "vendor/intx-types/src/index.ts", name: "ErrorResponse" },
+      { file: "vendor/intx-mime/src/whatever.ts", name: "SomethingElse" },
+    ]);
+    expect(outcome.violations).toEqual([]);
+    expect(outcome.unused).toEqual([]);
+    expect(isGuardPassing(outcome)).toBe(true);
   });
 });
 
-// Stale entries (matching no current flag) fail the gate so the exemption
-// dies with the code it covered; warn-only reporting let them linger.
-describe("stale allowlist entries", () => {
-  test("an entry matching nothing is reported as unused and fails the gate", () => {
-    const rules = parseAllowlistText(
-      "src/auth/xai/usage.ts: fetchXaiUsage\n" +
-        "src/gone.ts: vanishedExport\n",
-    );
-    const outcome = evaluateGuard(
-      rules,
-      "src/auth/xai/usage.ts:89 - fetchXaiUsage\n",
-    );
-    expect(outcome.violations).toEqual([]);
-    expect(outcome.unused).toEqual(["src/gone.ts: vanishedExport"]);
-    expect(isGuardPassing(outcome)).toBe(false);
+// knip's report parse: one place feeds the rule engine; a wrong shape must
+// fail closed instead of silently narrowing the scan.
+describe("knip report parsing", () => {
+  test("exports, types, and members fold into (file, name) findings", () => {
+    const report = JSON.stringify({
+      issues: [
+        {
+          file: "src/a.ts",
+          exports: [{ name: "alpha", line: 1, col: 14, pos: 13 }],
+          types: [{ name: "AlphaShape", line: 2, col: 13, pos: 40 }],
+          enumMembers: [],
+          namespaceMembers: [],
+          files: [],
+        },
+      ],
+    });
+    expect(parseKnipReport(report)).toEqual([
+      { file: "src/a.ts", name: "alpha" },
+      { file: "src/a.ts", name: "AlphaShape" },
+    ]);
   });
+
+  test("an unreachable file folds into one finding whose name is the path", () => {
+    const report = JSON.stringify({
+      issues: [
+        {
+          file: "evals/x/fixture/data.ts",
+          exports: [],
+          files: [{ name: "evals/x/fixture/data.ts" }],
+        },
+      ],
+    });
+    expect(parseKnipReport(report)).toEqual([
+      { file: "evals/x/fixture/data.ts", name: "evals/x/fixture/data.ts" },
+    ]);
+  });
+
+  test("issue classes outside the counted set are ignored", () => {
+    const report = JSON.stringify({
+      issues: [
+        {
+          file: "src/a.ts",
+          dependencies: [{ name: "lodash" }],
+          binaries: [{ name: "pgrep" }],
+          duplicates: [[{ name: "dup" }]],
+          exports: [{ name: "alpha" }],
+        },
+      ],
+    });
+    expect(parseKnipReport(report)).toEqual([
+      { file: "src/a.ts", name: "alpha" },
+    ]);
+  });
+
+  test("malformed reports fail closed", () => {
+    expect(() => parseKnipReport("")).toThrow();
+    expect(() => parseKnipReport("[]")).toThrow();
+    expect(() => parseKnipReport("{}")).toThrow();
+    expect(() => parseKnipReport('{"issues": [42]}')).toThrow();
+    expect(() => parseKnipReport('{"issues": [{}]}')).toThrow();
+    expect(() =>
+      parseKnipReport('{"issues": [{"file": "a.ts", "exports": [{}]}]}'),
+    ).toThrow();
+    expect(() =>
+      parseKnipReport('{"issues": [{"file": "a.ts", "files": [{}]}]}'),
+    ).toThrow();
+  });
+});
+
+// The guard semantics over findings shapes.
+describe("guard evaluation", () => {
+  const findings: readonly DeadExport[] = [
+    { file: "vendor/intx-types/src/index.ts", name: "ErrorResponse" },
+    { file: "src/auth/xai/usage.ts", name: "fetchXaiUsage" },
+  ];
 
   test("a fully fresh allowlist passes the gate", () => {
     const rules = parseAllowlistText(
       "vendor/\nsrc/auth/xai/usage.ts: fetchXaiUsage\n",
     );
-    const outcome = evaluateGuard(
-      rules,
-      "vendor/intx-types/src/index.ts:3 - ErrorResponse\n" +
-        "src/auth/xai/usage.ts:89 - fetchXaiUsage\n",
-    );
-    expect(outcome.violations).toEqual([]);
-    expect(outcome.unused).toEqual([]);
-    expect(isGuardPassing(outcome)).toBe(true);
-  });
-
-  test("a prefix entry counts as used when any flag falls under it", () => {
-    const rules = parseAllowlistText("vendor/\n");
-    const outcome = evaluateGuard(
-      rules,
-      "vendor/intx-types/src/index.ts:3 - ErrorResponse\n",
-    );
+    const outcome = evaluateGuard(rules, findings);
     expect(outcome.violations).toEqual([]);
     expect(outcome.unused).toEqual([]);
     expect(isGuardPassing(outcome)).toBe(true);
   });
 
   test("violations fail the gate", () => {
-    const outcome = evaluateGuard([], "src/new.ts:1 - freshDeadExport\n");
+    const outcome = evaluateGuard(
+      [],
+      [{ file: "src/new.ts", name: "freshDeadExport" }],
+    );
     expect(outcome.violations).toEqual(["src/new.ts: freshDeadExport"]);
     expect(isGuardPassing(outcome)).toBe(false);
+  });
+});
+
+// The knip semantics the guard depends on, run against the real repo:
+//
+// 1. In the default scan knip counts test-file imports as consumption, so an
+//    export whose only importer is a test must NOT be reported there.
+// 2. The production agent-workspace scan ignores test-file consumers, so the
+//    six-name director surface's worker names surface again — including their
+//    genuinely consumed siblings (registry.ts imports only `director`, and
+//    src/agent/prompts.ts consumes dispatch's `systemPrompt`), which is the
+//    test that catches a knip change silently restoring the laundering.
+// 3. The allowlist covers the union so the gate stays green with the worker
+//    names disclosed rather than silently absent.
+describe("live knip scan semantics", () => {
+  const knipBin = join(repoRoot, "node_modules", ".bin", "knip");
+
+  test("default scan counts test-file consumers as alive (documented gap)", () => {
+    const spawn = knipDefaultSpawn(knipBin);
+    const ran = spawnSync(spawn.command, spawn.args, {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+    const findings = parseKnipReport(String(ran.stdout));
+    const reported = (file: string, name: string): boolean =>
+      findings.some((f) => f.file === file && f.name === name);
+
+    // Exports used only inside their own module are not dead.
+    expect(reported("src/inference-abort.ts", "InferenceAbortReason")).toBe(
+      false,
+    );
+    // The director fan-in is a live consumer.
+    expect(reported("agents/coder/src/index.ts", "director")).toBe(false);
+    // knip counts the package contract test's import as consumption.
+    expect(reported("agents/coder/src/index.ts", "tools")).toBe(false);
+    // A `satisfies` token inside a live export is not itself an export.
+    expect(reported("src/agent/directors/identity.ts", "satisfies")).toBe(
+      false,
+    );
+  }, 120_000);
+
+  test("production agent scan removes test-file consumers from the surface", () => {
+    const rules = loadAllowlist();
+    const spawn = knipAgentProductionSpawn(
+      knipBin,
+      agentWorkspaceIds(join(repoRoot, "agents")),
+    );
+    const ran = spawnSync(spawn.command, spawn.args, {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+    const findings = parseKnipReport(String(ran.stdout));
+    const reported = (file: string, name: string): boolean =>
+      findings.some((f) => f.file === file && f.name === name);
+
+    for (const config of [
+      "agents/coder",
+      "agents/explorer",
+      "agents/reviewer",
+      "agents/planner",
+      "agents/artist",
+      "agents/prober",
+      "agents/warden",
+      "agents/designer",
+      "agents/shakespeare",
+      "agents/dispatch",
+    ]) {
+      const index = `${config}/src/index.ts`;
+      // The laundered worker names resurface.
+      expect(reported(index, "tools")).toBe(true);
+      expect(reported(index, "config")).toBe(true);
+      // dispatch's systemPrompt has a production consumer; the rest do not.
+      if (config !== "agents/dispatch") {
+        expect(reported(index, "systemPrompt")).toBe(true);
+      }
+      // The registry fan-in keeps its entry-file name alive.
+      expect(reported(index, "director")).toBe(false);
+      // The re-added allowlist entries match every surfaced finding.
+      expect(isAllowlisted(rules, index, "tools")).toBe(true);
+      expect(isAllowlisted(rules, index, "config")).toBe(true);
+      expect(isAllowlisted(rules, `${config}/src/agent.ts`, "agent")).toBe(
+        true,
+      );
+    }
+    expect(reported("agents/dispatch/src/index.ts", "systemPrompt")).toBe(
+      false,
+    );
+  }, 120_000);
+});
+
+// Stale entries (matching no current finding) fail the gate so the exemption
+// dies with the code it covered; warn-only reporting let them linger.
+describe("stale allowlist entries", () => {
+  test("an entry matching nothing is reported as unused and fails the gate", () => {
+    const rules = parseAllowlistText(
+      "src/auth/xai/usage.ts: fetchXaiUsage\nsrc/gone.ts: vanishedExport\n",
+    );
+    const outcome = evaluateGuard(rules, [
+      { file: "src/auth/xai/usage.ts", name: "fetchXaiUsage" },
+    ]);
+    expect(outcome.violations).toEqual([]);
+    expect(outcome.unused).toEqual(["src/gone.ts: vanishedExport"]);
+    expect(isGuardPassing(outcome)).toBe(false);
+  });
+
+  test("a prefix entry counts as used when any finding falls under it", () => {
+    const rules = parseAllowlistText("vendor/\n");
+    const outcome = evaluateGuard(rules, [
+      { file: "vendor/intx-types/src/index.ts", name: "ErrorResponse" },
+    ]);
+    expect(outcome.violations).toEqual([]);
+    expect(outcome.unused).toEqual([]);
+    expect(isGuardPassing(outcome)).toBe(true);
   });
 });
 
@@ -229,79 +409,80 @@ describe("allowlist ownership", () => {
   });
 });
 
-// The scan invocation is pinned to dead-export-guard.json so it never depends
-// on ts-prune's working-directory config discovery; the gate fails closed
-// when the scanned file count drops below the checked-in floor.
+// The scan invocation is pinned in code (reporter, flags, node runtime); the
+// guard config cannot narrow it. The floor fails closed when the pinned
+// tsconfig's program shrinks.
 describe("pinned scan invocation", () => {
   test("the checked-in config pins the project and a positive floor", () => {
     const config = loadGuardConfig();
     expect(config.tsconfig).toBe("tsconfig.json");
-    expect(config.tsPruneArgs).toEqual(["-p", "tsconfig.json"]);
     expect(config.minScannedFiles).toBeGreaterThan(0);
     expect(existsSync(join(repoRoot, config.tsconfig))).toBe(true);
   });
 
-  test("ts-prune is launched with node, not as a Bun-executed bin", () => {
-    const spawn = tsPruneSpawn("/repo/node_modules/.bin/ts-prune", [
-      "-p",
-      "tsconfig.json",
+  test("the default scan runs with the pinned flags", () => {
+    const spawn = knipDefaultSpawn("/repo/node_modules/.bin/knip");
+    expect(spawn.command).toBe("node");
+    expect(spawn.args).toEqual([
+      "/repo/node_modules/.bin/knip",
+      "--reporter",
+      "json",
+      "--no-progress",
+      "--no-exit-code",
+    ]);
+  });
+
+  test("the agent-workspace production scan is pinned per workspace", () => {
+    const spawn = knipAgentProductionSpawn("/repo/node_modules/.bin/knip", [
+      "agents/coder",
+      "agents/dispatch",
     ]);
     expect(spawn.command).toBe("node");
     expect(spawn.args).toEqual([
-      "/repo/node_modules/.bin/ts-prune",
-      "-p",
-      "tsconfig.json",
+      "/repo/node_modules/.bin/knip",
+      "-c",
+      agentsConfigPath(),
+      "--production",
+      "--reporter",
+      "json",
+      "--no-progress",
+      "--no-exit-code",
+      "-W",
+      "agents/coder",
+      "-W",
+      "agents/dispatch",
     ]);
+    expect(() => knipAgentProductionSpawn("/repo/x", [])).toThrow();
   });
 
-  test("parseGuardConfig rejects an unpinned or empty invocation", () => {
-    const valid = {
-      tsconfig: "tsconfig.json",
-      tsPruneArgs: ["-p", "tsconfig.json"],
-      minScannedFiles: 1130,
-    };
-    expect(parseGuardConfig(valid)).toEqual(valid);
-    expect(() => parseGuardConfig({ ...valid, tsPruneArgs: [] })).toThrow();
-    expect(() =>
-      parseGuardConfig({ ...valid, tsPruneArgs: ["--ignore", "x"] }),
-    ).toThrow();
-    expect(() =>
-      parseGuardConfig({
-        ...valid,
-        tsPruneArgs: ["-p", "tsconfig.other.json"],
-      }),
-    ).toThrow();
-  });
-
-  test("parseGuardConfig rejects extra narrowing flags on a pinned invocation", () => {
-    const valid = {
-      tsconfig: "tsconfig.json",
-      tsPruneArgs: ["-p", "tsconfig.json"],
-      minScannedFiles: 1130,
-    };
-    expect(parseGuardConfig(valid)).toEqual(valid);
-    const narrowed = [
-      ["-p", "tsconfig.json", "-i", "src/.*"],
-      ["-p", "tsconfig.json", "--ignore", "src/.*"],
-      ["-p", "tsconfig.json", "--error"],
-      ["--ignore", "src/.*", "-p", "tsconfig.json"],
-    ];
-    for (const tsPruneArgs of narrowed) {
-      expect(() => parseGuardConfig({ ...valid, tsPruneArgs })).toThrow();
+  test("agent workspace ids are the agents directory and fail closed", () => {
+    const agentsRoot = join(repoRoot, "agents");
+    const fromDisk = readdirSync(agentsRoot, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          existsSync(join(agentsRoot, entry.name, "package.json")),
+      )
+      .map((entry) => `agents/${entry.name}`)
+      .sort();
+    expect(fromDisk.length).toBeGreaterThan(0);
+    expect(agentWorkspaceIds(agentsRoot)).toEqual(fromDisk);
+    const empty = mkdtempSync(join(tmpdir(), "dead-export-agents-"));
+    try {
+      expect(() => agentWorkspaceIds(empty)).toThrow();
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
     }
   });
 
-  test("parseGuardConfig rejects a missing floor", () => {
-    const valid = {
-      tsconfig: "tsconfig.json",
-      tsPruneArgs: ["-p", "tsconfig.json"],
-      minScannedFiles: 1130,
-    };
-    for (const floor of [0, -5, 1.5, "1130", undefined]) {
-      expect(() =>
-        parseGuardConfig({ ...valid, minScannedFiles: floor }),
-      ).toThrow();
-    }
+  test("parseGuardConfig rejects a missing tsconfig or floor and extra keys", () => {
+    const valid = { tsconfig: "tsconfig.json", minScannedFiles: 1240 };
+    expect(parseGuardConfig(valid)).toEqual(valid);
+    expect(() => parseGuardConfig({ ...valid, minScannedFiles: 0 })).toThrow();
+    expect(() => parseGuardConfig({ ...valid, tsconfig: "" })).toThrow();
+    expect(() =>
+      parseGuardConfig({ ...valid, scanArgs: ["-p", "x"] }),
+    ).toThrow();
     expect(() => parseGuardConfig(null)).toThrow();
     expect(() => parseGuardConfig([])).toThrow();
   });
@@ -320,9 +501,9 @@ describe("pinned scan invocation", () => {
 
 describe("scan coverage floor", () => {
   test("counts below the floor fail, counts at or above pass", () => {
-    expect(isCoverageEnough(1129, 1130)).toBe(false);
-    expect(isCoverageEnough(1130, 1130)).toBe(true);
-    expect(isCoverageEnough(2000, 1130)).toBe(true);
+    expect(isCoverageEnough(1239, 1240)).toBe(false);
+    expect(isCoverageEnough(1240, 1240)).toBe(true);
+    expect(isCoverageEnough(2000, 1240)).toBe(true);
   });
 
   test("the live program file count clears the checked-in floor", () => {
@@ -339,33 +520,17 @@ describe("scan coverage floor", () => {
 });
 
 // Unit tests above prove the rule engine flags a probe; this one proves the
-// wired-up gate does. A temp probe export lands in the tsconfig-covered
-// scripts/ tree, the real guard runs as a subprocess, and the run must exit
-// nonzero naming the probe. The probe lives only for the test so the
-// keep-alive check cannot itself become a dead export. A temp narrow
-// tsconfig keeps the run to ts-prune startup instead of the ~5s full scan.
+// wired-up gate does. A temp probe export lands in the knip-covered scripts/
+// tree, the real guard runs as a subprocess, and the run must exit nonzero
+// naming the probe. The probe lives only for the test so the keep-alive check
+// cannot itself become a dead export; the injected count keeps the floor
+// subprocess out of the timing.
 describe("violation end to end", () => {
   test("a temp dead export fails the guard, which names it", () => {
     const probeFile = `dead-export-guard-probe-${process.pid}.ts`;
     const probeName = `deadExportGuardProbe${process.pid}`;
     const probePath = join(repoRoot, "scripts", probeFile);
-    const narrowTsconfigFile = `dead-export-guard-tsconfig-${process.pid}.json`;
-    const narrowTsconfigPath = join(repoRoot, "scripts", narrowTsconfigFile);
     writeFileSync(probePath, `export const ${probeName} = 1;\n`);
-    writeFileSync(
-      narrowTsconfigPath,
-      JSON.stringify({
-        compilerOptions: {
-          noEmit: true,
-          target: "ESNext",
-          module: "ESNext",
-          moduleResolution: "bundler",
-          skipLibCheck: true,
-        },
-        // Relative to the narrow tsconfig's own directory (scripts/).
-        files: [probeFile],
-      }),
-    );
     try {
       const ran = spawnSync(
         process.execPath,
@@ -374,11 +539,10 @@ describe("violation end to end", () => {
           cwd: repoRoot,
           encoding: "utf8",
           // Floor tests cover the file-count subprocess; inject the count so
-          // this run pays only ts-prune.
+          // this run pays only knip.
           env: {
             ...process.env,
             DEAD_EXPORT_GUARD_SCANNED_FILES: String(liveScannedFileCount()),
-            DEAD_EXPORT_GUARD_TSCONFIG: `scripts/${narrowTsconfigFile}`,
           },
         },
       );
@@ -388,9 +552,67 @@ describe("violation end to end", () => {
       );
     } finally {
       rmSync(probePath, { force: true });
-      rmSync(narrowTsconfigPath, { force: true });
     }
-  }, 120_000);
+  }, 240_000);
+
+  test("a test-only export in an extra agent workspace fails the guard", () => {
+    const id = `dead-export-guard-agent-${process.pid}`;
+    const exportName = `deadExportGuardAgentProbe${process.pid}`;
+    const dir = join(repoRoot, "agents", id);
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: `@corbits/code-agent-${id}`,
+        private: true,
+        type: "module",
+      }),
+    );
+    writeFileSync(
+      join(dir, "src", "index.ts"),
+      `export const ${exportName} = 1;\n`,
+    );
+    writeFileSync(
+      join(dir, "src", "index.test.ts"),
+      `import { ${exportName} } from "./index.js";\nvoid ${exportName};\n`,
+    );
+    try {
+      const knipBin = join(repoRoot, "node_modules", ".bin", "knip");
+      const defaultSpawn = knipDefaultSpawn(knipBin);
+      const defaultRun = spawnSync(defaultSpawn.command, defaultSpawn.args, {
+        cwd: repoRoot,
+        encoding: "utf8",
+      });
+      expect(defaultRun.status).toBe(0);
+      const defaultFindings = parseKnipReport(String(defaultRun.stdout));
+      expect(
+        defaultFindings.some(
+          (finding) =>
+            finding.file === `agents/${id}/src/index.ts` &&
+            finding.name === exportName,
+        ),
+      ).toBe(false);
+
+      const ran = spawnSync(
+        process.execPath,
+        ["scripts/check-dead-exports.ts"],
+        {
+          cwd: repoRoot,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            DEAD_EXPORT_GUARD_SCANNED_FILES: String(liveScannedFileCount()),
+          },
+        },
+      );
+      expect(ran.status).toBe(1);
+      expect(`${ran.stdout}\n${ran.stderr}`).toContain(
+        `agents/${id}/src/index.ts: ${exportName}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 240_000);
 });
 
 // A re-created barrel would silently resurrect a surface the purge removed.

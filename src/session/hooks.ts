@@ -24,7 +24,8 @@ export type LifecycleHookType = "typescript" | "shell";
 
 export interface HookExitStatus {
   code: number | null;
-  signal: string | null;
+  // bun-types 1.4.3 widened Subprocess.signalCode to NodeJS.Signals | number | null.
+  signal: string | number | null;
   stderr: string;
 }
 
@@ -429,7 +430,7 @@ async function runLifecycleHook(
   ]);
   return {
     code: exitCode,
-    signal: proc.signalCode,
+    signal: proc.signalCode === null ? null : String(proc.signalCode),
     stderr: delivered
       ? stderr
       : `${stderr}${stderr.length > 0 && !stderr.endsWith("\n") ? "\n" : ""}hook exited without reading its payload\n`,

@@ -42,42 +42,37 @@ function passthrough(
   };
 }
 
-function newestAssistantTextIndex(turns: readonly ConversationTurn[]): number {
-  for (let i = turns.length - 1; i >= 0; i--) {
-    const turn = turns[i];
-    if (turn === undefined || turn.role !== "assistant") continue;
-    if (
-      turn.content.some(
-        (block) => block.type === "text" && block.text.length > 0,
-      )
-    ) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-// Tool results before the newest assistant text are already consumed.
-// When the model has not written that text yet, the newest result turn is
-// the unconsumed suffix and stays whole.
-function stubBoundary(turns: readonly ConversationTurn[]): number {
-  const assistantText = newestAssistantTextIndex(turns);
-  if (assistantText >= 0) return assistantText;
-  for (let i = turns.length - 1; i >= 0; i--) {
-    const turn = turns[i];
-    if (turn?.content.some((block) => block.type === "tool_result")) return i;
-  }
-  return turns.length;
-}
-
-function toolNames(turns: readonly ConversationTurn[]): Map<string, string> {
+// One forward pass collects everything shrinkPrompt needs: every tool_call
+// id→name (a result's call turn can sit anywhere, so names span the whole
+// transcript), the newest assistant text index, and the last tool_result
+// index. The boundary is that text index when one exists, else the last
+// result turn (the unconsumed suffix stays whole when the model has not
+// written text yet), else the whole history.
+function stubSetup(turns: readonly ConversationTurn[]): {
+  names: Map<string, string>;
+  boundary: number;
+} {
   const names = new Map<string, string>();
-  for (const turn of turns) {
+  let newestAssistantText = -1;
+  let lastToolResult = -1;
+  for (let i = 0; i < turns.length; i++) {
+    const turn = turns[i];
+    if (turn === undefined) continue;
+    let hasText = false;
     for (const block of turn.content) {
       if (block.type === "tool_call") names.set(block.id, block.name);
+      else if (block.type === "tool_result") lastToolResult = i;
+      else if (block.type === "text" && block.text.length > 0) hasText = true;
     }
+    if (hasText && turn.role === "assistant") newestAssistantText = i;
   }
-  return names;
+  const boundary =
+    newestAssistantText >= 0
+      ? newestAssistantText
+      : lastToolResult >= 0
+        ? lastToolResult
+        : turns.length;
+  return { names, boundary };
 }
 
 function stubText(name: string | undefined): string {
@@ -124,8 +119,7 @@ function shrinkPrompt(turns: ConversationTurn[]): {
   output: ConversationTurn[];
   stubbed: number;
 } {
-  const boundary = stubBoundary(turns);
-  const names = toolNames(turns);
+  const { names, boundary } = stubSetup(turns);
   let stubbed = 0;
   let changed = false;
   const output = turns.map((turn, index) => {

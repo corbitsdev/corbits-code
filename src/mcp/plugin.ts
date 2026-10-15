@@ -2,6 +2,7 @@ import type { AgentTool } from "@intx/agent";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import type { PermissionGate } from "../permission/gate.js";
 import { gateAgentTools } from "../plugins/permission-plugin.js";
+import { getLogger } from "@intx/log";
 import {
   scrubSecretShapedContent,
   scrubSecretShapedValue,
@@ -20,9 +21,12 @@ import {
 } from "./client.js";
 import { applyMcpResultProjection } from "./result-projection.js";
 import { mcpToolName } from "./tool-name.js";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 export const MCP_RECONNECTING_TOOL_ERROR =
   "MCP server is reconnecting; retry the call once it reports connected.";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "mcp", "plugin"]);
 
 /**
  * Stable marker prefixing JSON-serialized `structuredContent` (alone or
@@ -156,8 +160,12 @@ export function mcpClientTools(
                 provenance: "mcp:post-policy-pre-flatten",
               });
               archivedFullEnvelope = true;
-            } catch {
-              // Archive write must not fail a successful tool result.
+            } catch (err) {
+              // Archive write must not fail a successful tool result; the
+              // skip still gets a receipt with the call it dropped. The
+              // result path is secret scrubbed throughout — the receipt is too.
+              const message = err instanceof Error ? err.message : String(err);
+              logger.warn`evidence archive skipped for successful MCP tool result call=${call.id} error=${scrubSecretShapedContent(message)}`;
             }
           }
           const projected = isError
@@ -229,8 +237,15 @@ export function mcpClientTools(
                 callId: call.id,
                 provenance: "mcp:error",
               });
-            } catch {
-              // Archive write must not fail a successful tool result.
+            } catch (archiveErr) {
+              // archiveErr here comes from the archive writer, never the
+              // payload, but the result path is secret scrubbed throughout —
+              // the receipt is too.
+              const message =
+                archiveErr instanceof Error
+                  ? archiveErr.message
+                  : String(archiveErr);
+              logger.warn`evidence archive skipped for failed MCP tool result call=${call.id} underlying=${scrubbed} error=${scrubSecretShapedContent(message)}`;
             }
           }
           return {

@@ -27,6 +27,11 @@ import {
   withMockedModuleDuring,
 } from "../../../testkit/mock-module.js";
 import { createTempDirs } from "../../../testkit/temporary-dirs.js";
+import fsSync from "node:fs";
+import { readFile, stat, utimes } from "node:fs/promises";
+import { sessionDir } from "../../session/index.js";
+import type { RunState } from "../../session/state.js";
+import { createRunPersistence } from "./exit.js";
 import {
   createDeliveryGeneration,
   createSessionOperationQueue,
@@ -1176,5 +1181,134 @@ describe("observeRecoveryAttempts fan-out", () => {
       credentialFailure("xai/default-2"),
     );
     expect(seat.reconnectRecovery.settle(reconnectAttempt)).not.toBeNull();
+  });
+});
+
+describe("createRunPersistence — identical-payload skip (CL-10667)", () => {
+  function persistenceStub(args: {
+    runSinkTurnCount: () => number;
+    cwd: string;
+  }): {
+    writeRunSnapshot: () => Promise<void>;
+    heartbeatRunSnapshot: () => Promise<void>;
+    persistOnce: () => Promise<void>;
+  } {
+    const state = {
+      host: { waitUntilExit: async () => undefined },
+      config: { cwd: args.cwd, task: "t" },
+      sessionId: "s",
+      startedAt: 1,
+      runTaskTitle: "t",
+      connectedMcpServers: [],
+      liveSource: { id: "p", model: "m" },
+    } as unknown as RunnerState;
+    const services = {
+      runSink: { getTurnCount: args.runSinkTurnCount },
+      crashGuard: { markFinalized: () => undefined, isFinalized: () => false },
+      activeRunHandle: { task: "", startedAt: 0, turnsUsed: 0, model: "" },
+      activatedToolNames: { list: () => [] },
+    } as unknown as RunnerServices;
+    const { writeRunSnapshot, persistRunSnapshot, heartbeatRunSnapshot } =
+      createRunPersistence(state, services);
+    return {
+      writeRunSnapshot: () => writeRunSnapshot("running"),
+      heartbeatRunSnapshot,
+      persistOnce: () => persistRunSnapshot("running"),
+    };
+  }
+
+  test("identical progress snapshots skip; heartbeat ticks bypass the skip", async () => {
+    const directories = createTempDirs(
+      "corbits-runpersist-cwd-",
+      "corbits-runpersist-home-",
+    );
+    try {
+      let turnsUsed = 0;
+      await withMockedHomedir(directories.home, async () => {
+        const { heartbeatRunSnapshot, persistOnce } = persistenceStub({
+          runSinkTurnCount: () => turnsUsed,
+          cwd: directories.cwd,
+        });
+        const runPath = `${sessionDir(directories.cwd, "s")}/run.json`;
+
+        await heartbeatRunSnapshot();
+        const first = JSON.parse(await readFile(runPath, "utf8"));
+        expect(first.turnsUsed).toBe(0);
+        // Stamp a long-gone mtime: any rewrite would move it.
+        await utimes(runPath, new Date(9e11), new Date(9e11));
+
+        // Payload-identical non-heartbeat progress write: skipped, mtime
+        // untouched.
+        await persistOnce();
+        expect((await stat(runPath)).mtimeMs).toBe(9e11);
+
+        // Heartbeat tick with the SAME payload: forces the write — the mtime
+        // is what ageStaleRunningState reads cross-process, and a skipped
+        // heartbeat would age a live run to "interrupted".
+        await heartbeatRunSnapshot();
+        expect((await stat(runPath)).mtimeMs).not.toBe(9e11);
+
+        // A changed payload lands like before.
+        turnsUsed = 1;
+        await persistOnce();
+        const changed = JSON.parse(await readFile(runPath, "utf8"));
+        expect(changed.turnsUsed).toBe(1);
+      });
+    } finally {
+      await directories.cleanup();
+    }
+  });
+
+  test("a failed save does not take the baseline; the identical retry rewrites", async () => {
+    const directories = createTempDirs(
+      "corbits-runpersist-fail-cwd-",
+      "corbits-runpersist-fail-home-",
+    );
+    try {
+      let turnsUsed = 0;
+      await withMockedHomedir(directories.home, () =>
+        withMockedModuleDuring(
+          import.meta.resolve("../../session/state.js"),
+          (real: typeof import("../../session/state.js")) => {
+            let failingFirst = true;
+            return {
+              ...real,
+              saveState(
+                cwd: string,
+                sessionId: string,
+                persisted: RunState,
+                home?: string,
+              ): Promise<void> {
+                if (!failingFirst)
+                  return real.saveState(cwd, sessionId, persisted, home);
+                failingFirst = false;
+                return Promise.reject(new Error("transient save failure"));
+              },
+            };
+          },
+          async () => {
+            const { persistOnce } = persistenceStub({
+              runSinkTurnCount: () => turnsUsed,
+              cwd: directories.cwd,
+            });
+            // First attempt fails; the caller awaits the rejection.
+            await persistOnce().catch((err: unknown) => {
+              expect(String(err)).toMatch(/transient save failure/);
+            });
+            const runPath = `${sessionDir(directories.cwd, "s")}/run.json`;
+            expect(fsSync.existsSync(runPath)).toBe(false);
+
+            // Identical payload is still rewritten: the failed attempt
+            // never took the baseline.
+            await persistOnce();
+            expect(JSON.parse(await readFile(runPath, "utf8")).turnsUsed).toBe(
+              0,
+            );
+          },
+        ),
+      );
+    } finally {
+      await directories.cleanup();
+    }
   });
 });

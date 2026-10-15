@@ -41,7 +41,7 @@ function stderrSummary(stderr: string): string | null {
 function hookFailure(hook: LifecycleHookStatus): string | null {
   const exit = hook.lastExitStatus;
   if (exit === undefined) return null;
-  if (exit.signal !== null) return exit.signal;
+  if (exit.signal !== null) return String(exit.signal);
   if (exit.code !== null && exit.code !== 0) return `exit ${exit.code}`;
   return null;
 }

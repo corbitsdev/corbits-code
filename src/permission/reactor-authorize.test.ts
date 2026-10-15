@@ -234,6 +234,33 @@ test("nested orchestrator wait_agents allows with only a spawn_agent grant", asy
   ).toBe("allow");
 });
 
+test("nested parent approval tool passes the worker authorization seam", async () => {
+  const policy = gate({ interactive: true, auto: false });
+  const authorize = createWorkerAuthorize(policy);
+  expect(
+    (
+      await authorize(
+        "tool:approve_worker_call",
+        "invoke",
+        namedCall("approve_worker_call", {
+          target: "child-session",
+          question_id: "child-question",
+          request_id: "child-request",
+        }),
+      )
+    ).effect,
+  ).toBe("allow");
+  expect(
+    (
+      await authorize(
+        "tool:write_file",
+        "invoke",
+        namedCall("write_file", { path: "ordinary.txt", content: "data" }),
+      )
+    ).effect,
+  ).toBe("deny");
+});
+
 test("worker spawn_agent still needs a parent grant", async () => {
   const policy = gate({ interactive: true, auto: false });
   expect(

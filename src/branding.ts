@@ -7,9 +7,6 @@
 
 export const PRODUCT_NAME = "Corbits Code";
 
-// Short attribution form used in compact UI (status lines, footers).
-export const PRODUCT_SHORT_NAME = "Corbits";
-
 // Canonical public URLs, each paired with the text shown in its place. The label
 // is spelled out rather than stripped from the URL so it can diverge from the
 // bare host later without a rendering helper having to special-case it.
