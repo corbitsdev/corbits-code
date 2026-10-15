@@ -8,8 +8,8 @@ import {
   CODEX_RESPONSES_PROVIDER,
   CODEX_SESSION_ID_OPTION,
   createCodexResponsesAdapter,
-  withParallelToolCalls,
 } from "./codex-responses.js";
+import { withJsonBodyRewrite } from "./adapter-decorators.js";
 
 const source: LastCycleSource = {
   sourceId: "codex/test",
@@ -84,11 +84,10 @@ describe("createCodexResponsesAdapter", () => {
         body: "not-json",
       }),
     } as unknown as ProviderAdapter;
-    const request = withParallelToolCalls(stub).buildRequest(
-      [userTurn("hello")],
-      "gpt-5.1-codex",
-      {},
-    );
+    const request = withJsonBodyRewrite(stub, (body) => {
+      body["parallel_tool_calls"] = true;
+      return true;
+    }).buildRequest([userTurn("hello")], "gpt-5.1-codex", {});
     expect(request.body).toBe("not-json");
   });
 

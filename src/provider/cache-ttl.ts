@@ -21,17 +21,15 @@
 // prompt-caching the fold is not attempted.
 
 import { isOllamaProviderId } from "./ollama.js";
+import {
+  ANTHROPIC_MESSAGES_PROTOCOLS,
+  canonicalProviderSegment,
+} from "./provider-protocols.js";
 
 const MINUTE_MS = 60_000;
 
 /** Published Anthropic ephemeral TTL. The only idle-recompress window. */
 const ANTHROPIC_TTL_MS = 5 * MINUTE_MS;
-
-const ANTHROPIC_PROTOCOL = new Set([
-  "anthropic",
-  "zen-messages",
-  "opencode-go-messages",
-]);
 
 type CacheTtlIdentity = {
   sourceId?: string;
@@ -39,19 +37,8 @@ type CacheTtlIdentity = {
   model?: string;
 };
 
-// Canonical provider segment of a `provider/model` string: the account or
-// adapter name before the first "/" (custom names like `xai/alice` carry the
-// provider there), else the head before ":".
-function canonicalSegment(model: string): string {
-  const lower = model.toLowerCase();
-  const slash = lower.indexOf("/");
-  const head = slash >= 0 ? lower.slice(0, slash) : lower;
-  const colon = head.indexOf(":");
-  return colon >= 0 ? head.slice(0, colon) : head;
-}
-
 function ttlForSegment(segment: string): number | undefined {
-  if (!ANTHROPIC_PROTOCOL.has(segment)) return undefined;
+  if (!ANTHROPIC_MESSAGES_PROTOCOLS.has(segment)) return undefined;
   return ANTHROPIC_TTL_MS;
 }
 
@@ -71,7 +58,7 @@ export function cacheTtlMsFor(
 ): number | undefined {
   if (identity === undefined) return undefined;
   if (typeof identity === "string")
-    return ttlForSegment(canonicalSegment(identity));
+    return ttlForSegment(canonicalProviderSegment(identity));
 
   if (identity.sourceId !== undefined && isOllamaProviderId(identity.sourceId))
     return undefined;
@@ -79,8 +66,8 @@ export function cacheTtlMsFor(
     return undefined;
 
   if (identity.provider !== undefined && identity.provider.length > 0)
-    return ttlForSegment(canonicalSegment(identity.provider));
-  return ttlForSegment(canonicalSegment(identity.model ?? ""));
+    return ttlForSegment(canonicalProviderSegment(identity.provider));
+  return ttlForSegment(canonicalProviderSegment(identity.model ?? ""));
 }
 
 /**

@@ -19,6 +19,12 @@ import {
   xaiProfileFromProviderName,
 } from "./config/xai-providers.js";
 import { isXaiGrokLeafProvider } from "./subagent/provider-family.js";
+import {
+  coerceBody,
+  readErrorNode,
+  resetSecondsFromNode,
+  tryParseJSON,
+} from "./provider/error-body.js";
 
 export interface InferenceErrorLike {
   category: string;
@@ -153,14 +159,6 @@ export function isGatewayOverloadInferenceError(
   }
 
   return false;
-}
-
-function tryParseJSON(text: string): unknown {
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return undefined;
-  }
 }
 
 /**
@@ -352,25 +350,28 @@ export function isXaiShortRateLimitInferenceError(
 /**
  * Shared skeleton behind the twin rate-limit normalizers: known-provider
  * quota 429s without usage-limit bodies become retryable with scrubbed copy.
+ * An optional body reader lifts a carrier's reset window onto `retryAfterMs`
+ * when the wire omits a Retry-After header (body wins, matching the
+ * usage-limit path).
  */
 function normalizeProviderRateLimitError(
   error: InferenceErrorWithGoContext,
   isKnownProvider: (providerId: string | undefined) => boolean,
   isUsageLimit: (error: InferenceErrorLike) => boolean,
+  retryFromBody?: (error: InferenceErrorLike) => number | undefined,
 ): InferenceError {
   if (error.statusCode !== 429) return error;
   if (error.category !== "quota_exhausted") return error;
   if (!isKnownProvider(error.providerId)) return error;
   if (isUsageLimit(error)) return error;
 
+  const retryAfterMs = retryFromBody?.(error) ?? error.retryAfterMs;
   return {
     category: "retryable",
     message: RATE_LIMIT_USER_MESSAGE,
     statusCode: 429,
     ...(error.raw !== undefined ? { raw: error.raw } : {}),
-    ...(error.retryAfterMs !== undefined
-      ? { retryAfterMs: error.retryAfterMs }
-      : {}),
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
   };
 }
 
@@ -431,6 +432,20 @@ export function isCodexShortRateLimitInferenceError(
 }
 
 /**
+ * Codex sends its reset window in the 429 body, not a header; when a bare
+ * rate-limit body carries one, retry on that window instead of the policy
+ * default. Exact usage-limit codes never reach here (the skeleton vetoes).
+ */
+function codexRetryFromBody(error: InferenceErrorLike): number | undefined {
+  const node = readErrorNode(coerceBody(error.raw));
+  if (node === undefined) return undefined;
+  const seconds = resetSecondsFromNode(node);
+  if (seconds === undefined) return undefined;
+  if (seconds <= 0) return 0;
+  return seconds * 1000;
+}
+
+/**
  * Bare 429 in a known-Codex context reclassifies as retryable; intx
  * defaults bare 429 to quota_exhausted; nested `usage_limit_reached` keeps
  * it.
@@ -442,6 +457,7 @@ export function normalizeCodexRateLimitError(
     error,
     isKnownCodexProviderId,
     hasCodexUsageLimit,
+    codexRetryFromBody,
   );
 }
 

@@ -1,13 +1,9 @@
-import { type } from "arktype";
-
 import {
   endpointErrorMessage,
+  parseModelsData,
   type ModelsEndpointDiscoveryState,
-  ModelsEndpointResponse,
   requestModelsEndpoint,
 } from "./models-endpoint.js";
-
-const CatalogModelsResponse = ModelsEndpointResponse;
 
 export type CatalogDiscoveryState = ModelsEndpointDiscoveryState;
 
@@ -144,21 +140,10 @@ export function createBoundedModelCatalog(args: {
     if (!body.ok) {
       return { status: "malformed", message: body.message };
     }
-    const parsed = CatalogModelsResponse(body.value);
-    if (parsed instanceof type.errors) {
-      return { status: "malformed", message: parsed.summary };
-    }
-    if (parsed.data.length > maxModels) {
-      return { status: "malformed", message: oversizeMessage("models") };
-    }
-    const models = [
-      ...new Set(
-        parsed.data.map(({ id }) => id.trim()).filter((id) => id.length > 0),
-      ),
-    ];
-    return models.length > 0
-      ? { status: "models", models }
-      : { status: "empty" };
+    return parseModelsData(body.value, {
+      maxModels,
+      oversizeMessage: oversizeMessage("models"),
+    });
   }
 
   function selectableModelIds(): readonly string[] {

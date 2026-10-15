@@ -1,19 +1,13 @@
 import type {
   AdapterRegistry,
-  BuiltRequest,
   ExtendedInferenceOptions,
   ProviderAdapter,
 } from "@intx/inference";
 import {
-  OPENCODE_GO_MESSAGES_PROVIDER,
-  ZEN_MESSAGES_PROVIDER,
-} from "./anthropic-session-adapter.js";
-
-const ANTHROPIC_MESSAGES_PROVIDERS: ReadonlySet<string> = new Set([
-  "anthropic",
-  ZEN_MESSAGES_PROVIDER,
-  OPENCODE_GO_MESSAGES_PROVIDER,
-]);
+  withDecoratedAdapters,
+  withJsonBodyRewrite,
+} from "./adapter-decorators.js";
+import { ANTHROPIC_MESSAGES_PROTOCOLS } from "./provider-protocols.js";
 
 type WireBlock = Record<string, unknown>;
 
@@ -57,46 +51,35 @@ function placeBreakpoint(messages: WireMessage[], before: number): boolean {
 }
 
 function moveBreakpointToPersistedTail(
-  built: BuiltRequest,
+  body: Record<string, unknown>,
   options: ExtendedInferenceOptions,
-): BuiltRequest {
+): boolean {
   const suffix = ephemeralSuffixLength(options);
-  if (suffix === 0) return built;
-  let body: Record<string, unknown>;
-  try {
-    body = JSON.parse(built.body) as Record<string, unknown>;
-  } catch {
-    return built;
-  }
-  if (!Array.isArray(body.messages)) return built;
+  if (suffix === 0) return false;
+  if (!Array.isArray(body.messages)) return false;
   const messages = body.messages as WireMessage[];
   const split = messages.length - suffix;
-  if (split <= 0) return built;
+  if (split <= 0) return false;
   stripBreakpoints(messages, split);
-  if (!placeBreakpoint(messages, split)) return built;
-  return { ...built, body: JSON.stringify(body) };
+  return placeBreakpoint(messages, split);
 }
 
+// Only Anthropic-protocol sources are decorated, so non-Anthropic requests
+// skip both the gate and the body parse (byte-identical to the base adapter).
 function withMovedBreakpoint(adapter: ProviderAdapter): ProviderAdapter {
-  return {
-    ...adapter,
-    buildRequest: (turns, model, options) =>
-      moveBreakpointToPersistedTail(
-        adapter.buildRequest(turns, model, options),
-        options,
-      ),
-  };
+  return withJsonBodyRewrite(
+    adapter,
+    (body, { options }) => moveBreakpointToPersistedTail(body, options),
+    (_request, { options }) => ephemeralSuffixLength(options) > 0,
+  );
 }
 
 export function withAnthropicCacheBreakpoint(
   adapters: AdapterRegistry,
 ): AdapterRegistry {
-  return {
-    has: (provider) => adapters.has(provider),
-    resolve(source, quirks) {
-      const adapter = adapters.resolve(source, quirks);
-      if (!ANTHROPIC_MESSAGES_PROVIDERS.has(source.provider)) return adapter;
-      return withMovedBreakpoint(adapter);
-    },
-  };
+  return withDecoratedAdapters(adapters, (adapter, source) =>
+    ANTHROPIC_MESSAGES_PROTOCOLS.has(source.provider)
+      ? withMovedBreakpoint(adapter)
+      : adapter,
+  );
 }

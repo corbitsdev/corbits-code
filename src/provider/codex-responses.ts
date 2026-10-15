@@ -1,3 +1,4 @@
+import { type } from "arktype";
 import {
   createCodexResponsesAdapter as createPackageCodexResponsesAdapter,
   CODEX_ACCOUNT_ID_OPTION,
@@ -5,9 +6,9 @@ import {
   CODEX_SESSION_ID_OPTION,
   withCodexContentTypeRepair,
 } from "@corbits/codex-provider";
-import { type } from "arktype";
 import type { AdapterFactory, ProviderAdapter } from "@intx/inference";
 import type { InferenceOptions } from "@intx/types/runtime";
+import { withJsonBodyRewrite } from "./adapter-decorators.js";
 import { ENVIRONMENT_TAG_NAME, PRODUCT_NAME } from "../branding.js";
 
 export const CODEX_RESPONSES_PROVIDER = "codex-responses";
@@ -49,28 +50,6 @@ function withHostReasoningEffort(adapter: ProviderAdapter): ProviderAdapter {
     ...adapter,
     buildRequest: (messages, model, options) =>
       adapter.buildRequest(messages, model, remapReasoningEffort(options)),
-  };
-}
-
-// The Codex backend accepts parallel_tool_calls:true, but the packaged
-// adapter pins false; the host rewrites the field on the wire because the
-// reactor already fans out a multi-call batch concurrently.
-export function withParallelToolCalls(
-  adapter: ProviderAdapter,
-): ProviderAdapter {
-  return {
-    ...adapter,
-    buildRequest: (messages, model, options) => {
-      const request = adapter.buildRequest(messages, model, options);
-      let body: Record<string, unknown>;
-      try {
-        body = JSON.parse(request.body) as Record<string, unknown>;
-      } catch {
-        return request;
-      }
-      body["parallel_tool_calls"] = true;
-      return { ...request, body: JSON.stringify(body) };
-    },
   };
 }
 
@@ -133,11 +112,18 @@ function withArgumentsFromDone(adapter: ProviderAdapter): ProviderAdapter {
 
 // CodexQuirks are required by the package factory; Responses option keys are
 // not part of that bag, so host reasoning_effort is aliased at buildRequest.
+// The parallel_tool_calls rewrite exists because the packaged adapter pins
+// false while the reactor already fans out a multi-call batch concurrently.
 export const createCodexResponsesAdapter: AdapterFactory = (source) =>
   withHostReasoningEffort(
-    withParallelToolCalls(
+    withJsonBodyRewrite(
       withArgumentsFromDone(
         createPackageCodexResponsesAdapter(source, CODEX_QUIRKS),
       ),
+      // Codex accepts parallel_tool_calls:true; pin the field on the wire.
+      (body) => {
+        body["parallel_tool_calls"] = true;
+        return true;
+      },
     ),
   );

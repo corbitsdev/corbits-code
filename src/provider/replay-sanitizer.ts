@@ -1,5 +1,6 @@
 import { transformMessages, type AdapterRegistry } from "@intx/inference";
 import type { ContentBlock, ConversationTurn } from "@intx/types/runtime";
+import { withDecoratedAdapters } from "./adapter-decorators.js";
 
 // Repairs persisted history at the request-build boundary so a turn produced
 // by one provider replays safely against another. transformMessages (vendored)
@@ -98,19 +99,9 @@ export function sanitizeReplayTurns(
 export function withReplaySanitizer(
   adapters: AdapterRegistry,
 ): AdapterRegistry {
-  return {
-    has: (provider) => adapters.has(provider),
-    resolve(source, quirks) {
-      const adapter = adapters.resolve(source, quirks);
-      return {
-        ...adapter,
-        buildRequest: (turns, model, options) =>
-          adapter.buildRequest(
-            sanitizeReplayTurns(turns, model),
-            model,
-            options,
-          ),
-      };
-    },
-  };
+  return withDecoratedAdapters(adapters, (adapter) => ({
+    ...adapter,
+    buildRequest: (turns, model, options) =>
+      adapter.buildRequest(sanitizeReplayTurns(turns, model), model, options),
+  }));
 }

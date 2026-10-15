@@ -1,5 +1,6 @@
 import { type ProviderAdapter } from "@intx/inference";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
+import { withJsonBodyRewrite } from "./adapter-decorators.js";
 import {
   DEEPSEEK_V4_MODEL_CARD,
   isDeepSeekModel,
@@ -22,42 +23,36 @@ export function createDeepSeekV4Adapter(
 ): ProviderAdapter {
   const base = createOpenAICompatibleAdapter(source);
 
-  const buildRequest: ProviderAdapter["buildRequest"] = (
-    messages,
-    model,
-    options,
-  ) => {
-    const req = base.buildRequest(messages, model, options);
-    if (!isDeepSeekModel(model) || !isDeepSeekV4Model(model)) return req;
-    const body = JSON.parse(req.body) as Record<string, unknown>;
-
-    // V4 effort ladder (none/xhigh/max): none drops reasoning_effort and
-    // turns thinking off; xhigh/max go out raw with thinking on. Off-ladder
-    // efforts throw inside mapV4Effort (rejected, never passed to the wire).
-    if ("reasoning_effort" in body) {
-      const effort = body["reasoning_effort"] as Parameters<
-        typeof mapV4Effort
-      >[0];
-      const wire = mapV4Effort(effort);
-      if (wire === null) {
-        delete body["reasoning_effort"];
-        mergeThinking(body, false);
-      } else {
-        body["reasoning_effort"] = wire;
-        mergeThinking(body, true);
+  return withJsonBodyRewrite(
+    base,
+    (body) => {
+      // V4 effort ladder (none/xhigh/max): none drops reasoning_effort and
+      // turns thinking off; xhigh/max go out raw with thinking on. Off-ladder
+      // efforts throw inside mapV4Effort (rejected, never passed to the wire).
+      if ("reasoning_effort" in body) {
+        const effort = body["reasoning_effort"] as Parameters<
+          typeof mapV4Effort
+        >[0];
+        const wire = mapV4Effort(effort);
+        if (wire === null) {
+          delete body["reasoning_effort"];
+          mergeThinking(body, false);
+        } else {
+          body["reasoning_effort"] = wire;
+          mergeThinking(body, true);
+        }
       }
-    }
 
-    if (body["top_p"] === undefined)
-      body["top_p"] = DEEPSEEK_V4_MODEL_CARD.topP;
-    if (body["temperature"] === undefined)
-      body["temperature"] = DEEPSEEK_V4_MODEL_CARD.temperature;
-    body["stream_options"] ??= V4_STREAM_OPTIONS.stream_options;
-
-    return { ...req, body: JSON.stringify(body) };
-  };
-
-  return { ...base, buildRequest };
+      if (body["top_p"] === undefined)
+        body["top_p"] = DEEPSEEK_V4_MODEL_CARD.topP;
+      if (body["temperature"] === undefined)
+        body["temperature"] = DEEPSEEK_V4_MODEL_CARD.temperature;
+      body["stream_options"] ??= V4_STREAM_OPTIONS.stream_options;
+      return true;
+    },
+    // Zero-parse fast path: pre-V4 DeepSeek keeps the generic body.
+    (_request, { model }) => isDeepSeekModel(model) && isDeepSeekV4Model(model),
+  );
 }
 
 // chat_template_kwargs clone with an absent-only thinking toggle (never mutate

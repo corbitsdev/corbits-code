@@ -2,6 +2,7 @@ import { type BuiltRequest, type ProviderAdapter } from "@intx/inference";
 import { createOpenAIAdapter } from "@intx/inference/providers";
 import { normalizeNullDeltaFields } from "./null-delta-fields.js";
 import { isDeepSeekModel, isDeepSeekV4Model } from "./deepseek-v4-effort.js";
+import { withJsonBodyRewrite } from "./adapter-decorators.js";
 
 // The stock OpenAI adapter builds the request body from a fixed set of fields
 // and ignores `options.providerOptions`, so provider-native knobs carried
@@ -18,10 +19,6 @@ export function createOpenAICompatibleAdapter(
   quirks?: unknown,
 ): ProviderAdapter {
   const base = createOpenAIAdapter(source, quirks);
-  // Set by buildRequest for the model the current request targets; only
-  // DeepSeek/NIM streams need the null-delta-field patch below, so other
-  // providers' frames skip the reparse and hit base.parseResponse once.
-  let needsDeepSeekPatch = false;
 
   const ensureAccept = (req: BuiltRequest): BuiltRequest => {
     const has = req.headers.Accept || req.headers.accept;
@@ -32,37 +29,55 @@ export function createOpenAICompatibleAdapter(
     };
   };
 
-  const buildRequest: ProviderAdapter["buildRequest"] = (
-    messages,
-    model,
-    options,
-  ) => {
-    const built = base.buildRequest(messages, model, options);
-    const providerOptions = options.providerOptions;
-    const hasProviderOptions =
-      providerOptions !== undefined && Object.keys(providerOptions).length > 0;
-    // DeepSeek returns HTTP 400 if `reasoning_content` appears in input messages,
-    // whereas the base adapter emits it for any model with thinking enabled. V4
-    // keeps each turn's reasoning on replay (handled by its own adapter), so only
-    // pre-V4 DeepSeek strips it here.
-    const m = model.toLowerCase().trim();
-    const isDeepSeek = isDeepSeekModel(m);
-    const stripReasoning = isDeepSeek && !isDeepSeekV4Model(m);
-    needsDeepSeekPatch = isDeepSeek;
-    if (!hasProviderOptions && !stripReasoning) return ensureAccept(built);
+  // Set by the rewrite gate for the model the current request targets; only
+  // DeepSeek/NIM streams need the null-delta-field patch below, so other
+  // providers' frames skip the reparse and hit base.parseResponse once.
+  let needsDeepSeekPatch = false;
 
-    const body = JSON.parse(built.body) as Record<string, unknown>;
-    if (hasProviderOptions) Object.assign(body, providerOptions);
+  const buildRequest = withJsonBodyRewrite(
+    {
+      ...base,
+      buildRequest: (messages, model, options) =>
+        ensureAccept(base.buildRequest(messages, model, options)),
+    },
+    (body, { model, options }) => {
+      const providerOptions = options.providerOptions;
+      const hasProviderOptions =
+        providerOptions !== undefined &&
+        Object.keys(providerOptions).length > 0;
+      if (hasProviderOptions) Object.assign(body, providerOptions);
 
-    if (stripReasoning && Array.isArray(body["messages"])) {
-      for (const msg of body["messages"]) {
-        if (msg !== null && typeof msg === "object")
-          delete (msg as Record<string, unknown>)["reasoning_content"];
+      // DeepSeek returns HTTP 400 if `reasoning_content` appears in input
+      // messages, whereas the base adapter emits it for any model with
+      // thinking enabled. V4 keeps each turn's reasoning on replay (handled
+      // by its own adapter), so only pre-V4 DeepSeek strips it here.
+      const m = model.toLowerCase().trim();
+      if (
+        isDeepSeekModel(m) &&
+        !isDeepSeekV4Model(m) &&
+        Array.isArray(body["messages"])
+      ) {
+        for (const msg of body["messages"]) {
+          if (msg !== null && typeof msg === "object")
+            delete (msg as Record<string, unknown>)["reasoning_content"];
+        }
       }
-    }
-    const merged: BuiltRequest = { ...built, body: JSON.stringify(body) };
-    return ensureAccept(merged);
-  };
+      return true;
+    },
+    // Zero-parse fast path: requests with nothing to merge and nothing to
+    // strip return the inner request untouched (byte-identical).
+    (_request, { model, options }) => {
+      const providerOptions = options.providerOptions;
+      const hasProviderOptions =
+        providerOptions !== undefined &&
+        Object.keys(providerOptions).length > 0;
+      const m = model.toLowerCase().trim();
+      const isDeepSeek = isDeepSeekModel(m);
+      needsDeepSeekPatch = isDeepSeek;
+      if (hasProviderOptions) return true;
+      return isDeepSeek && !isDeepSeekV4Model(m);
+    },
+  );
 
   // DeepSeek via NVIDIA NIM sends null for delta fields the upstream schema
   // requires to be non-null; other providers' frames skip the reparse and
@@ -72,5 +87,5 @@ export function createOpenAICompatibleAdapter(
     return base.parseResponse(normalizeNullDeltaFields(sseData));
   };
 
-  return { ...base, buildRequest, parseResponse };
+  return { ...buildRequest, parseResponse };
 }

@@ -1,9 +1,7 @@
-import { type } from "arktype";
-
 import {
   endpointErrorMessage,
+  parseModelsData,
   type ModelsEndpointDiscoveryState,
-  ModelsEndpointResponse,
   requestModelsEndpoint,
 } from "./models-endpoint.js";
 
@@ -40,8 +38,6 @@ export function normalizeOllamaRootURL(rootURL: string): string {
 export function ollamaOpenAIBaseURL(rootURL: string): string {
   return `${normalizeOllamaRootURL(rootURL)}/v1`;
 }
-
-const OllamaModelsResponse = ModelsEndpointResponse;
 
 export type OllamaDiscoveryState = ModelsEndpointDiscoveryState;
 
@@ -92,16 +88,7 @@ export async function discoverOllamaModels(args: {
         error instanceof Error ? error.message : "Ollama returned invalid JSON",
     };
   }
-  const parsed = OllamaModelsResponse(raw);
-  if (parsed instanceof type.errors) {
-    return { status: "malformed", message: parsed.summary };
-  }
-  const models = [
-    ...new Set(
-      parsed.data.map(({ id }) => id.trim()).filter((id) => id.length > 0),
-    ),
-  ];
-  return models.length > 0 ? { status: "models", models } : { status: "empty" };
+  return parseModelsData(raw);
 }
 
 /** Operator-facing line for a discovery failure. Network stays canned; HTTP
