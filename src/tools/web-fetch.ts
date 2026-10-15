@@ -6,6 +6,7 @@ import type { ToolCall, ToolDefinition, ToolResult } from "@intx/types/runtime";
 import { checkUrlForSsrf } from "./ssrf-guard.js";
 import { htmlToMarkdown, htmlToText } from "./html-convert.js";
 import { COMMAND_NAME } from "../branding.js";
+import { toolInputSchema } from "../util/tool-input-schema.js";
 import type { MCPClient } from "../mcp/client.js";
 import pkg from "../../package.json" with { type: "json" };
 
@@ -36,9 +37,19 @@ function honestUserAgent(): string {
 }
 
 const WebFetchArgs = type({
-  url: "string>0",
-  "format?": "'text' | 'markdown' | 'html'",
-  "timeout?": "number",
+  url: ["string>0", "@", { description: "URL to fetch (http or https only)" }],
+  "format?": [
+    "'text' | 'markdown' | 'html'",
+    "@",
+    { description: "Output format. Defaults to markdown." },
+  ],
+  "timeout?": [
+    "number",
+    "@",
+    {
+      description: `Timeout in seconds (default ${DEFAULT_TIMEOUT_S}, max ${MAX_TIMEOUT_S}).`,
+    },
+  ],
 });
 
 type WebFetchFormat = "text" | "markdown" | "html";
@@ -78,22 +89,7 @@ export const webFetchDefinition: ToolDefinition = {
   name: "web_fetch",
   description:
     "Fetch a public web page (docs, articles) and return it as markdown by default. For a URL on a host a connected MCP server covers, use that server via tool_search first; web_fetch is for public pages, not authenticated apps.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      url: { type: "string", description: "URL to fetch (http or https only)" },
-      format: {
-        type: "string",
-        enum: ["text", "markdown", "html"],
-        description: "Output format. Defaults to markdown.",
-      },
-      timeout: {
-        type: "number",
-        description: `Timeout in seconds (default ${DEFAULT_TIMEOUT_S}, max ${MAX_TIMEOUT_S}).`,
-      },
-    },
-    required: ["url"],
-  },
+  inputSchema: toolInputSchema(WebFetchArgs),
 };
 
 function acceptHeaderFor(format: WebFetchFormat): string {
