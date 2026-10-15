@@ -2,7 +2,7 @@ import { type } from "arktype";
 import type { AuthProfile } from "@corbits/oauth-core";
 import type { CodexTokens } from "@corbits/codex-provider";
 
-import { createAuthStore } from "../store.js";
+import { defineProviderAuthStore } from "../provider-auth-store.js";
 
 // On-disk store for Codex OAuth profiles: a user may hold multiple
 // subscriptions (personal, work, ...), so credentials are keyed by a
@@ -11,17 +11,6 @@ import { createAuthStore } from "../store.js";
 export type { CodexTokens };
 
 export type CodexProfile = AuthProfile<CodexTokens>;
-
-const CodexTokensShape = type({
-  access: "string",
-  refresh: "string",
-  expiresAt: "number",
-  "accountId?": "string",
-});
-
-function isCodexTokens(value: unknown): value is CodexTokens {
-  return !(CodexTokensShape(value) instanceof type.errors);
-}
 
 // The package mapper leaves expiresAt unset when the token endpoint omits
 // expires_in; disk profiles need a concrete expiry so the arktype guard can
@@ -38,10 +27,12 @@ export function withDefaultCodexExpiry(
 
 export const CODEX_AUTH_FILENAME = "codex-auth.json";
 
-export function createCodexAuthStore(settingsDirName: string) {
-  return createAuthStore<CodexTokens>({
-    filename: CODEX_AUTH_FILENAME,
-    settingsDirName,
-    isTokens: isCodexTokens,
-  });
-}
+export const createCodexAuthStore = defineProviderAuthStore<CodexTokens>({
+  filename: CODEX_AUTH_FILENAME,
+  tokensShape: type({
+    access: "string",
+    refresh: "string",
+    expiresAt: "number",
+    "accountId?": "string",
+  }),
+});

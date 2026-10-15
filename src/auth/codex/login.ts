@@ -1,14 +1,13 @@
 import {
-  buildAuthorizeUrl,
-  startOAuthLogin,
-  type OAuthLoginHandle,
-  type StartOAuthLoginOptions,
-} from "@corbits/oauth-core";
-import {
-  codexOAuthConfig,
   exchangeCodexCode,
+  codexOAuthConfig,
   type CodexTokens,
 } from "@corbits/codex-provider";
+import type {
+  OAuthLoginHandle,
+  StartOAuthLoginOptions,
+} from "@corbits/oauth-core";
+import { startProviderLogin } from "../provider-login.js";
 
 import type { CallbackPageCopy } from "../callback-page.js";
 import { saveCodexProfile } from "../../config/oauth-stores.js";
@@ -25,10 +24,9 @@ export async function startCodexLogin(
   opts: StartCodexLoginOptions,
 ): Promise<CodexLoginHandle> {
   const { home, copy, ...loginOpts } = opts;
-  return startOAuthLogin(loginOpts, {
+  return startProviderLogin<CodexTokens>(loginOpts, {
+    oauthConfig: codexOAuthConfig,
     startCallbackServer: (state) => startCodexCallbackServer(state, copy),
-    buildAuthorizeUrl: (pkce, state) =>
-      buildAuthorizeUrl(codexOAuthConfig, pkce, state),
     exchangeCode: async (code, verifier, now) =>
       withDefaultCodexExpiry(await exchangeCodexCode(code, verifier, now), now),
     saveProfile: (profile) => saveCodexProfile(profile, home),

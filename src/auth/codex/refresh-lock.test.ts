@@ -9,10 +9,30 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import {
-  CodexRefreshLockTimeoutError,
-  withCodexRefreshLock,
-} from "./refresh-lock.js";
+import { CodexRefreshLockTimeoutError } from "./refresh-lock.js";
+
+import { withMockedModule } from "../../../testkit/mock-module.js";
+
+// Non-ENOENT read and stat failures must surface raw instead of being swallowed.
+// Flags gate each failure to its own test; undefined keeps every call on the real module.
+let failingReadPath: string | undefined;
+let failingStatPath: string | undefined;
+await withMockedModule(
+  import.meta.resolve("node:fs/promises"),
+  (real: typeof import("node:fs/promises")) => ({
+    ...real,
+    readFile: async (...args: Parameters<typeof real.readFile>) => {
+      if (args[0] === failingReadPath) throw new Error("lock read failed");
+      return real.readFile(...args);
+    },
+    stat: async (...args: Parameters<typeof real.stat>) => {
+      if (args[0] === failingStatPath) throw new Error("lock stat failed");
+      return real.stat(...args);
+    },
+  }),
+);
+
+const { withCodexRefreshLock } = await import("./refresh-lock.js");
 
 async function tempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "cl8628-lock-"));
@@ -211,6 +231,52 @@ describe("codex refresh lock", () => {
       );
     } finally {
       proc.kill();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a non-ENOENT read failure while contending propagates raw", async () => {
+    const dir = await tempDir();
+    try {
+      const lock = join(dir, "refresh.lock");
+      await writeFile(lock, "");
+      failingReadPath = lock;
+      try {
+        // The unified lock re-reads the holder content while contending; a
+        // permission/disk failure there must surface, not read as "no lock".
+        await expect(
+          withCodexRefreshLock(lock, async () => "never", {
+            timeoutMs: 1_000,
+            retryMs: 10,
+          }),
+        ).rejects.toThrow("lock read failed");
+      } finally {
+        failingReadPath = undefined;
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a non-ENOENT stat failure while deciding staleness propagates raw", async () => {
+    const dir = await tempDir();
+    try {
+      const lock = join(dir, "refresh.lock");
+      // Untagged content routes the staleness decision through mtime stat;
+      // a non-ENOENT stat failure must surface, not read as "not stale".
+      await writeFile(lock, "");
+      failingStatPath = lock;
+      try {
+        await expect(
+          withCodexRefreshLock(lock, async () => "never", {
+            timeoutMs: 1_000,
+            retryMs: 10,
+          }),
+        ).rejects.toThrow("lock stat failed");
+      } finally {
+        failingStatPath = undefined;
+      }
+    } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
