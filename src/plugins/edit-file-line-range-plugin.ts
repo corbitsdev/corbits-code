@@ -3,6 +3,7 @@ import {
   parseEditFileMode,
   runEditFileLineRange,
 } from "./edit-file-line-range.js";
+import { denyResult, errorMessage } from "./tool-args.js";
 
 /**
  * Short-circuits stock tools-posix edit_file for line-range mode (shell-guard pattern).
@@ -16,7 +17,7 @@ export function editFileLineRangePlugin(): ToolPlugin {
 
       const parsed = parseEditFileMode(call.arguments);
       if (parsed.kind === "invalid") {
-        return { callId: call.id, content: parsed.message, isError: true };
+        return denyResult(call.id, parsed.message);
       }
       if (parsed.kind === "substring") {
         return next(call, signal);
@@ -26,11 +27,7 @@ export function editFileLineRangePlugin(): ToolPlugin {
         const content = await runEditFileLineRange(parsed, signal);
         return { callId: call.id, content };
       } catch (err) {
-        return {
-          callId: call.id,
-          content: err instanceof Error ? err.message : String(err),
-          isError: true,
-        };
+        return denyResult(call.id, errorMessage(err));
       }
     },
   };

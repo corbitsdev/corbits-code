@@ -3,8 +3,21 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 
 import { hasCode } from "@intx/types";
+import { compileUserRegex, globToRegExp } from "../util/glob-regex.js";
+import { NARROW_SEARCH_HINT } from "./tool-time-budget.js";
 
 const SKIP_SEGMENTS = new Set(["node_modules", ".git"]);
+
+// brace expansion is caller-local semantics the shared glob translation does
+// not carry: this surface refuses `{a,b}` instead of accepting the literal.
+function rejectBraceExpansion(pattern: string): string {
+  if (/\{[^}]+\}/.test(pattern)) {
+    throw new Error(
+      `brace expansion is not supported: "${pattern}". Use separate searches or a ** pattern instead.`,
+    );
+  }
+  return pattern;
+}
 
 /** Max file paths considered per search (directory walk). */
 export const BOUNDED_GREP_MAX_DIRECTORY_ENTRIES = 25_000;
@@ -48,45 +61,6 @@ interface FileSearchResult {
 function shouldSkip(relativePath: string): boolean {
   const segments = relativePath.split("/");
   return segments.some((s) => SKIP_SEGMENTS.has(s));
-}
-
-function globToRegex(pattern: string): RegExp {
-  if (/\{[^}]+\}/.test(pattern)) {
-    throw new Error(
-      `brace expansion is not supported: "${pattern}". Use separate searches or a ** pattern instead.`,
-    );
-  }
-
-  let regex = "";
-  let i = 0;
-
-  while (i < pattern.length) {
-    const c = pattern.charAt(i);
-
-    if (c === "*" && pattern[i + 1] === "*") {
-      i += 2;
-      if (pattern[i] === "/") {
-        i++;
-        regex += "(?:.+/)?";
-      } else {
-        regex += ".*";
-      }
-    } else if (c === "*") {
-      regex += "[^/]*";
-      i++;
-    } else if (c === "?") {
-      regex += "[^/]";
-      i++;
-    } else if (".+^${}()|[]\\".includes(c)) {
-      regex += "\\" + c;
-      i++;
-    } else {
-      regex += c;
-      i++;
-    }
-  }
-
-  return new RegExp("^" + regex + "$");
 }
 
 function isBinary(buf: Buffer): boolean {
@@ -252,14 +226,7 @@ export async function runBoundedGrep(
 ): Promise<string> {
   signal.throwIfAborted();
 
-  let regex: RegExp;
-  try {
-    regex = new RegExp(args.pattern);
-  } catch (err) {
-    throw new Error(
-      `invalid regex: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  const regex = compileUserRegex(args.pattern);
 
   const maxDirectoryEntries =
     limits.maxDirectoryEntries ?? BOUNDED_GREP_MAX_DIRECTORY_ENTRIES;
@@ -269,7 +236,10 @@ export async function runBoundedGrep(
   const basePath = resolve(baseCwd, args.path ?? ".");
   const contextLines = args.context ?? 0;
   const maxResults = args.max_results ?? BOUNDED_GREP_DEFAULT_MAX_RESULTS;
-  const globFilter = args.glob !== undefined ? globToRegex(args.glob) : null;
+  const globFilter =
+    args.glob !== undefined
+      ? globToRegExp(rejectBraceExpansion(args.glob))
+      : null;
 
   let info;
   try {
@@ -329,7 +299,7 @@ export async function runBoundedGrep(
     output += `\n... (${maxResults} of ${totalMatches} matches shown)`;
   }
   if (walkTruncated) {
-    output += `\n... (directory walk capped at ${maxDirectoryEntries} files; narrow path/glob)`;
+    output += `\n... (directory walk capped at ${maxDirectoryEntries} files; ${NARROW_SEARCH_HINT})`;
   }
   return output;
 }
@@ -347,7 +317,7 @@ export async function runBoundedSearchFiles(
 
   const basePath = resolve(baseCwd, args.path ?? ".");
   const maxResults = args.max_results ?? BOUNDED_SEARCH_DEFAULT_MAX_RESULTS;
-  const regex = globToRegex(args.pattern);
+  const regex = globToRegExp(rejectBraceExpansion(args.pattern));
 
   let info;
   try {
@@ -393,7 +363,7 @@ export async function runBoundedSearchFiles(
     result += `\n... (${maxResults} of ${totalMatches} matches shown)`;
   }
   if (walkTruncated) {
-    result += `\n... (directory walk capped at ${maxDirectoryEntries} files; narrow path/glob)`;
+    result += `\n... (directory walk capped at ${maxDirectoryEntries} files; ${NARROW_SEARCH_HINT})`;
   }
   return result;
 }

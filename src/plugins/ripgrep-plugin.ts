@@ -7,17 +7,24 @@ import {
   runBoundedSearchFiles,
   type BoundedGrepArgs,
 } from "./bounded-grep-fallback.js";
-import { createRgCollector } from "./rg-output.js";
+import { createRgCollector } from "../search/rg-output.js";
 import {
   MAX_OUTPUT_BYTES,
   runRg,
   type RgLimits,
   type SpawnRg,
-} from "./rg-run.js";
+} from "../search/rg-run.js";
 import {
+  NARROW_SEARCH_HINT,
   formatUnboundedSearchMessage,
   isUnboundedRootSearch,
 } from "./tool-time-budget.js";
+import {
+  denyResult,
+  errorMessage,
+  optionalNumber,
+  optionalString,
+} from "./tool-args.js";
 import { createExtraDeniedPathMatcher } from "./secret-guard-plugin.js";
 
 // A grep over a large tree with the pure-TypeScript walker enumerates the whole
@@ -38,7 +45,7 @@ const DEFAULT_SEARCH_MAX = 1000;
 function capLines(text: string, max: number): string {
   const lines = text.split("\n").filter((line) => line.length > 0);
   if (lines.length <= max) return lines.join("\n");
-  return `${lines.slice(0, max).join("\n")}\n... (showing first ${max} of ${lines.length}+ matches; narrow path/glob)`;
+  return `${lines.slice(0, max).join("\n")}\n... (showing first ${max} of ${lines.length}+ matches; ${NARROW_SEARCH_HINT})`;
 }
 
 // Mirrors read_file's truncate-and-offer behavior: a cap or timeout still
@@ -70,16 +77,6 @@ function boundedContent(
   const breach = createRgCollector(maxOutputBytes).push(content);
   if (breach?.kind !== "partial") return capLines(content, maxResults);
   return partialContent(breach.stdout, maxResults, breach.notice);
-}
-
-function str(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function num(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
 }
 
 // rg prints paths relative to its cwd when the search target is ".", matching
@@ -159,12 +156,13 @@ export function ripgrepPlugin(
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name === "grep") {
-        const pattern = str(call.arguments.pattern);
+        const pattern = optionalString(call.arguments.pattern);
         if (pattern === undefined) return next(call, signal);
-        const path = str(call.arguments.path) ?? cwd;
-        const context = num(call.arguments.context) ?? 0;
-        const glob = str(call.arguments.glob);
-        const maxResults = num(call.arguments.max_results) ?? DEFAULT_GREP_MAX;
+        const path = optionalString(call.arguments.path) ?? cwd;
+        const context = optionalNumber(call.arguments.context) ?? 0;
+        const glob = optionalString(call.arguments.glob);
+        const maxResults =
+          optionalNumber(call.arguments.max_results) ?? DEFAULT_GREP_MAX;
         const { cwd: rgCwd, target } = searchLocation(path, cwd);
 
         const rgArgs = ["--line-number", "--no-heading", "--color", "never"];
@@ -194,18 +192,14 @@ export function ripgrepPlugin(
               ),
             };
           } catch (err) {
-            return {
-              callId: call.id,
-              content: err instanceof Error ? err.message : String(err),
-              isError: true,
-            };
+            return denyResult(call.id, errorMessage(err));
           }
         }
         if (result.kind === "no-match") {
           return { callId: call.id, content: `no matches for /${pattern}/` };
         }
         if (result.kind === "error") {
-          return { callId: call.id, content: result.message, isError: true };
+          return denyResult(call.id, result.message);
         }
         if (result.kind === "partial") {
           return {
@@ -224,7 +218,7 @@ export function ripgrepPlugin(
       }
 
       if (call.name === "search_files") {
-        const pattern = str(call.arguments.pattern);
+        const pattern = optionalString(call.arguments.pattern);
         if (pattern === undefined) return next(call, signal);
         // Unbounded workspace-root walks hang until the shell-guard budget
         // fires, and a timeout reads as a false negative. Refuse up front
@@ -235,15 +229,14 @@ export function ripgrepPlugin(
             ? call.arguments.path
             : undefined;
         if (isUnboundedRootSearch({ path: rawPath, pattern, cwd })) {
-          return {
-            callId: call.id,
-            content: formatUnboundedSearchMessage("search_files", pattern),
-            isError: true,
-          };
+          return denyResult(
+            call.id,
+            formatUnboundedSearchMessage("search_files", pattern),
+          );
         }
-        const path = str(call.arguments.path) ?? cwd;
+        const path = optionalString(call.arguments.path) ?? cwd;
         const maxResults =
-          num(call.arguments.max_results) ?? DEFAULT_SEARCH_MAX;
+          optionalNumber(call.arguments.max_results) ?? DEFAULT_SEARCH_MAX;
         const { cwd: rgCwd, target } = searchLocation(path, cwd);
 
         const result = await runRg(
@@ -269,18 +262,14 @@ export function ripgrepPlugin(
               ),
             };
           } catch (err) {
-            return {
-              callId: call.id,
-              content: err instanceof Error ? err.message : String(err),
-              isError: true,
-            };
+            return denyResult(call.id, errorMessage(err));
           }
         }
         if (result.kind === "no-match") {
           return { callId: call.id, content: `no files matching "${pattern}"` };
         }
         if (result.kind === "error") {
-          return { callId: call.id, content: result.message, isError: true };
+          return denyResult(call.id, result.message);
         }
         if (result.kind === "partial") {
           return {

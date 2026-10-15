@@ -3,10 +3,8 @@ import { realpathSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { ShellOutputFeedMap } from "../session/shell-output-feed.js";
-import {
-  killProcessTree,
-  type BackgroundShellRegistry,
-} from "../shell/background-shell.js";
+import type { BackgroundShellRegistry } from "../shell/background-shell.js";
+import { killProcessTree } from "../shell/spawn-tree.js";
 import {
   formatSearchTimeoutMessage,
   TIMEOUT_PREFIX,
@@ -18,6 +16,12 @@ import {
   withTimeout,
 } from "../util/budget-race.js";
 import type { ToolDefinition, ToolResult } from "@intx/types/runtime";
+import {
+  denyResult,
+  errorMessage,
+  optionalNumber,
+  resolveAllowOutside,
+} from "./tool-args.js";
 import {
   assertShellCwdUsable,
   isShellCwdWithinSession,
@@ -520,12 +524,6 @@ export async function runGuardedShell(
   });
 }
 
-function optionalNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
-}
-
 /**
  * Options for shellGuardPlugin: a hard-capped run_shell plus a 10s
  * wall-clock budget on grep/search_files. Short-circuits before the base
@@ -545,13 +543,6 @@ export interface ShellGuardPluginOptions {
   // Session OS-sandbox handle: wrapped spawns + unwrappable commands fail
   // closed. Omitted (default off) keeps the raw spawn path untouched.
   sandbox?: ShellSandbox;
-}
-
-function resolveAllowOutsideCwd(
-  value: boolean | (() => boolean) | undefined,
-): boolean {
-  if (typeof value === "function") return value();
-  return value === true;
 }
 
 export function shellGuardPlugin(
@@ -613,20 +604,14 @@ export function shellGuardPlugin(
         return enqueueShell(async () => {
           const command = call.arguments.command;
           if (typeof command !== "string" || command.length === 0) {
-            return {
-              callId: call.id,
-              content: 'argument "command" is required',
-              isError: true,
-            };
+            return denyResult(call.id, 'argument "command" is required');
           }
           const perCallCwdRaw =
             typeof call.arguments.cwd === "string" &&
             call.arguments.cwd.length > 0
               ? call.arguments.cwd
               : undefined;
-          const allowOutsideCwd = resolveAllowOutsideCwd(
-            options.allowOutsideCwd,
-          );
+          const allowOutsideCwd = resolveAllowOutside(options.allowOutsideCwd);
           let executionCwd = retainedShellCwd;
           if (perCallCwdRaw !== undefined) {
             try {
@@ -638,21 +623,13 @@ export function shellGuardPlugin(
                 },
               );
             } catch (err) {
-              return {
-                callId: call.id,
-                content: err instanceof Error ? err.message : String(err),
-                isError: true,
-              };
+              return denyResult(call.id, errorMessage(err));
             }
           }
           try {
             assertShellCwdUsable(executionCwd);
           } catch (err) {
-            return {
-              callId: call.id,
-              content: err instanceof Error ? err.message : String(err),
-              isError: true,
-            };
+            return denyResult(call.id, errorMessage(err));
           }
           const requested = optionalNumber(call.arguments.timeout);
           const effectiveTimeout = resolveShellTimeoutMs({
@@ -666,11 +643,10 @@ export function shellGuardPlugin(
           if (call.arguments.background === true) {
             const registry = options.getBackgroundShellRegistry?.();
             if (registry === undefined) {
-              return {
-                callId: call.id,
-                content: "background shell is not available in this session",
-                isError: true,
-              };
+              return denyResult(
+                call.id,
+                "background shell is not available in this session",
+              );
             }
             const started = await registry.start({
               command,
@@ -681,9 +657,7 @@ export function shellGuardPlugin(
               maxOutputBytes,
               ...(env !== undefined ? { env } : {}),
             });
-            if ("error" in started) {
-              return { callId: call.id, content: started.error, isError: true };
-            }
+            if ("error" in started) return denyResult(call.id, started.error);
             // No pwd probe or retained-cwd mutation: the background shell runs
             // in its own process, so a `cd` inside it affects only itself.
             return {
@@ -727,11 +701,10 @@ export function shellGuardPlugin(
                 !allowOutsideCwd &&
                 !isShellCwdWithinSession(sessionRoot, parsed.finalCwd)
               ) {
-                return {
-                  callId: call.id,
-                  content: shellCwdEscapesSessionMessage(parsed.finalCwd),
-                  isError: true,
-                };
+                return denyResult(
+                  call.id,
+                  shellCwdEscapesSessionMessage(parsed.finalCwd),
+                );
               }
               retainedShellCwd = parsed.finalCwd;
             }
@@ -751,17 +724,13 @@ export function shellGuardPlugin(
             }
             return { callId: call.id, content };
           } catch (err) {
-            return {
-              callId: call.id,
-              content: err instanceof Error ? err.message : String(err),
-              isError: true,
-            };
+            return denyResult(call.id, errorMessage(err));
           } finally {
             feeds?.drop(call.id);
           }
         }).catch((err: unknown) => ({
           callId: call.id,
-          content: err instanceof Error ? err.message : String(err),
+          content: errorMessage(err),
           isError: true,
         }));
       }

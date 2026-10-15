@@ -1,7 +1,7 @@
 import type { ToolCall } from "@intx/types/runtime";
 import type { Middleware, ToolHandler, ToolPlugin } from "@intx/tools-posix";
 
-import type { RgChild, SpawnRg } from "./rg-run.js";
+import type { RgChild, SpawnRg } from "../search/rg-run.js";
 
 export function neverAbort(): AbortSignal {
   return new AbortController().signal;

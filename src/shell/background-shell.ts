@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
+
+import { killProcessTree } from "./spawn-tree.js";
 import { randomUUID } from "node:crypto";
 import {
   BoundedShellOutput,
@@ -15,28 +17,6 @@ export const MAX_RUNNING_BACKGROUND_SHELLS = 8;
 // Prefer close so trailing stdio is captured, but never require it: a grandchild
 // holding the pipe must not delay the completion message after the child exits.
 const STDIO_DRAIN_MS = 100;
-
-/**
- * Signals the whole process group. With detached:true the shell is the group
- * leader, so grandchildren (build watchers, test runners' workers) die too.
- */
-export function killProcessTree(child: ChildProcess): void {
-  if (child.pid === undefined) return;
-  try {
-    if (process.platform === "win32") {
-      child.kill("SIGKILL");
-    } else {
-      // Negative PID signals the whole process group.
-      process.kill(-child.pid, "SIGKILL");
-    }
-  } catch {
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // already exited
-    }
-  }
-}
 
 export interface StartBackgroundShellArgs {
   command: string;

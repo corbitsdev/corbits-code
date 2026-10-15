@@ -5,7 +5,7 @@ import {
   scriptedRgSpawn,
   stalledRgSpawn,
   type RgScript,
-} from "./test-helpers.js";
+} from "../plugins/test-helpers.js";
 
 const line = "big.txt:1:match line here\n";
 
