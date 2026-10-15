@@ -24,6 +24,7 @@ import type { InboundMessage } from "@intx/types/runtime";
 import { getLogger } from "@intx/log";
 
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import { redactedCorrelationId } from "./redacted-correlation.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "approval-provenance"]);
 
@@ -84,7 +85,11 @@ export function createApprovalProvenanceGate<
     ...inner,
     deliver(message: InboundMessage): void {
       if (isForeignApprovalIngress(message)) {
-        logger.warn`forged approval discarded, foreign ingress correlationId=${message.headers.interchangeCorrelationId} from=${message.headers.from} mailbox=${message.ref?.mailbox ?? "<none>"} type=${message.headers.interchangeType}`;
+        // The log sink (src/logging/sink.ts) records debug level too, so the
+        // receipt trail must not carry the full bearer capability at any
+        // level — warn and debug both use the redacted form here, and the
+        // full ID stays only on the in-memory transport that consumes it.
+        logger.warn`forged approval discarded, foreign ingress correlationId=${redactedCorrelationId(message.headers.interchangeCorrelationId ?? "?")} from=${message.headers.from} mailbox=${message.ref?.mailbox ?? "<none>"} type=${message.headers.interchangeType}`;
         return;
       }
       inner.deliver(message);
