@@ -2,11 +2,11 @@ import { test, expect } from "bun:test";
 import type {
   ReactorInboundEvent,
   ReactorState,
-  ReactorCapabilities,
   ReactorAction,
   TokenUsage,
   ToolResult,
 } from "@intx/types/runtime";
+import { stubReactorCapabilities } from "../testkit/reactor-stubs.js";
 import { createChatDirector } from "./agent/director.js";
 import { WorkflowRuntime } from "./workflows/runtime.js";
 import { WorkflowCoordinator } from "./workflows/coordinator.js";
@@ -37,21 +37,6 @@ const state: ReactorState = {
   sessionId: "test-session",
 };
 
-function makeCapabilities(): ReactorCapabilities {
-  return {
-    infer: (options) =>
-      options === undefined ? { type: "infer" } : { type: "infer", options },
-    executeTools: () => ({ type: "execute_tools", calls: [] }),
-    suspend: (gate) => ({ type: "suspend", gate }),
-    fork: (mode, forkId) => ({ type: "fork", mode, forkId }),
-    emit: (eventType, data) => ({ type: "emit", eventType, data }),
-    reply: (content) => ({ type: "reply", content }),
-    checkpoint: (message = "") => ({ type: "checkpoint", message }),
-    compact: (compactor, reason) => ({ type: "compact", compactor, reason }),
-    wait: () => ({ type: "wait" }),
-    done: () => ({ type: "done" }),
-  };
-}
 
 const flow: Workflow = {
   name: "flow",
@@ -126,7 +111,7 @@ test("the active step directive is injected into the inferred system prompt", as
       content: "go",
     },
   };
-  const result = await director.decide(event, state, makeCapabilities());
+  const result = await director.decide(event, state, stubReactorCapabilities);
 
   const infers = inferActions(result);
   expect(infers.length).toBeGreaterThan(0);
@@ -146,7 +131,7 @@ test("a submit_output tool call with the current step id advances the runtime th
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {});
   director.setWorkflowCoordinator(coordinator);
-  const caps = makeCapabilities();
+  const caps = stubReactorCapabilities;
 
   const turn: ReactorInboundEvent = {
     type: "inference.done",
@@ -186,7 +171,7 @@ test("a stale submit_output does not skip ahead through the director", async () 
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {});
   director.setWorkflowCoordinator(coordinator);
-  const caps = makeCapabilities();
+  const caps = stubReactorCapabilities;
 
   const turn: ReactorInboundEvent = {
     type: "inference.done",
@@ -325,7 +310,7 @@ test("a content-free workflow turn with open tasks nudges toward submit_output",
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {});
   director.setWorkflowCoordinator(coordinator);
-  const caps = makeCapabilities();
+  const caps = stubReactorCapabilities;
 
   await director.decide(manageTasksTurn("doing"), state, caps);
   const result = await director.decide(emptyTurn(), state, caps);
@@ -353,7 +338,7 @@ test("open tasks do not defeat the workflow stuck-cutoff after 3 idle turns", as
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {});
   director.setWorkflowCoordinator(coordinator);
-  const caps = makeCapabilities();
+  const caps = stubReactorCapabilities;
 
   await director.decide(manageTasksTurn("doing"), state, caps);
   await director.decide(textTurn("text 1"), state, caps);
@@ -378,7 +363,7 @@ test("seeded idle-with-fleet with no live helpers still auto-continues a workflo
     allowIdleWithFleet: true,
   });
   director.setWorkflowCoordinator(coordinator);
-  const caps = makeCapabilities();
+  const caps = stubReactorCapabilities;
 
   const result = await director.decide(
     textTurn("I reviewed the diff, moving to next step."),
@@ -401,7 +386,7 @@ test("live fleet plus three text waits does not declare the workflow stuck", asy
   });
   director.setWorkflowCoordinator(coordinator);
   director.setAllowIdleWithFleet(true);
-  const caps = makeCapabilities();
+  const caps = stubReactorCapabilities;
 
   await director.decide(manageTasksTurn("doing"), state, caps);
   await director.decide(textTurn("text 1"), state, caps);
@@ -424,7 +409,7 @@ test("occupancy inbound resets the workflow idle counter", async () => {
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {});
   director.setWorkflowCoordinator(coordinator);
-  const caps = makeCapabilities();
+  const caps = stubReactorCapabilities;
 
   await director.decide(textTurn("text 1"), state, caps);
   await director.decide(textTurn("text 2"), state, caps);
@@ -450,7 +435,7 @@ test("auto-continuation falls back after 3 consecutive text-only turns", async (
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {});
   director.setWorkflowCoordinator(coordinator);
-  const caps = makeCapabilities();
+  const caps = stubReactorCapabilities;
 
   await director.decide(textTurn("text 1"), state, caps);
   await director.decide(textTurn("text 2"), state, caps);
@@ -473,7 +458,7 @@ test("after spacer echo-cap a non-gate workflow step does not empty-settle", asy
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {});
   director.setWorkflowCoordinator(coordinator);
-  const caps = makeCapabilities();
+  const caps = stubReactorCapabilities;
 
   for (let i = 0; i < 2; i++) {
     const nudged = await director.decide(

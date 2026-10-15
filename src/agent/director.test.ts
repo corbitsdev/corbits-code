@@ -31,6 +31,7 @@ import {
 } from "../inference-abort.js";
 import {
   stubReactorCapabilities,
+  stubReactorCapabilitiesWith,
   stubReactorState,
   stubTextTurnEvent,
 } from "../../testkit/reactor-stubs.js";
@@ -41,33 +42,6 @@ import {
 
 const mockState: ReactorState = { turns: [] } as unknown as ReactorState;
 
-function makeCapabilities(): ReactorCapabilities {
-  return {
-    infer: (options) =>
-      ({
-        type: "infer",
-        ...(options !== undefined ? { options } : {}),
-      }) as ReactorAction,
-    executeTools: (calls, parallel, addToHistory) =>
-      ({
-        type: "execute_tools",
-        calls,
-        parallel,
-        addToHistory,
-      }) as ReactorAction,
-    suspend: (gate) => ({ type: "suspend", gate }) as ReactorAction,
-    fork: (mode, forkId) => ({ type: "fork", mode, forkId }) as ReactorAction,
-    emit: (eventType, data) =>
-      ({ type: "emit", eventType, data }) as ReactorAction,
-    reply: (content) => ({ type: "reply", content }) as ReactorAction,
-    checkpoint: (message = "") =>
-      ({ type: "checkpoint", message }) as ReactorAction,
-    compact: (compactor, reason) =>
-      ({ type: "compact", compactor, reason }) as ReactorAction,
-    wait: () => ({ type: "wait" }) as ReactorAction,
-    done: () => ({ type: "done" }) as ReactorAction,
-  };
-}
 
 // Varied arguments per call so the fingerprint changes turn to turn, like
 // real tool-only orchestration.
@@ -182,7 +156,7 @@ describe("ChatDirector credential recovery continuation", () => {
 
   test("consumes one matching armed continuation and rejects stale or repeated delivery", async () => {
     const director = createChatDirector("system", [], {});
-    const capabilities = makeCapabilities();
+    const capabilities = stubReactorCapabilities;
 
     expect(
       actionsArray(
@@ -216,7 +190,7 @@ describe("ChatDirector tool-only loop protection", () => {
     const director = createChatDirector("system", [], {
       provider: providerlessPolicy,
     });
-    const capabilities = makeCapabilities();
+    const capabilities = stubReactorCapabilities;
 
     // Default family nudges at 25 consecutive tool-only turns.
     const actions = await runToolOnlyStreak(director, capabilities, 25);
@@ -229,7 +203,7 @@ describe("ChatDirector tool-only loop protection", () => {
     const director = createChatDirector("system", [], {
       provider: providerlessPolicy,
     });
-    const capabilities = makeCapabilities();
+    const capabilities = stubReactorCapabilities;
 
     await runToolOnlyStreak(director, capabilities, 25);
     const nextTurn = actionsArray(
@@ -246,7 +220,7 @@ describe("ChatDirector tool-only loop protection", () => {
     const director = createChatDirector("system", [], {
       provider: providerlessPolicy,
     });
-    const capabilities = makeCapabilities();
+    const capabilities = stubReactorCapabilities;
 
     const actions = await runToolOnlyStreak(director, capabilities, 50);
     expect(
@@ -281,7 +255,7 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
       const director = createChatDirector("system", [], {
         provider: providerlessPolicy,
       });
-      const capabilities = makeCapabilities();
+      const capabilities = stubReactorCapabilities;
 
       const actions = actionsArray(
         await director.decide(
@@ -301,7 +275,7 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     const director = createChatDirector("system", [], {
       provider: providerlessPolicy,
     });
-    const capabilities = makeCapabilities();
+    const capabilities = stubReactorCapabilities;
     const internalAbort = inferenceErrorEvent("aborted", {
       origin: "internal-recovery",
     });
@@ -332,7 +306,7 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     const director = createChatDirector("system", [], {
       provider: providerlessPolicy,
     });
-    const capabilities = makeCapabilities();
+    const capabilities = stubReactorCapabilities;
     const internalAbort = inferenceErrorEvent("aborted", {
       origin: "internal-recovery",
     });
@@ -371,7 +345,7 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     } as unknown as WorkflowCoordinator;
     const director = createChatDirector("system", [], {});
     director.setWorkflowCoordinator(throwingCoordinator);
-    const capabilities = makeCapabilities();
+    const capabilities = stubReactorCapabilities;
 
     const manageTasksTurn = {
       type: "inference.done",
@@ -522,7 +496,7 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
       } as unknown as WorkflowCoordinator;
       const director = createChatDirector("system", [], {});
       director.setWorkflowCoordinator(coordinator);
-      const capabilities = makeCapabilities();
+      const capabilities = stubReactorCapabilities;
 
       // currentStepId runs only past a terminal base action, so it throws
       // on a text turn; the earlier rails throw on a manage_tasks turn.
@@ -545,13 +519,12 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
   test("a non-coordinator mid-turn failure preserves queued task-change emits for the next turn", async () => {
     const failure = new Error("tool execution exploded");
     const director = createChatDirector("system", [], {});
-    const capabilities = makeCapabilities();
-    const executing: ReactorCapabilities = {
-      ...capabilities,
+    const capabilities = stubReactorCapabilities;
+    const executing = stubReactorCapabilitiesWith({
       executeTools: (): ReactorAction => {
         throw failure;
       },
-    };
+    });
 
     await expect(
       director.decide(keeperManageTasksTurn(), mockState, executing),
@@ -579,13 +552,12 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     } as unknown as WorkflowCoordinator;
     const director = createChatDirector("system", [], {});
     director.setWorkflowCoordinator(coordinator);
-    const capabilities = makeCapabilities();
-    const executing: ReactorCapabilities = {
-      ...capabilities,
+    const capabilities = stubReactorCapabilities;
+    const executing = stubReactorCapabilitiesWith({
       executeTools: (): ReactorAction => {
         throw new Error("tool execution exploded");
       },
-    };
+    });
 
     await expect(
       director.decide(keeperManageTasksPlusSubmitTurn(), mockState, executing),
@@ -680,7 +652,7 @@ describe("ChatDirector live source-id tracking (CL-7973)", () => {
     const director = createChatDirector("system", [], {
       provider: { providerName: "test-provider" },
     });
-    const capabilities = makeCapabilities();
+    const capabilities = stubReactorCapabilities;
     const policy = await liveRetryPolicy(director, capabilities);
 
     // The seed id is not an xAI source, so the capacity error aborts.
@@ -715,7 +687,7 @@ describe("ChatDirector live source-id tracking (CL-7973)", () => {
     const director = createChatDirector("system", [], {
       provider: { providerName: "test-provider" },
     });
-    const capabilities = makeCapabilities();
+    const capabilities = stubReactorCapabilities;
     const policy = await liveRetryPolicy(director, capabilities);
     expect(await isXaiStamped(policy)).toBe(false);
 
@@ -733,7 +705,7 @@ describe("ChatDirector live source-id tracking (CL-7973)", () => {
     const director = createChatDirector("system", [], {
       provider: { providerName: "test-provider" },
     });
-    const capabilities = makeCapabilities();
+    const capabilities = stubReactorCapabilities;
     const policy = await liveRetryPolicy(director, capabilities);
 
     // The harness's call-start snapshot is authoritative over the event's
@@ -800,11 +772,10 @@ function messageReceived(content: string): ReactorInboundEvent {
 }
 
 /** Infer stub that carries the options through so tests can inspect them. */
-const capabilitiesWithInferArgs: ReactorCapabilities = {
-  ...stubReactorCapabilities,
+const capabilitiesWithInferArgs = stubReactorCapabilitiesWith({
   infer: (opts) =>
     ({ type: "infer", options: opts }) as unknown as ReactorAction,
-};
+});
 
 function manageTasksEvent(
   status: "todo" | "doing" | "done",
