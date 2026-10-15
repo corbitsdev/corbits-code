@@ -1,6 +1,7 @@
 export {
   createHarness,
   defineMailTools,
+  MAIL_FETCH_FAILED_FLAG,
   type Harness,
   type MailEnv,
   type MailToolWrapper,
@@ -29,6 +30,15 @@ export type {
   HostCredentialCapability,
   ResolvedCredentialBinding,
 } from "./credential-capability";
+
+export {
+  buildCredentialCapabilities,
+  createInferenceCredentialResolver,
+} from "./step-credential-capabilities";
+export type {
+  CredentialMaterialCell,
+  StepCredentialWiring,
+} from "./step-credential-capabilities";
 
 export {
   createConnectorRouter,

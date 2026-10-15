@@ -83,10 +83,10 @@
     "hono": "^4.11.9",
     "isomorphic-git": "^1.27.2",
     "semver": "^7.7.2",
-    "ssri": "^12.0.0",
     "tar": "^7.5.1"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.79",
     "@corbits/codex-provider": "0.1.2",
     "@corbits/oauth-core": "0.3.0",
     "@corbits/openai-responses": "0.2.1",
@@ -106,7 +106,7 @@
     "@intx/types": "workspace:*",
     "@intx/workflow-host": "0.3.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "@opentui/core": "0.5.12",
+    "@opentui/core": "0.6.4",
     "arktype": "catalog:",
     "isomorphic-git": "catalog:",
     "@corbits/code-agent-designer": "workspace:*",
@@ -125,13 +125,13 @@
     "typescript-language-server": "^4.3.4"
   },
   "optionalDependencies": {
-    "@opentui/core-darwin-arm64": "0.5.12",
-    "@opentui/core-darwin-x64": "0.5.12",
-    "@opentui/core-linux-arm64": "0.5.12",
-    "@opentui/core-linux-arm64-musl": "0.5.12",
-    "@opentui/core-linux-x64": "0.5.12",
-    "@opentui/core-linux-x64-musl": "0.5.12",
-    "@opentui/core-win32-arm64": "0.5.12",
-    "@opentui/core-win32-x64": "0.5.12"
+    "@opentui/core-darwin-arm64": "0.6.4",
+    "@opentui/core-darwin-x64": "0.6.4",
+    "@opentui/core-linux-arm64": "0.6.4",
+    "@opentui/core-linux-arm64-musl": "0.6.4",
+    "@opentui/core-linux-x64": "0.6.4",
+    "@opentui/core-linux-x64-musl": "0.6.4",
+    "@opentui/core-win32-arm64": "0.6.4",
+    "@opentui/core-win32-x64": "0.6.4"
   }
 }

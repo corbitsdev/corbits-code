@@ -45,6 +45,15 @@ function hasLiteralFloor(pattern: string): boolean {
   return pattern.replace(/[*?\s]/g, "").length > 0;
 }
 
+function isEnoent(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "ENOENT"
+  );
+}
+
 const ApprovalSchema = type({
   tool: "string",
   pattern: "string",
@@ -89,14 +98,31 @@ async function readApprovalsField(
 }
 
 async function readObjectFile(path: string): Promise<Record<string, unknown>> {
+  let raw: string;
   try {
-    const parsed = JSON.parse(await readFile(path, "utf-8")) as unknown;
-    return typeof parsed === "object" && parsed !== null
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
+    raw = await readFile(path, "utf-8");
+  } catch (err) {
+    if (isEnoent(err)) return {};
+    throw err;
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch (err) {
+    // A torn store must never read as empty: this empty result is the first
+    // half of read-modify-write, so pretending the file was absent would let
+    // the next grant write permanently discard every prior Allow-Always
+    // grant. Surface the corruption; the write path refuses the clobber and
+    // an operator repair regains all grants.
+    throw new Error(
+      `permissions store is corrupt: ${path} (${
+        err instanceof Error ? err.message : String(err)
+      })`,
+    );
+  }
+  return typeof parsed === "object" && parsed !== null
+    ? (parsed as Record<string, unknown>)
+    : {};
 }
 
 // Serialize read-modify-write per path so concurrent grants to one file (a
@@ -240,21 +266,16 @@ export async function loadGlobalApprovals(
 export async function loadProviderModelApprovals(
   home: string = homedir(),
 ): Promise<Approval[]> {
-  try {
-    const raw = await readFile(globalStorePath(home), "utf-8");
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const map = parsed?.providerModels;
-    if (typeof map !== "object" || map === null) return [];
-    const out: Approval[] = [];
-    for (const [key, list] of Object.entries(map as Record<string, unknown>)) {
-      for (const approval of parseApprovalList(list)) {
-        out.push({ ...approval, providerModel: key });
-      }
+  const parsed = await readObjectFile(globalStorePath(home));
+  const map = parsed.providerModels;
+  if (typeof map !== "object" || map === null) return [];
+  const out: Approval[] = [];
+  for (const [key, list] of Object.entries(map as Record<string, unknown>)) {
+    for (const approval of parseApprovalList(list)) {
+      out.push({ ...approval, providerModel: key });
     }
-    return out;
-  } catch {
-    return [];
   }
+  return out;
 }
 
 export async function saveGlobalApproval(

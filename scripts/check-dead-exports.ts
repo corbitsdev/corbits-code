@@ -1,18 +1,17 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Dead-export guard: runs knip and fails when a consumer-less export or an
-// unused file falls outside scripts/dead-export-allowlist.txt. knip replaces
-// the retired ts-prune scanner (CL-10655); it resolves the module graph, so an
-// export consumed through a re-export barrel or the closed director fan-in is
-// not reported, and exports used only inside their own module are skipped
-// (ignoreExportsUsedInFile in knip.json knits both semantics). knip.json pins
-// the scan (entry points per tree plus the workspace packages); this guard
-// owns only the allowlist and the fail-closed floor. New dead exports must be
-// deleted, not allowlisted — the allowlist covers entry-point API surfaces and
-// deferred-deletion lanes only.
+// unused file falls outside scripts/dead-export-allowlist.txt. knip resolves
+// the module graph, so an export consumed through a re-export barrel or the
+// closed director fan-in is not reported, and exports used only inside their
+// own module are skipped (ignoreExportsUsedInFile in knip.json). knip.json
+// pins the scan; this guard owns only the allowlist and the fail-closed floor.
+// New dead exports must be deleted, not allowlisted — the allowlist names
+// entry-point API surfaces only. vendor/ and path-loaded eval fixtures are
+// knip ignore entries, not allowlist blankets.
 //
 // Hardening: stale entries fail instead of warning, every entry must pass
 // shape validation and sit under a reason comment (the gate enforces the
@@ -33,10 +32,10 @@ const guardConfigPath = join(here, "dead-export-guard.json");
 const knipBin = join(repoRoot, "node_modules", ".bin", "knip");
 const tscBin = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
 
-// The integrated-monorepo knip config that drives the production agent scan;
-// a separate file so the default scan keeps knip.json's ts-prune-parity
-// project scope (the `workspaces` key switches knip into integrated mode,
-// which also widens its default file detection beyond that scope).
+// The integrated-monorepo knip config that drives the production agent scan.
+// A separate file so the default scan keeps knip.json's project scope (the
+// `workspaces` key switches knip into integrated mode, which also widens its
+// default file detection beyond that scope).
 export function agentsConfigPath(): string {
   return join(repoRoot, "knip.agents.json");
 }
@@ -366,8 +365,7 @@ export function knipDefaultSpawn(knipBinPath: string): {
 // `workspaces` key makes cross-workspace consumers visible in production
 // mode), so the registry fan-in still clears `director` while the laundered
 // worker names surface. Outside that surface the default scan owns
-// enforcement at ts-prune parity; the union of both scans is the guard's
-// finding set.
+// enforcement; the union of both scans is the guard's finding set.
 export function knipAgentProductionSpawn(
   knipBinPath: string,
   workspaces: readonly string[],
@@ -384,22 +382,30 @@ export function knipAgentProductionSpawn(
   ]);
 }
 
-// The agent workspaces the production scan must cover, derived from the
-// allowlist's `agents/<id>/src/index.ts` entries so the scan stays pinned to
-// the surface the allowlist governs. Fails closed when the surface names no
+// Every agents/ workspace, not the allowlist. A package whose entry exports
+// are imported only by its own test is invisible to the default scan (knip
+// counts test files there) and would skip this production scan if membership
+// came from allowlist entries. Fails closed when the directory names no
 // workspace: a silent no-op scan cannot be trusted.
-export function agentWorkspaceIds(rules: readonly AllowRule[]): string[] {
-  const ids = new Set<string>();
-  for (const rule of rules) {
-    if (rule.kind === "exact" && rule.file.startsWith("agents/")) {
-      const id = rule.file.slice("agents/".length).split("/")[0];
-      if (id !== undefined && id !== "") ids.add(`agents/${id}`);
-    }
+export function agentWorkspaceIds(agentsRoot: string): string[] {
+  let names: string[];
+  try {
+    names = readdirSync(agentsRoot, { withFileTypes: true }).flatMap((entry) =>
+      entry.isDirectory() &&
+      !entry.name.startsWith(".") &&
+      existsSync(join(agentsRoot, entry.name, "package.json"))
+        ? [entry.name]
+        : [],
+    );
+  } catch (err) {
+    throw new Error(
+      `agent workspace root not readable (${agentsRoot}): ${(err as Error).message}`,
+    );
   }
-  const sorted = [...ids].sort();
+  const sorted = names.map((name) => `agents/${name}`).sort();
   if (sorted.length === 0) {
     throw new Error(
-      "dead-export allowlist names no agents/<id>/src/index.ts surface: " +
+      `agents directory names no workspace (${agentsRoot}): ` +
         "the agent-workspace production scan has nothing to cover",
     );
   }
@@ -490,13 +496,13 @@ function fail(message: string): never {
 
 // The guard's finding set is the union of two knip reports:
 //
-// 1. the default scan over knip.json's project scope (ts-prune parity), and
+// 1. the default scan over knip.json's project scope, and
 // 2. the `--production` scan filtered to the agent workspaces, where knip
 //    does not count test-file consumers.
 //
-// Both run under the pinned pinned spawn contract; a failing or malformed
+// Both run under the pinned spawn contract; a failing or malformed
 // report fails the gate rather than narrowing it silently.
-export function runKnipScans(rules: readonly AllowRule[]): DeadExport[] {
+export function runKnipScans(): DeadExport[] {
   requireKnipConfigs();
   const merge = (reports: readonly DeadExport[]): DeadExport[] => {
     const seen = new Set<string>();
@@ -536,7 +542,7 @@ export function runKnipScans(rules: readonly AllowRule[]): DeadExport[] {
     knipDefaultSpawn(knipBin),
     "knip default scan",
   );
-  const agentWorkspaces = agentWorkspaceIds(rules);
+  const agentWorkspaces = agentWorkspaceIds(join(repoRoot, "agents"));
   const agentFindings = spawnAndParse(
     knipAgentProductionSpawn(knipBin, agentWorkspaces),
     "knip production agent scan",
@@ -563,7 +569,7 @@ function main(): void {
     );
   }
   const rules = parseAllowlistText(allowlistText);
-  const findings = runKnipScans(rules);
+  const findings = runKnipScans();
   const outcome = evaluateGuard(rules, findings);
   let scannedFiles: number;
   const injectedCount = parseInjectedScannedFiles(process.env[scannedFilesEnv]);

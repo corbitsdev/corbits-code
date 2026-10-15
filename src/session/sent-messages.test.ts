@@ -1,25 +1,22 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 
+import { createTempDirs, type TempDirs } from "../../testkit/temporary-dirs.js";
 import { generateSessionId, initSessionDir } from "./index.js";
 import { appendSentMessage, loadSentMessages } from "./sent-messages.js";
 
 describe("sent-messages", () => {
-  let cwd: string;
-  let home: string;
-  let sessionId: string;
+  let workspace: TempDirs | undefined;
 
-  afterEach(async () => {
-    if (cwd !== undefined) await rm(cwd, { recursive: true, force: true });
-    if (home !== undefined) await rm(home, { recursive: true, force: true });
+  afterEach(() => {
+    workspace?.cleanup();
   });
 
   test("append and load per session", async () => {
-    cwd = await mkdtemp(join(tmpdir(), "sent-msg-"));
-    home = await mkdtemp(join(tmpdir(), "sent-msg-home-"));
-    sessionId = generateSessionId();
+    const { cwd, home } = (workspace = createTempDirs(
+      "sent-msg-",
+      "sent-msg-home-",
+    ));
+    const sessionId = generateSessionId();
     await initSessionDir(cwd, sessionId, home);
 
     expect(await loadSentMessages(cwd, sessionId, home)).toEqual([]);
@@ -32,9 +29,11 @@ describe("sent-messages", () => {
   });
 
   test("load keeps only the last 20 messages", async () => {
-    cwd = await mkdtemp(join(tmpdir(), "sent-msg-"));
-    home = await mkdtemp(join(tmpdir(), "sent-msg-home-"));
-    sessionId = generateSessionId();
+    const { cwd, home } = (workspace = createTempDirs(
+      "sent-msg-",
+      "sent-msg-home-",
+    ));
+    const sessionId = generateSessionId();
     await initSessionDir(cwd, sessionId, home);
     for (let i = 0; i < 25; i++) {
       await appendSentMessage(cwd, sessionId, `msg-${i}`, home);

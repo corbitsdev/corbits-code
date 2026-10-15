@@ -46,11 +46,20 @@ function insufficientScope(providerLabel: string): OAuthScopeCheckResult {
   };
 }
 
-function unavailable(providerLabel: string): OAuthScopeCheckResult {
+function unavailable(
+  providerLabel: string,
+  cause?: string,
+): OAuthScopeCheckResult {
+  const why = cause === undefined ? "" : ` (${cause})`;
   return {
     status: "unavailable",
-    message: `Couldn't confirm ${providerLabel} API access right now — continuing without blocking setup.`,
+    message: `Couldn't confirm ${providerLabel} API access right now${why} — continuing without blocking setup.`,
   };
+}
+
+/** AbortSignal.timeout's rejection, so "network down" and "probe hung" differ. */
+function isTimeout(err: unknown): boolean {
+  return err instanceof Error && err.name === "TimeoutError";
 }
 
 function invalidCredentials(providerLabel: string): OAuthScopeCheckResult {
@@ -94,7 +103,7 @@ function classifyStatus(
   providerLabel: string,
 ): OAuthScopeCheckResult {
   if (status === 401 || status === 403) return insufficientScope(providerLabel);
-  return unavailable(providerLabel);
+  return unavailable(providerLabel, `provider HTTP ${status}`);
 }
 
 async function checkCodexScope(
@@ -117,7 +126,10 @@ async function checkCodexScope(
   } catch (err) {
     if (isDefinitiveRefreshAuthRejection(err))
       return invalidCredentials(providerLabel);
-    return unavailable(providerLabel);
+    return unavailable(
+      providerLabel,
+      isTimeout(err) ? "probe timed out" : undefined,
+    );
   }
 }
 
@@ -138,7 +150,10 @@ async function checkXaiScope(
   } catch (err) {
     if (isDefinitiveRefreshAuthRejection(err))
       return invalidCredentials(providerLabel);
-    return unavailable(providerLabel);
+    return unavailable(
+      providerLabel,
+      isTimeout(err) ? "probe timed out" : undefined,
+    );
   }
 }
 

@@ -33,6 +33,7 @@ import { defineDirector } from "./director";
 import { createDirectorRegistry } from "./director-registry";
 import type { BaseEnv } from "./env";
 import { permissiveAuthorize } from "./testing/authorize-allow";
+import { waitForReactorDone } from "./testing";
 
 // An unreachable URL causes the inference call to fail with a network
 // error, which the reactor surfaces as an `inference.error` event.
@@ -212,18 +213,9 @@ function inboundConversation(): ReturnType<typeof createInboundMessage> {
   });
 }
 
-// Drain agent.stream() until a `reactor.done` event is observed, then
-// resolve. The agent's terminal event signals the reactor has settled
-// and any pending audit-flush has had a chance to run via the
-// assembly's onShutdown hook.
-async function waitForReactorDone(
-  stream: AsyncIterable<{ type: string }>,
-): Promise<void> {
-  for await (const event of stream) {
-    if (event.type === "reactor.done") return;
-  }
-}
-
+// Locally patched — see vendor/intx-agent/PATCHES.md#agent-ts-duplicate-error-flush
+// (the FORBIDDEN_DEPS credential-failure suite below is the companion test
+// block re-carried with the auth-recovery and duplicate-flush entries).
 const FORBIDDEN_DEPS = {
   ...createDefaultDependencies(),
   fetch: async () =>

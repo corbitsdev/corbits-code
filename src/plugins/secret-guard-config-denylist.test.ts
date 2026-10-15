@@ -8,7 +8,7 @@ import { createPermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
 import { createExtraDeniedPathMatcher } from "./secret-guard-plugin.js";
 import { ripgrepPlugin } from "./ripgrep-plugin.js";
-import type { RgChild, SpawnRg } from "./rg-run.js";
+import type { RgChild, SpawnRg } from "../search/rg-run.js";
 
 /**
  * An operator-chosen --config path inside the workspace is model-readable/

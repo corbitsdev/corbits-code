@@ -6,6 +6,7 @@ import {
   ApprovalDeliveryTimeoutError,
   createApprovalDeliverer,
 } from "./approval-delivery.js";
+import { redactedCorrelationId } from "../session/redacted-correlation.js";
 
 function decisionMessage(
   correlationId: string | undefined,
@@ -85,7 +86,11 @@ describe("approval delivery acceptance bound", () => {
     expect(err.stage).toBe("reactor-acceptance");
     expect(err.timeoutMs).toBe(15);
     expect(err.mayStillApply).toBe(true);
-    expect(err.message).toContain("corr-stuck");
+    // Message text is redacted; the structured property keeps the full ID.
+    expect(err.message).toContain(
+      `correlationId=${redactedCorrelationId("corr-stuck")}`,
+    );
+    expect(err.message).not.toContain("corr-stuck,");
     expect(err.message).toContain("reactor-acceptance");
     expect(tailAdvanced).toBe(true);
     expect(Date.now() - started).toBeLessThan(5000);

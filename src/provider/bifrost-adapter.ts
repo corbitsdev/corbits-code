@@ -10,8 +10,7 @@ import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 // permissions and model list via an `x-bf-vk` header (raw key value)
 // alongside Authorization: Bearer. `bifrostVirtualKey: true` providers get
 // this adapter, the x-bf-vk sentinel, and provider: "bifrost" from
-// buildInferenceSourceForRef. Model listing uses fetchBifrostModels, which
-// calls the gateway's /models with the same headers.
+// buildInferenceSourceForRef.
 
 export const BIFROST_PROVIDER = "bifrost";
 

@@ -3,6 +3,10 @@ import { homedir, tmpdir } from "node:os";
 import { readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import type { MessageAttachment } from "@intx/types/runtime";
+import {
+  readSystemClipboardImage,
+  type ClipboardImageBytes,
+} from "./system-clipboard.js";
 
 export const MAX_IMAGE_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
@@ -335,48 +339,39 @@ function replaceExtension(name: string, contentType: string): string {
   return `${dot === -1 ? name : name.slice(0, dot)}.${ext}`;
 }
 
-export async function readClipboardImage(): Promise<ClipboardImageResult> {
-  if (process.platform !== "darwin") {
+export async function readClipboardImage(
+  source: () => Promise<ClipboardImageBytes> = readSystemClipboardImage,
+): Promise<ClipboardImageResult> {
+  const read = await source();
+  if (!read.ok) return read;
+
+  const ext = extensionForMime(read.mimeType);
+  const tmpPath = join(
+    tmpdir(),
+    `corbits-clipboard-${process.pid}-${Date.now()}.${ext}`,
+  );
+  try {
+    await writeFile(tmpPath, read.bytes);
+    const attachment = await imageAttachmentFromPath(tmpPath);
+    if (!attachment.ok) return attachment;
+    const { path: _path, ...clipboardAttachment } = attachment.attachment;
     return {
-      ok: false,
-      reason: "clipboard image paste is currently supported on macOS",
+      ok: true,
+      attachment: {
+        ...clipboardAttachment,
+        name: `clipboard-${new Date().toISOString().replace(/[:.]/g, "-")}.${ext}`,
+      },
     };
-  }
-
-  const tmpPath = `/tmp/corbits-clipboard-${process.pid}-${Date.now()}.png`;
-  const script = `
-set outPath to POSIX file ${JSON.stringify(tmpPath)}
-try
-  set pngData to the clipboard as «class PNGf»
-  set outFile to open for access outPath with write permission
-  set eof of outFile to 0
-  write pngData to outFile
-  close access outFile
-on error errMsg
-  try
-    close access outPath
-  end try
-  error errMsg
-end try
-`;
-
-  const result = await runProcess("osascript", ["-e", script]);
-  if (result.code !== 0) {
+  } catch {
+    return { ok: false, reason: "could not read an image from the clipboard" };
+  } finally {
     await unlink(tmpPath).catch(() => undefined);
-    return { ok: false, reason: "no PNG image found on the clipboard" };
   }
+}
 
-  const attachment = await imageAttachmentFromPath(tmpPath);
-  await unlink(tmpPath).catch(() => undefined);
-  if (!attachment.ok) return attachment;
-  const { path: _path, ...clipboardAttachment } = attachment.attachment;
-  return {
-    ok: true,
-    attachment: {
-      ...clipboardAttachment,
-      name: `clipboard-${new Date().toISOString().replace(/[:.]/g, "-")}.png`,
-    },
-  };
+function extensionForMime(mimeType: string): string {
+  if (mimeType === "image/jpeg") return "jpg";
+  return mimeType.split("/")[1] ?? "img";
 }
 
 export function formatAttachmentSummary(

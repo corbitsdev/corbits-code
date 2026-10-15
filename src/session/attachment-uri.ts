@@ -36,6 +36,12 @@ export interface AgedImageMarker {
 export function parseAgedImageMarker(
   text: string,
 ): AgedImageMarker | undefined {
+  // Prefilter: markers are the only shape that can start this way, and text
+  // blocks here include whole tool outputs, so skip the regex on anything
+  // that cannot possibly match.
+  if (!text.startsWith("[image attachment aged: attachment:///")) {
+    return undefined;
+  }
   // [image attachment aged: attachment:///ID mimeType=TYPE — ...]
   const match = text.match(
     /^\[image attachment aged: (attachment:\/\/\/[^\s]+) mimeType=([^\s]+) —/,

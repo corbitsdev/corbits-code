@@ -13,6 +13,26 @@ signposts that point into that diff; they do not define its extent.
 Re-carried as-is with its three tests; upstream `store.ts` has no
 `loadErrors`. No adaptation needed.
 
+### 2026-10-14 re-sync (upstream `5453d0b0` — npm `0.4.0`, CL-10651)
+
+Re-carried as-is: upstream did not touch `src/store.ts` or
+`src/store.test.ts` in this range (`loadErrors` still absent upstream),
+so both files and the entry are byte-identical to the prior pin.
+
+### 2026-10-14 re-sync to `4cc6972` (CL-10656, HEAD drift 0.4.0 → base)
+
+Re-carried: upstream touched `store.ts` in this range for the first time
+since vendoring (nine commits in `packages/storage-isogit`, net +15/−16);
+the `store-ts-load-errors` entry three-way merged cleanly (`git
+merge-file`) with zero adaptation, and `loadErrors` is still absent
+upstream at `4cc6972`. Upstream `e75eee2` ("Remove sync.request and the
+undeploy's agent-state push") dropped `createStatePack`'s only remaining
+hub-side consumer and the two comment blocks in `pack-send.ts` /
+`repo-lock.ts` that described the state-pack flow (`createDeployPack`
+itself keeps its export); the vendored-side safety of that removal is
+recorded in docs/VENDORING.md. The tree now types off the same
+`4cc6972` pin as the coupled `@intx/types`/`@intx/inference` trio.
+
 ## store-ts-load-errors
 
 `store.ts` — Implements `AuditStore.loadErrors` by reading

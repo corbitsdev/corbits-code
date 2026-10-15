@@ -91,10 +91,12 @@ export async function buildArchiveSummaryExcerpt(
       let body: string | undefined;
       if (occ.gap === true) {
         body = "(payload not stored)";
+        logger.warn`compaction evidence gap for occurrence=${occ.occurrenceId} kind=${occ.kind}`;
       } else {
         try {
           body = await archive.readAuthorizedPayload(occ.occurrenceId);
-        } catch {
+        } catch (err) {
+          logger.warn`compactable evidence payload unreadable occurrence=${occ.occurrenceId} kind=${occ.kind} error=${err instanceof Error ? err.message : String(err)}`;
           omitted++;
           continue;
         }
@@ -349,6 +351,7 @@ function defaultComplete(deps: Dependencies, timeoutMs: number): CompletionFn {
 // exists to stop.
 export type SummarizerFailureClass =
   | "auth"
+  | "quota"
   | "provider"
   | "timeout"
   | "aborted"
@@ -382,6 +385,8 @@ export function classifySummarizerFailure(
       cause.statusCode === 403
     )
       return "auth";
+    if (cause.category === "quota_exhausted" || cause.statusCode === 429)
+      return "quota";
     if (
       (cause.statusCode !== undefined &&
         cause.statusCode >= 500 &&
@@ -396,6 +401,7 @@ export function classifySummarizerFailure(
   if (error instanceof Error && error.name === "AbortError") return "aborted";
   if (/\b(?:timeout|timed out)\b/i.test(message)) return "timeout";
   if (/\b(?:401|403)\b|\bunauthorized\b/i.test(message)) return "auth";
+  if (/\b429\b|\bquota\b/i.test(message)) return "quota";
   if (/\b5\d\d\b/.test(message) || PROVIDER_INTERNAL_ERROR.test(message))
     return "provider";
   return "failed";
@@ -403,8 +409,8 @@ export function classifySummarizerFailure(
 
 // One-line operator notice for a stub fold that actually committed: the
 // provider's first error line when short enough to be useful, else the
-// failure class. Callers must not fire this until the fold lands — verify
-// abort keeps prior context, so claiming a stub was used would lie.
+// failure class. Callers must not fire this on verify abort — that path
+// keeps prior context, so claiming a stub was used would lie.
 export function summarizerStubFallbackNotice(
   failureClass: SummarizerFailureClass,
   error: Error,

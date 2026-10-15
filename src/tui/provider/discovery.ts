@@ -7,6 +7,7 @@
 
 import { createOverlayList } from "../shell/overlay-list.js";
 import type { CliRenderer } from "@opentui/core";
+import { getLogger } from "@intx/log";
 import {
   modelChoiceRows,
   providerListHeight,
@@ -19,6 +20,9 @@ import type {
   SetupState,
   Surface,
 } from "./types.js";
+import { LOG_NAMESPACE_ROOT } from "../../branding.js";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "tui", "provider-discovery"]);
 
 export function createDiscoveryFlows(
   state: SetupState,
@@ -136,8 +140,10 @@ export function createDiscoveryFlows(
         });
         surface.paint();
       })
-      .catch(() => {
-        // Seed list is already on screen; a failed prefetch must not surface.
+      .catch((err: unknown) => {
+        // Seed list is already on screen; a failed prefetch must not surface
+        // modally. The now-stale seeded picker gets a non-modal receipt.
+        logger.warn`model catalog prefetch failed provider=go error=${err instanceof Error ? err.message : String(err)}`;
       });
   };
 
@@ -175,8 +181,10 @@ export function createDiscoveryFlows(
         });
         surface.paint();
       })
-      .catch(() => {
-        // Seed list is already on screen; a failed prefetch must not surface.
+      .catch((err: unknown) => {
+        // Seed list is already on screen; a failed prefetch must not surface
+        // modally. The now-stale seeded picker gets a non-modal receipt.
+        logger.warn`model catalog prefetch failed provider=zen error=${err instanceof Error ? err.message : String(err)}`;
       });
   };
 

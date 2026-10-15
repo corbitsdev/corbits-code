@@ -8,15 +8,19 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { getLogger } from "@intx/log";
 import type {
   OAuthClientInformationFull,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "mcp", "auth-store"]);
 
 // Per-server OAuth state. The durable pair — registered client info and
 // tokens — reaches disk; the PKCE verifier stays instance-local in the
@@ -84,20 +88,32 @@ export function isEnoent(err: unknown): boolean {
   );
 }
 
-function parseAuthState(raw: string): MCPAuthState | undefined {
+// Corrupt credentials are backed up (never logged and never discarded with
+// the next overwrite) so an operator can diagnose a half-written tokens file.
+// The backup keeps owner-only mode like the auth file itself.
+function preserveCorruptAuthFile(path: string, raw: string): void {
+  try {
+    writeFileSync(`${path}.corrupt`, raw, { mode: 0o600 });
+  } catch {
+    // Backing up is best-effort; the fresh authorization proceeds either way.
+  }
+  logger.warn`corrupt MCP auth file read as no state path=${path}`;
+}
+
+function parseAuthState(raw: string, path: string): MCPAuthState | undefined {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed === "object" && parsed !== null)
       return parsed as MCPAuthState;
   } catch {
-    // Corrupt auth file: treat as no state; a fresh authorization overwrites it.
+    preserveCorruptAuthFile(path, raw);
   }
   return undefined;
 }
 
-function stateFromRaw(raw: string | undefined): MCPAuthState {
+function stateFromRaw(raw: string | undefined, path: string): MCPAuthState {
   if (raw === undefined) return {};
-  return parseAuthState(raw) ?? {};
+  return parseAuthState(raw, path) ?? {};
 }
 
 function readAuthFileSync(path: string): string | undefined {
@@ -122,7 +138,8 @@ export async function loadAuthState(
   identity: MCPAuthIdentity,
   home: string = homedir(),
 ): Promise<MCPAuthState> {
-  return stateFromRaw(await readAuthFile(authFilePath(identity, home)));
+  const path = authFilePath(identity, home);
+  return stateFromRaw(await readAuthFile(path), path);
 }
 
 // Cache refresh: missing/unreadable/corrupt files return undefined so the
@@ -131,14 +148,15 @@ export function tryLoadAuthStateSync(
   identity: MCPAuthIdentity,
   home: string = homedir(),
 ): MCPAuthState | undefined {
+  const path = authFilePath(identity, home);
   let raw: string | undefined;
   try {
-    raw = readAuthFileSync(authFilePath(identity, home));
+    raw = readAuthFileSync(path);
   } catch {
     return undefined;
   }
   if (raw === undefined) return undefined;
-  return parseAuthState(raw);
+  return parseAuthState(raw, path);
 }
 
 function isEexist(err: unknown): boolean {

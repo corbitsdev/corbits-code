@@ -2,13 +2,13 @@
 // sleep through the real shell-guard plugin, registers exec dispose as the
 // process dispose host, then takes the requested exit path so the parent can
 // assert the child was reaped.
-import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 import { disposeExecRuntime } from "../../src/exec/dispose.js";
 import { shellGuardPlugin } from "../../src/plugins/shell-guard-plugin.js";
 import { setActiveDisposeHost } from "../../src/session/active-host.js";
+import { waitUntilTagged } from "../../testkit/process-tag.js";
 
 const token = process.env["REAP_TOKEN"];
 const path = process.env["REAP_PATH"];
@@ -79,17 +79,7 @@ void handler(
   new AbortController().signal,
 );
 
-async function waitForTag(): Promise<void> {
-  const started = Date.now();
-  while (Date.now() - started < 5_000) {
-    const probe = spawnSync("pgrep", ["-f", reapToken], { encoding: "utf8" });
-    if ((probe.stdout?.trim() ?? "").length > 0) return;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`tagged child did not appear: ${reapToken}`);
-}
-
-await waitForTag();
+await waitUntilTagged(reapToken);
 setActiveDisposeHost(host);
 writeFileSync(disposeCountPath, "0");
 process.stdout.write("READY\n");

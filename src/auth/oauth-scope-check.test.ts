@@ -181,6 +181,24 @@ describe("checkOAuthProviderScope", () => {
       commandName,
     );
     expect(result.status).toBe("unavailable");
+    // The inconclusive outcome names the inconclusive evidence: the HTTP
+    // status is the only thing this check ever surfaces about the body.
+    if (result.status === "unavailable")
+      expect(result.message).toContain("provider HTTP 500");
+  });
+
+  test("a timed-out probe says timed out, not network down", async () => {
+    stubFetch(() => {
+      throw new DOMException("The operation timed out.", "TimeoutError");
+    });
+    const result = await checkOAuthProviderScope(
+      "codex",
+      codexTokens,
+      commandName,
+    );
+    expect(result.status).toBe("unavailable");
+    if (result.status === "unavailable")
+      expect(result.message).toContain("probe timed out");
   });
 
   test("xai: builds the probe from staged tokens", async () => {

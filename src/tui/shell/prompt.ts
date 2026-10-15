@@ -36,6 +36,10 @@ import {
   interrupt,
 } from "../delivery-queue.js";
 import { UI, onThemeChange } from "../theme.js";
+import {
+  destroyUnpaintedSyntaxStyles,
+  syntaxStyleForGeneration,
+} from "../syntax-style-cache.js";
 
 import {
   type AppShell,
@@ -45,6 +49,7 @@ import {
   shellInternals,
   shellPromptImageSource,
   shellRecognitionSource,
+  type ShellRenderer,
 } from "./internals.js";
 import {
   appendStreamRow,
@@ -177,17 +182,22 @@ export function setPromptCostContext(
   paintPromptBorder(shell);
 }
 
-let cachedPromptSyntaxStyle: SyntaxStyle | null = null;
+/** 0.6.x native styles must name their owning Context — the live renderer's
+ * native scene — so the style is keyed per renderer instead of a module
+ * global; `promptStyleGeneration` invalidates it like the old cache did.
+ * The previous style stays queued until the prompt assignment drops it. */
+const promptStylesByRenderer = new WeakMap<
+  ShellRenderer,
+  { generation: number; style: SyntaxStyle }
+>();
 
-let cachedPromptRecognizedStyleId: number | null = null;
+const retiredPromptStyles = new WeakMap<ShellRenderer, SyntaxStyle[]>();
 
 let promptStyleGeneration = 0;
 
 const promptHighlightGenerations = new WeakMap<AppShell, number>();
 
 onThemeChange(() => {
-  cachedPromptSyntaxStyle = null;
-  cachedPromptRecognizedStyleId = null;
   promptStyleGeneration += 1;
 });
 
@@ -195,17 +205,18 @@ onThemeChange(() => {
  * Lazy like `transcriptSyntaxStyle`: construction reaches into the native
  * render lib.
  */
-function promptRecognizedStyleId(): number {
-  if (cachedPromptSyntaxStyle === null) {
-    cachedPromptSyntaxStyle = SyntaxStyle.fromStyles({
-      recognized: { fg: UI.action },
-    });
-  }
-  if (cachedPromptRecognizedStyleId === null) {
-    cachedPromptRecognizedStyleId =
-      cachedPromptSyntaxStyle.resolveStyleId("recognized") ?? 0;
-  }
-  return cachedPromptRecognizedStyleId;
+function promptStyleFor(renderer: ShellRenderer): SyntaxStyle {
+  return syntaxStyleForGeneration(
+    promptStylesByRenderer,
+    retiredPromptStyles,
+    renderer,
+    promptStyleGeneration,
+    () =>
+      SyntaxStyle.fromStyles(
+        { recognized: { fg: UI.action } },
+        renderer.nativeScene,
+      ),
+  );
 }
 
 const promptHighlightedValue = new WeakMap<AppShell, string>();
@@ -226,8 +237,14 @@ export function syncPromptHighlights(shell: AppShell): void {
   promptHighlightedValue.set(shell, value);
   promptHighlightGenerations.set(shell, promptStyleGeneration);
 
-  const styleId = promptRecognizedStyleId();
-  shell.prompt.syntaxStyle = cachedPromptSyntaxStyle;
+  const style = promptStyleFor(shell.renderer);
+  const styleId = style.resolveStyleId("recognized") ?? 0;
+  shell.prompt.syntaxStyle = style;
+  destroyUnpaintedSyntaxStyles(
+    retiredPromptStyles,
+    shell.renderer,
+    (pending) => shell.prompt.syntaxStyle === pending,
+  );
   shell.prompt.clearAllHighlights();
   const matcher = resolvePromptRecognitionMatcher(source);
   for (const span of resolvePromptHighlightSpans(value, matcher)) {

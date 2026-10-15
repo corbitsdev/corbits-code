@@ -1,9 +1,8 @@
-import {
-  createDependencies,
-  type Dependencies,
-  type AdapterManifest,
-} from "@intx/inference";
+import { createDependencies, type Dependencies } from "@intx/inference";
 import { loadAdapterRegistry } from "@intx/inference/providers";
+// AdapterManifest moved from the @intx/inference barrel to @intx/types at
+// upstream 4cc6972 (the inference barrel no longer re-exports it).
+import type { AdapterManifest } from "@intx/types";
 import * as openaiCompatible from "./openai-compatible-adapter.js";
 import * as opencodeGo from "./opencode-go-adapter.js";
 import * as codexResponses from "./codex-responses.js";

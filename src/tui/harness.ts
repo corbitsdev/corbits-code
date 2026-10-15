@@ -20,6 +20,7 @@ import {
   type MockInput,
   type MockMouse,
   type TestRenderer,
+  type TestRendererOptions,
   type TestRendererSetup,
 } from "@opentui/core/testing";
 
@@ -31,6 +32,10 @@ export interface HarnessOptions {
    * Defaults to **false** so interrupt-shape tests do not kill the process.
    */
   readonly exitOnCtrlC?: boolean;
+  /** OpenTUI console overlay. The test renderer defaults to `"disabled"`. */
+  readonly consoleMode?: TestRendererOptions["consoleMode"];
+  /** Injectable clock (for example `ManualClock`) forwarded to the renderer. */
+  readonly clock?: TestRendererOptions["clock"];
 }
 
 /** Fixture: permission choices for overlay suites (moved out of overlays.ts). */
@@ -144,6 +149,10 @@ export async function createHarness(
     width,
     height,
     exitOnCtrlC,
+    ...(opts.consoleMode !== undefined
+      ? { consoleMode: opts.consoleMode }
+      : {}),
+    ...(opts.clock !== undefined ? { clock: opts.clock } : {}),
   });
 
   const pressKey = (name: NamedKey | KeyInput, mods?: KeyModifiers): void => {
