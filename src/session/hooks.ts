@@ -412,7 +412,8 @@ async function runLifecycleHook(
   ]);
   return {
     code: exitCode,
-    signal: proc.signalCode,
+    signal:
+      proc.signalCode === null ? null : String(proc.signalCode),
     stderr: delivered
       ? stderr
       : `${stderr}${stderr.length > 0 && !stderr.endsWith("\n") ? "\n" : ""}hook exited without reading its payload\n`,
