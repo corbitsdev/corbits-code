@@ -1,4 +1,4 @@
-# Corbits Triage policy. Schema: https://corbits-triage-alpha.up.railway.app/api/integrations/pack-schema (policyFile)
+# Corbits Triage policy.
 checks:
   max-files-changed:
     enabled: true
