@@ -1,10 +1,10 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
+import { createTempDir } from "../../testkit/temporary-dirs.js";
 import {
   appendCycleText,
   createCycleTextRecorder,
@@ -13,13 +13,16 @@ import {
 } from "./stream-journal.js";
 
 let dir: string;
+let cleanupDir: () => void = () => undefined;
 
-beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "stream-journal-"));
+beforeEach(() => {
+  const temp = createTempDir("stream-journal-");
+  dir = temp.dir;
+  cleanupDir = temp.cleanup;
 });
 
-afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
+afterEach(() => {
+  cleanupDir();
 });
 
 function delta(token: string): ReactorEmittedEvent {
@@ -29,6 +32,23 @@ function delta(token: string): ReactorEmittedEvent {
   } as unknown as ReactorEmittedEvent;
 }
 
+/**
+ * Bounded settle gate for the error-path flush: `handleEvent(inference.error)`
+ * fires the write off without exposing its promise, so wait for the partial
+ * file to exist instead of sleeping a fixed interval.
+ */
+async function settlePartialWritten(timeoutMs = 5_000): Promise<string> {
+  const started = Date.now();
+  for (;;) {
+    try {
+      return await readFile(join(dir, PARTIAL_FILE), "utf8");
+    } catch (err) {
+      if (Date.now() - started >= timeoutMs) throw err;
+      await Bun.sleep(1);
+    }
+  }
+}
+
 function thinkingDelta(token: string): ReactorEmittedEvent {
   return {
     type: "inference.thinking.delta",
@@ -36,29 +56,23 @@ function thinkingDelta(token: string): ReactorEmittedEvent {
   } as unknown as ReactorEmittedEvent;
 }
 
-async function readPartialRecords(): Promise<
-  {
-    reason: string;
-    text: string;
-    thinkingText?: string;
-    thinkingChars?: number;
-    error?: { category?: string; message?: string; statusCode?: number };
-  }[]
-> {
-  const raw = await readFile(join(dir, PARTIAL_FILE), "utf8");
+type PartialRecord = {
+  reason: string;
+  text: string;
+  thinkingText?: string;
+  thinkingChars?: number;
+  error?: { category?: string; message?: string; statusCode?: number };
+};
+
+function parsePartialRaw(raw: string): PartialRecord[] {
   return raw
     .trim()
     .split("\n")
-    .map(
-      (line) =>
-        JSON.parse(line) as {
-          reason: string;
-          text: string;
-          thinkingText?: string;
-          thinkingChars?: number;
-          error?: { category?: string; message?: string; statusCode?: number };
-        },
-    );
+    .map((line) => JSON.parse(line) as PartialRecord);
+}
+
+async function readPartialRecords(): Promise<PartialRecord[]> {
+  return parsePartialRaw(await readFile(join(dir, PARTIAL_FILE), "utf8"));
 }
 
 describe("createCycleTextRecorder", () => {
@@ -102,8 +116,8 @@ describe("createCycleTextRecorder", () => {
       data: { error: { category: "aborted", message: "aborted" } },
     } as unknown as ReactorEmittedEvent);
 
-    await Bun.sleep(20);
-    const records = await readPartialRecords();
+    const raw = await settlePartialWritten();
+    const records = parsePartialRaw(raw);
     expect(records[0]?.reason).toBe("inference-error");
     expect(records[0]?.text).toBe("partial before failure");
     expect(records[0]?.error?.category).toBe("aborted");
@@ -125,8 +139,8 @@ describe("createCycleTextRecorder", () => {
       },
     } as unknown as ReactorEmittedEvent);
 
-    await Bun.sleep(20);
-    const records = await readPartialRecords();
+    const raw = await settlePartialWritten();
+    const records = parsePartialRaw(raw);
     expect(records).toHaveLength(1);
     expect(records[0]?.reason).toBe("inference-error");
     expect(records[0]?.text).toBe("");
@@ -174,6 +188,8 @@ describe("createCycleTextRecorder", () => {
     });
 
     const disposePromise = recorder.dispose("cancelled", { drain });
+    // Explicit real wait: the drain is still pending, so no partial write
+    // may have started -- absence over a settle window is the assertion.
     await Bun.sleep(10);
     await expect(readFile(join(dir, PARTIAL_FILE), "utf8")).rejects.toThrow();
 
@@ -244,8 +260,8 @@ describe("createCycleTextRecorder", () => {
       type: "inference.error",
       data: { error: { category: "aborted", message: "aborted" } },
     } as unknown as ReactorEmittedEvent);
-    await Bun.sleep(20);
-
+    // A closed recorder drops events synchronously, so the aborted reason
+    // must not append a second partial -- assert the existing record directly.
     const records = await readPartialRecords();
     expect(records).toHaveLength(1);
     expect(records[0]?.reason).toBe("interrupted");

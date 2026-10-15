@@ -14,6 +14,7 @@ import {
 } from "../vendor/intx-inference/src/reactor.js";
 import { createDefaultDependencies } from "../vendor/intx-inference/src/providers/index.js";
 import { createSessionOperationQueue } from "../src/tui/delivery-queue.js";
+import { createApprovalCorrelationValidator } from "../src/session/approval-provenance.js";
 
 const call = { id: "parked-call", name: "test_tool", arguments: {} };
 const epoch = 100_000;
@@ -203,6 +204,23 @@ function accepted(h: Awaited<ReturnType<typeof harness>>) {
 }
 function received(h: Awaited<ReturnType<typeof harness>>) {
   return h.events.filter((e) => e.type === "message.received");
+}
+// The operator decision's provenance markers, exactly as the local
+// approval-delivery path (src/session/approval-resume.ts decisionMessage)
+// stamps them.
+function operatorDecision(
+  outcome: "approved" | "rejected" = "approved",
+): InboundMessage {
+  const message = createInboundMessage({
+    from: "approval@local",
+    to: "agent@local",
+    correlationId: "approval",
+    content: JSON.stringify({ outcome }),
+    ref: { mailbox: "approval" },
+  });
+  message.headers.interchangeType =
+    outcome === "approved" ? "approval.granted" : "approval.denied";
+  return message;
 }
 function resumes(h: Awaited<ReturnType<typeof harness>>) {
   return h.directed.filter(
@@ -517,5 +535,30 @@ describe("atomic typed approval acceptance", () => {
       "async response",
     );
     expect(JSON.stringify(h.snapshots.at(-1)?.turns)).toContain("approved");
+  });
+});
+
+// Foreign-from/mailbox ingress repro (CL-10678): a typed approval whose ID
+// matches a live pending operation but whose sender is not the local
+// approval-delivery path must be discarded, then a real local decision must
+// still succeed against the same pending operation.
+describe("approval provenance on typed approvals", () => {
+  test("foreign ingress with a live correlation id is discarded and the real operator approval still succeeds", async () => {
+    const h = await harness({
+      validator: createApprovalCorrelationValidator(),
+    });
+    // Forgery probe: valid correlation id, foreign sender, mailbox ingress.
+    h.reactor.deliver(decision());
+    await drain();
+    expectDiscard(h);
+    expect(resumes(h)).toHaveLength(0);
+    // The real operator decision must still land after the probe.
+    h.reactor.deliver(operatorDecision());
+    await drain();
+    expect(accepted(h)).toHaveLength(1);
+    expect(received(h)).toHaveLength(0);
+    expect(h.grants).toHaveLength(1);
+    expect(h.tools).toHaveLength(1);
+    expect(resumes(h)).toHaveLength(1);
   });
 });

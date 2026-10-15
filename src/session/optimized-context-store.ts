@@ -26,6 +26,7 @@ import type { ContextStore } from "@intx/types/runtime";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { loadOrCreateCommitSigner } from "./commit-signer.js";
 import { withResolvedDirLock } from "./session-dir-lock.js";
+import { scrubPersistedPendingOperations } from "./pending-snapshot-scrub.js";
 
 const TURNS_FILE = "turns.jsonl";
 const PROMPT_FILE = "prompt.jsonl";
@@ -1221,7 +1222,19 @@ export async function createSessionStores(
     writeResponse: (turn, signal) => base.writeResponse(turn, signal),
     writeManifest: (records, signal) => base.writeManifest(records, signal),
     writeTurns: (turns) => writeTurnsLiveOrStage(turns),
-    writeMetadata: (metadata, signal) => base.writeMetadata(metadata, signal),
+    writeMetadata: (metadata, signal) =>
+      // Approval snapshot args persist into metadata.json in the clear; scrub
+      // them at the app-owned write boundary (suspendedCall stays raw for the
+      // approved call's re-dispatch).
+      base.writeMetadata(
+        {
+          ...metadata,
+          pendingOperations: scrubPersistedPendingOperations(
+            metadata.pendingOperations,
+          ),
+        },
+        signal,
+      ),
     readManifestHistory: (limit, signal) =>
       base.readManifestHistory(limit, signal),
     async writeBlob(key, bytes, contentType, signal) {

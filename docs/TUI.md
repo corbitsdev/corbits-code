@@ -967,7 +967,7 @@ running its own selection. Two chords cover remaining copy needs:
     WezTerm, Kitty, and VS Code support it.
   - **Linux/Windows: Ctrl+click.** The app opens the URL through the
     platform opener (`open` on macOS as fallback, `xdg-open`, `rundll32
-url.dll,FileProtocolHandler` — argv spawns, never through a shell).
+    url.dll,FileProtocolHandler` — argv spawns, never through a shell).
   - **Right-click safety.** The open gesture requires a left (button-0)
     press with the modifier held, so Ctrl+right-click never opens a URL —
     context menus stay safe.

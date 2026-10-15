@@ -68,6 +68,53 @@ function turnTexts(turns: ConversationTurn[]): string[] {
   return turns.map((t) => (t.content[0] as { text: string }).text);
 }
 
+describe("createOptimizedContextStore writeMetadata approval snapshot scrubbing", () => {
+  test("persists approvalSnapshot args redacted while suspendedCall keeps raw args", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const secretArg = { api_key: "sk-test-0123456789abcdefghij" };
+    const op = {
+      correlationId: "corr-1",
+      kind: "approval" as const,
+      registeredAt: 1_700_000_000_000,
+      gateId: "gate-1",
+      suspendedCall: { id: "call-1", name: "run_shell", arguments: secretArg },
+      approvalSnapshot: {
+        name: "run_shell",
+        description: "runs a shell command",
+        inputSchema: {},
+        arguments: secretArg,
+      },
+    };
+    await store.writeMetadata({
+      pendingOperations: [op],
+      tokenUsage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        thinking: 0,
+      },
+    });
+    await store.commit({ message: "checkpoint: pending" });
+
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(dir, "metadata.json"), "utf8"),
+    ) as { pendingOperations: { approvalSnapshot: { arguments: object } }[] };
+    const persistedSubset = JSON.stringify(
+      persisted.pendingOperations[0]?.approvalSnapshot?.arguments,
+    );
+    // The approver-facing snapshot is redacted at rest ...
+    expect(persistedSubset).not.toContain("sk-test-0123456789abcdefghij");
+    // ... while the re-dispatch artifact round-trips raw: the approved call
+    // runs with the same arguments the operator saw when approving.
+    const loaded = await store.load();
+    expect(loaded.pendingOperations[0]?.suspendedCall?.arguments).toEqual(
+      secretArg,
+    );
+  });
+});
+
 describe("createOptimizedContextStore load", () => {
   test("resumes turns spread across multiple segments in order", async () => {
     const dir = tempDir();
