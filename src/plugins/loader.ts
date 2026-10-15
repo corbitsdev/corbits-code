@@ -29,7 +29,6 @@ import {
 import {
   originRequiresTrust,
   type PluginOrigin,
-  type ProjectTrustStore,
 } from "../trust/project-trust.js";
 
 export type { PluginLoadDiagnostics } from "./diagnostics.js";
@@ -1120,4 +1119,4 @@ function looksLikeVersionDirId(id: string): boolean {
 }
 
 /** Re-export for callers that need the type without importing trust directly. */
-export type { PluginOrigin, ProjectTrustStore };
+export type { PluginOrigin };

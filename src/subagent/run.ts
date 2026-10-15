@@ -297,12 +297,7 @@ function sleepUnlessAborted(
   });
 }
 
-export type {
-  NestedDispatchDeps,
-  RunSubAgentParams,
-  SubAgentProvider,
-  SubAgentSandboxDeps,
-} from "./types.js";
+export type { RunSubAgentParams, SubAgentProvider } from "./types.js";
 
 // Source used when no profile tier resolves. Exported for tests: catalog
 // entry markers pick the adapter (Bifrost virtual keys, Codex/xAI OAuth

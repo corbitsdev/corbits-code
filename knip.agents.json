@@ -1,0 +1,39 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/index.ts",
+    "src/tui/smoke.ts",
+    "scripts/*.ts",
+    "e2e/*.test.ts",
+    "evals/*.ts"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "testkit/**/*.ts",
+    "packages/**/*.ts",
+    "e2e/**/*.ts",
+    "evals/**/*.ts",
+    "scripts/**/*.ts",
+    "agents/**/*.ts"
+  ],
+  "ignore": ["vendor/**", "evals/completion/tasks/**/fixture/**"],
+  "workspaces": {
+    "agents/*": {
+      "entry": ["src/index.ts!"],
+      "project": ["src/**/*.ts!"]
+    }
+  },
+  "includeEntryExports": true,
+  "rules": {
+    "exports": "error",
+    "types": "error",
+    "files": "error",
+    "enumMembers": "error",
+    "namespaceMembers": "error",
+    "nsExports": "off",
+    "nsTypes": "off",
+    "duplicates": "off",
+    "cycles": "off"
+  },
+  "ignoreExportsUsedInFile": true
+}

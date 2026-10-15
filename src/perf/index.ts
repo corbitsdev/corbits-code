@@ -9,12 +9,7 @@
 import { isOpaqueId, sanitizeTags, type PerfTags } from "./sanitize.js";
 import { clearActiveTurnId } from "./active-turn.js";
 
-export {
-  sanitizeTags,
-  isOpaqueId,
-  ALLOWED_TAG_KEYS,
-  type PerfTags,
-} from "./sanitize.js";
+export { sanitizeTags, ALLOWED_TAG_KEYS, type PerfTags } from "./sanitize.js";
 
 export { type FlushPerfToOtelOptions } from "./otel-sink.js";
 

@@ -1,127 +1,77 @@
-# Dead-export allowlist for `bun run check:dead-exports` (CL-6797).
+# Dead-export allowlist for `bun run check:dead-exports`.
 #
-# Format: `#` lines are reasons and attach to the entries below them. An entry
-# is either a path prefix ending in `/` (matches a directory subtree), a full
-# file path (matches every export in that file), or `file: name` (matches one
-# export). Anything else (a directory without its trailing `/`, a `file:`
-# line that is not `path/to/file.ts: ExportName`) fails the gate.
+# An entry is `path/to/file.ts: ExportName`. `#` lines are the reason and
+# attach to the entries below them until a blank line. A directory prefix or a
+# bare file path still parses, but it blankets a surface, so this list does
+# not use one. Anything else fails the gate.
 #
-# Review convention: this repo has no CODEOWNERS, so every entry block should
-# name its owning lane in the reason comment above it, and changes to an
-# entry need that lane's review. The gate rejects entries with no reason
-# comment above them (presence only), and stale entries (matching no current ts-prune flag)
-# fail the gate: remove the entry with the code it covered.
+# The guard's finding set is the union of knip's default scan and its
+# `--production` agent-workspace scan. Stale entries fail the gate. An export
+# with no production importer is deleted, not added here. The upstream
+# `vendor/` mirror and completion-eval fixtures (loaded by path from
+# evals/completion/tasks.json, not imported) are knip `ignore` entries.
 #
-# Everything NOT listed here must have zero ts-prune flags: any export with no
-# consumer gets deleted instead of allowlisted.
-
-# Vendored upstream mirror (workspace vendor/intx-*). Its public surface is
-# owned upstream; pruning here would diverge the mirror and break sibling
-# vendor workspaces on the next sync. Prune upstream, not here.
-vendor/
-
-# Deferred Codex/xAI usage-data cleanup owned by the CL-6815 lane: these
-# modules are fully dead deferred code with no live importers (not test-only
-# helpers), and that lane decides their fate. Scoped to the exact ts-prune
-# flags so a new dead export in these files fails the guard instead of
-# hiding under a whole-file exemption. Remove each entry with the export it
-# names when the owning cleanup lands.
-src/auth/codex/constants.ts: CODEX_REFRESH_SKEW_MS
-src/auth/codex/constants.ts: CODEX_HEADLESS_REFRESH_INTERVAL_MS
-
-# ts-prune parser false positives: bare tokens on `as const satisfies ...`
-# lines inside live exports. None of these is an export declaration.
-src/provider/reasoning-effort.ts: satisfies
-src/tui/prompt-input.ts: satisfies
-src/agent/directors/identity.ts: satisfies
-src/agent/directors/identity.ts: Record
-packages/opencode-go/src/models.ts: satisfies
-packages/opencode-go/src/models.ts: readonly
-
-# Agent-package public API (CL-9800 extraction wave): each @corbits/code-agent-*
-# workspace package's six-name entry-point surface (agent, defineAgent, director,
-# tools, systemPrompt, config) is the package's public contract. The closed
-# director fan-in (src/agent/directors/registry.ts) consumes `director`; the
-# remaining names are public API by design (custom-agent authoring surface), and
-# were previously laundered through the deleted src/agent/fleet.ts tests-only
-# barrel. Honest public API — owned by the agent-template lane; remove with the
-# code if the package is deleted.
+# Public contract of each private @corbits/code-agent-* package (agent-template
+# lane): the custom-agent authoring surface. DIRECTOR_REGISTRY consumes
+# `director`, and src/agent/prompts.ts consumes dispatch's `systemPrompt`, so
+# those names are not listed. `agent` in `agent.ts` is the definition the
+# package entry re-exports.
 agents/dispatch/src/index.ts: agent
 agents/dispatch/src/index.ts: defineAgent
-agents/dispatch/src/config.ts: satisfies
-agents/dispatch/src/config.ts: boolean
+agents/dispatch/src/index.ts: tools
+agents/dispatch/src/index.ts: config
+agents/dispatch/src/agent.ts: agent
 agents/warden/src/index.ts: agent
 agents/warden/src/index.ts: defineAgent
-agents/warden/src/config.ts: satisfies
-agents/warden/src/config.ts: boolean
+agents/warden/src/index.ts: tools
+agents/warden/src/index.ts: systemPrompt
+agents/warden/src/index.ts: config
+agents/warden/src/agent.ts: agent
 agents/designer/src/index.ts: agent
 agents/designer/src/index.ts: defineAgent
-agents/designer/src/config.ts: satisfies
-agents/designer/src/config.ts: boolean
+agents/designer/src/index.ts: tools
+agents/designer/src/index.ts: systemPrompt
+agents/designer/src/index.ts: config
+agents/designer/src/agent.ts: agent
 agents/reviewer/src/index.ts: agent
 agents/reviewer/src/index.ts: defineAgent
-agents/reviewer/src/index.ts: director
 agents/reviewer/src/index.ts: tools
 agents/reviewer/src/index.ts: systemPrompt
 agents/reviewer/src/index.ts: config
-agents/reviewer/src/config.ts: satisfies
-agents/reviewer/src/config.ts: boolean
+agents/reviewer/src/agent.ts: agent
 agents/planner/src/index.ts: agent
 agents/planner/src/index.ts: defineAgent
-agents/planner/src/index.ts: director
 agents/planner/src/index.ts: tools
 agents/planner/src/index.ts: systemPrompt
 agents/planner/src/index.ts: config
-agents/planner/src/config.ts: satisfies
-agents/planner/src/config.ts: boolean
+agents/planner/src/agent.ts: agent
 agents/coder/src/index.ts: agent
 agents/coder/src/index.ts: defineAgent
-agents/coder/src/index.ts: director
 agents/coder/src/index.ts: tools
 agents/coder/src/index.ts: systemPrompt
 agents/coder/src/index.ts: config
-agents/coder/src/config.ts: satisfies
-agents/coder/src/config.ts: boolean
+agents/coder/src/agent.ts: agent
 agents/explorer/src/index.ts: agent
 agents/explorer/src/index.ts: defineAgent
-agents/explorer/src/index.ts: director
 agents/explorer/src/index.ts: tools
 agents/explorer/src/index.ts: systemPrompt
 agents/explorer/src/index.ts: config
-agents/explorer/src/config.ts: satisfies
-agents/explorer/src/config.ts: boolean
-
-# Versioned prompt-variance package public surface (CL-8269 lane,
-# agent-owned). Family rows data re-exported through the package entry point;
-# no in-repo barrel consumer exists yet for the entries below (src/ consumes
-# claudeRow, gptRow, grokRow, grokToolBudgetResidual, and museRow through the
-# barrel, and the package tests import the backing modules directly). Scoped
-# to the exact ts-prune flags so a new dead export in this barrel fails the
-# guard instead of hiding under a whole-file exemption. Remove each entry
-# with the export it names if the public surface shrinks.
-packages/prompt-variance/src/index.ts: defaultRow
-packages/prompt-variance/src/index.ts: FAMILY_IDS
-packages/prompt-variance/src/index.ts: FAMILY_ROWS
-packages/prompt-variance/src/index.ts: PromptVarianceFamily
-packages/prompt-variance/src/index.ts: PromptVarianceRow
-
-# Agent-package public API (CL-9800 extraction wave): each @corbits/code-agent-*
-# workspace package's six-name entry-point surface (agent, defineAgent, director,
-# tools, systemPrompt, config) is the package's public contract. The closed
-# director fan-in (src/agent/directors/registry.ts) consumes `director`; the
-# remaining names are public API by design (custom-agent authoring surface), and
-# were previously laundered through the deleted src/agent/fleet.ts tests-only
-# barrel. Honest public API — owned by the agent-template lane; remove with the
-# code if the package is deleted.
+agents/explorer/src/agent.ts: agent
 agents/artist/src/index.ts: agent
 agents/artist/src/index.ts: defineAgent
-agents/artist/src/config.ts: satisfies
-agents/artist/src/config.ts: boolean
+agents/artist/src/index.ts: tools
+agents/artist/src/index.ts: systemPrompt
+agents/artist/src/index.ts: config
+agents/artist/src/agent.ts: agent
 agents/shakespeare/src/index.ts: agent
 agents/shakespeare/src/index.ts: defineAgent
-agents/shakespeare/src/config.ts: satisfies
-agents/shakespeare/src/config.ts: boolean
+agents/shakespeare/src/index.ts: tools
+agents/shakespeare/src/index.ts: systemPrompt
+agents/shakespeare/src/index.ts: config
+agents/shakespeare/src/agent.ts: agent
 agents/prober/src/index.ts: agent
 agents/prober/src/index.ts: defineAgent
-agents/prober/src/config.ts: satisfies
-agents/prober/src/config.ts: boolean
+agents/prober/src/index.ts: tools
+agents/prober/src/index.ts: systemPrompt
+agents/prober/src/index.ts: config
+agents/prober/src/agent.ts: agent
