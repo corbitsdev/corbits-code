@@ -762,6 +762,11 @@ class ChatDirectorImpl extends DefaultDirector {
     return this.compaction.requestHandoff(instructions);
   }
 
+  /** A compact that kept prior context: do not infer on the queued continuation. */
+  noteCompactionKeptPrior(): void {
+    this.compaction.noteKeptPrior();
+  }
+
   // Drop a handoff arming whose pivot never delivered, so the next operator
   // message does not fold unexpectedly.
   cancelManualCompact(): void {
@@ -888,6 +893,9 @@ class ChatDirectorImpl extends DefaultDirector {
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
     const afterCompact = this.compaction.resumeAfterCompact(event);
+    // noteKeptPrior clears the resume flags during apply, before this
+    // continuation is decided. A keep-prior handoff must wait, not infer
+    // on the unchanged transcript.
     if (afterCompact !== null) {
       // Compacted history is the live occupancy until the next
       // inference.done; paint from the estimate meanwhile.
@@ -1358,4 +1366,6 @@ export interface ChatDirector extends ReactorDirector {
   requestHandoff(instructions: string): HandoffArming;
   /** Drop a handoff arming whose pivot never delivered. */
   cancelManualCompact(): void;
+  /** Compact kept the prior transcript; the queued continuation must not infer. */
+  noteCompactionKeptPrior(): void;
 }
