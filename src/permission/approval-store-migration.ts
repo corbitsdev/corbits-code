@@ -192,7 +192,6 @@ export async function migratePersistedApprovalStores(
       });
     }
   }
-  // One summary warn per migration, not one per store file.
   const failed = files.filter((file) => file.error !== undefined);
   if (failed.length > 0) {
     log.warn("Skipped approval-store migration: {details}", {

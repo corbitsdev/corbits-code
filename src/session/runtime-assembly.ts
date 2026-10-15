@@ -149,9 +149,7 @@ export async function loadSeededApprovals(
   // residual throw from breaking session start.
   try {
     await migratePersistedApprovalStores(cwd, sessionId, home);
-  } catch {
-    // Swallowed on purpose: the migration already surfaced the cause.
-  }
+  } catch {}
   const sessionApprovals = await loadApprovals(cwd, sessionId, home);
   const [
     projectApprovals,

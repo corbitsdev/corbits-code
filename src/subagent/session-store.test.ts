@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import { getLogger } from "@intx/log";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 import {
   createSubAgentSessionStore,
@@ -656,24 +658,36 @@ describe("CL-6943 reusable worker sessions", () => {
   });
 
   test("rejected followup restores strip status so interrupt_agent fails closed", async () => {
-    const store = createSubAgentSessionStore();
-    const session = retainedSession(store, {
-      interrupt: true,
-      followup: async () => {
-        throw new Error("send failed");
-      },
-      complete: "## Summary\nDone.",
-    });
-    resumeCompleted(store, session.id);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const errorLog = spyOn(
+      getLogger([LOG_NAMESPACE_ROOT, "subagent", "session-store"]),
+      "error",
+    );
+    try {
+      const store = createSubAgentSessionStore();
+      const session = retainedSession(store, {
+        interrupt: true,
+        followup: async () => {
+          throw new Error("send failed");
+        },
+        complete: "## Summary\nDone.",
+      });
+      resumeCompleted(store, session.id);
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const after = store.get(session.id);
-    expect(after?.status).toBe("done");
-    expect(after?.lifecycleStatus).toBe("completed");
-    expect(store.interruptOne(session.id)).toEqual({
-      ok: false,
-      status: "completed",
-    });
+      const after = store.get(session.id);
+      expect(after?.status).toBe("done");
+      expect(after?.lifecycleStatus).toBe("completed");
+      expect(store.interruptOne(session.id)).toEqual({
+        ok: false,
+        status: "completed",
+      });
+      expect(errorLog).toHaveBeenCalledWith(
+        "followup turn failed for {id}: {error}",
+        { id: session.id, error: "send failed" },
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   test("rejected followup after interrupt restamps stopReason interrupted", async () => {
