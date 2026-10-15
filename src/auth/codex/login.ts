@@ -1,6 +1,5 @@
 import {
   buildAuthorizeUrl,
-  openInBrowser,
   startOAuthLogin,
   type OAuthLoginHandle,
   type StartOAuthLoginOptions,
@@ -15,8 +14,6 @@ import type { CallbackPageCopy } from "../callback-page.js";
 import { saveCodexProfile } from "../../config/oauth-stores.js";
 import { startCodexCallbackServer } from "./callback-server.js";
 import { withDefaultCodexExpiry } from "./store.js";
-
-export { openInBrowser };
 
 export type CodexLoginHandle = OAuthLoginHandle<CodexTokens>;
 export type StartCodexLoginOptions = StartOAuthLoginOptions & {

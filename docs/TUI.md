@@ -878,11 +878,11 @@ sent messages. Once a real `paste` event has fired even once, the fallback
 heuristic is permanently skipped for the rest of the session
 (`src/tui/shell/keys.ts`, the `sawBracketedPaste` guard).
 
-Ctrl+V and Ctrl+P attach a PNG from the macOS clipboard
+Ctrl+V and Ctrl+P attach an image from the system clipboard
 (`attachClipboardImage` in `src/tui/shell/prompt.ts` → `readClipboardImage` in
-`image-attachments.ts`).
-Cmd+V stays text (bracketed paste above). Clipboard image attach is
-macOS-only; Linux/Windows bitmap clipboard paste is not supported.
+`image-attachments.ts`, which reads through the OpenTUI clipboard service).
+Cmd+V stays text (bracketed paste above). The host clipboard backend reads
+PNG, JPEG, GIF, and WebP where the platform supports image clipboard data.
 `/paste-image` is the same attach path.
 
 @-mention path completion opens a popup keyed off the `@token` under the
@@ -1042,7 +1042,12 @@ before any other Corbits code executes: the TUI holds the alternate screen
 for the rest of the process, and anything landing on the real terminal
 mid-frame corrupts the paint. Anything the operator must actually see goes
 through the transcript (`appendStreamRow`) or a chrome notice — never a log
-line.
+line. Confirmation flashes stay on the status row and are also mirrored with
+`console.info` into OpenTUI's Console overlay (`consoleMode: "console-overlay"`,
+the production renderer default). The overlay is an in-frame observation
+surface: it stays hidden unless `SHOW_CONSOLE` is set, and it is not a
+durability surface. The file sink remains mandatory, because a log line emitted
+before a renderer exists has nowhere else to go.
 
 ## Test-harness blind spots
 
@@ -1068,6 +1073,11 @@ terminal. It cannot observe:
 - **The system clipboard.** `system-clipboard.ts`'s helper-binary spawns and
   OSC 52 fallback are exercised with mocked spawn functions in tests; no
   test round-trips through a real `pbcopy`/`xclip`/terminal clipboard.
+- **A shown Console overlay.** Headless suites can enable
+  `consoleMode: "console-overlay"` and read `renderer.console.getCachedLogs()`
+  while the overlay stays hidden. That pins that a mirrored flash was captured
+  and that a hidden console adds no rows to `captureCharFrame`. It does not
+  show whether a real terminal paints the overlay when `SHOW_CONSOLE` is set.
 - **Terminal-owned text selection.** Native drag-select only exists once DEC
   mouse reporting is off and a real terminal emulator is running; there is
   no terminal emulator in the test harness to select text in. OpenTUI

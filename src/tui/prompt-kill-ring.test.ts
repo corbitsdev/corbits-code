@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defined } from "../../testkit/defined.js";
+import { withTestRenderer } from "./harness";
+import { createAppShell } from "./shell/index";
 import {
   beginYank,
   breakKillSequence,
@@ -93,5 +95,22 @@ describe("killedTextForward / killedTextBackward", () => {
 
   test("backward diff is empty when the cursor did not move back", () => {
     expect(killedTextBackward("hello", 3, 3)).toBe("");
+  });
+});
+
+describe("prompt kill ring chords", () => {
+  test("ctrl+u then ctrl+y yanks the killed line back through mock keys", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      });
+      await h.mockInput.typeText("hello world");
+      expect(shell.prompt.value).toBe("hello world");
+      h.pressKey("u", { ctrl: true });
+      expect(shell.prompt.value).toBe("");
+      h.pressKey("y", { ctrl: true });
+      expect(shell.prompt.value).toBe("hello world");
+    });
   });
 });

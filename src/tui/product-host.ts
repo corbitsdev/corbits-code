@@ -4,7 +4,11 @@
  */
 
 import { EventEmitter } from "node:events";
-import { createCliRenderer, type CliRenderer } from "@opentui/core";
+import {
+  createCliRenderer,
+  type CliRenderer,
+  type ProgramStatus,
+} from "@opentui/core";
 
 import { createLiveSessionPort } from "./live-session-port.js";
 import { checkWidthContract, widthContractNotice } from "./width-contract.js";
@@ -16,8 +20,9 @@ import {
 } from "./runtime-bridge.js";
 import type { ShellOutputFeed } from "../session/shell-output-feed.js";
 import { openAddProviderOverlay, openModelPickerOverlay } from "./overlays.js";
-import { wireGates } from "./gate-wire.js";
+import { wireGates, type NotifierPort } from "./gate-wire.js";
 import { createSystemClipboard } from "./system-clipboard.js";
+import { programStatusForChrome } from "./program-status.js";
 import {
   AGENTS_PANEL_LINGER_MS,
   agentsChromeNeedsSticky,
@@ -260,6 +265,15 @@ export interface ProductHostConfig {
    * resends wheel input as arrow keys; with it, drag-select is OpenTUI-owned
    * and auto-copies on mouse-up (Alt+M returns to native selection). */
   readonly useMouse?: boolean;
+  /** OSC 7501 sink. Default calls `renderer.setProgramStatus` and ignores a
+   * false return (terminal inactive, output full, or destroyed). */
+  readonly programStatus?: ProgramStatusPort;
+  /** Gate attention ping. Default calls `renderer.triggerNotification`. */
+  readonly notifier?: NotifierPort;
+}
+
+export interface ProgramStatusPort {
+  set(status: ProgramStatus): boolean;
 }
 
 export interface ProductHost {
@@ -384,17 +398,41 @@ export async function mountProductHost(
   const agentsPanelLingerMs =
     config.agentsPanelLingerMs ?? AGENTS_PANEL_LINGER_MS;
   let chromeState: ChromeLiveState | null = config.chrome ?? null;
+  const programStatus: ProgramStatusPort = config.programStatus ?? {
+    set: (status) => {
+      try {
+        return renderer.setProgramStatus(status);
+      } catch {
+        return false;
+      }
+    },
+  };
+  let openGates = 0;
+  let lastProgramStatus = "";
+  const publishProgramStatus = (): void => {
+    const status = programStatusForChrome({
+      tasks: chromeState?.task,
+      agents: chromeState?.agents,
+      stalled: chromeState?.stalled ?? bridge.isTurnStalled(),
+      gateOpen: openGates > 0,
+    });
+    const key = JSON.stringify(status);
+    if (key === lastProgramStatus) return;
+    if (programStatus.set(status)) lastProgramStatus = key;
+  };
   const paintChromeZones = (): void => {
     if (chromeState === null) {
       setChromeZones(shell, { task: null, agents: null });
-      return;
+    } else {
+      setChromeZones(
+        shell,
+        formatChromeZones(chromeState, Date.now(), agentsPanelLingerMs),
+      );
     }
-    setChromeZones(
-      shell,
-      formatChromeZones(chromeState, Date.now(), agentsPanelLingerMs),
-    );
+    publishProgramStatus();
   };
   if (chromeState !== null) paintChromeZones();
+  else publishProgramStatus();
 
   let disposed = false;
   let resolveExit: (() => void) | undefined;
@@ -443,6 +481,8 @@ export async function mountProductHost(
       // formatAgentsPanel returns null after linger.
       if (stickyNeeded || stickyWasNeeded) {
         paintChromeZones();
+      } else {
+        publishProgramStatus();
       }
       stickyWasNeeded = stickyNeeded;
     } catch {
@@ -467,6 +507,11 @@ export async function mountProductHost(
     config.eventEmitter.off("compaction", onCompaction);
     config.eventEmitter.off("workflow", onWorkflow);
     bridge.dispose();
+    try {
+      programStatus.set({ state: "clear" });
+    } catch {
+      // renderer already gone
+    }
     // Cancels any flash still counting down: its expiry repaints into a
     // destroyed text buffer after teardown.
     setStatusFlash(shell, null);
@@ -507,6 +552,15 @@ export async function mountProductHost(
       return;
     }
     setStatusFlash(shell, notice.text, { ttlMs: RUNTIME_FLASH_MS });
+    // The status flash stays the operator-visible confirmation. The console
+    // overlay is the durable observation surface (hidden unless SHOW_CONSOLE).
+    // Headless tests leave consoleMode disabled, so this must not call the
+    // real console and paint the test runner.
+    if (renderer.consoleMode === "console-overlay") {
+      // Intentional: TerminalConsole captures console.* into the overlay.
+      // eslint-disable-next-line no-console
+      console.info(notice.text);
+    }
   }
 
   function onHook(event: unknown): void {
@@ -559,12 +613,29 @@ export async function mountProductHost(
   let disposeGates: () => void;
   try {
     disposeGates = wireGates(config.eventEmitter, shell, {
-      onGateOpened: () => bridge.gateOpened(),
-      onGateClosed: () => bridge.gateClosed(),
+      onGateOpened: () => {
+        openGates += 1;
+        bridge.gateOpened();
+        publishProgramStatus();
+      },
+      onGateClosed: () => {
+        openGates = Math.max(0, openGates - 1);
+        bridge.gateClosed();
+        publishProgramStatus();
+      },
       onPrimaryOperatorAdmitted: (event) =>
         setOperatorInputRequiredGate(shell, event),
       onPrimaryOperatorSettled: (event) =>
         clearOperatorInputRequired(shell, event.id),
+      notify: config.notifier ?? {
+        notify: (message, title) => {
+          try {
+            return renderer.triggerNotification(message, title);
+          } catch {
+            return false;
+          }
+        },
+      },
     });
   } catch (err: unknown) {
     try {

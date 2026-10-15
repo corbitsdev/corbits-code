@@ -22,6 +22,7 @@ import {
   workerPermissionGate,
 } from "../permission/reactor-authorize.js";
 import { createSessionStores } from "../session/optimized-context-store.js";
+import { redactedCorrelationId } from "../session/redacted-correlation.js";
 import { createShellOutputFeedMap } from "../session/shell-output-feed.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { type } from "arktype";
@@ -195,6 +196,7 @@ import {
   createResumeAgentTool,
   createInterruptAgentTool,
   createSendInputTool,
+  createApproveWorkerCallTool,
 } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import type {
@@ -218,9 +220,11 @@ export function assertReplySend(
   result: SendResult,
 ): asserts result is Extract<SendResult, { type: "reply" }> {
   if (result.type === "reply") return;
+  // Error text carries only the redacted form; the live capability stays on
+  // the structured .correlationId property.
   const error = new Error(
     `Sub-agent send returned a suspended result ` +
-      `(correlationId=${result.correlationId}` +
+      `(correlationId=${redactedCorrelationId(result.correlationId)}` +
       `${result.approvalSnapshot !== undefined ? ", approvalSnapshot present" : ""})`,
   );
   Object.assign(error, {
@@ -293,12 +297,7 @@ function sleepUnlessAborted(
   });
 }
 
-export type {
-  NestedDispatchDeps,
-  RunSubAgentParams,
-  SubAgentProvider,
-  SubAgentSandboxDeps,
-} from "./types.js";
+export type { RunSubAgentParams, SubAgentProvider } from "./types.js";
 
 // Source used when no profile tier resolves. Exported for tests: catalog
 // entry markers pick the adapter (Bifrost virtual keys, Codex/xAI OAuth
@@ -751,6 +750,7 @@ async function runSubAgentInner(
   let backgroundExitSink: ((exit: BackgroundShellExit) => void) | null = null;
   const backgroundShells = createBackgroundShellRegistry({
     onExit: (exit) => backgroundExitSink?.(exit),
+    ...(params.sandbox !== undefined ? { sandbox: params.sandbox } : {}),
   });
   // A worker whose capability filter drops run_shell has no bash to detach
   // from; the getter stays live so the filter below can unwire it first.
@@ -785,6 +785,7 @@ async function runSubAgentInner(
       ...(params.secretGuardExtraDeniedPaths !== undefined
         ? { secretGuardExtraDeniedPaths: params.secretGuardExtraDeniedPaths }
         : {}),
+      ...(params.sandbox !== undefined ? { sandbox: params.sandbox } : {}),
       readFileGuard: {
         blobReader: sessionBlobReader,
         canExecuteHostCommands: () => hostCommandsMounted,
@@ -1021,6 +1022,7 @@ async function runSubAgentInner(
         "resume_agent",
         "interrupt_agent",
         "send_input",
+        "approve_worker_call",
       ]) {
         assertTierMayMountFleetVerb(tier, verb);
       }
@@ -1075,6 +1077,7 @@ async function runSubAgentInner(
         ...(nd.secretGuardExtraDeniedPaths !== undefined
           ? { secretGuardExtraDeniedPaths: nd.secretGuardExtraDeniedPaths }
           : {}),
+        ...(nd.sandbox !== undefined ? { sandbox: nd.sandbox } : {}),
         ...(nd.skillDirs !== undefined ? { skillDirs: nd.skillDirs } : {}),
         // Nested shared-cwd lanes reuse this worker's catalog, discovered
         // (or inherited) for exactly this cwd.
@@ -1128,6 +1131,12 @@ async function runSubAgentInner(
           sessions: fleetSessions,
           fleetRecords,
           authority: lifecycleAuthority,
+        }),
+        createApproveWorkerCallTool({
+          sessions: fleetSessions,
+          fleetRecords,
+          authority: lifecycleAuthority,
+          permissionGate: nd.permissionGate,
         }),
       ];
     }

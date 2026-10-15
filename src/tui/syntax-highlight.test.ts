@@ -1,6 +1,7 @@
 /**
  * Fenced-code highlighting: colour lives in the native renderer
- * (transcriptSyntaxStyle() over the bundled tree-sitter grammars), while the
+ * (the per-renderer SyntaxStyle built by transcriptSyntaxStyle(h.renderer)
+ * over the bundled tree-sitter grammars), while the
  * synchronous StyledSegment model keeps geometry only. These tests pin both
  * halves: the plain sync fallback and the language parity the native renderer
  * applies.
@@ -9,6 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import { MarkdownRenderable, RGBA, type CapturedSpan } from "@opentui/core";
 import { withTestRenderer, type Harness } from "./harness";
+import { settleSpans } from "./test-helpers";
 import { appendStreamRow } from "./shell/chrome.js";
 import { createAppShell } from "./shell/index.js";
 import { transcriptSyntaxStyle } from "./stream";
@@ -41,7 +43,7 @@ const SYNTAX_FGS = [KEYWORD_FG, STRING_FG, COMMENT_FG, FUNCTION_FG];
 function renderFence(h: Harness, fence: string): void {
   h.root.add(
     new MarkdownRenderable(h.renderer, {
-      syntaxStyle: transcriptSyntaxStyle(),
+      syntaxStyle: transcriptSyntaxStyle(h.renderer),
       fg: UI.text,
       width: 80,
       flexShrink: 0,
@@ -49,19 +51,6 @@ function renderFence(h: Harness, fence: string): void {
       streaming: false,
     }),
   );
-}
-
-async function settleSpans(
-  h: Harness,
-  ready: (spans: CapturedSpan[]) => boolean,
-): Promise<CapturedSpan[]> {
-  let spans = h.captureSpans().lines.flatMap((line) => line.spans);
-  for (let i = 0; i < 400 && !ready(spans); i++) {
-    await h.renderOnce();
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    spans = h.captureSpans().lines.flatMap((line) => line.spans);
-  }
-  return spans;
 }
 
 function coloured(spans: CapturedSpan[], text: string, fg: RGBA): boolean {

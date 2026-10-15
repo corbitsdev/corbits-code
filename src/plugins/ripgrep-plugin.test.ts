@@ -11,7 +11,7 @@ import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { defined } from "../../testkit/defined.js";
 import { withTempDir } from "../../testkit/temporary-dirs.js";
-import type { SpawnRg } from "./rg-run.js";
+import type { SpawnRg } from "../search/rg-run.js";
 import { scriptedRgSpawn, stalledRgSpawn } from "./test-helpers.js";
 
 // Repo root derived from this file, not process.cwd(): these cases search real

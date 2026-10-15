@@ -4,7 +4,6 @@ import { codexOAuthConfig } from "@corbits/codex-provider";
 export {
   CODEX_BASE_URL,
   CODEX_REDIRECT_URI,
-  CODEX_REFRESH_SKEW_MS,
   CODEX_RESPONSES_PATH,
 } from "@corbits/codex-provider";
 
@@ -38,7 +37,3 @@ export const CODEX_DEFAULT_MODELS = [
   "gpt-5.6-luna",
   "gpt-5.4-mini",
 ] as const;
-
-// How often a headless run re-checks its Codex token and reseeds the source.
-// Half the skew so the refresh window is never missed between ticks.
-export const CODEX_HEADLESS_REFRESH_INTERVAL_MS = 30_000;

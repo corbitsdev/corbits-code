@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { SendResult } from "@intx/agent";
 
 import { assertReplySend } from "./run.js";
+import { redactedCorrelationId } from "../session/redacted-correlation.js";
 
 describe("assertReplySend", () => {
   test("passes through a reply result", () => {
@@ -14,9 +15,10 @@ describe("assertReplySend", () => {
   });
 
   test("carries the suspension type and correlationId on the thrown error", () => {
+    const correlationId = "6f4f7c16-2e21-4a2d-9f4b-7c1e93a88b41";
     const result: SendResult = {
       type: "suspended",
-      correlationId: "corr-123",
+      correlationId,
     };
     let thrown: unknown;
     try {
@@ -29,10 +31,13 @@ describe("assertReplySend", () => {
       suspendedType?: string;
       correlationId?: string;
     };
-    expect(error.message).toContain("suspended");
-    expect(error.message).toContain("corr-123");
+    // Message text is redacted; the structured property keeps the full ID.
+    expect(error.message).toContain(
+      `correlationId=${redactedCorrelationId(correlationId)}`,
+    );
+    expect(error.message).not.toContain(correlationId);
     expect(error.suspendedType).toBe("suspended");
-    expect(error.correlationId).toBe("corr-123");
+    expect(error.correlationId).toBe(correlationId);
   });
 
   test("reports when the suspension carries an approval snapshot", () => {

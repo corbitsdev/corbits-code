@@ -17,7 +17,11 @@
 
 import { ArkErrors, type } from "arktype";
 import type { ConversationTurn, StrategyBlob } from "@intx/types/runtime";
+import { getLogger } from "@intx/log";
 import { VERIFY_REPAIR_HEADING } from "./compaction-verify.js";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "session", "compaction"]);
 
 // Canonical home of the fold marker. compactor.ts re-exports it; this module
 // owns the literal.
@@ -875,7 +879,13 @@ export async function tryReadPriorHandoffFile(
   if (readBlob === undefined) return undefined;
   try {
     return new TextDecoder().decode(await readBlob(HANDOFF_LATEST_KEY));
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // A miss ("Blob not found") is the first compaction of a session, not a
+    // dropped handoff; only a present file failing to read is worth a receipt.
+    if (!/not found/i.test(message)) {
+      logger.warn`prior compaction handoff dropped handoff=${HANDOFF_LATEST_KEY} error=${message}`;
+    }
     return undefined;
   }
 }

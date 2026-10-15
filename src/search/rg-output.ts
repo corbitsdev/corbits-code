@@ -1,3 +1,5 @@
+import { NARROW_SEARCH_HINT } from "../plugins/tool-time-budget.js";
+
 // Collects a ripgrep run's stdout and decides its outcome. `data`, `close`
 // and the timeout fire in a platform-dependent order, so the decision lives
 // here rather than in the handlers: the collector owns the accumulated bytes
@@ -79,7 +81,7 @@ export function createRgCollector(maxOutputBytes: number): RgCollector {
       return settle({
         kind: "partial",
         stdout,
-        notice: `ripgrep timed out after ${timeoutMs}ms — showing partial results; narrow path/glob`,
+        notice: `ripgrep timed out after ${timeoutMs}ms — showing partial results; ${NARROW_SEARCH_HINT}`,
       });
     },
   };

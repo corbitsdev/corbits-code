@@ -9,7 +9,10 @@ import { createCorbitsRetryPolicy } from "../agent/retry-policy.js";
 import { COMPACT_NOOP_FLOOR } from "../session/compactor.js";
 import { SubAgentDirector } from "./nudge-director.js";
 import type { AdmissionQueue } from "./admission.js";
-import { createTestCapabilities } from "./director-test-harness.js";
+import {
+  stubReactorCapabilities,
+  stubReactorCapabilitiesWith,
+} from "../../testkit/reactor-stubs.js";
 import { defined } from "../../testkit/defined.js";
 import {
   PASS_PLAN_ENVELOPE,
@@ -35,7 +38,7 @@ function makeDirector(): {
   caps: ReactorCapabilities;
 } {
   const director = new SubAgentDirector("system", [], undefined, 30);
-  const caps = createTestCapabilities();
+  const caps = stubReactorCapabilities;
   return { director, caps };
 }
 
@@ -281,7 +284,7 @@ function stallDirector(now0: number): {
     1_000,
     () => now,
   );
-  const caps = createTestCapabilities();
+  const caps = stubReactorCapabilities;
   return {
     director,
     caps,
@@ -438,7 +441,7 @@ describe("SubAgentDirector tool failure recovery", () => {
       30,
       frozenNow,
     );
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     await director.decide(
       inferenceDone(["failed-at-threshold"], 999_999),
@@ -481,8 +484,7 @@ describe("SubAgentDirector tool failure recovery", () => {
   test("recovery nudge appends to ephemeral turns already on the infer", async () => {
     const { director, caps } = makeDirector();
     // Seed an ephemeral turn only when the caller supplied none.
-    const seeding: ReactorCapabilities = {
-      ...caps,
+    const seeding = stubReactorCapabilitiesWith({
       infer: (options) => {
         const existing = (options as { ephemeralTurns?: unknown[] } | undefined)
           ?.ephemeralTurns;
@@ -501,7 +503,7 @@ describe("SubAgentDirector tool failure recovery", () => {
             : {}),
         });
       },
-    };
+    });
 
     await director.decide(inferenceDone(["seeded-fail"]), state, seeding);
     const texts = ephemeralTexts(
@@ -560,7 +562,7 @@ describe("SubAgentDirector tool failure recovery", () => {
       30,
       frozenNow,
     );
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     await director.decide(inferenceDone(["failed-then-overflow"]), state, caps);
     const texts = ephemeralTexts(
@@ -604,7 +606,7 @@ describe("SubAgentDirector tool failure recovery", () => {
       30,
       frozenNow,
     );
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     await director.decide(inferenceDone(["failed-then-done"]), state, caps);
     const recovered = ephemeralTexts(
@@ -861,7 +863,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
       30,
       frozenNow,
     );
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
     const records: { id: string; class: string }[] = [];
     director.observeInterventions((event) => {
       records.push({ id: event.id, class: event.class });
@@ -973,7 +975,7 @@ describe("SubAgentDirector plan-substance wiring", () => {
       false,
       true,
     );
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     const result = actions(
       await director.decide(inferenceDoneText(STUB_PLAN_ENVELOPE), state, caps),
@@ -1005,7 +1007,7 @@ describe("SubAgentDirector plan-substance wiring", () => {
       false,
       true,
     );
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     await director.decide(inferenceDoneText(STUB_PLAN_ENVELOPE), state, caps);
 
@@ -1032,7 +1034,7 @@ describe("SubAgentDirector plan-substance wiring", () => {
       false,
       true,
     );
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     const result = actions(
       await director.decide(inferenceDoneText(PASS_PLAN_ENVELOPE), state, caps),
@@ -1054,7 +1056,7 @@ describe("SubAgentDirector plan-substance wiring", () => {
       false,
       true,
     );
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
     const wrapPlan = [
       "## Summary",
       "Plan after reading the gate.",
@@ -1094,7 +1096,7 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
       1000,
       () => now,
     );
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     await readOnce(director, state, caps);
     await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps);
@@ -1112,7 +1114,7 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
 
   test("a non-empty parent follow-up re-opens inference after a report reply", async () => {
     const director = new SubAgentDirector("system", [], undefined, 1000);
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     await readOnce(director, state, caps);
     await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps);
@@ -1130,7 +1132,7 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
 
   test("empty continuation after incomplete-report-stop salvage waits instead of re-inferring", async () => {
     const director = new SubAgentDirector("system", [], undefined, 1000);
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     const salvage = await narratingSalvage(director, state, caps);
     expect(salvage).toContainEqual({
@@ -1152,7 +1154,7 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
       },
       1000,
     );
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     // Under-threshold tooling so tool.done does not compact before the report.
     await readOnce(director, longState, caps);
@@ -1195,7 +1197,7 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
 
   test("repeated empty continuations after a report reply keep waiting", async () => {
     const director = new SubAgentDirector("system", [], undefined, 1000);
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     await readOnce(director, state, caps);
     await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps);
@@ -1335,7 +1337,7 @@ describe("SubAgentDirector ask_director park wait-guard", () => {
       () => now,
     );
     director.observeAskPending(() => parked);
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     await director.decide(inferenceDoneText("which file?"), state, caps);
     now += 60_000;
@@ -1362,7 +1364,7 @@ describe("SubAgentDirector ask_director park wait-guard", () => {
       frozenNow,
     );
     director.observeAskPending(() => parked);
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     const compact = actions(
       await director.decide(overflowError(), state, caps),
@@ -1401,7 +1403,7 @@ describe("SubAgentDirector ask_director park wait-guard", () => {
       () => now,
     );
     director.observeAskPending(() => parked);
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     await director.decide(inferenceDoneText("which file?"), state, caps);
     now += 60_000;
@@ -1478,7 +1480,7 @@ describe("SubAgentDirector idle stall ping", () => {
       60_000,
       () => now,
     );
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     const compact = actions(
       await director.decide(overflowError(), state, caps),
@@ -1512,7 +1514,7 @@ describe("SubAgentDirector idle stall ping", () => {
       60_000,
       () => now,
     );
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     await readOnce(director, longState, caps);
     const complete = actions(
@@ -1557,7 +1559,7 @@ describe("SubAgentDirector idle stall ping", () => {
       stallTimeoutMs,
       () => now,
     );
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     await director.decide(inferenceDoneText("working"), longState, caps);
 
@@ -1585,7 +1587,7 @@ describe("SubAgentDirector idle stall ping", () => {
 
   test("no stall timeout waits on an unsolicited empty continuation", async () => {
     const director = new SubAgentDirector("system", [], undefined);
-    const caps = createTestCapabilities();
+    const caps = stubReactorCapabilities;
 
     await director.decide(inferenceDoneText("working"), state, caps);
     const ping = actions(
@@ -1633,7 +1635,7 @@ describe("SubAgentDirector infer retryPolicy", () => {
       await director.decide(
         messageReceived("go"),
         state,
-        createTestCapabilities(),
+        stubReactorCapabilities,
       ),
     );
     const stamped = infer.options?.retryPolicy;

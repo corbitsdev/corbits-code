@@ -19,13 +19,13 @@ import {
   createSegmentedJSONLWriter,
   highestSegmentIndex,
   listSegmentFiles,
-  readExtraSegmentTexts,
   segmentFileName,
 } from "./incremental-jsonl.js";
 import type { ContextStore } from "@intx/types/runtime";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { loadOrCreateCommitSigner } from "./commit-signer.js";
 import { withResolvedDirLock } from "./session-dir-lock.js";
+import { scrubPersistedPendingOperations } from "./pending-snapshot-scrub.js";
 
 const TURNS_FILE = "turns.jsonl";
 const PROMPT_FILE = "prompt.jsonl";
@@ -53,12 +53,43 @@ const BLOB_EXTENSIONS: Readonly<Record<string, string>> = {
 
 const UNSAFE_FILENAME_CHARS = /[^a-zA-Z0-9_-]/g;
 
+/**
+ * Commit-time record of the contiguous turn segments tracked at that commit.
+ * `readAt` reads this blob instead of walking the commit tree, and reads the
+ * listed segments' blobs concurrently. Recomputed from disk truth every
+ * commit, so a worktree manifest left behind by a failed commit self-corrects
+ * on the next one.
+ */
+const SEGMENT_MANIFEST_FILE = "segment-manifest.json";
+const EMPTY_SEGMENT_MANIFEST = JSON.stringify({ turnSegments: [] });
+
+const SegmentManifestSchema = type({
+  turnSegments: "string[]",
+});
+
+// Only rolling-segment names are ever written here; anything else in a read
+// manifest means it was not written by this store.
+const TURN_SEGMENT_NAME_PATTERN = /^turns(-\d+)?\.jsonl$/;
+
 const ConversationTurnSchema = type({
   role: "'user' | 'assistant' | 'system'",
   content: ContentBlock.array(),
   "model?": "string",
   timestamp: "number",
 });
+
+// Persisted turns are immutable once appended; re-parsed history rebuilds its
+// memo entries anyway, so this skips re-serializing an unchanged history on
+// every comparison (contentPrefixLength, promptEqualsLiveTurns).
+const turnJsonMemo = new WeakMap<ConversationTurn, string>();
+
+function turnJson(turn: ConversationTurn): string {
+  const memo = turnJsonMemo.get(turn);
+  if (memo !== undefined) return memo;
+  const json = JSON.stringify(turn);
+  turnJsonMemo.set(turn, json);
+  return json;
+}
 
 async function pathExists(fullPath: string): Promise<boolean> {
   try {
@@ -67,6 +98,19 @@ async function pathExists(fullPath: string): Promise<boolean> {
   } catch (cause) {
     if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
       return false;
+    throw cause;
+  }
+}
+
+async function readSegmentManifestText(dir: string): Promise<string | null> {
+  try {
+    return await fs.promises.readFile(
+      path.join(dir, SEGMENT_MANIFEST_FILE),
+      "utf-8",
+    );
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+      return null;
     throw cause;
   }
 }
@@ -226,12 +270,19 @@ async function loadMetadataSoft(
   }
 }
 
-// Non-throwing mirror of assertWellFormedToolSequence for picking the
-// longest loadable segment prefix. Unpaired trailing tool_calls pass; dups
-// and orphan results fail.
-function toolSequenceIsWellFormed(turns: readonly ConversationTurn[]): boolean {
-  const calledIds = new Set<string>();
-  const answeredIds = new Set<string>();
+/**
+ * Extends accumulated tool-sequence state with one segment's turns. Unpaired
+ * trailing tool_calls pass; dups and orphan results fail. Failure is monotone
+ * in the accumulated id sets: once a duplicate call or orphan result enters,
+ * no later segment can undo it, so a single forward pass per segment walks
+ * the same longest-well-formed prefix the previous re-scan-per-length loop
+ * picked, without rebuilding the merged history once per candidate length.
+ */
+function accumulateToolSequenceState(
+  turns: readonly ConversationTurn[],
+  calledIds: Set<string>,
+  answeredIds: Set<string>,
+): boolean {
   for (const turn of turns) {
     for (const block of turn.content) {
       if (block.type === "tool_call") {
@@ -254,17 +305,23 @@ function toolSequenceIsWellFormed(turns: readonly ConversationTurn[]): boolean {
  * session.
  */
 function longestWellFormedExtraCount(
-  baseTurns: ConversationTurn[],
-  parsedExtras: ConversationTurn[][],
+  baseTurns: readonly ConversationTurn[],
+  parsedExtras: readonly ConversationTurn[][],
 ): number {
-  for (let keepExtras = parsedExtras.length; keepExtras >= 0; keepExtras--) {
-    const turns =
-      keepExtras === 0
-        ? baseTurns
-        : [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
-    if (toolSequenceIsWellFormed(turns)) return keepExtras;
+  const calledIds = new Set<string>();
+  const answeredIds = new Set<string>();
+  let wellFormed = accumulateToolSequenceState(
+    baseTurns,
+    calledIds,
+    answeredIds,
+  );
+  let keep = 0;
+  for (const extra of parsedExtras) {
+    if (!wellFormed) break;
+    wellFormed = accumulateToolSequenceState(extra, calledIds, answeredIds);
+    if (wellFormed) keep += 1;
   }
-  return 0;
+  return keep;
 }
 
 async function unlinkExtraSegmentsFrom(
@@ -652,6 +709,94 @@ async function listIndexPaths(dir: string): Promise<Set<string>> {
   return new Set(await git.listFiles({ fs, dir }));
 }
 
+/**
+ * Segment names contiguous from the base name, derived from one readdir of
+ * the session dir. Equivalent to listSegmentFiles without its per-candidate
+ * stat; a readdir is shared by every staging check in one commit.
+ */
+function contiguousSegmentNamesFromListing(
+  names: ReadonlySet<string>,
+  baseName: string,
+): string[] {
+  if (!names.has(baseName)) return [];
+  const out = [baseName];
+  for (let index = 1; ; index++) {
+    const name = segmentFileName(baseName, index);
+    if (!names.has(name)) break;
+    out.push(name);
+  }
+  return out;
+}
+
+function highestSegmentIndexFromListing(
+  names: ReadonlySet<string>,
+  baseName: string,
+): number {
+  const dot = baseName.lastIndexOf(".");
+  const stem = dot === -1 ? baseName : baseName.slice(0, dot);
+  const ext = dot === -1 ? "" : baseName.slice(dot);
+  const pattern = new RegExp(
+    `^${stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-(\\d+)${ext.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+  );
+  let highest = names.has(baseName) ? 0 : -1;
+  for (const name of names) {
+    const match = pattern.exec(name);
+    if (match === null) continue;
+    const index = Number(match[1]);
+    if (Number.isFinite(index) && index > highest) highest = index;
+  }
+  return highest;
+}
+
+/**
+ * One readdir of the session dir answers every worktree-existence check in a
+ * single commit, including the lazy listing of the tool-output dir. Surveyed
+ * after the staged writes land, used before the lock releases.
+ */
+interface WorktreeListing {
+  top: ReadonlySet<string>;
+  toolOutputFiles: () => Promise<ReadonlySet<string>>;
+}
+
+async function surveyWorktree(dir: string): Promise<WorktreeListing> {
+  const top = new Set(await fs.promises.readdir(dir));
+  let blobListing: Promise<ReadonlySet<string>> | null = null;
+  return {
+    top,
+    toolOutputFiles() {
+      blobListing ??= fs.promises
+        .readdir(path.join(dir, TOOL_OUTPUT_DIR))
+        .then((names) => new Set(names))
+        .catch((cause: unknown) => {
+          if (
+            cause instanceof Error &&
+            "code" in cause &&
+            cause.code === "ENOENT"
+          ) {
+            return new Set<string>();
+          }
+          throw cause;
+        });
+      return blobListing;
+    },
+  };
+}
+
+async function worktreeListingHas(
+  dir: string,
+  listing: WorktreeListing,
+  filepath: string,
+): Promise<boolean> {
+  const slash = filepath.indexOf("/");
+  if (slash === -1) return listing.top.has(filepath);
+  if (filepath.startsWith(`${TOOL_OUTPUT_DIR}/`)) {
+    const nested = filepath.slice(TOOL_OUTPUT_DIR.length + 1);
+    return (await listing.toolOutputFiles()).has(nested);
+  }
+  // Unknown nested shape: fall back to the direct probe.
+  return pathExists(path.join(dir, filepath));
+}
+
 async function extraSegmentNamesAtCommit(
   dir: string,
   hash: string,
@@ -674,6 +819,60 @@ async function blobTextAtCommit(
 ): Promise<string> {
   const { blob } = await git.readBlob({ fs, dir, oid: hash, filepath });
   return new TextDecoder().decode(blob);
+}
+
+/**
+ * Contiguous turn extras tracked at `hash`: the commit-time manifest when
+ * present, else the ref-tree walk for commits that predate the manifest.
+ * Manifest entries are validated because a torn or hand-corrupted blob must
+ * degrade to the tree walk, never fail the readAt.
+ */
+function isNotFoundError(cause: unknown): boolean {
+  return cause instanceof Error && cause.name === "NotFoundError";
+}
+
+async function turnSegmentNamesAtCommit(
+  dir: string,
+  hash: string,
+): Promise<string[]> {
+  let manifest: string | null = null;
+  try {
+    manifest = await blobTextAtCommit(dir, hash, SEGMENT_MANIFEST_FILE);
+  } catch (cause) {
+    // A commit without the manifest is the pre-manifest normal case; any
+    // other read error falls through to the tree walk as well.
+    if (!isNotFoundError(cause)) {
+      log.warn(
+        "unreadable segment manifest at commit {hash}; re-deriving from the commit tree",
+        { hash, cause: cause instanceof Error ? cause.message : String(cause) },
+      );
+    }
+  }
+  if (manifest !== null) {
+    try {
+      const parsed: unknown = JSON.parse(manifest);
+      const result = SegmentManifestSchema(parsed);
+      if (
+        !(result instanceof type.errors) &&
+        result.turnSegments.every(
+          (name) => name !== TURNS_FILE && TURN_SEGMENT_NAME_PATTERN.test(name),
+        )
+      ) {
+        return result.turnSegments;
+      }
+      log.warn(
+        "malformed segment manifest at commit {hash}; re-deriving from the commit tree",
+        { hash },
+      );
+    } catch {
+      // Torn or non-JSON bytes degrade to the tree walk, same as a missing one.
+      log.warn(
+        "malformed segment manifest at commit {hash}; re-deriving from the commit tree",
+        { hash },
+      );
+    }
+  }
+  return extraSegmentNamesAtCommit(dir, hash);
 }
 
 async function resetIndexPaths(
@@ -753,29 +952,31 @@ async function restoreTurnSegments(
  * Stage contiguous on-disk segments for `baseName`; unstage any
  * higher-numbered or gapped segment a rewrite deleted, even when the pending
  * set was lost (crash between heal unlink and commit). Gapped strays are
- * unlinked, not re-added.
+ * unlinked, not re-added. Existence and index checks come from the shared
+ * worktree listing and the shared tracked-index listing, so one readdir and
+ * one tree walk serve every staged base name in the commit.
  */
 async function reconcileSegmentStaging(
   dir: string,
   baseName: string,
   toAdd: string[],
   toRemove: string[],
+  listing: WorktreeListing,
+  tracked: ReadonlySet<string>,
 ): Promise<void> {
-  const contiguous = await listSegmentFiles(dir, baseName);
+  const contiguous = contiguousSegmentNamesFromListing(listing.top, baseName);
   for (const name of contiguous) toAdd.push(name);
 
   // Index 0 is the base name; numbered tails begin at 1. No base still
   // sweeps numbered files.
   const startIndex = Math.max(contiguous.length, 1);
-  const highestDisk = await highestSegmentIndex(dir, baseName);
-  const tracked = await listIndexPaths(dir);
+  const highestDisk = highestSegmentIndexFromListing(listing.top, baseName);
 
   for (let index = startIndex; ; index++) {
     const name = segmentFileName(baseName, index);
-    const full = path.join(dir, name);
-    if (await pathExists(full)) {
+    if (listing.top.has(name)) {
       // Gapped or post-contiguous stray — not part of the live history.
-      await fs.promises.unlink(full);
+      await fs.promises.unlink(path.join(dir, name));
       toRemove.push(name);
       continue;
     }
@@ -874,10 +1075,16 @@ export async function createSessionStores(
   ): number {
     const max = Math.min(prev.length, next.length);
     let prefix = 0;
-    while (
-      prefix < max &&
-      JSON.stringify(prev[prefix]) === JSON.stringify(next[prefix])
-    ) {
+    while (prefix < max) {
+      const prevTurn = prev[prefix];
+      const nextTurn = next[prefix];
+      if (
+        prevTurn === undefined ||
+        nextTurn === undefined ||
+        turnJson(prevTurn) !== turnJson(nextTurn)
+      ) {
+        break;
+      }
       prefix++;
     }
     return prefix;
@@ -891,13 +1098,146 @@ export async function createSessionStores(
     for (const filepath of modifiedPaths) pendingSegmentPaths.add(filepath);
   }
 
-  async function readLiveTurns(): Promise<ConversationTurn[]> {
-    const basePresent = await pathExists(path.join(dir, TURNS_FILE));
-    const extraPresent = await pathExists(
-      path.join(dir, segmentFileName(TURNS_FILE, 1)),
-    );
-    if (!basePresent && !extraPresent) return [];
-    return loadLiveTurnsFromDisk();
+  /**
+   * Per-generation live-turns parse cache. `load()`, `resolveFirstWrite`, and
+   * the fresh-instance prompt path all read this instead of re-reading and
+   * re-parsing the full segment set, so one turn cycle performs one parse of
+   * the history (plus stats) instead of three. A stat change on any segment
+   * invalidates that segment only — parses are reused segment by segment —
+   * and every in-process mutation site invalidates explicitly, so anything
+   * cached dies on the triggers the unbounded disk read it replaced would
+   * have observed afresh.
+   */
+  type SegmentFingerprint = {
+    name: string;
+    bytes: number;
+    mtimeMs: number;
+    ino: number;
+  };
+
+  type TurnsGenerationCache = {
+    segments: SegmentFingerprint[];
+    baseTurns: ConversationTurn[];
+    parsedExtras: ConversationTurn[][];
+    merged: ConversationTurn[];
+  };
+
+  let turnsCache: TurnsGenerationCache | null = null;
+
+  function invalidateTurnsCache(): void {
+    turnsCache = null;
+  }
+
+  async function turnSegmentStats(): Promise<SegmentFingerprint[]> {
+    const listing = new Set(await fs.promises.readdir(dir));
+    if (!listing.has(TURNS_FILE)) return [];
+    const out: SegmentFingerprint[] = [];
+    for (let index = 0; ; index++) {
+      const name = segmentFileName(TURNS_FILE, index);
+      if (!listing.has(name)) break;
+      const stats = await fs.promises.stat(path.join(dir, name));
+      out.push({
+        name,
+        bytes: stats.size,
+        mtimeMs: stats.mtimeMs,
+        ino: stats.ino,
+      });
+    }
+    return out;
+  }
+
+  /** Count of leading segments whose stat still matches the cached parse. */
+  function sharedSegmentPrefix(
+    cached: SegmentFingerprint[],
+    observed: SegmentFingerprint[],
+  ): number {
+    let count = 0;
+    while (count < cached.length && count < observed.length) {
+      const before = cached[count];
+      const after = observed[count];
+      if (
+        before === undefined ||
+        after === undefined ||
+        before.name !== after.name ||
+        before.bytes !== after.bytes ||
+        before.mtimeMs !== after.mtimeMs ||
+        before.ino !== after.ino
+      ) {
+        break;
+      }
+      count++;
+    }
+    return count;
+  }
+
+  async function readLiveTurnsCached(
+    signal?: AbortSignal,
+  ): Promise<ConversationTurn[]> {
+    const segments = await turnSegmentStats();
+    if (
+      turnsCache !== null &&
+      turnsCache.segments.length === segments.length &&
+      sharedSegmentPrefix(turnsCache.segments, segments) === segments.length
+    ) {
+      return turnsCache.merged;
+    }
+    const reused =
+      turnsCache === null
+        ? 0
+        : sharedSegmentPrefix(turnsCache.segments, segments);
+    // Base segment stat unchanged: its parse is still exactly what disk
+    // holds, so only the newer segments get re-read and re-parsed.
+    let baseTurns: ConversationTurn[];
+    if (reused >= 1 && turnsCache !== null) {
+      baseTurns = turnsCache.baseTurns;
+    } else {
+      try {
+        baseTurns = (await base.load(signal)).turns;
+      } catch (cause) {
+        // A torn or poisoned base must not block the healing write; recover
+        // the usable turns the same way load() always has. Corrupt
+        // metadata.json also slides — callers here only need the turns.
+        log.warn(
+          "base context store load failed; recovering base segment from disk",
+          { cause: cause instanceof Error ? cause.message : String(cause) },
+        );
+        baseTurns = await readBaseTurnsFromDisk(dir);
+      }
+    }
+    const parsedExtras: ConversationTurn[][] = [];
+    for (let index = 1; index < segments.length; index++) {
+      const cached =
+        index < reused && turnsCache !== null
+          ? turnsCache.parsedExtras[index - 1]
+          : undefined;
+      if (cached !== undefined) {
+        parsedExtras.push(cached);
+        continue;
+      }
+      const segment = segments.at(index);
+      if (segment === undefined) continue;
+      const text = await fs.promises.readFile(
+        path.join(dir, segment.name),
+        "utf-8",
+      );
+      parsedExtras.push(
+        parseSegmentTurns(
+          text,
+          index === segments.length - 1,
+          segment.name,
+          true,
+        ),
+      );
+    }
+    const merged = await mergedLiveTurns(baseTurns, parsedExtras);
+    turnsCache = { segments, baseTurns, parsedExtras, merged };
+    return merged;
+  }
+
+  async function readLiveTurns(
+    signal?: AbortSignal,
+  ): Promise<ConversationTurn[]> {
+    return readLiveTurnsCached(signal);
   }
 
   async function resolveFirstWrite(
@@ -980,6 +1320,7 @@ export async function createSessionStores(
       }
       await writeSegmented(writeTurnsSegmented, turns);
       liveTurnRefs = [...turns];
+      invalidateTurnsCache();
       return;
     }
     await withResolvedDirLock(dir, async () => {
@@ -994,6 +1335,7 @@ export async function createSessionStores(
         }
         await writeSegmented(writeTurnsSegmented, turns);
         liveTurnRefs = [...turns];
+        invalidateTurnsCache();
         return;
       }
       const decision = await resolveFirstWrite(turns);
@@ -1013,28 +1355,37 @@ export async function createSessionStores(
       }
       await writeSegmented(writeTurnsSegmented, turns);
       liveTurnRefs = [...turns];
+      invalidateTurnsCache();
       await flushPendingPrompt();
     });
   }
 
-  async function loadLiveTurnsFromDisk(): Promise<ConversationTurn[]> {
-    const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
-    let baseTurns: ConversationTurn[];
-    try {
-      baseTurns = (await base.load()).turns;
-    } catch (cause) {
-      // A torn or poisoned base must not block the healing write; recover the
-      // usable turns the same way load() does. Corrupt metadata.json also
-      // slides — writeTurns only needs the turns.
-      log.warn(
-        "base context store load failed during writeTurns; recovering base segment from disk",
-        { cause: cause instanceof Error ? cause.message : String(cause) },
+  // Prefer the longest loadable prefix of base + extras; orphan tails from a
+  // fresh-writer compaction rewrite are dropped and unlinked so the next load
+  // does not re-poison the session.
+  async function mergedLiveTurns(
+    baseTurns: ConversationTurn[],
+    parsedExtras: ConversationTurn[][],
+  ): Promise<ConversationTurn[]> {
+    if (parsedExtras.length === 0) return baseTurns;
+    const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
+
+    if (keepExtras < parsedExtras.length) {
+      // Segment file index for the first extra is 1.
+      const removed = await unlinkExtraSegmentsFrom(
+        dir,
+        keepExtras + 1,
+        pendingSegmentPaths,
       );
-      baseTurns = await readBaseTurnsFromDisk(dir);
+      log.warn(
+        "dropped {removed} orphan turn segment(s) starting at index {fromIndex} (malformed tool sequence when concatenated)",
+        { removed, fromIndex: keepExtras + 1 },
+      );
+      invalidateTurnsCache();
     }
-    return extraTexts.length === 0
-      ? baseTurns
-      : await loadTurnsWithoutMalformedToolSequence(baseTurns, extraTexts);
+
+    if (keepExtras === 0) return baseTurns;
+    return [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
   }
 
   function promptEqualsLiveTurns(
@@ -1043,9 +1394,11 @@ export async function createSessionStores(
   ): boolean {
     if (live.length !== prompt.length) return false;
     for (let index = 0; index < prompt.length; index++) {
-      if (live[index] === prompt[index]) continue;
-      if (JSON.stringify(live[index]) !== JSON.stringify(prompt[index]))
-        return false;
+      const liveTurn = live[index];
+      const promptTurn = prompt[index];
+      if (liveTurn === undefined || promptTurn === undefined) return false;
+      if (liveTurn === promptTurn) continue;
+      if (turnJson(liveTurn) !== turnJson(promptTurn)) return false;
     }
     return true;
   }
@@ -1061,24 +1414,11 @@ export async function createSessionStores(
     if (unpublishedRewrite !== null) live = unpublishedRewrite;
     else if (liveTurnRefs !== null) live = liveTurnRefs;
     else {
-      // Fresh instance: recover live turns from disk like
-      // writeTurnsLiveOrStage; failure falls through to a normal write so an
-      // unreadable baseline cannot drop the snapshot.
+      // Fresh instance: recover live turns through the shared generation
+      // cache; failure falls through to a normal write so an unreadable
+      // baseline cannot drop the snapshot.
       try {
-        const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
-        let baseTurns: ConversationTurn[];
-        try {
-          baseTurns = (await base.load()).turns;
-        } catch {
-          baseTurns = await readBaseTurnsFromDisk(dir);
-        }
-        live =
-          extraTexts.length === 0
-            ? baseTurns
-            : await loadTurnsWithoutMalformedToolSequence(
-                baseTurns,
-                extraTexts,
-              );
+        live = await readLiveTurnsCached();
       } catch {
         live = null;
       }
@@ -1108,107 +1448,74 @@ export async function createSessionStores(
     }
   }
 
-  // Prefer the longest loadable prefix of base + extras; orphan tails from a
-  // fresh-writer compaction rewrite are dropped and unlinked so the next load
-  // does not re-poison the session.
-  async function loadTurnsWithoutMalformedToolSequence(
-    baseTurns: ConversationTurn[],
-    extraTexts: string[],
-  ): Promise<ConversationTurn[]> {
-    if (extraTexts.length === 0) return baseTurns;
-
-    const parsedExtras = extraTexts.map((text, index) =>
-      parseSegmentTurns(
-        text,
-        index === extraTexts.length - 1,
-        segmentFileName(TURNS_FILE, index + 1),
-        true,
-      ),
-    );
-    const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
-
-    if (keepExtras < parsedExtras.length) {
-      // Segment file index for the first extra is 1.
-      const removed = await unlinkExtraSegmentsFrom(
-        dir,
-        keepExtras + 1,
-        pendingSegmentPaths,
-      );
-      log.warn(
-        "dropped {removed} orphan turn segment(s) starting at index {fromIndex} (malformed tool sequence when concatenated)",
-        { removed, fromIndex: keepExtras + 1 },
-      );
-    }
-
-    if (keepExtras === 0) return baseTurns;
-    return [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
-  }
-
   const store: ContextStore & AuditStore = {
-    // Full-history read: the reactor's initialization contract. When the base
-    // isogit store hard-fails (null-padded or mid-file garbage), recover
-    // usable turns via resilient segment parse and re-read metadata via the
-    // base schema (soft-empty only if that fails too), so resume does not die
-    // or wipe pending ops.
+    // Full-history read: the reactor's initialization contract. Turns come
+    // through the shared generation cache (strict base parse with resilient
+    // recovery, resilient extras, orphan-tail heal), so a repeated load within
+    // one store generation does not re-parse segments whose stat is unchanged.
+    // Metadata stays a fresh read: corrupt metadata.json soft-defaults so
+    // resume does not die or wipe pending ops.
     async load(signal) {
+      let turns: ConversationTurn[];
       try {
-        const baseResult = await base.load(signal);
-        const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
-        if (extraTexts.length === 0) return baseResult;
-        const turns = await loadTurnsWithoutMalformedToolSequence(
-          baseResult.turns,
-          extraTexts,
-        );
-        return { ...baseResult, turns };
+        turns = await readLiveTurnsCached(signal);
       } catch (cause) {
-        log.warn(
-          "base context store load failed; recovering turns from disk segments",
-          {
-            cause: cause instanceof Error ? cause.message : String(cause),
-          },
+        // Unrecoverable history: rethrow with the file name in the message.
+        throw new Error(
+          `failed to load ${TURNS_FILE}: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+          { cause },
         );
-        let baseTurns: ConversationTurn[];
-        try {
-          // Parse segment 0 resiliently so orphan-tail heal still runs;
-          // mid-file garbage must not kill resume.
-          baseTurns = await readBaseTurnsFromDisk(dir);
-        } catch (parseCause) {
-          // Unrecoverable: rethrow with the file name in the message.
-          throw new Error(
-            `failed to load ${TURNS_FILE}: ${
-              parseCause instanceof Error
-                ? parseCause.message
-                : String(parseCause)
-            }`,
-            { cause: parseCause },
-          );
-        }
-        const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
-        const turns =
-          extraTexts.length === 0
-            ? baseTurns
-            : await loadTurnsWithoutMalformedToolSequence(
-                baseTurns,
-                extraTexts,
-              );
-        const metadata = await loadMetadataSoft(() => base.loadMetadata());
-        return { turns, ...metadata };
       }
+      const metadata = await loadMetadataSoft(() => base.loadMetadata());
+      return { turns, ...metadata };
     },
     setConnectorState: (state) => base.setConnectorState(state),
     branch: (name, signal) => base.branch(name, signal),
     log: (limit, signal) => base.log(limit, signal),
     async readAt(hash, signal) {
       const baseTurns = await base.readAt(hash, signal);
-      const extraNames = await extraSegmentNamesAtCommit(dir, hash);
+      const extraNames = await turnSegmentNamesAtCommit(dir, hash);
       if (extraNames.length === 0) return baseTurns;
 
       // Historical commits with orphans still in the tree may be malformed;
-      // prefer the longest well-formed prefix, with no on-disk effects.
-      const parsedExtras: ConversationTurn[][] = [];
-      for (const name of extraNames) {
-        const text = await blobTextAtCommit(dir, hash, name);
-        parsedExtras.push(parseSegmentTurns(text, false, name));
+      // prefer the longest well-formed prefix, with no on-disk effects. The
+      // listed segment blobs read concurrently; the commit-time manifest
+      // replaces the per-read tree walk.
+      let parsedExtras: ConversationTurn[][];
+      try {
+        parsedExtras = await Promise.all(
+          extraNames.map(async (name) =>
+            parseSegmentTurns(
+              await blobTextAtCommit(dir, hash, name),
+              false,
+              name,
+            ),
+          ),
+        );
+      } catch (cause) {
+        // A validated name may still be missing from the tree (torn or
+        // rewritten manifest); re-derive from the commit tree once before
+        // giving up, same degradation as an unreadable manifest blob.
+        log.warn(
+          "segment manifest at commit {hash} listed an unreadable segment; re-deriving from the commit tree",
+          {
+            hash,
+            cause: cause instanceof Error ? cause.message : String(cause),
+          },
+        );
+        const fallbackNames = await extraSegmentNamesAtCommit(dir, hash);
+        if (fallbackNames.length === 0) return baseTurns;
+        parsedExtras = await Promise.all(
+          fallbackNames.map(async (name) =>
+            parseSegmentTurns(
+              await blobTextAtCommit(dir, hash, name),
+              false,
+              name,
+            ),
+          ),
+        );
       }
       const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
       if (keepExtras === 0) return baseTurns;
@@ -1221,7 +1528,19 @@ export async function createSessionStores(
     writeResponse: (turn, signal) => base.writeResponse(turn, signal),
     writeManifest: (records, signal) => base.writeManifest(records, signal),
     writeTurns: (turns) => writeTurnsLiveOrStage(turns),
-    writeMetadata: (metadata, signal) => base.writeMetadata(metadata, signal),
+    writeMetadata: (metadata, signal) =>
+      // Approval snapshot args persist into metadata.json in the clear; scrub
+      // them at the app-owned write boundary (suspendedCall stays raw for the
+      // approved call's re-dispatch).
+      base.writeMetadata(
+        {
+          ...metadata,
+          pendingOperations: scrubPersistedPendingOperations(
+            metadata.pendingOperations,
+          ),
+        },
+        signal,
+      ),
     readManifestHistory: (limit, signal) =>
       base.readManifestHistory(limit, signal),
     async writeBlob(key, bytes, contentType, signal) {
@@ -1267,19 +1586,28 @@ export async function createSessionStores(
           promptToPublish === null
             ? null
             : await snapshotTurnSegments(dir, promptBaseName);
+        // One HEAD resolution per commit. The catch re-resolves on purpose:
+        // it must observe HEAD after the commit to detect a landed commit.
+        let headWithinLock: Promise<string | null> | undefined;
+        const lockedHead = (): Promise<string | null> => {
+          headWithinLock ??= headOid(dir);
+          return headWithinLock;
+        };
         const headBefore =
           stagedRewrite === null && promptToPublish === null
             ? null
-            : await headOid(dir);
+            : await lockedHead();
         let extraPaths: string[] = [];
 
         try {
           if (stagedRewrite !== null) {
             await writeSegmented(writeTurnsSegmented, stagedRewrite);
+            invalidateTurnsCache();
           }
           if (promptToPublish !== null) {
             await writeSegmented(writePromptSegmented, promptToPublish);
           }
+          const listing = await surveyWorktree(dir);
           const toAdd: string[] = [];
           const toRemove: string[] = [];
 
@@ -1287,18 +1615,59 @@ export async function createSessionStores(
             ...pendingSegmentPaths,
             ...pendingBlobFilepaths,
           ]) {
-            if (await pathExists(path.join(dir, filepath)))
+            if (await worktreeListingHas(dir, listing, filepath))
               toAdd.push(filepath);
             else toRemove.push(filepath);
           }
 
           // Disk is the source of truth for which segments stay tracked after a
-          // rewrite or heal, even when pendingSegmentPaths was lost.
-          await reconcileSegmentStaging(dir, turnsBaseName, toAdd, toRemove);
-          await reconcileSegmentStaging(dir, promptBaseName, toAdd, toRemove);
+          // rewrite or heal, even when pendingSegmentPaths was lost. One
+          // shared worktree listing and one index listing serve every staged
+          // base name.
+          const tracked = await listIndexPaths(dir);
+          await reconcileSegmentStaging(
+            dir,
+            turnsBaseName,
+            toAdd,
+            toRemove,
+            listing,
+            tracked,
+          );
+          await reconcileSegmentStaging(
+            dir,
+            promptBaseName,
+            toAdd,
+            toRemove,
+            listing,
+            tracked,
+          );
 
-          if (await pathExists(path.join(dir, EVIDENCE_ARCHIVE_DIR))) {
+          if (listing.top.has(EVIDENCE_ARCHIVE_DIR)) {
             toAdd.push(EVIDENCE_ARCHIVE_DIR);
+          }
+
+          // readAt reads this manifest instead of walking the commit tree.
+          // Desired content is recomputed from disk truth every commit, so a
+          // worktree manifest left behind by a failed commit self-corrects.
+          const contiguousTurnNames = contiguousSegmentNamesFromListing(
+            listing.top,
+            TURNS_FILE,
+          );
+          const desiredManifest = JSON.stringify({
+            turnSegments: contiguousTurnNames.slice(1),
+          });
+          if (
+            listing.top.has(SEGMENT_MANIFEST_FILE) ||
+            desiredManifest !== EMPTY_SEGMENT_MANIFEST
+          ) {
+            const onDiskManifest = await readSegmentManifestText(dir);
+            if (onDiskManifest !== desiredManifest) {
+              await fs.promises.writeFile(
+                path.join(dir, SEGMENT_MANIFEST_FILE),
+                desiredManifest,
+              );
+            }
+            toAdd.push(SEGMENT_MANIFEST_FILE);
           }
 
           // Empty managed checkpoints must not commit or stage session junk
@@ -1332,19 +1701,34 @@ export async function createSessionStores(
           const remove = [...new Set(toRemove)].filter((p) => !add.includes(p));
           extraPaths = [...new Set([...add, ...remove])];
 
-          // Array-form add/remove stages and unstages in one index write
-          // per call (isomorphic-git >= 1.42.7). On a mid-batch add failure
-          // the index is left unwritten and the catch below still resets
-          // every extraPath, so the all-or-nothing outcome matches the old
-          // per-file loop.
+          // Array `git.add` / `git.remove` each write the index once.
+          // Array `remove` is isomorphic-git 1.43.0; array `add` is older.
+          // A mid-batch add failure leaves the index unwritten. Only the
+          // outer catch calls `resetIndexPaths`.
           if (add.length > 0) {
             await git.add({ fs, dir, filepath: add });
           }
           if (remove.length > 0) {
             try {
               await git.remove({ fs, dir, filepath: remove });
-            } catch {
-              // Already absent from the index.
+            } catch (cause) {
+              // `GitIndex.delete` does not throw when a path is absent, so
+              // this is an index lock or write. It aborts before the index
+              // write. Skip the failing path and write the rest once.
+              let unstaged = false;
+              if (remove.length > 1) {
+                for (let index = 0; index < remove.length; index++) {
+                  const rest = remove.filter((_, other) => other !== index);
+                  try {
+                    await git.remove({ fs, dir, filepath: rest });
+                    unstaged = true;
+                    break;
+                  } catch {
+                    // This omission still aborted before the index write.
+                  }
+                }
+              }
+              if (!unstaged) throw cause;
             }
           }
           const committed = await base.commit(options, signal);
@@ -1398,6 +1782,9 @@ export async function createSessionStores(
                 turnsBaseName,
               );
               liveTurnRefs = null;
+              // The restore rewrote the published generation; the cached
+              // live-turns parse predates it in general, so rebuild from disk.
+              invalidateTurnsCache();
             }
             if (promptSnapshot !== null) {
               writePromptSegmented = createSegmentedJSONLWriter(
