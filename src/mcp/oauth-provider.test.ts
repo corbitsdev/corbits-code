@@ -767,7 +767,7 @@ describe("createOAuthProvider", () => {
     ).toBe("scoped-secret");
   });
 
-  test("refreshToken posts grant_type=refresh_token with a resource and persists tokens", async () => {
+  test("refreshToken posts grant_type=refresh_token with a resource and persists issuer-bound tokens", async () => {
     const home = await tempHome();
     await saveAuthState(
       linear,
@@ -807,6 +807,7 @@ describe("createOAuthProvider", () => {
 
     const tokens = await provider.refreshToken("refresh-me");
     expect(tokens.access_token).toBe("fresh-access");
+    expect(tokens.issuer).toBe("https://mcp.linear.app");
     expect(tokenBodies).toHaveLength(1);
     const body = tokenBodies[0] ?? "";
     expect(body).toContain("grant_type=refresh_token");
@@ -819,6 +820,9 @@ describe("createOAuthProvider", () => {
     );
     expect((await loadAuthState(linear, home)).tokens?.access_token).toBe(
       "fresh-access",
+    );
+    expect((await loadAuthState(linear, home)).tokens?.issuer).toBe(
+      "https://mcp.linear.app",
     );
   });
 

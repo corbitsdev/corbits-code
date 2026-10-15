@@ -105,7 +105,7 @@
     "@intx/tools-posix": "workspace:*",
     "@intx/types": "workspace:*",
     "@intx/workflow-host": "0.3.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@opentui/core": "0.6.4",
     "arktype": "catalog:",
     "isomorphic-git": "catalog:",

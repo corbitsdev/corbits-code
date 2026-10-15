@@ -312,10 +312,19 @@ export async function createOAuthProvider(
           resource: resourceURL,
           ...(fetchFn === undefined ? {} : { fetchFn }),
         });
+        // SDK >= 1.31 binds stored credentials to their authorization server
+        // via an `issuer` stamp; the transport's auth() stamps its own saves,
+        // so refresh here must too — unstamped tokens would re-trigger the
+        // SDK's stored-tokens-without-issuer deprecation warning on the next
+        // auth() and stay unbound.
+        const boundTokens: OAuthTokens = {
+          ...tokens,
+          issuer: authorizationServerUrl,
+        };
         await apply((state) => {
-          state.tokens = tokens;
+          state.tokens = boundTokens;
         });
-        return tokens;
+        return boundTokens;
       } catch (err) {
         if (isAbortError(err) || err instanceof UnauthorizedError) throw err;
         throw new UnauthorizedError(
