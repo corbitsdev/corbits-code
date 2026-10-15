@@ -7,11 +7,7 @@ import {
   canonicalToolOutputUri,
   isToolOutputLike,
 } from "../util/tool-output-uri.js";
-import {
-  denyResult,
-  errorMessage,
-  optionalNumber,
-} from "./tool-args.js";
+import { denyResult, errorMessage, optionalNumber } from "./tool-args.js";
 import {
   diagnoseBlockedFileInspection,
   inspectionKindFromFirstChunk,

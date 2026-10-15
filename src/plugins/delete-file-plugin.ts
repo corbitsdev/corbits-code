@@ -52,7 +52,10 @@ export function deleteFilePlugin(
     handler: async (call: ToolCall): Promise<ToolResult> => {
       const args = DeleteFileArgs(call.arguments);
       if (args instanceof type.errors) {
-        return denyResult(call.id, "Failed to delete file: delete_file requires a non-empty path");
+        return denyResult(
+          call.id,
+          "Failed to delete file: delete_file requires a non-empty path",
+        );
       }
 
       const allowOutside = resolveAllowOutside(options.allowOutside);
@@ -116,7 +119,10 @@ export function deleteFilePlugin(
             content: `File already absent: ${args.path} (no action needed)`,
           };
         }
-        return denyResult(call.id, `Failed to delete file: ${failureDetail(error)}`);
+        return denyResult(
+          call.id,
+          `Failed to delete file: ${failureDetail(error)}`,
+        );
       }
     },
   };
@@ -127,9 +133,7 @@ export function deleteFilePlugin(
 function failureDetail(error: unknown): string {
   if (error instanceof Error) {
     const code =
-      hasCode(error) && typeof error.code === "string"
-        ? error.code
-        : undefined;
+      hasCode(error) && typeof error.code === "string" ? error.code : undefined;
     return code === undefined ? error.message : `${code}: ${error.message}`;
   }
   return String(error);

@@ -1,4 +1,8 @@
-import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import {
+  spawn,
+  type ChildProcess,
+  type SpawnOptions,
+} from "node:child_process";
 
 // One process-group-kill policy for every spawned tool subprocess: the child
 // is spawned detached so it becomes a group leader, and the kill reaches the
@@ -33,7 +37,10 @@ export function killProcessTree(child: TreeChild): void {
 }
 
 /** Spawn options making the child a process-group leader (POSIX only). */
-export function processGroupLeaderSpawnOptions(): Pick<SpawnOptions, "detached"> {
+export function processGroupLeaderSpawnOptions(): Pick<
+  SpawnOptions,
+  "detached"
+> {
   return { detached: process.platform !== "win32" };
 }
 

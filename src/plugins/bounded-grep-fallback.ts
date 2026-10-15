@@ -19,7 +19,6 @@ function rejectBraceExpansion(pattern: string): string {
   return pattern;
 }
 
-
 /** Max file paths considered per search (directory walk). */
 export const BOUNDED_GREP_MAX_DIRECTORY_ENTRIES = 25_000;
 
@@ -237,7 +236,10 @@ export async function runBoundedGrep(
   const basePath = resolve(baseCwd, args.path ?? ".");
   const contextLines = args.context ?? 0;
   const maxResults = args.max_results ?? BOUNDED_GREP_DEFAULT_MAX_RESULTS;
-  const globFilter = args.glob !== undefined ? globToRegExp(rejectBraceExpansion(args.glob)) : null;
+  const globFilter =
+    args.glob !== undefined
+      ? globToRegExp(rejectBraceExpansion(args.glob))
+      : null;
 
   let info;
   try {

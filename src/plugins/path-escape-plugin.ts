@@ -84,10 +84,8 @@ function escapeArgs(
   // pathEscapeBlockReason computes, so a surviving call is exactly one the
   // block-reason leg would have passed.
   const roots = rootsForEscape(toolName, rootsProvider, trustedPluginRoots);
-  return walkPathArgs(
-    args,
-    undefined,
-    (value) => sanitizePath(value, cwd, roots, allowOutside, toolName),
+  return walkPathArgs(args, undefined, (value) =>
+    sanitizePath(value, cwd, roots, allowOutside, toolName),
   ) as Record<string, unknown>;
 }
 

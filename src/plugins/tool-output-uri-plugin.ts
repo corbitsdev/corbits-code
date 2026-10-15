@@ -1,5 +1,8 @@
 import type { ToolPlugin } from "@intx/tools-posix";
-import { isToolOutputLike, normalizeToolOutputUri } from "../util/tool-output-uri.js";
+import {
+  isToolOutputLike,
+  normalizeToolOutputUri,
+} from "../util/tool-output-uri.js";
 import { virtualRefVerdict } from "./path-escape-plugin.js";
 import { denyResult } from "./tool-args.js";
 

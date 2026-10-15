@@ -38,11 +38,9 @@ export interface BoundedRead {
 // call-keying detectors see one ranged read per window, not a same-path
 // loop.
 
-
 function numberLine(lineNo: number, text: string): string {
   return `${String(lineNo).padStart(6, " ")}\t${text}`;
 }
-
 
 /**
  * Streams UTF-8 from `stream`, emitting up to `limit` line-numbered lines
@@ -282,7 +280,6 @@ export function readStreamBounded(
   });
 }
 
-
 /**
  * Bounded read over an in-memory UTF-8 blob (tool-output spills). Feeds the
  * buffer in chunks so offset/limit never require a full-text split; overlong
@@ -316,7 +313,6 @@ export function readBytesBounded(
   );
 }
 
-
 function continuationNotice(
   reason: TruncReason,
   firstLine: number,
@@ -337,4 +333,3 @@ function continuationNotice(
     scanCeiling / (1024 * 1024)
   }MB scan limit. ${next}]`;
 }
-

@@ -161,7 +161,8 @@ export function ripgrepPlugin(
         const path = optionalString(call.arguments.path) ?? cwd;
         const context = optionalNumber(call.arguments.context) ?? 0;
         const glob = optionalString(call.arguments.glob);
-        const maxResults = optionalNumber(call.arguments.max_results) ?? DEFAULT_GREP_MAX;
+        const maxResults =
+          optionalNumber(call.arguments.max_results) ?? DEFAULT_GREP_MAX;
         const { cwd: rgCwd, target } = searchLocation(path, cwd);
 
         const rgArgs = ["--line-number", "--no-heading", "--color", "never"];

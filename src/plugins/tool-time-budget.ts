@@ -13,10 +13,7 @@ const NOT_A_NO_MATCH_TAIL = 'This is not the same as "no matches".';
 
 // Timeout notices carry whatever partial output already streamed so the agent
 // never loses the bytes it did get; empty partials attach the bare notice.
-function withPartialResult(
-  notice: string,
-  partialResult?: string,
-): string {
+function withPartialResult(notice: string, partialResult?: string): string {
   const trimmed = partialResult?.trim();
   if (trimmed === undefined || trimmed.length === 0) return notice;
   return `${trimmed}\n\n${notice}`;

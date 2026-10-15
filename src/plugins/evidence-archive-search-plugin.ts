@@ -172,7 +172,8 @@ export function evidenceArchiveSearchPlugin(
         if (pattern === undefined) {
           return denyResult(call.id, "Error: grep requires pattern (string).");
         }
-        const maxResults = optionalNumber(call.arguments.max_results) ?? GREP_DEFAULT_MAX;
+        const maxResults =
+          optionalNumber(call.arguments.max_results) ?? GREP_DEFAULT_MAX;
         const glob = optionalString(call.arguments.glob);
         const contextArg = optionalNumber(call.arguments.context);
         const context =
