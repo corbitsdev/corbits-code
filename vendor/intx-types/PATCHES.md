@@ -35,8 +35,9 @@ All three entries re-carried; none dropped as upstream-absorbed (grep of the
 pristine `4cc6972` `packages/types` tree: `loadErrors`, `stopReason`,
 `normalizeError`, `credentialFailureOrdinal` all absent upstream). Upstream
 split `runtime.ts` into `runtime-core.ts` (runtime contracts) + the new
-`inference-events.ts` (event union); `runtime.ts` is now a two-line re-export
-barrel. The patch sites follow the split:
+`inference-events.ts` (event union). `runtime.ts` is those split
+re-exports plus the compat re-export of `formatSafetyRatingText`
+(about lines 1–11; see the entry below). The patch sites follow the split:
 
 - `inference.usage` stopReason → both declarations in
   `inference-events.ts` (arktype mapping and the TS union) carry the
