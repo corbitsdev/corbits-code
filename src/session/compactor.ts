@@ -20,8 +20,13 @@ import {
   type SummaryContext,
 } from "./summarizer.js";
 import {
+  continuationTextCarriesFacts,
   extractContinuationFacts,
+  repairSummary,
+  textDeniesRecordedFailures,
   verifyOrRepair,
+  type VerifyAbortReason,
+  type VerifyMiss,
 } from "./compaction-verify.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import {
@@ -1066,59 +1071,101 @@ export function createPruningCompactor(
 
       // Verify pass: the handoff must still carry the dropped turns'
       // continuation facts (goal, next action, exact names, blockers). Lossy
-      // summaries repair deterministically; contradicting ones abort the fold.
-      const verified = verifyOrRepair(
-        summary,
-        extractContinuationFacts(summarizedTurns),
-        cfg.summaryMaxChars,
-      );
-      if (verified.aborted) {
-        return {
-          output: turns,
-          record: {
-            strategy: this.name,
-            version: this.version,
-            parameters: {
-              compactionShape: shape,
-            },
-            reason: "verify failed — keeping prior context",
-            decisions: {
-              verifyAborted: 1,
-              verifyMissing: verified.misses.map((m) => m.kind),
-              agedImageCount: aged.agedImageCount,
-            },
+      // summaries repair deterministically. A contradiction aborts the fold.
+      // A repair that does not fit the summary cap still commits when the
+      // handoff file carries the overflow — the live spine stays the thin
+      // extract, never a denial of recorded failures. Shrink-to-fit is the
+      // same rule: a fitting appendix does not excuse a lying spine.
+      const facts = extractContinuationFacts(summarizedTurns);
+      const verified = verifyOrRepair(summary, facts, cfg.summaryMaxChars);
+      const keepPrior = (
+        abortReason: VerifyAbortReason,
+        misses: readonly VerifyMiss[],
+      ) => ({
+        output: turns,
+        record: {
+          strategy: this.name,
+          version: this.version,
+          parameters: {
+            compactionShape: shape,
           },
-        };
+          reason: "verify failed — keeping prior context",
+          decisions: {
+            verifyAborted: 1,
+            verifyAbortReason: abortReason,
+            verifyMissing: misses.map((m) => m.kind),
+            agedImageCount: aged.agedImageCount,
+          },
+        },
+      });
+      if (verified.aborted && verified.abortReason === "contradiction") {
+        return keepPrior("contradiction", verified.misses);
       }
-      summary = verified.summary;
+
+      const priorFileText = await cfg.readPriorHandoff?.();
+      const handoffOpts = {
+        ...(priorFileText !== undefined ? { priorFileText } : {}),
+        ...(summaryCtx?.activatedTools !== undefined
+          ? { activatedTools: summaryCtx.activatedTools }
+          : {}),
+      };
+      const handoffCarries = (fileBytes: Uint8Array, spineText: string) =>
+        continuationTextCarriesFacts(
+          `${new TextDecoder().decode(fileBytes)}\n${spineText}`,
+          facts,
+        );
+
+      let narrative = verified.summary;
+      let handoff = buildHandoffFold(summarizedTurns, narrative, handoffOpts);
+      let overflowFold = false;
+      const spineDeniesFailures = (): boolean =>
+        textDeniesRecordedFailures(handoff.spineText, facts);
+      const spineContradiction = () =>
+        keepPrior("contradiction", [
+          ...verified.misses,
+          {
+            kind: "contradiction",
+            detail: "spine denies failure while dropped turns record errors",
+          },
+        ]);
+      // Shrink-to-fit (and any other non-abort) still builds Decisions from
+      // folded user text. That line can deny failures the summary never said.
+      if (!verified.aborted && spineDeniesFailures()) {
+        return spineContradiction();
+      }
+      if (verified.aborted) {
+        if (spineDeniesFailures()) return spineContradiction();
+        if (!handoffCarries(handoff.blob.bytes, handoff.spineText)) {
+          narrative = repairSummary(narrative, facts, verified.misses);
+          handoff = buildHandoffFold(summarizedTurns, narrative, handoffOpts);
+        }
+        if (
+          spineDeniesFailures() ||
+          !handoffCarries(handoff.blob.bytes, handoff.spineText)
+        ) {
+          return keepPrior("repair-overflow", verified.misses);
+        }
+        overflowFold = true;
+      }
+      summary = narrative;
       const verifyDecisions =
-        verified.repaired && verified.misses.length > 0
+        overflowFold || (verified.repaired && verified.misses.length > 0)
           ? {
               verifyRepaired: 1,
               verifyMissing: verified.misses.map((m) => m.kind),
             }
           : {};
 
-      // The summary is framed as user content: a user-role turn survives every
-      // adapter unchanged, a system-role turn does not (Anthropic drops
-      // mid-conversation system turns under a system-prompt override; Grok
-      // emits them as a stray mid-stream system message). Activated tools
-      // outlive the fold, so the handoff states them verbatim.
-      //
       // The fold writes a fat structured handoff file (goal, constraints,
       // decisions, evidence markers, files/commands, verification, dead ends,
       // next actions, verbatim exact-facts appendix) under one stable latest
       // key, keeping only a thin spine plus a pointer to that file in the
       // live prompt. The spine unions carried facts with new ones; dropped
       // prior spines join the evidence archive so the completeness gate
-      // still certifies the fold.
-      const priorFileText = await cfg.readPriorHandoff?.();
-      const handoff = buildHandoffFold(summarizedTurns, summary, {
-        ...(priorFileText !== undefined ? { priorFileText } : {}),
-        ...(summaryCtx?.activatedTools !== undefined
-          ? { activatedTools: summaryCtx.activatedTools }
-          : {}),
-      });
+      // still certifies the fold. `handoff` was built above from the verified
+      // narrative (overflow facts live in the file, not a second copy).
+      // The spine is user-role so every adapter keeps it: Anthropic drops
+      // mid-conversation system turns, and Grok emits them mid-stream.
       const summaryTurn: ConversationTurn = {
         role: "user",
         content: [{ type: "text", text: handoff.spineText }],
