@@ -6,14 +6,16 @@ Decision record for application key bindings on `@opentui/core` 0.6.6. The engin
 
 **Adopt** `@opentui/keymap` for application commands. Do not move widget-local editing, the scroll lease, or the kill ring into it.
 
-`createDefaultOpenTuiKeymap(renderer)` installs the default parser, the event matcher, and the enabled and metadata fields. The shell registers one layer: `commands` (`name`, `run`) and `bindings` (`key`, `cmd`). Each `run` calls the existing handler in `src/tui/shell/keys.ts`. The help overlay reads those rows from the same catalog as the registration (`keymapShortcuts()` plus `promptLocalShortcuts()`).
+`createDefaultOpenTuiKeymap(renderer)` installs the default parser, the event matcher, and the enabled and metadata fields. The shell registers one layer. Each command `run` calls one existing function. There is no parallel key switch. Help lines are the keymap's registered `desc` values plus the widget-default rows.
+
+Textarea defaults are not registered again. `renderables/Textarea.d.ts` `TextareaAction` and the shipped `defaultTextareaKeyBindings` already cover cursor motion, word motion, Ctrl+D, Ctrl+K/U/W, and Alt+D. `PROMPT_KEY_BINDINGS` already maps Enter to submit and Ctrl+Enter / Ctrl+J / Shift+Enter to newline. The kill ring only diffs those deletes and yanks.
 
 ## What stays a command body
 
 Widget `keyBindings` cannot express policy that spans the shell:
 
-- **Scroll lease.** One surface holds the lease. The wheel must not move the transcript while a modal is open. Arrow keys never scroll the transcript.
-- **Kill ring.** Ctrl+K/U/W and Alt+D kill, Ctrl+Y yanks, Alt+Y yank-pops. Those stay Textarea-local in `prompt-kill-ring.ts`. The keymap does not bind them.
+- **Scroll lease.** One surface holds the lease. The wheel must not move the transcript while a modal is open. Arrow keys never scroll the transcript. `ScrollBoxRenderable.handleKeyPress` forwards arrows to `ScrollBarRenderable`, which scrolls on up/down. That focused arrow-scroll is not adopted.
+- **Kill ring.** Textarea delete actions discard the text (`delete-to-line-end`, `delete-to-line-start`, `delete-word-backward`, `delete-word-forward` in `Textarea.d.ts`). `prompt-kill-ring.ts` stays for the diff and for yank / yank-pop. The keymap does not bind those chords.
 - **Ctrl+C.** Pause, stop sub-agents, and quit stay `handleCtrlC`. The keymap command calls that handler; it does not reimplement the arming window. A decision gate still declines before the arming handler runs.
 
 Paste, overlay accept, and prompt newline chords stay where they were. Enter, Up, and Down stay in `keys.ts` because the same chord sends, steers, recalls history, or moves the caret. Ctrl+X is the held-item drop and is a keymap command.

@@ -1,108 +1,26 @@
 /**
- * OpenTUI shell keybinding catalog (pure data) — the help overlay's source
- * of truth. Rows with `command` are application chords registered on
- * `@opentui/keymap`. Rows without one stay prompt-local: textarea defaults,
- * the kill ring, or a chord whose meaning depends on context keys.ts still
- * owns. `keybindings.test.ts` drives every row through a live shell.
+ * Help rows. Application lines come from the live `@opentui/keymap`
+ * registration (`bindAppHelp`). Widget-default rows are the Textarea chords
+ * `defaultTextareaKeyBindings` / `PROMPT_KEY_BINDINGS` already perform, plus
+ * the kill-ring yank chords the textarea does not implement.
+ * There is no second copy of the application chord table here.
  */
 
 export interface ShellShortcut {
   readonly keys: string;
   readonly description: string;
-  /** `@opentui/keymap` command name. Absent for prompt-local chords. */
-  readonly command?: string;
-  /** Binding strings for `command`. Absent for prompt-local chords. */
-  readonly bindings?: readonly string[];
 }
 
-export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
+/**
+ * Prompt-local rows. Cursor, delete, word motion, and newline/submit are
+ * Textarea defaults (`renderables/Textarea.d.ts` `TextareaAction`). Yank is
+ * not a Textarea action; it stays listed because the kill ring records it.
+ */
+export const WIDGET_DEFAULT_SHORTCUTS: readonly ShellShortcut[] = [
   {
     keys: "Enter",
     description:
       "soft-steer at the next tool boundary while busy (held above the prompt); send straight through when idle",
-  },
-  {
-    keys: "Alt+Enter",
-    description:
-      "queue a follow-up delivered only when the run goes idle; does nothing unless a run is busy",
-    command: "shell.queue",
-    bindings: ["alt+return"],
-  },
-  {
-    keys: "Up / Down / Enter / Ctrl+X",
-    description:
-      "on held items above the prompt: select, send now, drop (Esc backs out)",
-    // Up, Down, and Enter also move the caret, recall history, or send.
-    // Only Ctrl+X is unambiguous; the others stay in keys.ts.
-    command: "shell.held.drop",
-    bindings: ["ctrl+x"],
-  },
-  {
-    keys: "Ctrl+C",
-    description:
-      "pause a busy run and hold the queue, or clear the prompt and attachments when idle; Ctrl+C again to exit — with live sub-agents, a 2nd press stops them, a 3rd quits",
-    command: "shell.interrupt",
-    bindings: ["ctrl+c"],
-  },
-  {
-    keys: "Ctrl+G",
-    description:
-      "pop the most recently queued or steered message back into the prompt for editing",
-    command: "shell.cancel",
-    bindings: ["ctrl+g"],
-  },
-  {
-    keys: "Alt+C",
-    description:
-      "copy mode: pick a message, tool output, or diff; press again to close it",
-    command: "shell.copy",
-    bindings: ["alt+c"],
-  },
-  {
-    keys: "Alt+M",
-    description:
-      "toggle DEC mouse capture (on by default: wheel scroll, click-to-expand, drag-to-copy); off restores native terminal drag-select",
-    command: "shell.mouse",
-    bindings: ["alt+m"],
-  },
-  {
-    keys: "Alt+E",
-    description:
-      "expand or collapse every collapsible row (tool call, diff, skill, reasoning)",
-    command: "shell.expand",
-    bindings: ["alt+e"],
-  },
-  {
-    keys: "Alt+T",
-    description:
-      "show or hide the task list above the prompt (hidden by default)",
-    command: "shell.tasks",
-    bindings: ["alt+t"],
-  },
-  {
-    keys: "Alt+O",
-    description:
-      "observe a live subagent session; a system row says so when there is none",
-    command: "shell.observe",
-    bindings: ["alt+o"],
-  },
-  {
-    keys: "Tab",
-    description: "move focus between the prompt and the transcript",
-    command: "shell.focus",
-    bindings: ["tab"],
-  },
-  {
-    keys: "Shift+Tab",
-    description: "cycle reasoning effort for the current model",
-    command: "shell.effort",
-    bindings: ["shift+tab"],
-  },
-  {
-    keys: "Esc",
-    description: "close the open overlay, or leave subagent observe",
-    command: "shell.dismiss",
-    bindings: ["escape"],
   },
   {
     keys: "Ctrl+B / Ctrl+F",
@@ -156,36 +74,39 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
     description:
       "insert a newline instead of sending (Shift+Enter also works on terminals that report the modifier)",
   },
-] as const;
+];
 
-/** Application chords the keymap registers. */
-export function keymapShortcuts(): readonly ShellShortcut[] {
-  return SHELL_SHORTCUTS.filter((row) => row.command !== undefined);
+let appRows: readonly ShellShortcut[] = [];
+let readAppHelp: () => readonly string[] = () =>
+  appRows.map((row) => `${row.keys} — ${row.description}`);
+
+/** Called when the keymap module loads, and again from the live keymap. */
+export function setAppShortcutRows(rows: readonly ShellShortcut[]): void {
+  appRows = rows;
 }
 
-/**
- * Prompt-local rows: textarea defaults, the kill ring, paste, and chords
- * whose meaning depends on context the keymap does not own.
- */
-export function promptLocalShortcuts(): readonly ShellShortcut[] {
-  return SHELL_SHORTCUTS.filter((row) => row.command === undefined);
+export function bindAppHelp(read: () => readonly string[]): () => void {
+  const previous = readAppHelp;
+  readAppHelp = read;
+  return () => {
+    readAppHelp = previous;
+  };
+}
+
+/** Catalog the live tests drive. Application rows are whatever the keymap registered. */
+export function shellShortcuts(): readonly ShellShortcut[] {
+  return [...appRows, ...WIDGET_DEFAULT_SHORTCUTS];
 }
 
 function formatShortcut(row: ShellShortcut): string {
   return `${row.keys} — ${row.description}`;
 }
 
-/**
- * Help rows from the keymap catalog plus prompt-local rows, in catalog
- * order, so the overlay cannot drift from either list.
- */
+/** Keymap command lines, then widget-default rows. */
 export function helpItems(): readonly string[] {
-  const owned = new Set<string>([
-    ...keymapShortcuts().map((row) => row.keys),
-    ...promptLocalShortcuts().map((row) => row.keys),
-  ]);
   return [
-    ...SHELL_SHORTCUTS.filter((row) => owned.has(row.keys)).map(formatShortcut),
+    ...readAppHelp(),
+    ...WIDGET_DEFAULT_SHORTCUTS.map(formatShortcut),
     "Close help",
   ];
 }

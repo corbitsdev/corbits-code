@@ -632,14 +632,17 @@ export function createAppShell(
   if (onObserveRequestOpt) {
     setPaletteOnObserveRequest(shell, onObserveRequestOpt);
   }
-  const { onKey, onPaste, keymap } = createShellKeyHandlers(shell, {
+  const { onKey, onPaste } = createShellKeyHandlers(shell, {
     isDisposed: () => disposed,
   });
   if (wireKeys) {
-    renderer.keyInput.on("keypress", onKey);
+    detachKeymap = attachShellKeymap(renderer as CliRenderer, shell);
+    // onKey runs before the keymap listener (prepended above) so paste-burst
+    // bookkeeping and the kill-ring break happen, then the keymap may
+    // stopPropagation. Textarea defaults run last.
+    renderer.keyInput.prependListener("keypress", onKey);
     renderer.keyInput.on("paste", onPaste);
     prompt.onSubmit = onEnter;
-    detachKeymap = attachShellKeymap(renderer as CliRenderer, keymap);
   }
 
   applyLayout(shell, layout);

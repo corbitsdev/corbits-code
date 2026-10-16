@@ -17,7 +17,7 @@ import { describe, expect, test } from "bun:test";
 import { defined } from "../../testkit/defined.js";
 import { isPaused } from "./delivery-queue.js";
 import { PROMPT_KEY_BINDINGS } from "./prompt-input.js";
-import { SHELL_SHORTCUTS } from "./keybindings.js";
+import { shellShortcuts } from "./keybindings.js";
 import { createHarness, type Harness } from "./harness.js";
 import { mountRunnerHost } from "./runner/host.js";
 import { openCommandSurface } from "./command-surfaces.js";
@@ -733,7 +733,7 @@ function recordSubmits(
 }
 
 function rowsIn(group: Group): readonly { keys: string; probe: Probe }[] {
-  return SHELL_SHORTCUTS.flatMap((row) => {
+  return shellShortcuts().flatMap((row) => {
     const entry = PROBES[row.keys];
     return entry !== undefined && entry.group === group
       ? [{ keys: row.keys, probe: entry.probe }]
@@ -760,14 +760,14 @@ async function runGroup(group: Group): Promise<void> {
 
 describe("every catalog row is driven against real behavior", () => {
   test("no row is left without a probe", () => {
-    const missing = SHELL_SHORTCUTS.filter(
-      (row) => PROBES[row.keys] === undefined,
-    ).map((row) => row.keys);
+    const missing = shellShortcuts()
+      .filter((row) => PROBES[row.keys] === undefined)
+      .map((row) => row.keys);
     expect(missing).toEqual([]);
   });
 
   test("no probe describes a chord the catalog no longer lists", () => {
-    const listed = new Set(SHELL_SHORTCUTS.map((row) => row.keys));
+    const listed = new Set(shellShortcuts().map((row) => row.keys));
     expect(Object.keys(PROBES).filter((keys) => !listed.has(keys))).toEqual([]);
   });
 
