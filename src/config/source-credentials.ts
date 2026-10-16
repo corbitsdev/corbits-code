@@ -6,7 +6,7 @@ import type {
 export type SourceCredentialProvenance =
   | {
       readonly kind: "oauth";
-      readonly provider: "codex" | "xai";
+      readonly provider: "codex" | "xai" | "meta";
       readonly profile: string;
     }
   | { readonly kind: "api-key" }

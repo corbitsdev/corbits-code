@@ -15,6 +15,11 @@ import {
   isCodexProviderName,
 } from "./config/codex-providers.js";
 import {
+  isMetaProviderName,
+  metaProfileFromProviderName,
+} from "./config/meta-providers.js";
+import { findSourceCredentialRecord } from "./config/source-credentials.js";
+import {
   isXaiProviderName,
   xaiProfileFromProviderName,
 } from "./config/xai-providers.js";
@@ -647,6 +652,13 @@ export function isKnownOAuthProviderId(
 ): providerId is string {
   if (providerId === undefined || providerId.length === 0) return false;
   if (isCodexProviderName(providerId)) return true;
+  if (isMetaProviderName(providerId)) {
+    const record = findSourceCredentialRecord(providerId);
+    return (
+      record?.provenance.kind === "oauth" &&
+      record.provenance.provider === "meta"
+    );
+  }
   return isKnownXaiProviderId(providerId);
 }
 
@@ -739,6 +751,7 @@ function normalizeOAuthUpgradeRequiredError(
   const profile =
     codexProfileFromProviderName(providerId) ??
     xaiProfileFromProviderName(providerId) ??
+    metaProfileFromProviderName(providerId) ??
     (providerId.split("/").slice(1).join("/") || providerId);
   const message = isCodexProviderName(providerId)
     ? formatCodexCredential404Message(profile, diagnostic)

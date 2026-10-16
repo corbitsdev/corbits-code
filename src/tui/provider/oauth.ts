@@ -9,8 +9,14 @@ import {
   OAUTH_SURFACES,
   resolveApiKeyInstanceName,
 } from "./choices.js";
+import { writeClipboard } from "../copy-path.js";
+import { RUNTIME_FLASH_MS } from "../runtime-notices.js";
 import { OAUTH_PROFILE_HINT } from "./form.js";
 import { RAMP_TICK_MS, stopRamp } from "./surface.js";
+import {
+  isPinnedMetaVerificationUri,
+  REJECTED_META_VERIFICATION_URI,
+} from "../../auth/meta/verification-uri.js";
 import type {
   AccountNameFlow,
   LoginFlow,
@@ -76,6 +82,51 @@ export function suggestOAuthProfileSlug(existing: readonly string[]): string {
   return `default-${String(n)}`;
 }
 
+/** First Meta sign-in slug that is free in both the auth store and API-key rows. */
+export function suggestMetaOAuthProfileSlug(
+  authProfiles: readonly string[],
+  existingProviderNames: readonly string[],
+): string {
+  return suggestOAuthProfileSlug([
+    ...authProfiles,
+    ...instanceSlugsForKind("meta", existingProviderNames),
+  ]);
+}
+
+/** True when `slug` names an API-key row, not an OAuth profile. */
+export function metaOAuthSlugBlockedByApiKey(
+  slug: string,
+  rows: readonly (
+    | string
+    | {
+        readonly name: string;
+        readonly apiKey?: string;
+        readonly metaProfile?: string;
+      }
+  )[],
+  authProfiles: readonly string[] = [],
+): boolean {
+  if (authProfiles.includes(slug)) return false;
+  for (const row of rows) {
+    if (typeof row !== "string" && row.metaProfile === slug) return false;
+  }
+  const names = rows.map((row) => (typeof row === "string" ? row : row.name));
+  if (instanceSlugsForKind("meta-api", names).includes(slug)) return true;
+  for (const row of rows) {
+    const name = typeof row === "string" ? row : row.name;
+    if (!instanceSlugsForKind("meta", [name]).includes(slug)) continue;
+    if (typeof row !== "string" && row.metaProfile !== undefined) continue;
+    if (
+      typeof row !== "string" &&
+      (typeof row.apiKey !== "string" || row.apiKey.length === 0)
+    ) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
 /**
  * Real lister, imported lazily per kind so mounting the surface never touches
  * the auth-store files in a test that injects its own lister.
@@ -86,6 +137,10 @@ export const defaultProfileLister = async (
   if (kind === "codex") {
     const { listCodexProfiles } = await import("../../config/oauth-stores.js");
     return (await listCodexProfiles()).map((p) => p.name);
+  }
+  if (kind === "meta") {
+    const { listMetaProfiles } = await import("../../config/oauth-stores.js");
+    return (await listMetaProfiles()).map((p) => p.name);
   }
   const { listXaiProfiles } = await import("../../config/oauth-stores.js");
   return (await listXaiProfiles()).map((p) => p.name);
@@ -121,15 +176,29 @@ export const defaultLoginStarter = async ({
   kind,
   profile,
   signal,
+  notify,
 }: {
   readonly kind: OAuthKind;
   readonly profile: string;
   readonly signal: AbortSignal;
+  readonly notify?: (event: {
+    readonly type: "device_code";
+    readonly verificationUri: string;
+    readonly userCode: string;
+  }) => void;
 }) => {
   const { productCallbackCopy } = await import("../../branding.js");
   if (kind === "codex") {
     const { startCodexLogin } = await import("../../auth/codex/login.js");
     return startCodexLogin({ profile, signal, copy: productCallbackCopy });
+  }
+  if (kind === "meta") {
+    const { startMetaLogin } = await import("../../auth/meta/login.js");
+    return startMetaLogin({
+      profile,
+      signal,
+      ...(notify !== undefined ? { notify } : {}),
+    });
   }
   const { startXaiLogin } = await import("../../auth/xai/login.js");
   return startXaiLogin({ profile, signal, copy: productCallbackCopy });
@@ -163,6 +232,7 @@ export function createLoginFlow(
     state.loginAbort = null;
     state.loginHandle?.cancel();
     state.loginHandle = null;
+    state.deviceCode = null;
   };
 
   /** Denial, transport failure, or the deadline — all land the operator here. */
@@ -173,6 +243,7 @@ export function createLoginFlow(
     state.loginStatus = "failed";
     state.loginError = message;
     state.loginURL = null;
+    state.deviceCode = null;
     surface.paint();
   };
 
@@ -210,6 +281,7 @@ export function createLoginFlow(
     state.loginStatus = "pending";
     state.loginError = null;
     state.loginCancelled = false;
+    state.deviceCode = null;
     const abort = new AbortController();
     state.loginAbort = abort;
     // A browser round-trip that never comes back must still give the screen
@@ -226,6 +298,34 @@ export function createLoginFlow(
         kind,
         profile: state.values.oauthProfile,
         signal: abort.signal,
+        notify: (event) => {
+          if (event.type !== "device_code") return;
+          if (attempt !== state.loginAttempt) return;
+          if (!isPinnedMetaVerificationUri(event.verificationUri)) {
+            failLogin(attempt, REJECTED_META_VERIFICATION_URI);
+            return;
+          }
+          state.deviceCode = {
+            verificationUri: event.verificationUri,
+            userCode: event.userCode,
+          };
+          const flash = (message: string): void => {
+            state.statusFlash = message;
+            if (state.statusFlashTimer !== null)
+              clearTimeout(state.statusFlashTimer);
+            state.statusFlashTimer = setTimeout(() => {
+              if (state.statusFlash === message) state.statusFlash = null;
+              state.statusFlashTimer = null;
+              surface.paintStatus();
+            }, RUNTIME_FLASH_MS);
+            surface.paintStatus();
+          };
+          writeClipboard(state.clipboard, event.verificationUri, {
+            onSuccess: () => flash("verification link copied to clipboard"),
+            onFailure: () => flash("copy failed — copy the url above"),
+          });
+          surface.paint();
+        },
       })
       .then(
         (handle) => {
@@ -263,6 +363,7 @@ export function createLoginFlow(
     state.loginURL = null;
     state.loginError = null;
     state.loginResult = null;
+    state.deviceCode = null;
     hooks.back();
     state.loginCancelled = wasPending;
     surface.paint();
@@ -307,7 +408,17 @@ export function createAccountNameFlow(
       state
         .listOAuthProfiles(state.choice.oauth)
         .catch((): readonly string[] => [])
-        .then(applySuggestion);
+        .then((names) => {
+          const kind = state.choice?.oauth;
+          applySuggestion(
+            kind === "meta"
+              ? [
+                  ...names,
+                  ...instanceSlugsForKind("meta", state.existingProviderNames),
+                ]
+              : names,
+          );
+        });
       return;
     }
     applySuggestion(
@@ -363,6 +474,16 @@ export function createAccountNameFlow(
     const attempt = (state.oauthNameAttempt += 1);
     const handleNames = (names: readonly string[]): void => {
       if (state.settled || attempt !== state.oauthNameAttempt) return;
+      if (
+        state.choice?.oauth === "meta" &&
+        metaOAuthSlugBlockedByApiKey(slug, state.existingProviderNames, names)
+      ) {
+        state.oauthProfileError = "that name is an API key";
+        state.oauthProfileConfirmPending = false;
+        state.confirmedSlug = null;
+        surface.paint();
+        return;
+      }
       if (names.includes(slug)) {
         state.oauthProfileError = null;
         state.oauthProfileConfirmPending = true;

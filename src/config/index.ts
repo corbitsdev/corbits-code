@@ -29,7 +29,12 @@ import {
 } from "../cost/pricing-fetcher.js";
 import type { CodexProfile } from "../auth/codex/store.js";
 import type { XaiProfile } from "../auth/xai/store.js";
-import { listCodexProfiles, listXaiProfiles } from "./oauth-stores.js";
+import type { MetaProfile } from "../auth/meta/store.js";
+import {
+  listCodexProfiles,
+  listMetaProfiles,
+  listXaiProfiles,
+} from "./oauth-stores.js";
 import {
   registerSourceCredentialRecord,
   type SourceCredentialProvenance,
@@ -44,9 +49,16 @@ import {
   xaiProfilesToCatalogEntries,
   xaiProvidersAsSettings,
 } from "./xai-providers.js";
+import {
+  isMetaProviderName,
+  metaProfilesToCatalogEntries,
+  metaProvidersAsSettings,
+} from "./meta-providers.js";
+import { separateCollidingMetaApiKeys } from "./meta-api-key.js";
 import { customReasoningSettings } from "./providers.js";
 import { CODEX_BASE_URL } from "../auth/codex/constants.js";
 import { XAI_BASE_URL } from "../auth/xai/constants.js";
+import { META_BASE_URL } from "../auth/meta/constants.js";
 import {
   CODEX_RESPONSES_PROVIDER,
   CODEX_SESSION_ID_OPTION,
@@ -55,6 +67,10 @@ import {
   GROK_RESPONSES_PROVIDER,
   GROK_SESSION_ID_OPTION,
 } from "../provider/grok-responses.js";
+import {
+  META_PROVIDER,
+  META_REASONING_EFFORT_OPTION,
+} from "@corbits/meta-provider";
 import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
 import { DEEPSEEK_V4_PROVIDER } from "../provider/deepseek-v4-adapter.js";
 import { isDeepSeekModel } from "../provider/deepseek-v4-effort.js";
@@ -90,6 +106,7 @@ import {
   resolveLocalSettingsPath,
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
+  saveGlobalSettings,
   hasMcpTransport,
   isExaMCPPreset,
   type MCPServerSettingsEntry,
@@ -166,7 +183,9 @@ export function dropOrphanedOAuthEntries(
   const providers = Object.fromEntries(
     Object.entries(settings.providers).filter(
       ([name, provider]) =>
-        (!isCodexProviderName(name) && !isXaiProviderName(name)) ||
+        (!isCodexProviderName(name) &&
+          !isXaiProviderName(name) &&
+          !isMetaProviderName(name)) ||
         projected[name] !== undefined ||
         isHandNamedProviderEntry(provider),
     ),
@@ -322,6 +341,8 @@ export type ProviderCatalogEntry = Omit<
   // xAI/Grok OAuth profile. Still routes through openai-compatible; the
   // marker only controls token refresh and persistence.
   xaiProfile?: string;
+  // Routes to the meta-responses adapter, not openai-compatible.
+  metaProfile?: string;
   // Bifrost virtual key: sources use provider "bifrost" so the adapter
   // injects the x-bf-vk header; also enables /models auto-discovery scoped
   // to the key.
@@ -402,6 +423,58 @@ export function buildXaiSource(fields: {
     id: fields.id,
     provider: GROK_RESPONSES_PROVIDER,
     baseURL: XAI_BASE_URL,
+    credentialId: fields.id,
+    model: fields.model,
+    defaults: { maxTokens: SOURCE_MAX_TOKENS, providerOptions },
+  };
+}
+
+export function buildMetaSource(fields: {
+  id: string;
+  profile: string;
+  apiKey: string;
+  model: string;
+  sessionId: string;
+  reasoningEffort?: ReasoningEffort;
+}): InferenceSource {
+  const providerOptions: Record<string, unknown> = {};
+  if (fields.reasoningEffort !== undefined)
+    providerOptions[META_REASONING_EFFORT_OPTION] = fields.reasoningEffort;
+  registerSourceSecret(fields.id, fields.apiKey, {
+    kind: "oauth",
+    provider: "meta",
+    profile: fields.profile,
+  });
+  return {
+    id: fields.id,
+    provider: META_PROVIDER,
+    baseURL: META_BASE_URL,
+    credentialId: fields.id,
+    model: fields.model,
+    defaults: { maxTokens: SOURCE_MAX_TOKENS, providerOptions },
+  };
+}
+
+export function buildMetaApiKeySource(fields: {
+  id: string;
+  apiKey?: string;
+  baseURL?: string;
+  model: string;
+  sessionId: string;
+  reasoningEffort?: ReasoningEffort;
+}): InferenceSource {
+  const providerOptions: Record<string, unknown> = {};
+  if (fields.reasoningEffort !== undefined)
+    providerOptions[META_REASONING_EFFORT_OPTION] = fields.reasoningEffort;
+  registerSourceSecret(fields.id, fields.apiKey);
+  const configured = fields.baseURL?.trim() ?? "";
+  return {
+    id: fields.id,
+    provider: META_PROVIDER,
+    baseURL:
+      configured.length > 0
+        ? normalizeOpenAICompatibleBaseURL(configured)
+        : META_BASE_URL,
     credentialId: fields.id,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS, providerOptions },
@@ -1002,15 +1075,23 @@ export async function loadConfig(
   // unauthenticated. Only the programmatic `globalSettingsPath` test override
   // (never a CLI flag) opts out — tests want no home-directory reads.
   const useOAuthProfiles = options.globalSettingsPath === undefined;
-  const [codexProfiles, xaiProfiles]: [CodexProfile[], XaiProfile[]] =
-    useOAuthProfiles
-      ? await Promise.all([listCodexProfiles(), listXaiProfiles()])
-      : [[], []];
+  const [codexProfiles, xaiProfiles, metaProfiles]: [
+    CodexProfile[],
+    XaiProfile[],
+    MetaProfile[],
+  ] = useOAuthProfiles
+    ? await Promise.all([
+        listCodexProfiles(),
+        listXaiProfiles(),
+        listMetaProfiles(),
+      ])
+    : [[], [], []];
   let projectedOAuthProviders = {
     ...codexProvidersAsSettings(codexProfiles),
     ...xaiProvidersAsSettings(xaiProfiles),
+    ...metaProvidersAsSettings(metaProfiles),
   };
-  const settings =
+  let settings =
     configPath !== undefined
       ? await loadSettingsRecoveringClobberedOAuthSelection(
           configPath,
@@ -1028,6 +1109,25 @@ export async function loadConfig(
           projectedOAuthProviders,
           { persist: true },
         );
+  const separatedMeta = separateCollidingMetaApiKeys(
+    settings,
+    metaProfiles.map((profile) => profile.name),
+  );
+  if (
+    separatedMeta.changed &&
+    separatedMeta.settings !== null &&
+    configPath === undefined &&
+    useOAuthProfiles
+  ) {
+    try {
+      await saveGlobalSettings(effectiveSettingsPath, separatedMeta.settings);
+    } catch {
+      process.stderr.write(
+        `settings: failed to persist Meta API-key separation for ${effectiveSettingsPath}; continuing with in-memory settings.\n`,
+      );
+    }
+  }
+  settings = separatedMeta.settings;
 
   // True when the value came from settings, not this invocation's
   // --dangerously-skip-permissions flag (Config.skipPermissionsFromSettings).
@@ -1124,6 +1224,7 @@ export async function loadConfig(
     resolved,
     codexProfiles,
     xaiProfiles,
+    metaProfiles,
   );
   const reasoning = customReasoningSettings(
     resolved.providerName,
@@ -1290,26 +1391,41 @@ export function mergeOAuthCatalog(
   resolved: ResolvedProvider,
   codexProfiles: readonly CodexProfile[],
   xaiProfiles: readonly XaiProfile[],
+  metaProfiles: readonly MetaProfile[],
 ): ProviderCatalogEntry[] {
+  const separated = separateCollidingMetaApiKeys(
+    settings,
+    metaProfiles.map((profile) => profile.name),
+  ).settings;
   const codexEntries = codexProfilesToCatalogEntries(codexProfiles);
   const xaiEntries = xaiProfilesToCatalogEntries(xaiProfiles);
+  const metaEntries = metaProfilesToCatalogEntries(metaProfiles);
+  const bareMeta = separated?.providers["meta"];
+  const bareMetaHasApiKey =
+    typeof bareMeta?.apiKey === "string" && bareMeta.apiKey.length > 0;
   // Legacy bare `codex`/`xai` row (the original single-instance connect key)
   // next to live credential-backed `<kind>/<profile>` entries reads as a
   // second provider. Drop it once that family has a live profile; when
   // nothing is connected the bare row is the only ChatGPT/Grok access and
   // stays. A bare row at a different endpoint is a distinct provider (see
-  // sameEndpoint), so it stays too.
+  // sameEndpoint), so it stays too. A bare `meta` row with its own API key
+  // is not a legacy placeholder and stays beside OAuth profiles.
   const dropBare = new Set([
     ...(codexEntries.length > 0 &&
-    sameEndpoint(settings?.providers["codex"]?.baseURL, CODEX_BASE_URL)
+    sameEndpoint(separated?.providers["codex"]?.baseURL, CODEX_BASE_URL)
       ? ["codex"]
       : []),
     ...(xaiEntries.length > 0 &&
-    sameEndpoint(settings?.providers["xai"]?.baseURL, XAI_BASE_URL)
+    sameEndpoint(separated?.providers["xai"]?.baseURL, XAI_BASE_URL)
       ? ["xai"]
       : []),
+    ...(metaEntries.length > 0 &&
+    !bareMetaHasApiKey &&
+    sameEndpoint(bareMeta?.baseURL, META_BASE_URL)
+      ? ["meta"]
+      : []),
   ]);
-  const settingsRows = buildProviderCatalog(settings, resolved);
+  const settingsRows = buildProviderCatalog(separated, resolved);
   // A hand-named codex/<slug> or xai/<slug> API-key row is explicit config,
   // not an OAuth placeholder (see isHandNamedProviderEntry): keep it and skip
   // the colliding live profile projection. buildProviderCatalog
@@ -1318,10 +1434,12 @@ export function mergeOAuthCatalog(
   // profile marker — treating it as hand-named would eject the real marked
   // entry for a stale token snapshot.
   const handNamed = new Set(
-    Object.entries(settings?.providers ?? {})
+    Object.entries(separated?.providers ?? {})
       .filter(
         ([name, provider]) =>
-          (isCodexProviderName(name) || isXaiProviderName(name)) &&
+          (isCodexProviderName(name) ||
+            isXaiProviderName(name) ||
+            isMetaProviderName(name)) &&
           isHandNamedProviderEntry(provider),
       )
       .map(([name]) => name),
@@ -1332,10 +1450,12 @@ export function mergeOAuthCatalog(
         handNamed.has(e.name) ||
         (!isCodexProviderName(e.name) &&
           !isXaiProviderName(e.name) &&
+          !isMetaProviderName(e.name) &&
           !dropBare.has(e.name)),
     ),
     ...codexEntries.filter((e) => !handNamed.has(e.name)),
     ...xaiEntries.filter((e) => !handNamed.has(e.name)),
+    ...metaEntries.filter((e) => !handNamed.has(e.name)),
   ].map((entry) =>
     isOpenCodeGoProvider(entry)
       ? { ...entry, models: [...selectableGoModelIds()] }
@@ -1345,21 +1465,23 @@ export function mergeOAuthCatalog(
   );
 }
 
-/** Rescans home-level Codex/xAI credential stores and rebuilds the live provider catalog. */
+/** Rescans home-level Codex/xAI/Meta credential stores and rebuilds the live provider catalog. */
 export async function refreshLiveProviderCatalog(
   settings: Settings | null,
   resolved: ResolvedProvider,
   liveSelection?: () => Pick<ResolvedProvider, "providerName" | "model">,
 ): Promise<ProviderCatalogEntry[]> {
-  const [codexProfiles, xaiProfiles] = await Promise.all([
+  const [codexProfiles, xaiProfiles, metaProfiles] = await Promise.all([
     listCodexProfiles(),
     listXaiProfiles(),
+    listMetaProfiles(),
   ]);
   const catalog = mergeOAuthCatalog(
     settings,
     resolved,
     codexProfiles,
     xaiProfiles,
+    metaProfiles,
   );
   // Discovery can finish after a model switch; never restore its old bare-model slot.
   const active = liveSelection?.() ?? resolved;
@@ -1383,7 +1505,9 @@ export function refreshProviderContextWindows(
   const providers = Object.fromEntries(
     catalog.map((entry) => {
       const window =
-        entry.codexProfile === undefined && entry.xaiProfile === undefined
+        entry.codexProfile === undefined &&
+        entry.xaiProfile === undefined &&
+        entry.metaProfile === undefined
           ? settings?.providers[entry.name]?.contextWindow
           : undefined;
       return [
@@ -1464,7 +1588,9 @@ export function runtimeSettingsWithCatalog(
   const overlaid = Object.fromEntries(
     Object.entries(fromCatalog).filter(
       ([name]) =>
-        (!isCodexProviderName(name) && !isXaiProviderName(name)) ||
+        (!isCodexProviderName(name) &&
+          !isXaiProviderName(name) &&
+          !isMetaProviderName(name)) ||
         !isHandNamedProviderEntry(settings.providers[name]),
     ),
   );
@@ -1549,7 +1675,10 @@ export function providerCatalogToSettings(
   // settings.json; exclude them so provider edits never persist short-lived
   // access tokens into the settings file.
   const persistable = catalog.filter(
-    (p) => p.codexProfile === undefined && p.xaiProfile === undefined,
+    (p) =>
+      p.codexProfile === undefined &&
+      p.xaiProfile === undefined &&
+      p.metaProfile === undefined,
   );
   const providers = Object.fromEntries(
     persistable.map((p): [string, ProviderSettings] => [

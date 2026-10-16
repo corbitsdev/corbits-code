@@ -16,6 +16,10 @@ import {
   withCodexContentTypeRepair,
 } from "./codex-responses.js";
 import { GROK_RESPONSES_PROVIDER } from "./grok-responses.js";
+import {
+  META_PROVIDER,
+  createMetaResponsesAdapter,
+} from "@corbits/meta-provider";
 import { withAnthropicCacheBreakpoint } from "./anthropic-cache-breakpoint.js";
 import { withReplaySanitizer } from "./replay-sanitizer.js";
 import { isPollOnlyPendingBatch } from "../subagent/poll-exempt.js";
@@ -55,6 +59,11 @@ const manifest: AdapterManifest = [
     export: "createGrokResponsesAdapter",
   },
   {
+    provider: META_PROVIDER,
+    specifier: "meta-responses",
+    export: "createMetaResponsesAdapter",
+  },
+  {
     provider: BIFROST_PROVIDER,
     specifier: "bifrost-adapter",
     export: "createBifrostAdapter",
@@ -86,6 +95,7 @@ const localModules: Record<string, unknown> = {
   "opencode-go-adapter": opencodeGo,
   "codex-responses": codexResponses,
   "grok-responses": grokResponses,
+  "meta-responses": { createMetaResponsesAdapter },
   "bifrost-adapter": bifrostAdapter,
   "deepseek-v4-adapter": deepseekV4,
   "openai-responses": openaiResponses,
