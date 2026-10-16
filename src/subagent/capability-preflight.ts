@@ -245,6 +245,9 @@ function enginesCoveredByDirector(
       (engine) => named.has(engine) || postFilter.has(engine),
     );
   }
+  // An explicit exclude names the engine. Post-filter mounts (manage_tasks)
+  // are not exempt here — update_plan and manage_tasks must agree, and the
+  // engine-id path applies the same denylist.
   return engines.filter((engine) => !named.has(engine));
 }
 
@@ -353,6 +356,21 @@ export function preflightCapabilities(
           unavailable: { code: "missing_binary", tool: resolved },
         };
       }
+      // Explicit exclude wins over the post-filter mount exemption and over a
+      // live MCP mount. Otherwise gpt update_plan (wire path) is
+      // permission_static while manage_tasks (engine-id path) still passes.
+      // shell / run_shell share that rule. run.ts strips named tools in
+      // exclude mode, so an excluded MCP tool must reject here.
+      if (deny !== undefined && deny.has(resolved)) {
+        return {
+          ok: false,
+          unavailable: {
+            code: "permission_static",
+            tool: resolved,
+            alternatives: rerouteAlternatives(resolved),
+          },
+        };
+      }
       if (!postFilter.has(resolved) && !isLiveMcp) {
         if (allow !== undefined && !allow.has(resolved)) {
           return {
@@ -364,28 +382,6 @@ export function preflightCapabilities(
             },
           };
         }
-        if (deny !== undefined && deny.has(resolved)) {
-          return {
-            ok: false,
-            unavailable: {
-              code: "permission_static",
-              tool: resolved,
-              alternatives: rerouteAlternatives(resolved),
-            },
-          };
-        }
-      } else if (isLiveMcp && deny !== undefined && deny.has(resolved)) {
-        // An explicit exclude naming a live MCP tool still withholds it —
-        // run.ts strips named tools in exclude mode, so the mount would drop
-        // it and the requirement must reject here, not as a stale snapshot.
-        return {
-          ok: false,
-          unavailable: {
-            code: "permission_static",
-            tool: resolved,
-            alternatives: rerouteAlternatives(resolved),
-          },
-        };
       }
       if (!seen.has(resolved)) {
         seen.add(resolved);

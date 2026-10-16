@@ -106,16 +106,19 @@ export function enginesForAdvertisedWire(
   return table.get(wire) ?? table.get(wire.toLowerCase());
 }
 
+/** Wire this profile advertises for `engine`, including a fold that replaces it. */
+function profileWireName(engine: string, profile: ToolProfile): string {
+  const fold = PROFILE_FOLDS[profile];
+  if (fold !== undefined && fold.engines.includes(engine)) return fold.wire;
+  return advertisedToolName(engine, profile);
+}
+
 /** Every wire any profile advertises for `engine`, including fold wires. */
 export function advertisedNamesForEngine(engine: string): readonly string[] {
   const names: string[] = [];
   const seen = new Set<string>();
   for (const profile of toolProfiles()) {
-    const fold = PROFILE_FOLDS[profile];
-    const wire =
-      fold !== undefined && fold.engines.includes(engine)
-        ? fold.wire
-        : advertisedToolName(engine, profile);
+    const wire = profileWireName(engine, profile);
     if (seen.has(wire)) continue;
     seen.add(wire);
     names.push(wire);
@@ -205,16 +208,23 @@ export function advertisedToolName(
 }
 
 /** True when `name` (wire, engine, or hidden alias) is covered by an
- * advertised or activated listing (which may store wire or engine ids). */
+ * advertised or activated listing (which may store wire or engine ids).
+ * A call is advertised when this profile's wire is on the list, and also
+ * when the default wire is — primary prefixes still store `bash` while a
+ * gpt worker prefix stores `shell`. */
 export function nameMatchesAdvertisedListing(
   name: string,
   isListed: (candidate: string) => boolean,
+  profile: ToolProfile = "default",
 ): boolean {
   if (isListed(name)) return true;
   const engine = engineToolName(name);
   if (engine !== name && isListed(engine)) return true;
-  const wire = advertisedToolName(engine);
-  return wire !== name && isListed(wire);
+  const wires =
+    profile === "default"
+      ? [profileWireName(engine, profile)]
+      : [profileWireName(engine, profile), profileWireName(engine, "default")];
+  return wires.some((wire) => wire !== name && isListed(wire));
 }
 
 // update_plan dispatches through translateUpdatePlanArgs, so advertising

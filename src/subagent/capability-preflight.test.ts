@@ -364,6 +364,40 @@ describe("preflightCapabilities", () => {
     expect(result.unavailable.code).toBe("unknown_tool");
     expect(result.unavailable.tool).toBe("bash");
   });
+
+  test("gpt exclude denies the wire and the engine together", () => {
+    const cases = [
+      { exclude: "manage_tasks", required: ["update_plan", "manage_tasks"] },
+      { exclude: "update_plan", required: ["update_plan", "manage_tasks"] },
+      { exclude: "run_shell", required: ["shell", "run_shell"] },
+      { exclude: "shell", required: ["shell", "run_shell"] },
+    ] as const;
+    for (const entry of cases) {
+      for (const required of entry.required) {
+        const result = preflightCapabilities({
+          required: [required],
+          resolvedFilter: { mode: "exclude", tools: [entry.exclude] },
+          knownEngines: DEFAULT_KNOWN_ENGINES,
+          agentLabel: "coder",
+          toolProfile: "gpt",
+        });
+        const label = `${entry.exclude} blocks ${required}`;
+        expect(result.ok, label).toBe(false);
+        if (result.ok) continue;
+        expect(result.unavailable.code, label).toBe("permission_static");
+      }
+    }
+    for (const required of ["manage_tasks", "update_plan"] as const) {
+      const result = preflightCapabilities({
+        required: [required],
+        resolvedFilter: { mode: "exclude", tools: ["read_file"] },
+        knownEngines: DEFAULT_KNOWN_ENGINES,
+        agentLabel: "coder",
+        toolProfile: "gpt",
+      });
+      expect(result.ok, required).toBe(true);
+    }
+  });
 });
 
 describe("formatCapabilityUnavailable", () => {

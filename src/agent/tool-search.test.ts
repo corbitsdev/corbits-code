@@ -1051,6 +1051,62 @@ describe("advertisedToolNamesForWorker", () => {
     expect(build).not.toContain("write_file");
   });
 
+  test("gpt shell is advertised, so a shell call does not promote run_shell", async () => {
+    const prefix = advertisedToolNamesForWorker({
+      allow: BUILD_TOOLS,
+      profile: "gpt",
+    });
+    const runner = createDynamicToolRunner([
+      {
+        kind: "string",
+        definition: {
+          name: "run_shell",
+          description: "run a shell command",
+          inputSchema: { type: "object", properties: {}, required: [] },
+        },
+        handler: async () => "ran:shell",
+      },
+      {
+        kind: "string",
+        definition: {
+          name: "apply_patch",
+          description: "apply a patch",
+          inputSchema: { type: "object", properties: {}, required: [] },
+        },
+        handler: async () => "ran:patch",
+      },
+    ]);
+    const advertised = createAdvertisedToolset({
+      sessionMode: "orchestrator",
+      toolAvailability: { languageServerAvailable: false },
+      getProvider: () => ({ providerName: "openai", model: "gpt-5-codex" }),
+      builtInPrefix: prefix,
+    });
+    expect(advertised.isAdvertised("shell")).toBe(true);
+    expect(advertised.isAdvertised("run_shell")).toBe(true);
+    expect(advertised.isAdvertised("apply_patch")).toBe(true);
+    const promoted: string[] = [];
+    runner.setCallGate((name) => advertised.isAdvertised(name));
+    runner.setOnUndeclaredCall((name) => {
+      promoted.push(name);
+      advertised.activated.activate([name]);
+    });
+    const signal = new AbortController().signal;
+    const shell = await runner.run(
+      { id: "shell", name: "shell", arguments: { command: "true" } },
+      signal,
+    );
+    const patch = await runner.run(
+      { id: "patch", name: "apply_patch", arguments: {} },
+      signal,
+    );
+    expect(shell.content).toBe("ran:shell");
+    expect(shell.isError).toBeUndefined();
+    expect(patch.content).toBe("ran:patch");
+    expect(patch.isError).toBeUndefined();
+    expect(promoted).toEqual([]);
+  });
+
   test("every non-default profile projects allowlisted engines through its wire table", () => {
     const allow = BUILD_TOOLS as readonly string[];
     for (const profile of toolProfiles()) {
