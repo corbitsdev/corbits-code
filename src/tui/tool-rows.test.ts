@@ -26,6 +26,7 @@ function liveFeed(snapshot: () => string): ShellOutputFeed {
     append: () => undefined,
     clear: () => undefined,
     snapshot,
+    subscribe: () => () => undefined,
   };
 }
 

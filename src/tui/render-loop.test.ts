@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { ManualClock } from "@opentui/core/testing";
 
 import { withTestRenderer } from "./harness";
 import { RAMP_CYCLE_MS, rampPulse } from "./ramp-glyphs";
@@ -92,16 +93,14 @@ describe("monitor cadence", () => {
         bridge.handle({ type: "run", state: "busy" });
         const tickMs = m.intervalMs();
         expect(tickMs).not.toBeNull();
+        // Stall and quota stay on the slow cadence. The ramp is sampled by
+        // Timeline frames (about a renderer frame), not by tightening this
+        // interval. 16ms steps of the same clock must still show every density.
+        expect(tickMs).toBeGreaterThanOrEqual(200);
 
-        // The comet crosses width + feather cells per cycle; a cadence that
-        // samples fewer times than that jumps cells instead of travelling.
-        expect(RAMP_CYCLE_MS / (tickMs ?? 1)).toBeGreaterThanOrEqual(14);
-
-        // Every step the status slot's pulse has must actually get sampled;
-        // a cadence that skips steps turns the cycle into a stutter.
         const glyphs = new Set<string>();
-        for (let elapsed = 0; elapsed < RAMP_CYCLE_MS; elapsed += tickMs ?? 1) {
-          m.advance(tickMs ?? 1);
+        for (let elapsed = 0; elapsed < RAMP_CYCLE_MS; elapsed += 16) {
+          m.advance(16);
           glyphs.add(
             rampPulse({
               phase: "working",
@@ -115,6 +114,33 @@ describe("monitor cadence", () => {
         bridge.dispose();
       }
     }, WIDE);
+  });
+
+  test("timeline frames advance the ramp when the stall schedule does not tick", async () => {
+    const clock = new ManualClock();
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, SHELL_OPTS);
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => clock.now(),
+          tickMs: 250,
+          schedule: () => () => undefined,
+        });
+        try {
+          bridge.handle({ type: "run", state: "busy" });
+          await h.renderOnce();
+          const first = shell.lockupNowMs;
+          clock.advance(RAMP_CYCLE_MS / 4);
+          await h.renderOnce();
+          expect(shell.lockupNowMs - first).toBeGreaterThanOrEqual(
+            RAMP_CYCLE_MS / 4,
+          );
+        } finally {
+          bridge.dispose();
+        }
+      },
+      { ...WIDE, clock },
+    );
   });
 });
 

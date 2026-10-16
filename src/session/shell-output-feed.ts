@@ -1,5 +1,5 @@
 /** Bounded live-output tail of a running shell command. The shell-guard
- * plugin appends chunks; the TUI polls `snapshot()` on its sticky tick.
+ * plugin appends chunks; subscribers repaint the transcript tail.
  * Nothing is persisted. */
 
 /** Tail of output a feed keeps before the oldest chunk is dropped. */
@@ -11,6 +11,8 @@ export interface ShellOutputFeed {
   snapshot(): string;
   /** Drop everything retained in this feed. */
   clear(): void;
+  /** Fired after a non-empty append or a clear. */
+  subscribe(listener: () => void): () => void;
 }
 
 /** Per-call live tails so parallel run_shells cannot share or wipe a sibling. */
@@ -18,6 +20,8 @@ export interface ShellOutputFeedMap {
   forCall(callId: string): ShellOutputFeed;
   get(callId: string): ShellOutputFeed | undefined;
   drop(callId: string): void;
+  /** Fired when any call's feed appends or clears. */
+  subscribe(listener: () => void): () => void;
 }
 
 function byteLength(text: string): number {
@@ -29,6 +33,10 @@ export function createShellOutputFeed(
 ): ShellOutputFeed {
   let chunks: string[] = [];
   let totalBytes = 0;
+  const listeners = new Set<() => void>();
+  const notify = (): void => {
+    for (const listener of listeners) listener();
+  };
   const recompute = (): void => {
     while (totalBytes > limitBytes && chunks.length > 1) {
       const dropped = chunks.shift();
@@ -52,24 +60,38 @@ export function createShellOutputFeed(
       chunks.push(chunk);
       totalBytes += byteLength(chunk);
       recompute();
+      notify();
     },
     snapshot(): string {
       return chunks.join("");
     },
     clear(): void {
+      if (chunks.length === 0) return;
       chunks = [];
       totalBytes = 0;
+      notify();
+    },
+    subscribe(listener: () => void): () => void {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
   };
 }
 
 export function createShellOutputFeedMap(): ShellOutputFeedMap {
   const feeds = new Map<string, ShellOutputFeed>();
+  const listeners = new Set<() => void>();
+  const notify = (): void => {
+    for (const listener of listeners) listener();
+  };
   return {
     forCall(callId: string): ShellOutputFeed {
       let feed = feeds.get(callId);
       if (feed === undefined) {
         feed = createShellOutputFeed();
+        feed.subscribe(notify);
         feeds.set(callId, feed);
       }
       return feed;
@@ -79,6 +101,12 @@ export function createShellOutputFeedMap(): ShellOutputFeedMap {
     },
     drop(callId: string): void {
       feeds.delete(callId);
+    },
+    subscribe(listener: () => void): () => void {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
   };
 }

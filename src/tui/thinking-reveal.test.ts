@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { ManualClock } from "@opentui/core/testing";
 
 import {
   advanceRevealChars,
@@ -211,6 +212,42 @@ describe("the reveal position through the bridge", () => {
         }
       },
       { width: 80, height: 24 },
+    );
+  });
+
+  test("a timeline frame reveals at the bounded rate without the stall tick", async () => {
+    const clock = new ManualClock();
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => clock.now(),
+          tickMs: 250,
+          schedule: () => () => undefined,
+        });
+        try {
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.thinking.delta",
+            data: { token: "x".repeat(500) },
+          });
+          await h.renderOnce();
+          clock.advance(1_000);
+          await h.renderOnce();
+          const revealed = shell.streamLog.at(-1)?.revealChars ?? 0;
+          // 28 chars/sec. A second of frame time must move, and must not dump
+          // the burst.
+          expect(revealed).toBeGreaterThanOrEqual(28);
+          expect(revealed).toBeLessThan(40);
+        } finally {
+          bridge.dispose();
+        }
+      },
+      { width: 80, height: 24, clock },
     );
   });
 });

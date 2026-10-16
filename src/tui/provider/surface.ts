@@ -16,6 +16,7 @@ import { PRODUCT_NAME } from "../../branding.js";
 import { ollamaDiscoveryFailureLine } from "../../provider/ollama.js";
 import { TELEMETRY_NOTICE } from "../../telemetry/index.js";
 import { wrapLines } from "../view/height.js";
+import { startFrameTimeline } from "../frame-timeline.js";
 import { rampFor, rampLine } from "../ramp-glyphs.js";
 import { destroySubtree } from "../teardown.js";
 import { UI } from "../theme.js";
@@ -54,8 +55,20 @@ const TELEMETRY_ROWS = 3;
  * keys and JWT-shaped tokens clear that default.
  */
 const FIELD_MAX_LENGTH = 16_384;
-/** Ramp animation tick. Fast enough to read as motion at 30fps paint. */
-export const RAMP_TICK_MS = 120;
+
+/** Stop the shared ramp Timeline, if one is running. */
+export function stopRamp(state: SetupState): void {
+  state.rampTimer?.();
+  state.rampTimer = null;
+}
+
+/** Drive the status ramp from the renderer Timeline, not an interval. */
+export function startRamp(state: SetupState, paint: () => void): void {
+  stopRamp(state);
+  state.rampTimer = startFrameTimeline(state.renderer, () => {
+    paint();
+  });
+}
 
 // "testing" covers the connection check; "saving" covers the settings write
 // that follows once it succeeds.
@@ -63,13 +76,6 @@ const SUBMIT_PHASE_LABEL: Record<SubmitPhase, string> = {
   testing: "testing connection",
   saving: "writing settings",
 };
-
-/** Stop the shared ramp animation timer, if one is running. */
-export function stopRamp(state: SetupState): void {
-  if (state.rampTimer === null) return;
-  clearInterval(state.rampTimer);
-  state.rampTimer = null;
-}
 
 /**
  * Unmount the surface: stop in-flight flows, detach input handlers, destroy

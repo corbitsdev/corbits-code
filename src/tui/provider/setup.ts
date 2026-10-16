@@ -63,7 +63,7 @@ import {
 } from "./oauth.js";
 import {
   createSurface,
-  RAMP_TICK_MS,
+  startRamp,
   stopRamp,
   teardownSurface,
 } from "./surface.js";
@@ -318,7 +318,7 @@ export async function runProviderSetup(
     );
     surface.paint();
     stopRamp(state);
-    state.rampTimer = setInterval(() => surface.paintStatus(), RAMP_TICK_MS);
+    startRamp(state, () => surface.paintStatus());
 
     // Track the phase locally so the rejection handler knows whether the
     // failure happened during the connection test (retryable and bypassable)

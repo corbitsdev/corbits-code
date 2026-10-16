@@ -167,7 +167,7 @@ export interface SetupState {
   submitPhase: SubmitPhase;
   submitError: string | null;
   saveAnywayOffered: boolean;
-  rampTimer: ReturnType<typeof setInterval> | null;
+  rampTimer: (() => void) | null;
   readonly startLogin: OAuthLoginStarter;
   readonly listOAuthProfiles: OAuthProfileLister;
   readonly loginTimeoutMs: number;

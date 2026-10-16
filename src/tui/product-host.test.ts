@@ -6,6 +6,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 import { TextRenderable, type KeyEvent } from "@opentui/core";
 import type { ConversationTurn } from "@intx/types/runtime";
+import { createShellOutputFeedMap } from "../session/shell-output-feed.js";
 import { defined } from "../../testkit/defined.js";
 import { createHarness, type Harness } from "./harness.js";
 import { acceptOverlaySelection } from "./shell/overlay-host.js";
@@ -626,6 +627,45 @@ describe("mountProductHost", () => {
       }
       expect(host.shell.layout.heights.agents).toBe(0);
       expect(captureCharFrame()).not.toContain("map callers");
+    } finally {
+      host.dispose();
+      destroyHarness();
+    }
+  });
+
+  test("a shell feed append paints the lane on the next frame, not a poll", async () => {
+    const feeds = createShellOutputFeedMap();
+    const { host, emitter, renderOnce, captureCharFrame, destroyHarness } =
+      await mountHeadless({
+        shellOutputFeed: (callId) => feeds.get(callId),
+        subscribeShellOutput: (listener) => feeds.subscribe(listener),
+      });
+    try {
+      emitter.emit("event", {
+        type: "inference.tool_call.end",
+        data: {
+          name: "run_shell",
+          callId: "sh-live",
+          arguments: { command: "make test" },
+        },
+      });
+      const feed = feeds.forCall("sh-live");
+      feed.append("compiling src/a.ts\n");
+      feed.append("compiling src/b.ts\n");
+      feed.append("compiling src/c.ts\n");
+      feed.append("done\n");
+      await renderOnce();
+      const row = host.shell.streamLog[0];
+      expect(row?.pending).toBe(true);
+      expect(row?.previewLines).toEqual([
+        "compiling src/b.ts",
+        "compiling src/c.ts",
+        "done",
+        "⋯ +1 lines",
+      ]);
+      await renderOnce();
+      expect(captureCharFrame()).toContain("compiling src/c.ts");
+      expect(captureCharFrame()).toContain("⋯ +1 lines");
     } finally {
       host.dispose();
       destroyHarness();

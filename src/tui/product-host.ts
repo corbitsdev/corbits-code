@@ -19,6 +19,8 @@ import {
   type TurnMonitorOptions,
 } from "./runtime-bridge.js";
 import type { ShellOutputFeed } from "../session/shell-output-feed.js";
+import { agentLaneIsLive } from "../subagent/agent-progress.js";
+import { startFrameTimeline } from "./frame-timeline.js";
 import { openAddProviderOverlay, openModelPickerOverlay } from "./overlays.js";
 import { wireGates, type NotifierPort } from "./gate-wire.js";
 import { createSystemClipboard } from "./system-clipboard.js";
@@ -243,14 +245,15 @@ export interface ProductHostConfig {
    * unset falls back to the shell's demo fixture; production must supply
    * this to view real sessions. */
   readonly onObserveRequest?: PaletteOnObserveRequest;
-  /** Live sub-agent sessions read on the chrome poll cadence to refresh
-   * outstanding `spawn_agent` rows (elapsed time, tool, stall state);
-   * omitted hosts paint bare pending rows. */
+  /** Live sub-agent sessions. A Timeline refreshes outstanding `spawn_agent`
+   * rows while any lane is live; omitted hosts paint bare pending rows. */
   readonly subAgentSessions?: () => readonly TaskProgressSession[];
-  /** Per-call bounded shell-output feeds, polled on the sticky tick to
-   * paint a running command's live output tail onto its pending row.
-   * Omitted hosts paint pending rows without a tail. */
+  /** Per-call bounded shell-output feeds. Appends repaint the pending row
+   * on the next frame. Omitted hosts paint pending rows without a tail. */
   readonly shellOutputFeed?: (callId: string) => ShellOutputFeed | undefined;
+  /** Notified when any wired feed appends. Frame-coalesced with
+   * `shellOutputFeed`. */
+  readonly subscribeShellOutput?: (listener: () => void) => () => void;
   /** Renderer factory override for headless mounting in tests; defaults to
    * the real `createCliRenderer`. */
   readonly createRenderer?: () => Promise<CliRenderer>;
@@ -444,6 +447,9 @@ export async function mountProductHost(
   // disposing the host; painting into freed buffers throws, so it stands
   // down. Sticky is tracked so a true→false edge still paints once —
   // otherwise the strip never clears when linger expires without a notify.
+  // Idle used to wake every 200ms (5 callbacks/s) even with nothing live.
+  // Clocks now run on a Timeline only while a lane or linger is on screen,
+  // and shell tails repaint from feed appends, one animation frame each.
   let stickyWasNeeded =
     chromeState !== null &&
     agentsChromeNeedsSticky(
@@ -451,50 +457,92 @@ export async function mountProductHost(
       Date.now(),
       agentsPanelLingerMs,
     );
-  const stickyPoll = setInterval(() => {
+  let stopClock: (() => void) | null = null;
+  let shellFrame: number | null = null;
+  let unsubscribeShell: (() => void) | null = null;
+
+  const sessionsLive = (): boolean => {
+    const sessions = config.subAgentSessions?.();
+    if (sessions === undefined) return false;
+    return sessions.some((session) => agentLaneIsLive(session));
+  };
+  const stickyNeededNow = (): boolean =>
+    chromeState !== null &&
+    agentsChromeNeedsSticky(
+      chromeState.agents,
+      Date.now(),
+      agentsPanelLingerMs,
+    );
+  const runClockTick = (): void => {
     if (disposed) return;
     try {
-      // The poll paints the strip, not the chrome; both edges go through
-      // the stickyWasNeeded latch below.
-      const stickyNeeded =
-        chromeState !== null &&
-        agentsChromeNeedsSticky(
-          chromeState.agents,
-          Date.now(),
-          agentsPanelLingerMs,
-        );
+      const stickyNeeded = stickyNeededNow();
       if (stickyNeeded || stickyWasNeeded) {
         paintChrome(shell);
       }
-      // While the strip owns live clocks/linger, skip syncAgentProgress
-      // rewrites — anchors still arrive via events; only the sticky clock
-      // tick is frozen.
       if (config.subAgentSessions !== undefined && !stickyNeeded) {
         bridge.syncAgentProgress(config.subAgentSessions());
       }
-      // Live shell tail: deduped in the bridge, so an unchanged snapshot is
-      // a no-op; this poll cadence (200 ms) is the paint cadence.
-      bridge.syncShellOutputs(config.shellOutputFeed);
-      // Elapsed clock, stall flip, and linger are wall-time, so repaint while
-      // sticky is needed; paintChromeZones re-enters setChromeZones, so gate
-      // on sticky, not every tick. The falling edge clears the zone when
-      // formatAgentsPanel returns null after linger.
       if (stickyNeeded || stickyWasNeeded) {
         paintChromeZones();
       } else {
         publishProgramStatus();
       }
       stickyWasNeeded = stickyNeeded;
+      if (!stickyNeeded && !sessionsLive()) {
+        stopClock?.();
+        stopClock = null;
+      }
     } catch {
-      clearInterval(stickyPoll);
+      stopClock?.();
+      stopClock = null;
     }
-  }, 200);
-  if (typeof stickyPoll.unref === "function") stickyPoll.unref();
+  };
+  const armHostClock = (): void => {
+    if (disposed) return;
+    const keep = stickyNeededNow() || sessionsLive();
+    if (!keep) {
+      if (stickyWasNeeded) runClockTick();
+      stopClock?.();
+      stopClock = null;
+      return;
+    }
+    if (stopClock === null) {
+      stopClock = startFrameTimeline(renderer, () => {
+        runClockTick();
+      });
+    }
+  };
+  const scheduleShellPaint = (): void => {
+    if (disposed || shellFrame !== null) return;
+    shellFrame = renderer.requestAnimationFrame(() => {
+      shellFrame = null;
+      if (disposed) return;
+      try {
+        bridge.syncShellOutputs(config.shellOutputFeed);
+      } catch {
+        // renderer already gone
+      }
+    });
+  };
+  if (config.subscribeShellOutput !== undefined) {
+    unsubscribeShell = config.subscribeShellOutput(() => {
+      scheduleShellPaint();
+    });
+  }
+  armHostClock();
 
   function dispose(): void {
     if (disposed) return;
     disposed = true;
-    clearInterval(stickyPoll);
+    stopClock?.();
+    stopClock = null;
+    unsubscribeShell?.();
+    unsubscribeShell = null;
+    if (shellFrame !== null) {
+      renderer.cancelAnimationFrame(shellFrame);
+      shellFrame = null;
+    }
     config.eventEmitter.off("event", onEvent);
     disposeGates();
     clearAllOperatorInputRequired(shell);
@@ -917,6 +965,7 @@ export async function mountProductHost(
     setChrome: (state) => {
       chromeState = state ?? null;
       paintChromeZones();
+      armHostClock();
     },
     setTitle: (title) => setHeader(shell, title),
     pushObserveRow: (row) => appendObserveStreamRow(shell, row),

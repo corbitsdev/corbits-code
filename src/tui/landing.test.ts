@@ -1,6 +1,6 @@
 /** Landing anatomy: mark, centred prompt box, telemetry disclosure,
  * starters — gone once the transcript has content. */
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { CapturedSpan } from "@opentui/core";
 import { rgbToHex } from "@opentui/core";
 import { defined } from "../../testkit/defined.js";
@@ -8,7 +8,6 @@ import { makePermissionItems, type Harness } from "./harness";
 import {
   appendStreamRow,
   applyLandingSuggestion,
-  LANDING_IDLE_REPAINT_INTERVAL_MS,
   noticeText,
   paintChrome,
   setChromeZones,
@@ -17,7 +16,7 @@ import {
   toggleTasksPanel,
 } from "./shell/chrome";
 import { withAppShell } from "./test-helpers";
-import { isLanding } from "./shell/internals";
+import { isLanding, shellInternals } from "./shell/internals";
 import {
   setPromptModelLabel,
   setPromptWorkspace,
@@ -46,57 +45,7 @@ import { SNOW_CHAR } from "./mark-raster";
 const SIZE = { width: 80, height: 24 } as const;
 const NOTICE = "Anonymous usage telemetry is enabled. Disable in /settings.";
 
-const nativeSetInterval = globalThis.setInterval;
-const nativeClearInterval = globalThis.clearInterval;
-
 const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
-
-interface IdleTimerHandle {
-  unref?: () => void;
-}
-
-/** Intercepts the idle interval so tests can see a still-armed timer
- * regardless of cadence. */
-function wrapLandingIdleTimer(): {
-  armed: IdleTimerHandle[];
-  cleared: IdleTimerHandle[];
-} {
-  const armed: IdleTimerHandle[] = [];
-  const cleared: IdleTimerHandle[] = [];
-  // Do not arm a real interval. Callers inject clocks or only inspect handles.
-  globalThis.setInterval = ((
-    handler: Parameters<typeof nativeSetInterval>[0],
-    delay?: number,
-    ...args: unknown[]
-  ) => {
-    if (delay === LANDING_IDLE_REPAINT_INTERVAL_MS) {
-      const handle: IdleTimerHandle = {};
-      armed.push(handle);
-      return handle;
-    }
-    return nativeSetInterval.call(globalThis, handler, delay, ...args);
-  }) as typeof nativeSetInterval;
-  globalThis.clearInterval = ((
-    handle: Parameters<typeof nativeClearInterval>[0],
-  ) => {
-    cleared.push(handle as IdleTimerHandle);
-    if (armed.includes(handle as IdleTimerHandle)) return;
-    return nativeClearInterval.call(globalThis, handle);
-  }) as typeof nativeClearInterval;
-  return { armed, cleared };
-}
-
-function soleLandingIdleHandle(
-  armed: readonly IdleTimerHandle[],
-): IdleTimerHandle {
-  const handle = armed[0];
-  if (armed.length !== 1 || handle === undefined) {
-    throw new Error(
-      `expected exactly one ${LANDING_IDLE_REPAINT_INTERVAL_MS}ms interval, got ${armed.length}`,
-    );
-  }
-  return handle;
-}
 
 /** Newly added scroll-box children need a layout pass before they paint. */
 async function settle(h: Harness): Promise<void> {
@@ -314,17 +263,12 @@ describe("landing screen", () => {
     );
   }, 15_000);
 
-  describe("landing idle timer", () => {
-    afterEach(() => {
-      globalThis.setInterval = nativeSetInterval;
-      globalThis.clearInterval = nativeClearInterval;
-    });
-
-    test("reduced-motion mount never arms the idle timer and never draws snow", async () => {
-      const { armed } = wrapLandingIdleTimer();
+  describe("landing idle motion", () => {
+    test("reduced-motion mount never arms snow and never draws it", async () => {
       await withAppShell(
         async (shell, h) => {
-          expect(armed).toHaveLength(0);
+          expect(shellInternals(shell)?.landingIdleTimerCancel).toBeNull();
+          expect(shellInternals(shell)?.markSnow).toBeNull();
           await settle(h);
           const first = markRows(h).join("\n");
           expect(first.includes(SNOW_CHAR)).toBe(false);
@@ -349,17 +293,20 @@ describe("landing screen", () => {
       );
     });
 
-    test("a deferred system notice does not clear the landing idle timer", async () => {
-      const { armed, cleared } = wrapLandingIdleTimer();
+    test("a deferred system notice does not stop landing snow", async () => {
       await withAppShell(
         async (shell) => {
-          const handle = soleLandingIdleHandle(armed);
+          expect(shellInternals(shell)?.landingIdleTimerCancel).toBeTypeOf(
+            "function",
+          );
           surfaceSystemNotice(
             shell,
             "mcp github did not connect (ECONNREFUSED) — its tools are unavailable; /mcp for detail",
           );
           expect(isLanding(shell)).toBe(true);
-          expect(cleared).not.toContain(handle);
+          expect(shellInternals(shell)?.landingIdleTimerCancel).toBeTypeOf(
+            "function",
+          );
         },
         {
           shell: {
@@ -369,14 +316,15 @@ describe("landing screen", () => {
       );
     });
 
-    test("appending a transcript row clears the landing idle timer", async () => {
-      const { armed, cleared } = wrapLandingIdleTimer();
+    test("appending a transcript row stops landing snow", async () => {
       await withAppShell(
         async (shell) => {
-          const handle = soleLandingIdleHandle(armed);
+          expect(shellInternals(shell)?.landingIdleTimerCancel).toBeTypeOf(
+            "function",
+          );
           appendStreamRow(shell, { role: "user", text: "first prompt" });
           expect(isLanding(shell)).toBe(false);
-          expect(cleared).toContain(handle);
+          expect(shellInternals(shell)?.landingIdleTimerCancel).toBeNull();
         },
         {
           shell: {
@@ -386,13 +334,14 @@ describe("landing screen", () => {
       );
     });
 
-    test("disposing the shell with no transcript clears the landing idle timer", async () => {
-      const { armed, cleared } = wrapLandingIdleTimer();
+    test("disposing the shell with no transcript stops landing snow", async () => {
       await withAppShell(
         async (shell) => {
-          const handle = soleLandingIdleHandle(armed);
+          expect(shellInternals(shell)?.landingIdleTimerCancel).toBeTypeOf(
+            "function",
+          );
           shell.dispose();
-          expect(cleared).toContain(handle);
+          expect(shellInternals(shell)?.landingIdleTimerCancel).toBeNull();
         },
         {
           shell: {

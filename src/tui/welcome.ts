@@ -22,6 +22,7 @@ import {
 } from "@opentui/core";
 
 import { PRODUCT_NAME } from "../branding.js";
+import { startFrameTimeline } from "./frame-timeline.js";
 import { MARK_PERIOD_SECONDS, renderMark } from "./mark-raster.js";
 import {
   MARK_LARGE,
@@ -65,9 +66,6 @@ export function welcomeMarkStill(elapsedMs: number): boolean {
 export function resolveWelcomeLine(columns: number): string {
   return stringWidth(WELCOME_LINE) > columns ? "" : WELCOME_LINE;
 }
-
-/** Paint cadence while the mountain draws. */
-const PAINT_TICK_MS = 80;
 
 export interface WelcomeConfig {
   /** Renderer factory override for headless mounting in tests. */
@@ -248,14 +246,12 @@ export async function runWelcome(config: WelcomeConfig = {}): Promise<boolean> {
     resolveDone = resolve;
   });
 
-  let paintTimer: ReturnType<typeof setInterval> | null = null;
+  let stopPaint: (() => void) | null = null;
   let advanceTimer: ReturnType<typeof setTimeout> | null = null;
 
   const teardown = (): void => {
-    if (paintTimer !== null) {
-      clearInterval(paintTimer);
-      paintTimer = null;
-    }
+    stopPaint?.();
+    stopPaint = null;
     if (advanceTimer !== null) {
       clearTimeout(advanceTimer);
       advanceTimer = null;
@@ -296,7 +292,9 @@ export async function runWelcome(config: WelcomeConfig = {}): Promise<boolean> {
   }
 
   renderer.keyInput.on("keypress", onKey);
-  paintTimer = setInterval(paint, PAINT_TICK_MS);
+  stopPaint = startFrameTimeline(renderer, () => {
+    paint();
+  });
   advanceTimer = setTimeout(() => settle(true), autoAdvanceMs);
 
   return done;

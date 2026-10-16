@@ -381,11 +381,13 @@ describe("background run_shell (shellGuardPlugin)", () => {
             },
             snapshot: () => feed.snapshot(),
             clear: () => feed.clear(),
+            subscribe: () => () => undefined,
           };
           return {
             forCall: () => wrapped,
             get: () => wrapped,
             drop: () => undefined,
+            subscribe: () => () => undefined,
           };
         },
       }).middleware,

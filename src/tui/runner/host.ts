@@ -156,6 +156,8 @@ export interface RunnerHostDeps {
   readonly subAgentSessions: () => readonly SubAgentSession[];
   /** Per-call bounded live shell-output feeds for the transcript tail. */
   readonly shellOutputFeed?: (callId: string) => ShellOutputFeed | undefined;
+  /** Append listener for those feeds. The host coalesces repaints to a frame. */
+  readonly subscribeShellOutput?: (listener: () => void) => () => void;
   /**
    * Live data behind the command surfaces (settings, permissions, plugins).
    * `notify` is supplied by the host itself.
@@ -374,6 +376,9 @@ export async function mountRunnerHost(
       })),
     ...(deps.shellOutputFeed !== undefined
       ? { shellOutputFeed: deps.shellOutputFeed }
+      : {}),
+    ...(deps.subscribeShellOutput !== undefined
+      ? { subscribeShellOutput: deps.subscribeShellOutput }
       : {}),
     ...(deps.createRenderer !== undefined
       ? { createRenderer: deps.createRenderer }

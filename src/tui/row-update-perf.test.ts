@@ -171,23 +171,20 @@ describe("row update perf gates (J3)", () => {
             await h.renderOnce();
             const baseline = work.replaces;
             const destroys = work.destroys;
+            // The frame timeline paints the opening clock; the stall tick is
+            // not required for the first "0:00".
+            expect(streamRowAt(shell, 0)?.stat).toBe("0:00");
 
-            tick?.();
-            await h.renderOnce();
-            // The first tick changes the row (no stat yet -> "0:00").
-            expect(work.replaces).toBe(baseline + 1);
-            expect(work.destroys).toBe(destroys);
-
-            // Ticks within the same clock second leave the stat unchanged:
-            // zero updates across any number of them.
+            // Ticks within the same clock second leave the stat unchanged.
             for (let i = 0; i < 4; i++) tick?.();
             await h.renderOnce();
-            expect(work.replaces).toBe(baseline + 1);
+            expect(work.replaces).toBe(baseline);
+            expect(work.destroys).toBe(destroys);
 
             nowMs += 5_000;
             for (let i = 0; i < 3; i++) tick?.();
             await h.renderOnce();
-            expect(work.replaces).toBe(baseline + 2);
+            expect(work.replaces).toBe(baseline + 1);
             expect(work.destroys).toBe(destroys);
             expect(streamRowAt(shell, 0)?.stat).toBe("0:05");
           } finally {
