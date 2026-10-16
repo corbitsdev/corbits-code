@@ -970,6 +970,8 @@ describe("loadConfig", () => {
     [["--cwd", "-h"]],
     [["--config", "--help"]],
     [["--config", "-h"]],
+    [["--permissions", "--help"]],
+    [["--permissions", "-h"]],
     [["--profile", "--help"]],
     [["--profile", "-h"]],
   ])(
@@ -1007,6 +1009,8 @@ describe("loadConfig", () => {
     [["--cwd", "-V"]],
     [["--config", "--version"]],
     [["--config", "-V"]],
+    [["--permissions", "--version"]],
+    [["--permissions", "-V"]],
     [["--profile", "--version"]],
     [["--profile", "-V"]],
   ])(
@@ -1041,6 +1045,8 @@ describe("loadConfig", () => {
     [["--model"], "--model requires a value"],
     [["--cwd"], "--cwd requires a value"],
     [["--config"], "--config requires a value"],
+    [["--permissions"], "--permissions requires a value"],
+    [["--permissions", "--auto"], "--permissions requires a value"],
     [["--profile"], "--profile requires a value"],
   ] as const)("%j rejects with %s", async (argv, message) => {
     await expect(
@@ -1198,6 +1204,85 @@ describe("loadConfig", () => {
     await expect(
       loadConfig(["--cwd", cwd, "--config", join(cwd, "nope.json"), "task"]),
     ).rejects.toThrow(/not found or empty/);
+  });
+
+  test("CLI_HELP_TEXT documents --permissions next to --config", () => {
+    const configAt = CLI_HELP_TEXT.indexOf("--config <path>");
+    const permissionsAt = CLI_HELP_TEXT.indexOf("--permissions <path>");
+    expect(configAt).toBeGreaterThanOrEqual(0);
+    expect(permissionsAt).toBeGreaterThan(configAt);
+    expect(CLI_HELP_TEXT.indexOf("--provider <name>")).toBeGreaterThan(
+      permissionsAt,
+    );
+  });
+
+  test("--permissions resolves onto config without adding an approvals settings field", async () => {
+    const cwd = await emptyCwd();
+    const permissionsPath = join(cwd, "grants.json");
+    await writeFile(
+      permissionsPath,
+      JSON.stringify({
+        approvals: [
+          {
+            tool: "run_shell",
+            pattern: "bun install*",
+            providerModel: "openai:gpt-5",
+          },
+        ],
+      }),
+    );
+    const config = await loadFor(cwd, [
+      "exec",
+      "--permissions",
+      permissionsPath,
+      "task",
+    ]);
+    expect(config.command).toBe("exec");
+    expect(config.permissionsPath).toBe(resolve(permissionsPath));
+    expect(config.settings).not.toHaveProperty("approvals");
+    expect(config.dangerouslySkipPermissions).toBe(false);
+  });
+
+  test("--permissions pointing at a missing file fails at start", async () => {
+    const cwd = await emptyCwd();
+    await expect(
+      loadFor(cwd, [
+        "exec",
+        "--permissions",
+        join(cwd, "missing.json"),
+        "task",
+      ]),
+    ).rejects.toThrow(/--permissions file not found/);
+  });
+
+  test("--permissions invalid JSON fails at start", async () => {
+    const cwd = await emptyCwd();
+    const permissionsPath = join(cwd, "bad.json");
+    await writeFile(permissionsPath, "{");
+    await expect(
+      loadFor(cwd, ["exec", "--permissions", permissionsPath, "task"]),
+    ).rejects.toThrow(/invalid JSON/);
+  });
+
+  test("--permissions unreadable path fails at start", async () => {
+    const cwd = await emptyCwd();
+    await expect(
+      loadFor(cwd, ["exec", "--permissions", cwd, "task"]),
+    ).rejects.toThrow(/unreadable/);
+  });
+
+  test("--permissions wildcard-only pattern fails at start", async () => {
+    const cwd = await emptyCwd();
+    const permissionsPath = join(cwd, "wild.json");
+    await writeFile(
+      permissionsPath,
+      JSON.stringify({
+        approvals: [{ tool: "run_shell", pattern: "*" }],
+      }),
+    );
+    await expect(
+      loadFor(cwd, ["exec", "--permissions", permissionsPath, "task"]),
+    ).rejects.toThrow(/literal floor/);
   });
 
   test("--profile flag surfaces profile name and model from project profile.json", async () => {

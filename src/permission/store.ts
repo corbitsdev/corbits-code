@@ -64,12 +64,30 @@ const ApprovalSchema = type({
     ctx.mustBe("a pattern with a literal floor (not only wildcards)"),
 );
 
-function parseApprovalList(raw: unknown): Approval[] {
-  if (!Array.isArray(raw)) return [];
+function parseApprovalList(raw: unknown, strictPath?: string): Approval[] {
+  if (!Array.isArray(raw)) {
+    if (strictPath !== undefined) {
+      throw new Error(
+        `--permissions file must contain an approvals array: ${strictPath}`,
+      );
+    }
+    return [];
+  }
   const out: Approval[] = [];
-  for (const entry of raw) {
-    const result = ApprovalSchema(entry);
-    if (!(result instanceof type.errors)) out.push(result);
+  for (let index = 0; index < raw.length; index++) {
+    const result = ApprovalSchema(raw[index]);
+    if (result instanceof type.errors) {
+      // Persisted stores drop a poisoned entry. A --permissions file is the
+      // whole grant list for this process, so dropping one would silently
+      // change what the caller asked to allow.
+      if (strictPath !== undefined) {
+        throw new Error(
+          `--permissions file ${strictPath} approvals[${index}] is invalid: ${result.summary}`,
+        );
+      }
+      continue;
+    }
+    out.push(result);
   }
   return out;
 }
@@ -276,6 +294,95 @@ export async function loadProviderModelApprovals(
     }
   }
   return out;
+}
+
+// A --permissions file replaces the user grant list for one process. Missing,
+// unreadable, and invalid files must fail closed: the persisted-store readers
+// treat ENOENT as an empty list and drop bad entries, which would silently
+// change the caller's grant set.
+export async function loadPermissionsFile(path: string): Promise<Approval[]> {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf-8");
+  } catch (err) {
+    if (isEnoent(err)) {
+      throw new Error(`--permissions file not found: ${path}`);
+    }
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`--permissions file is unreadable: ${path} (${detail})`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`--permissions file is invalid JSON: ${path} (${detail})`);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`--permissions file must be a JSON object: ${path}`);
+  }
+  const approvals = (parsed as Record<string, unknown>).approvals;
+  if (approvals === undefined) return [];
+  return parseApprovalList(approvals, path);
+}
+
+// The process grant list is either the --permissions file or the user stores.
+// Callers that reseed after /permissions must use this and not reach around it:
+// reloading ~/.corbits/permissions.json puts the user's grants back, and
+// removing a listed row from those stores deletes them on disk.
+export type ProcessGrantLayers =
+  | { source: "file"; approvals: Approval[] }
+  | { source: "user"; global: Approval[]; providerModel: Approval[] };
+
+export async function loadProcessGrantLayers(
+  permissionsPath: string | undefined,
+  home?: string,
+): Promise<ProcessGrantLayers> {
+  if (permissionsPath !== undefined) {
+    return {
+      source: "file",
+      approvals: await loadPermissionsFile(permissionsPath),
+    };
+  }
+  const [global, providerModel] = await Promise.all([
+    home === undefined ? loadGlobalApprovals() : loadGlobalApprovals(home),
+    home === undefined
+      ? loadProviderModelApprovals()
+      : loadProviderModelApprovals(home),
+  ]);
+  return { source: "user", global, providerModel };
+}
+
+export function flattenProcessGrantLayers(
+  layers: ProcessGrantLayers,
+): Approval[] {
+  return layers.source === "file"
+    ? layers.approvals
+    : [...layers.global, ...layers.providerModel];
+}
+
+// --permissions is one approvals array. Provider-model scope is a field on
+// the entry, not the user store's providerModels map.
+export async function appendPermissionsFileApproval(
+  path: string,
+  approval: Approval,
+): Promise<void> {
+  return chainObjectWrite(path, (current) => ({
+    ...current,
+    approvals: [...parseApprovalList(current.approvals), approval],
+  }));
+}
+
+export async function removePermissionsFileApproval(
+  path: string,
+  target: Approval,
+): Promise<void> {
+  return chainObjectWrite(path, (current) => ({
+    ...current,
+    approvals: parseApprovalList(current.approvals).filter(
+      (entry) => !sameApproval(entry, target),
+    ),
+  }));
 }
 
 export async function saveGlobalApproval(

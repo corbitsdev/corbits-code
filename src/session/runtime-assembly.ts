@@ -39,11 +39,12 @@ import { isPluginModuleEnabled } from "../plugins/register.js";
 import { migratePersistedApprovalStores } from "../permission/approval-store-migration.js";
 import {
   formatPendingProjectApprovals,
+  flattenProcessGrantLayers,
+  appendPermissionsFileApproval,
   loadApprovals,
-  loadGlobalApprovals,
   loadPendingProjectApprovals,
+  loadProcessGrantLayers,
   loadProjectApprovals,
-  loadProviderModelApprovals,
   saveGlobalApproval,
   saveProjectApproval,
   saveProviderModelApproval,
@@ -137,12 +138,19 @@ export function createLiveSubAgentSources(
 // 2. Permission approvals + persist callback
 // ---------------------------------------------------------------------------
 
-/** Session → project → global → provider-model merge order (first match wins in gate). */
+/** Session → project → global → provider-model (first match wins in the gate). */
 export async function loadSeededApprovals(
   cwd: string,
   sessionId: string,
   home?: string,
-  opts?: { onPendingProjectGrants?: ((text: string) => void) | undefined },
+  opts?: {
+    onPendingProjectGrants?: ((text: string) => void) | undefined;
+    /**
+     * Process-only grant file. When set, its approvals replace the global
+     * and provider-model layers and are not merged with the user file.
+     */
+    permissionsPath?: string | undefined;
+  },
 ): Promise<Approval[]> {
   // One-time migration: purge persisted update_plan keys (dropped at load but
   // never rewritten) so removing the normalizer later cannot resurrect them.
@@ -152,17 +160,13 @@ export async function loadSeededApprovals(
     await migratePersistedApprovalStores(cwd, sessionId, home);
   } catch {}
   const sessionApprovals = await loadApprovals(cwd, sessionId, home);
-  const [
-    projectApprovals,
-    globalApprovals,
-    providerModelApprovals,
-    pendingProjectApprovals,
-  ] = await Promise.all([
-    loadProjectApprovals(cwd, home),
-    loadGlobalApprovals(),
-    loadProviderModelApprovals(),
-    loadPendingProjectApprovals(cwd, home),
-  ]);
+  const permissionsPath = opts?.permissionsPath;
+  const [projectApprovals, grantLayers, pendingProjectApprovals] =
+    await Promise.all([
+      loadProjectApprovals(cwd, home),
+      loadProcessGrantLayers(permissionsPath, home),
+      loadPendingProjectApprovals(cwd, home),
+    ]);
   // First encounter with an unconfirmed project approvals file: show what it
   // would grant. The entries stay gated; the notice is the only trace.
   const pendingNotice = formatPendingProjectApprovals(pendingProjectApprovals);
@@ -177,8 +181,7 @@ export async function loadSeededApprovals(
   return [
     ...sessionApprovals,
     ...projectApprovals,
-    ...globalApprovals,
-    ...providerModelApprovals,
+    ...flattenProcessGrantLayers(grantLayers),
   ];
 }
 
@@ -212,29 +215,50 @@ function persistBestEffort(
  * Route a gate-persisted grant to the store its scope selects. Session
  * grants never reach here — the gate keeps those in memory only.
  * `getActiveProviderModel` is read at persist time so a live model switch
- * stores under the pair in use.
+ * stores under the pair in use. When `permissionsPath` is set, global and
+ * provider-model grants append to that file instead of the user store.
  */
 export function createApprovalPersist(
   cwd: string,
   getActiveProviderModel: () => string,
   onPersistFailure?: ((text: string) => void) | undefined,
+  permissionsPath?: string,
 ): (approval: Approval, scope: GrantScope) => void {
   return (approval: Approval, scope: GrantScope) => {
-    if (scope === "project")
+    if (scope === "project") {
       persistBestEffort(
         scope,
         saveProjectApproval(cwd, approval),
         onPersistFailure,
       );
-    else if (scope === "global")
-      persistBestEffort(scope, saveGlobalApproval(approval), onPersistFailure);
-    else if (scope === "provider-model") {
+      return;
+    }
+    if (scope !== "global" && scope !== "provider-model") return;
+    if (permissionsPath !== undefined) {
+      const stored: Approval =
+        scope === "provider-model"
+          ? {
+              tool: approval.tool,
+              pattern: approval.pattern,
+              providerModel: getActiveProviderModel(),
+            }
+          : { tool: approval.tool, pattern: approval.pattern };
       persistBestEffort(
         scope,
-        saveProviderModelApproval(getActiveProviderModel(), approval),
+        appendPermissionsFileApproval(permissionsPath, stored),
         onPersistFailure,
       );
+      return;
     }
+    if (scope === "global") {
+      persistBestEffort(scope, saveGlobalApproval(approval), onPersistFailure);
+      return;
+    }
+    persistBestEffort(
+      scope,
+      saveProviderModelApproval(getActiveProviderModel(), approval),
+      onPersistFailure,
+    );
   };
 }
 
