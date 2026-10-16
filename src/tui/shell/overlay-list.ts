@@ -171,7 +171,9 @@ export function createOverlayList(
       width: "100%",
       flexShrink: 0,
       showDescription: shape.rowsPerItem > 1,
-      showSelectionIndicator: true,
+      showSelectionIndicator: false,
+      showScrollIndicator: false,
+      wrapSelection: false,
       itemSpacing: 0,
       // Selection is a text colour, not a filled band: the highlighted row
       // already stands out, and a block would fight the host's background.
