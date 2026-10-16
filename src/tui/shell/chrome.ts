@@ -34,7 +34,7 @@ import {
   lockupWidth,
   type LockupInput,
 } from "../lockup.js";
-import type { RampPhase, StallAge } from "../ramp.js";
+import type { RampPhase, StallAge } from "../ramp-glyphs.js";
 import {
   BORDER,
   composeAttentionLabel,

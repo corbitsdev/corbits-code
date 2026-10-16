@@ -11,7 +11,7 @@ import {
   renderRamp,
   STALL_BLINK_BURST_MS,
   STALL_BLINK_CYCLE_MS,
-} from "./ramp";
+} from "./ramp-glyphs";
 import { UI } from "./theme";
 
 const BRAILLE = /[⠀-⣿]/;

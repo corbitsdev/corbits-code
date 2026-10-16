@@ -38,7 +38,7 @@ import {
 } from "./shell/internals.js";
 import { applyShellInterrupt, surfaceSystemNotice } from "./shell/prompt.js";
 import { streamRowAt, streamRowCount } from "./shell/transcript.js";
-import { rampAnimating } from "./ramp.js";
+import { rampAnimating } from "./ramp-glyphs.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import {
   resolveRampPhase,

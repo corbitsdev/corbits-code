@@ -20,7 +20,7 @@ import {
 } from "./geometry/zones.js";
 import { CREDENTIAL_FAILURE_USER_MESSAGE } from "../inference-error-message.js";
 import type { Telemetry } from "../telemetry/index.js";
-import type { RampPhase } from "./ramp.js";
+import type { RampPhase } from "./ramp-glyphs.js";
 
 /**
  * Linger window for a finished agent row after `finishedAt`; mid of the

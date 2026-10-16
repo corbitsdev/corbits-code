@@ -7,7 +7,7 @@ import {
   markText,
   renderMark,
   smooth,
-} from "./mark-anim";
+} from "./mark-raster";
 import { MARK_COLS, MARK_LARGE, MARK_ROWS } from "./mark-shape";
 import { UI } from "./theme";
 

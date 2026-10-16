@@ -160,7 +160,7 @@ on `LIVE_WORD_MS`; gated turns still read `waiting` or `stopping`.
 `ACTIVITY_STATES` exported from the session chrome module is the source
 of truth for what the slot can say, not this list. It is led by a single
 density cell
-(`rampPulse`, `src/tui/ramp.ts`). The cell, not the word,
+(`rampPulse`, `src/tui/ramp-glyphs.ts`). The cell, not the word,
 is what says whether the session is healthy, and it carries four states:
 
 | State     | Cell                                        | Reads as                |

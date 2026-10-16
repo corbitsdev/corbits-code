@@ -19,7 +19,7 @@ import {
   MARK_SMALL,
   type MarkGrid,
 } from "./mark-shape.js";
-import { renderMark } from "./mark-anim.js";
+import { renderMark } from "./mark-raster.js";
 import { UI } from "./theme.js";
 import { stringWidth } from "./view/height.js";
 

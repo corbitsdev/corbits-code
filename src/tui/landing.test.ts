@@ -41,7 +41,7 @@ import {
 } from "./landing";
 import { LOCKUP_WORDMARK } from "./lockup";
 import { MARK_LARGE, MARK_MID, MARK_SMALL } from "./mark-shape";
-import { SNOW_CHAR } from "./mark-anim";
+import { SNOW_CHAR } from "./mark-raster";
 
 const SIZE = { width: 80, height: 24 } as const;
 const NOTICE = "Anonymous usage telemetry is enabled. Disable in /settings.";

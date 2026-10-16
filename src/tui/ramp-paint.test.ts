@@ -8,7 +8,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { withTestRenderer } from "./harness";
-import { RAMP_CYCLE_MS } from "./ramp";
+import { RAMP_CYCLE_MS } from "./ramp-glyphs";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";
 import { createAppShell } from "./shell/index";
 
