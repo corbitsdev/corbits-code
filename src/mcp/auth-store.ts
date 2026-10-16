@@ -1,17 +1,8 @@
 import { createHash } from "node:crypto";
-import {
-  mkdir,
-  open,
-  readFile,
-  rename,
-  stat,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { getLogger } from "@intx/log";
 import type {
   OAuthClientInformationFull,
@@ -116,15 +107,6 @@ function stateFromRaw(raw: string | undefined, path: string): MCPAuthState {
   return parseAuthState(raw, path) ?? {};
 }
 
-function readAuthFileSync(path: string): string | undefined {
-  try {
-    return readFileSync(path, "utf8");
-  } catch (err) {
-    if (isEnoent(err)) return undefined;
-    throw err;
-  }
-}
-
 async function readAuthFile(path: string): Promise<string | undefined> {
   try {
     return await readFile(path, "utf8");
@@ -142,97 +124,18 @@ export async function loadAuthState(
   return stateFromRaw(await readAuthFile(path), path);
 }
 
-// Cache refresh: missing/unreadable/corrupt files return undefined so the
-// caller keeps its in-memory mirror. Empty-on-corrupt is loadAuthState's contract.
-export function tryLoadAuthStateSync(
-  identity: MCPAuthIdentity,
-  home: string = homedir(),
-): MCPAuthState | undefined {
-  const path = authFilePath(identity, home);
-  let raw: string | undefined;
-  try {
-    raw = readAuthFileSync(path);
-  } catch {
-    return undefined;
-  }
-  if (raw === undefined) return undefined;
-  return parseAuthState(raw, path);
-}
-
-function isEexist(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    err.code === "EEXIST"
-  );
-}
-
 // pid alone is not unique per call, so concurrent saves must not share a temp
 // path or the second rename hits ENOENT.
 let tmpWriteCounter = 0;
 
 // Serialize read-modify-write per auth file so two providers for the same
-// server cannot clobber each other's fields (lost-update).
+// server cannot clobber each other's fields (lost-update). Same-process only:
+// the chain runs op directly, with no cross-process file lock.
 const updateChains = new Map<string, Promise<unknown>>();
-
-const LOCK_STALE_MS = 5_000;
-const LOCK_RETRY_MS = 25;
-
-async function acquireAuthFileLock(lockPath: string) {
-  while (true) {
-    try {
-      return await open(lockPath, "wx", 0o600);
-    } catch (err) {
-      if (!isEexist(err)) throw err;
-      try {
-        const info = await stat(lockPath);
-        if (Date.now() - info.mtimeMs > LOCK_STALE_MS) {
-          try {
-            await unlink(lockPath);
-          } catch (unlinkErr) {
-            if (!isEnoent(unlinkErr)) throw unlinkErr;
-          }
-          continue;
-        }
-      } catch (statErr) {
-        if (isEnoent(statErr)) continue;
-        throw statErr;
-      }
-      await delay(LOCK_RETRY_MS);
-    }
-  }
-}
-
-async function withAuthFileLock<T>(
-  path: string,
-  op: () => Promise<T>,
-): Promise<T> {
-  const lockPath = `${path}.lock`;
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const lock = await acquireAuthFileLock(lockPath);
-  try {
-    return await op();
-  } finally {
-    try {
-      await lock.close();
-    } catch {
-      // Close can fail if the handle was already torn down.
-    }
-    try {
-      await unlink(lockPath);
-    } catch {
-      // Missing lock is fine; a leftover file is recovered as stale.
-    }
-  }
-}
 
 function enqueueAuthFileOp<T>(path: string, op: () => Promise<T>): Promise<T> {
   const previous = updateChains.get(path) ?? Promise.resolve();
-  const run = previous.then(
-    () => withAuthFileLock(path, op),
-    () => withAuthFileLock(path, op),
-  );
+  const run = previous.then(op, op);
   updateChains.set(
     path,
     run.then(
