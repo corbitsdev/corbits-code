@@ -249,7 +249,15 @@ describe("createOAuthProvider", () => {
 
     await deleteAuthState(linear, home);
 
-    expect(await syncValue(provider.tokens())).toBeUndefined();
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
+    const later = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    expect(await syncValue(later.tokens())).toBeUndefined();
   });
 
   test("keeps live tokens when the auth file is unreadable but drops them on delete", async () => {
@@ -265,8 +273,8 @@ describe("createOAuthProvider", () => {
     await provider.saveTokens({ access_token: "tok", token_type: "bearer" });
     expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
 
-    // Transient stat failure (EACCES, file present) must not discard live
-    // credentials; only a real deletion (ENOENT) does.
+    // An unreadable directory must not discard the in-memory mirror. Deleting
+    // the file does not either; a provider constructed after the delete does.
     const dir = dirname(authFilePath(linear, home));
     await chmod(dir, 0o000);
     try {
@@ -277,7 +285,15 @@ describe("createOAuthProvider", () => {
 
     await deleteAuthState(linear, home);
 
-    expect(await syncValue(provider.tokens())).toBeUndefined();
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
+    const later = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    expect(await syncValue(later.tokens())).toBeUndefined();
   });
 
   test("two overlapping logins on different ports both complete without clobbering verifiers", async () => {
@@ -323,11 +339,11 @@ describe("createOAuthProvider", () => {
     expect(raw).not.toContain("codeVerifier");
     expect(raw).not.toContain("pkce-a");
     expect(raw).not.toContain("pkce-b");
-    // Last completer wins the durable tokens; the sibling picks them up.
+    // Last completer wins the durable tokens. This episode keeps its own.
     expect((await loadAuthState(linear, home)).tokens?.access_token).toBe(
       "tok-b",
     );
-    expect((await syncValue(a.tokens()))?.access_token).toBe("tok-b");
+    expect((await syncValue(a.tokens()))?.access_token).toBe("tok-a");
     expect((await syncValue(b.tokens()))?.access_token).toBe("tok-b");
     await expectClientOnPort(b, 60435);
   });
@@ -356,12 +372,13 @@ describe("createOAuthProvider", () => {
       home,
     });
 
-    // Tokens present → client kept at create. Reset simulates failed refresh.
+    // Tokens present → client kept at create. Reset drops this session's
+    // tokens. The other port's registration stays on disk.
     await provider.resetAuthorization();
     expect(await syncValue(provider.tokens())).toBeUndefined();
     expect(await syncValue(provider.clientInformation())).toBeUndefined();
     const disk = await loadAuthState(linear, home);
-    expect(disk.clientInformation).toBeUndefined();
+    expect(disk.clientInformation?.client_id).toBe("client-on-60435");
     expect(disk.tokens).toBeUndefined();
   });
 
@@ -395,6 +412,51 @@ describe("createOAuthProvider", () => {
     expect((await syncValue(a.tokens()))?.access_token).toBe("fresh");
     expect((await loadAuthState(linear, home)).tokens?.access_token).toBe(
       "fresh",
+    );
+  });
+
+  test("resetAuthorization does not delete a sibling's client registration", async () => {
+    const home = await tempHome();
+    const a = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    const b = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:60435/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+
+    await saveClient(a, clientInfo(62000));
+    await a.saveTokens({
+      access_token: "tok-a",
+      token_type: "bearer",
+      expires_in: 3600,
+      refresh_token: "ref-a",
+    });
+    await saveClient(b, clientInfo(60435));
+    await b.saveTokens({
+      access_token: "tok-b",
+      token_type: "bearer",
+      expires_in: 3600,
+      refresh_token: "ref-b",
+    });
+
+    await a.resetAuthorization();
+
+    const disk = await loadAuthState(linear, home);
+    expect(disk.tokens?.access_token).toBe("tok-b");
+    expect(disk.clientInformation?.client_id).toBe("client-on-60435");
+    expect(disk.clientInformation?.redirect_uris).toEqual([
+      "http://127.0.0.1:60435/callback",
+    ]);
+    expect((await syncValue(b.clientInformation()))?.client_id).toBe(
+      "client-on-60435",
     );
   });
 
@@ -489,7 +551,18 @@ describe("createOAuthProvider", () => {
       refresh_token: "fresh-refresh",
     });
 
-    expect((await syncValue(b.tokens()))?.access_token).toBe("fresh");
+    expect(await syncValue(b.tokens())).toBeUndefined();
+    expect((await loadAuthState(linear, home)).tokens?.access_token).toBe(
+      "fresh",
+    );
+    const later = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    expect((await syncValue(later.tokens()))?.access_token).toBe("fresh");
   });
 
   test("does not replace an in-progress PKCE verifier from a different-port sibling", async () => {
@@ -608,13 +681,14 @@ describe("createOAuthProvider", () => {
       refresh_token: "ref-b",
     });
 
-    expect((await syncValue(a.tokens()))?.access_token).toBe("tok-b");
+    expect((await syncValue(a.tokens()))?.access_token).toBe("tok-a");
     const disk = await loadAuthState(linear, home);
     expect(disk.tokens?.access_token).toBe("tok-b");
     expect(disk.clientInformation?.client_id).toBe("client-on-60435");
     expect(disk.clientInformation?.redirect_uris).toEqual([
       "http://127.0.0.1:60435/callback",
     ]);
+    await expectClientOnPort(a, 62000);
   });
 
   test("same-port DCR rotation after a different-port sibling saveClient keeps the new client", async () => {
@@ -656,18 +730,25 @@ describe("createOAuthProvider", () => {
     await provider.saveTokens({ access_token: "tok", token_type: "bearer" });
     expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
 
-    // Server-side removal must not leave orphaned credentials behind.
+    // A live provider keeps its mirror; a later construct sees the new file.
     await deleteAuthState(linear, home);
 
-    expect(await syncValue(provider.tokens())).toBeUndefined();
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
 
-    // The provider stays live: a sibling session's fresh auth is adopted.
     await saveAuthState(
       linear,
       { tokens: { access_token: "reauthed", token_type: "bearer" } },
       home,
     );
-    expect((await syncValue(provider.tokens()))?.access_token).toBe("reauthed");
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
+    const later = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    expect((await syncValue(later.tokens()))?.access_token).toBe("reauthed");
   });
 
   test("keeps live tokens when the auth file is corrupt", async () => {
@@ -722,7 +803,15 @@ describe("createOAuthProvider", () => {
       { tokens: { access_token: "fresh", token_type: "bearer" } },
       home,
     );
-    expect((await syncValue(provider.tokens()))?.access_token).toBe("fresh");
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
+    const later = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    expect((await syncValue(later.tokens()))?.access_token).toBe("fresh");
   });
 
   test("does not delete scoped state whose filename stem is another provider name", async () => {
