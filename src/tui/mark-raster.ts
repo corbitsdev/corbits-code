@@ -85,6 +85,11 @@ export interface MarkInput {
   readonly still: boolean;
   /** Suppresses snow regardless of `still`. Defaults to off. */
   readonly reducedMotion?: boolean;
+  /**
+   * Draw flakes into the glyph grid. Idle landing snow is a post-process
+   * instead, so the text nodes stay still. Defaults to on.
+   */
+  readonly snow?: boolean;
   /** Baked rasterization to composite; defaults to the compact grid. */
   readonly grid?: MarkGrid;
 }
@@ -118,6 +123,16 @@ function snowflakeAt(
   return Math.floor(wrapped) === row;
 }
 
+/** Same flake field the mark raster uses, for the landing post-process. */
+export function isMarkSnowflake(
+  row: number,
+  col: number,
+  seconds: number,
+  rows: number,
+): boolean {
+  return snowflakeAt(row, col, seconds, rows);
+}
+
 /**
  * Composite one frame. The silhouette is drawn solid: a fully covered cell
  * is `█`, a partly covered one is the eighth block matching its coverage,
@@ -134,7 +149,7 @@ export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
   const fillLine = shape.rows * (1 - fillProg);
   // Not gated by `still`; fade-out drops the snow so it never outlasts
   // the mark it drifts over.
-  const snowOn = alpha === 1 && !input.reducedMotion;
+  const snowOn = alpha === 1 && !input.reducedMotion && input.snow !== false;
 
   const grid: MarkCell[][] = [];
   for (let row = 0; row < shape.rows; row++) {

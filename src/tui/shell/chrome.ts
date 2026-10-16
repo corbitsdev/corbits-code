@@ -1457,14 +1457,11 @@ function clearLandingMark(shell: AppShell): void {
   }
 }
 
-/** Idle repaint cadence (mount-scoped timer in `createAppShell`): snow
- * needs about half a row per second, so 8fps reads as motion. */
-export const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
-
 /** Repaint the landing mark for `nowMs`: `animating` runs the draw/fill/fade
  * timeline, else it holds the filled frame. No-op once the landing is gone,
- * so callers can always drive it. Idle still repaints (snow drifts);
- * reduced motion freezes the mark and drops snow even under `animating`. */
+ * so callers can always drive it. Idle snow is the post-process attached at
+ * mount; reduced motion freezes the mark and drops snow even under
+ * `animating`. */
 export function paintLanding(
   shell: AppShell,
   nowMs: number,
@@ -1476,7 +1473,16 @@ export function paintLanding(
   const motion = bag.reducedMotion ? false : animating;
   bag.landingAnimating = motion;
   bag.landingNowMs = nowMs;
-  paintLandingMark(landing.above, nowMs, !motion, bag.reducedMotion);
+  // Idle snow is a post-process so the text nodes stay on the filled frame.
+  // A live turn paints flakes into the glyphs and the effect stands down.
+  const postSnow = !motion && !bag.reducedMotion && bag.markSnow !== null;
+  bag.markSnow?.setActive(postSnow);
+  paintLandingMark(
+    landing.above,
+    nowMs,
+    !motion,
+    bag.reducedMotion || postSnow,
+  );
 }
 
 /** Fill the prompt from a landing starter; false when the key selects

@@ -10,7 +10,7 @@ import {
   resolveApiKeyInstanceName,
 } from "./choices.js";
 import { OAUTH_PROFILE_HINT } from "./form.js";
-import { RAMP_TICK_MS, stopRamp } from "./surface.js";
+import { startRamp, stopRamp } from "./surface.js";
 import type {
   AccountNameFlow,
   LoginFlow,
@@ -218,7 +218,7 @@ export function createLoginFlow(
       failLogin(attempt, LOGIN_TIMEOUT_MESSAGE);
     }, state.loginTimeoutMs);
     stopRamp(state);
-    state.rampTimer = setInterval(() => surface.paintStatus(), RAMP_TICK_MS);
+    startRamp(state, () => surface.paintStatus());
     surface.paint();
 
     state

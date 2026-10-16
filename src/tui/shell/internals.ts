@@ -731,10 +731,16 @@ interface ShellInternals {
   landingAnimating: boolean;
   /** Clock of the last painted mark frame, so a resize can redraw in place. */
   landingNowMs: number;
-  /** Mount-time reduced-motion flag: no idle snow timer; still mountain.
+  /** Mount-time reduced-motion flag: no idle snow timeline; still mountain.
    * Set once at `createAppShell`. */
   reducedMotion: boolean;
-  /** Cancels the idle repaint timer armed in `createAppShell`; null while none
+  /** Post-process flakes for the idle landing. Null when reduced motion is
+   * on or the landing timeline has been stopped. */
+  markSnow: {
+    setActive(active: boolean): void;
+    stop(): void;
+  } | null;
+  /** Cancels the idle Timeline armed in `createAppShell`; null while none
    * is armed. */
   landingIdleTimerCancel: (() => void) | null;
   /** Chrome content (empty array = zone off). */

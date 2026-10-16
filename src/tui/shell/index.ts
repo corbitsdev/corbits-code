@@ -22,6 +22,8 @@ import {
   splitLandingRows,
   versionBadgeVisible,
 } from "../landing.js";
+import { startFrameTimeline } from "../frame-timeline.js";
+import { attachMarkSnow } from "../mark-snow-effect.js";
 import { destroySubtree } from "../teardown.js";
 import { createRecordingClipboard } from "../copy-path.js";
 import { copyFinishedSelection } from "../selection-copy.js";
@@ -60,7 +62,6 @@ import {
 import {
   applyFocus,
   applyLayout,
-  LANDING_IDLE_REPAINT_INTERVAL_MS,
   paintLanding,
   relayout,
   setStatusFlash,
@@ -573,6 +574,7 @@ export function createAppShell(
     landingNowMs: 0,
     reducedMotion,
     landingIdleTimerCancel: null,
+    markSnow: null,
     chrome: { task: [], tasksRaw: [], agents: [] },
     // The manage_tasks panel starts hidden — it owns too much of the screen
     // for a fresh shell; Alt+T (toggleTasksPanel) opts in for the shell's
@@ -581,31 +583,44 @@ export function createAppShell(
     tasksPanelHidden: true,
     pendingSelId: null,
   });
-  // The landing's snow needs a clock that runs while the turn monitor is
-  // deliberately quiet; a timer armed at mount provides it (FRAME follows
-  // dirty rows, not time). It repaints only while idle — a live turn drives
-  // the mountain off the turn monitor's clock, which this timer must not
-  // stomp — and is cleared on the first teardown (landing gone, shell
-  // disposed, or the renderer destroyed by a headless harness). Reduced
-  // motion never starts it: no snow to advance, the mountain stays filled.
+  // Idle snow is a post-process. A Timeline keeps the renderer live so
+  // frames exist to draw into; it does not rebuild the mark. A live turn
+  // paints the mountain itself and this effect stands down. Reduced motion
+  // never starts it.
   if (!reducedMotion) {
-    const landingIdleHandle = setInterval(() => {
-      if (renderer.isDestroyed) {
-        clearInterval(landingIdleHandle);
-        return;
-      }
+    const liveRenderer = renderer as unknown as CliRenderer;
+    const snow = attachMarkSnow(liveRenderer, () => {
       const bag = shellInternals(shell);
-      if (bag?.landing == null || bag.landingAnimating) return;
+      // The effect runs after the scene, so an open overlay must win.
+      if (
+        bag === undefined ||
+        shell.overlayList !== null ||
+        bag.landingAnimating
+      ) {
+        return null;
+      }
+      return bag.landing?.above ?? null;
+    });
+    const stopTimeline = startFrameTimeline(liveRenderer, () => {
+      // requestLive is the point; flakes advance in the post-process.
+    });
+    const bag = shellInternals(shell);
+    const cancel = (): void => {
+      stopTimeline();
+      snow.stop();
+      const current = shellInternals(shell);
+      if (current === undefined) return;
+      current.markSnow = null;
+      if (current.landingIdleTimerCancel === cancel) {
+        current.landingIdleTimerCancel = null;
+      }
+    };
+    if (bag !== undefined) {
+      bag.markSnow = snow;
+      bag.landingIdleTimerCancel = cancel;
       paintLanding(shell, Date.now(), false);
-    }, LANDING_IDLE_REPAINT_INTERVAL_MS);
-    landingIdleHandle.unref?.();
-    {
-      const bag = shellInternals(shell);
-      if (bag !== undefined) {
-        bag.landingIdleTimerCancel = () => clearInterval(landingIdleHandle);
-      } else {
-        clearInterval(landingIdleHandle);
-      }
+    } else {
+      cancel();
     }
   }
   setTranscriptSpacer(shell, transcriptSpacer);

@@ -13,7 +13,7 @@ import {
   providerListHeight,
   TYPE_MODEL_ID,
 } from "./choices.js";
-import { RAMP_TICK_MS, stopRamp } from "./surface.js";
+import { startRamp, stopRamp } from "./surface.js";
 import type {
   DiscoveryFlows,
   SetupSelectors,
@@ -52,7 +52,7 @@ export function createDiscoveryFlows(
     state.ollamaDiscoveryAbort = abort;
     state.ollamaDiscovery = "loading";
     stopRamp(state);
-    state.rampTimer = setInterval(() => surface.paintStatus(), RAMP_TICK_MS);
+    startRamp(state, () => surface.paintStatus());
     surface.paint();
     state.discoverOllamaModels({ rootURL, signal: abort.signal }).then(
       (result) => {

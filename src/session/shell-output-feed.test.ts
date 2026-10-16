@@ -16,6 +16,21 @@ describe("shell output feed", () => {
     expect(feed.snapshot()).toBe("");
   });
 
+  test("subscribe fires on append and clear, not on an empty clear", () => {
+    const feed = createShellOutputFeed();
+    let notices = 0;
+    const stop = feed.subscribe(() => {
+      notices += 1;
+    });
+    feed.append("hello");
+    feed.clear();
+    feed.clear();
+    expect(notices).toBe(2);
+    stop();
+    feed.append("again");
+    expect(notices).toBe(2);
+  });
+
   test("keeps the tail under a burst larger than the bound", () => {
     const feed = createShellOutputFeed(1024);
     const burst = Array.from(
@@ -56,5 +71,16 @@ describe("shell output feed map", () => {
     feeds.drop("a");
     expect(feeds.get("a")).toBeUndefined();
     expect(feeds.get("b")?.snapshot()).toBe("beta\n");
+  });
+
+  test("the map hears appends on feeds created after subscribe", () => {
+    const feeds = createShellOutputFeedMap();
+    let notices = 0;
+    feeds.subscribe(() => {
+      notices += 1;
+    });
+    feeds.forCall("a").append("one");
+    feeds.forCall("b").append("two");
+    expect(notices).toBe(2);
   });
 });

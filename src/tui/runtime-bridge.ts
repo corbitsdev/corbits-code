@@ -39,6 +39,8 @@ import {
 import { applyShellInterrupt, surfaceSystemNotice } from "./shell/prompt.js";
 import { streamRowAt, streamRowCount } from "./shell/transcript.js";
 import { rampAnimating } from "./ramp-glyphs.js";
+import { startFrameTimeline } from "./frame-timeline.js";
+import type { CliRenderer } from "@opentui/core";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import {
   resolveRampPhase,
@@ -182,9 +184,6 @@ export type SuspendedApprovalResume = (
 ) => Promise<StallResumeResult>;
 
 const DEFAULT_TICK_MS = 250;
-
-/** Poll period while animating; the idle cadence skips pulse steps. */
-const ANIMATION_TICK_MS = 80;
 
 function defaultSchedule(tick: () => void, intervalMs: number): () => void {
   const handle = setInterval(tick, intervalMs);
@@ -1504,13 +1503,31 @@ export function attachSessionBridge(
   bridges.set(shell, bag);
 
   const frozenTickMs = monitor?.tickMs ?? DEFAULT_TICK_MS;
-  const animationTickMs = Math.min(frozenTickMs, ANIMATION_TICK_MS);
 
-  /** Current cadence, or null while stopped. Every paint resolves it — one
-   * timer, never two. */
+  /** Current cadence, or null while stopped. Stall and quota stay on this
+   * clock. Ramp glyphs and the reveal ride the renderer's Timeline instead
+   * of a faster interval. */
   let cadenceMs: number | null = null;
   let stopTick: (() => void) | undefined;
   const schedule = monitor?.schedule ?? defaultSchedule;
+  let stopMotion: (() => void) | null = null;
+  const stopMotionTimeline = (): void => {
+    stopMotion?.();
+    stopMotion = null;
+  };
+  /** Frame-driven paint while the ramp or reveal still has frames. The
+   * stall watchdog keeps its own slower schedule. */
+  const syncMotion = (animating: boolean): void => {
+    if (bag.disposed) return;
+    if (!animating) {
+      stopMotionTimeline();
+      return;
+    }
+    if (stopMotion !== null) return;
+    stopMotion = startFrameTimeline(shell.renderer as CliRenderer, () => {
+      if (!bag.disposed) paintPhase();
+    });
+  };
 
   const applyCadence = (next: number | null): void => {
     if (monitor === undefined || cadenceMs === next) return;
@@ -1588,6 +1605,7 @@ export function attachSessionBridge(
         rampPhase: null,
         stalledForMs: null,
       });
+      syncMotion(false);
       // Nothing animates or waits: stop the loop; the next event re-arms
       // it.
       applyCadence(bag.turn.quota !== null ? frozenTickMs : null);
@@ -1602,11 +1620,10 @@ export function attachSessionBridge(
       rampPhase,
       stalledForMs: stalledFor,
     });
-    // A frozen ramp (gate-blocked or past its blink burst) still needs the
-    // stall and quota clocks, not animation.
-    applyCadence(
-      rampAnimating(rampPhase, stalledFor) ? animationTickMs : frozenTickMs,
-    );
+    // Glyphs and the reveal advance on Timeline frames while the ramp is
+    // moving. A frozen ramp keeps the stall schedule only.
+    syncMotion(rampAnimating(rampPhase, stalledFor));
+    applyCadence(frozenTickMs);
   };
 
   /** Read the clock once per frame so the pulse and cadence cannot straddle
@@ -2347,6 +2364,7 @@ export function attachSessionBridge(
       bag.flushMailboxMail = null;
       bag.flushOccupancyThenWake = null;
       applyCadence(null);
+      stopMotionTimeline();
       clearShellBridgeHooks(shell);
       bridges.delete(shell);
     },
