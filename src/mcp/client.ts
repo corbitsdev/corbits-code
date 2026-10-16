@@ -56,11 +56,6 @@ export interface MCPToolResultEnvelope {
 export interface MCPClient {
   serverName: string;
   tools: MCPTool[];
-  call(
-    toolName: string,
-    args: Record<string, unknown>,
-    signal: AbortSignal,
-  ): Promise<string>;
   /** Full tool-result envelope: blocks plus tool-level
    * isError/structuredContent. */
   callResult(
@@ -139,9 +134,12 @@ interface HTTPAuthContext {
   url: URL;
   authProvider: CorbitsOAuthProvider;
   callback: CallbackServer;
-  coordinator: HTTPAuthCoordinator;
+  coordinator: SdkAuthFinish;
   interactive: boolean;
   serverName: string;
+  client: Client;
+  /** Builds the next HTTP transport and records it as the live session. */
+  openTransport: () => Transport;
   onAuthorized?: (serverName: string) => void;
 }
 
@@ -150,7 +148,7 @@ interface BrowserAuthFlow {
   promptEmitted: Promise<void>;
 }
 
-interface HTTPAuthCoordinator {
+interface SdkAuthFinish {
   lifecycle: AbortController;
   inFlight?: Promise<void>;
   refreshInFlight?: Promise<boolean>;
@@ -161,7 +159,12 @@ interface HTTPAuthCoordinator {
   notified?: boolean;
   recoveryGeneration?: number;
   waiters?: number;
-  probe(): Promise<void>;
+  /**
+   * Transport that finishAuth must use. A probe dial replaces the pre-failure
+   * transport with the instance that called redirectToAuthorization, so the
+   * code exchange sends that instance's resource metadata and scope.
+   */
+  transport?: StreamableHTTPClientTransport;
 }
 
 function isRecoverableAuthError(
@@ -275,7 +278,7 @@ function beginBrowserAuth(context: HTTPAuthContext): { clear(): void } {
   };
 }
 
-function unfreezePkce(coordinator: HTTPAuthCoordinator): void {
+function unfreezePkce(coordinator: SdkAuthFinish): void {
   coordinator.pkceFrozen = false;
   delete coordinator.pkceSavePromise;
 }
@@ -390,6 +393,19 @@ export function fetchWithConnectAbort(
   };
 }
 
+/**
+ * SDK SSE resume: 1s start, double each attempt, 30s cap. Same envelope as
+ * stdio `mcpReconnectDelayMs` without a random factor — the SDK option has
+ * no jitter hook. maxRetries stays finite so a dead stream cannot pin the
+ * process forever; stdio death still redials in the owner loop.
+ */
+export const MCP_HTTP_RECONNECTION_OPTIONS = {
+  initialReconnectionDelay: 1_000,
+  maxReconnectionDelay: 30_000,
+  reconnectionDelayGrowFactor: 2,
+  maxRetries: 1_000,
+} as const;
+
 export function streamableHTTPTransportOptions(
   authProvider: CorbitsOAuthProvider | undefined,
   signal: AbortSignal | undefined,
@@ -398,6 +414,7 @@ export function streamableHTTPTransportOptions(
   // also wraps OAuth discovery and token requests, so a 307/308 can post
   // refresh tokens or auth codes to another host.
   return {
+    reconnectionOptions: MCP_HTTP_RECONNECTION_OPTIONS,
     ...(authProvider === undefined ? {} : { authProvider }),
     ...(signal === undefined
       ? {}
@@ -426,6 +443,43 @@ export async function retryAfterInteractiveAuth<T>(
   }
 }
 
+async function dialForFreshAuthorization(
+  context: HTTPAuthContext,
+): Promise<void> {
+  // InvalidScope / access_denied / invalid_request / unsupported_grant arrive
+  // before the SDK calls redirectToAuthorization. resetAuthorization already
+  // dropped the bad client, so this dial is the same attempt's browser path:
+  // the SDK registers again and redirects. A separate client avoids
+  // "Already connected" on the transport that just failed.
+  const coordinator = context.coordinator;
+  const probeClient = new Client({
+    name: MCP_CLIENT_NAME,
+    version: "1.0.0",
+  });
+  const transport = new StreamableHTTPClientTransport(
+    context.url,
+    streamableHTTPTransportOptions(
+      context.authProvider,
+      coordinator.lifecycle.signal,
+    ),
+  );
+  let redirected = false;
+  try {
+    await probeClient.connect(transport as unknown as Transport, {
+      signal: coordinator.lifecycle.signal,
+    });
+  } catch (probeErr) {
+    if (!isRecoverableAuthError(probeErr)) throw probeErr;
+    if (coordinator.browserFlow === undefined) throw probeErr;
+    redirected = true;
+  } finally {
+    await closeQuietly(() => probeClient.close());
+  }
+  // The probe, not the pre-failure transport, holds the resource metadata and
+  // scope the authorize URL was built from. finishAuth has to run on it.
+  if (redirected) coordinator.transport = transport;
+}
+
 async function driveRecovery(
   err: UnauthorizedError | OAuthError,
   context: HTTPAuthContext,
@@ -433,37 +487,54 @@ async function driveRecovery(
   const coordinator = context.coordinator;
   if (err instanceof OAuthError)
     await context.authProvider.resetAuthorization();
+  // The SDK already tried the token, refreshed, and redirected before throwing.
+  // A 401 that arrived without that redirect gets one shared refresh; anything
+  // else finishes the browser flow the provider already started.
+  let refreshed = false;
   if (
     err instanceof UnauthorizedError &&
     coordinator.browserFlow === undefined
   ) {
-    await getOrStartRefresh(context);
-    // SDK redirects waiting on this refresh must reserve the browser flow
-    // before the probe.
+    refreshed = await getOrStartRefresh(context);
+    // Redirects waiting on this refresh must reserve the browser flow
+    // before we decide the episode failed.
     await Promise.resolve();
   }
 
-  if (coordinator.browserFlow === undefined) {
-    try {
-      await coordinator.probe();
-      return;
-    } catch (probeErr) {
-      if (!isRecoverableAuthError(probeErr)) throw probeErr;
-      if (coordinator.browserFlow === undefined) throw probeErr;
-    }
+  // Credential wipe without a redirect logs the user out. Continue this
+  // attempt into the browser flow instead of failing the connect. A dial
+  // that succeeds with no redirect is the old probe success: return so the
+  // real client retries instead of rethrowing the wiped error.
+  if (err instanceof OAuthError && coordinator.browserFlow === undefined) {
+    await dialForFreshAuthorization(context);
+    if (coordinator.browserFlow === undefined) return;
   }
 
   const browserFlow = coordinator.browserFlow;
+  if (browserFlow === undefined) {
+    if (refreshed) return;
+    throw err;
+  }
+
   await browserFlow.promptEmitted;
   const code = await waitForBrowserAuthCode(context);
-  await new StreamableHTTPClientTransport(
-    context.url,
-    streamableHTTPTransportOptions(
-      context.authProvider,
-      coordinator.lifecycle.signal,
-    ),
-  ).finishAuth(code);
-  await coordinator.probe();
+  const transport = coordinator.transport;
+  if (transport === undefined)
+    throw new Error("no live HTTP transport to finish authorization");
+  await transport.finishAuth(code);
+  // The probe is a second client. After its close, the live session still
+  // carries the mcp-session-id from before resetAuthorization wiped tokens.
+  const liveSession = context.client.transport;
+  if (
+    liveSession !== undefined &&
+    liveSession !== transport &&
+    liveSession.sessionId !== undefined
+  ) {
+    await context.client.close();
+    await context.client.connect(context.openTransport(), {
+      signal: coordinator.lifecycle.signal,
+    });
+  }
 }
 
 function completeVerifiedRecovery(
@@ -573,7 +644,7 @@ async function finishClient(
   authContext?: HTTPAuthContext,
   signal?: AbortSignal,
   closeLifecycle?: () => void,
-  liveTransport?: { onclose?: () => void },
+  live?: { current?: { onclose?: () => void } },
 ): Promise<MCPClient> {
   const result = await withHTTPAuthorizationRecovery(authContext, () =>
     signal === undefined
@@ -620,14 +691,9 @@ async function finishClient(
       }
       return envelope;
     },
-    async call(this: MCPClient, toolName, args, signal) {
-      return unwrapToolContent(
-        (await this.callResult(toolName, args, signal)).blocks,
-      );
-    },
     async close() {
       // Disarm first: the owner's hook reports unintentional death only.
-      if (liveTransport !== undefined) liveTransport.onclose = () => undefined;
+      if (live?.current !== undefined) live.current.onclose = () => undefined;
       closeLifecycle?.();
       authContext?.callback.close();
       await closeQuietly(() => client.close());
@@ -684,9 +750,17 @@ async function connectStdio(
       transport,
       options.signal === undefined ? undefined : { signal: options.signal },
     );
-    // A dead child surfaces here; intentional close() disarms it first.
-    if (options.onDisconnect !== undefined)
-      transport.onclose = options.onDisconnect;
+    // Child exit is the only death the owner redials. Chain the protocol
+    // handler so in-flight requests still reject; HTTP SSE resume stays
+    // inside the SDK and must not start a second dial.
+    if (options.onDisconnect !== undefined) {
+      const prior = transport.onclose;
+      transport.onclose = () => {
+        prior?.();
+        options.onDisconnect?.();
+      };
+    }
+    const live = { current: transport };
     return {
       ok: true,
       client: await finishClient(
@@ -695,7 +769,7 @@ async function connectStdio(
         undefined,
         options.signal,
         undefined,
-        transport,
+        live,
       ),
     };
   } catch (err) {
@@ -733,13 +807,22 @@ async function connectHttp(
     const normalizedURL = normalizeMCPServerURL(config.url);
     const url = new URL(normalizedURL);
     let authContext: HTTPAuthContext | undefined;
+    const live: { current?: { onclose?: () => void } } = {};
+    const connectedClient = new Client({
+      name: MCP_CLIENT_NAME,
+      version: "1.0.0",
+    });
+    client = connectedClient;
     let makeTransport: () => Transport;
     if (config.oauth === false) {
-      makeTransport = () =>
-        new StreamableHTTPClientTransport(
+      makeTransport = () => {
+        const transport = new StreamableHTTPClientTransport(
           url,
           streamableHTTPTransportOptions(undefined, options.signal),
-        ) as unknown as Transport;
+        );
+        live.current = transport;
+        return transport as unknown as Transport;
+      };
     } else {
       callback = await startCallbackServer(config.name);
       const authProvider = await createOAuthProvider({
@@ -750,26 +833,17 @@ async function connectHttp(
         onAuthorizationState: callback.expectState,
         fetchFn: fetchWithConnectAbort(lifecycle.signal),
       });
-      makeTransport = () =>
-        new StreamableHTTPClientTransport(
+      const coordinator: SdkAuthFinish = {
+        lifecycle,
+      };
+      makeTransport = () => {
+        const transport = new StreamableHTTPClientTransport(
           url,
           streamableHTTPTransportOptions(authProvider, lifecycle.signal),
-        ) as unknown as Transport;
-      const coordinator: HTTPAuthCoordinator = {
-        lifecycle,
-        probe: async () => {
-          const probeClient = new Client({
-            name: MCP_CLIENT_NAME,
-            version: "1.0.0",
-          });
-          try {
-            await probeClient.connect(makeTransport(), {
-              signal: lifecycle.signal,
-            });
-          } finally {
-            await closeQuietly(() => probeClient.close());
-          }
-        },
+        );
+        coordinator.transport = transport;
+        live.current = transport;
+        return transport as unknown as Transport;
       };
       authContext = {
         url,
@@ -778,39 +852,25 @@ async function connectHttp(
         coordinator,
         interactive: options.onAuthURL !== undefined,
         serverName: config.name,
+        client: connectedClient,
+        openTransport: () => makeTransport(),
         ...(options.onAuthorized !== undefined
           ? { onAuthorized: options.onAuthorized }
           : {}),
       };
       gateRedirectToAuthorization(authContext);
     }
-    const connectedClient = new Client({
-      name: MCP_CLIENT_NAME,
-      version: "1.0.0",
-    });
-    client = connectedClient;
-    // The auth-recovery wrapper can dial twice; the last transport wins.
-    let liveTransport: Transport | undefined;
+    // Recovery may dial again after finishAuth; the last transport wins.
     await withHTTPAuthorizationRecovery(
       authContext,
       () => {
         const transport = makeTransport();
-        liveTransport = transport;
         return connectedClient.connect(transport, {
           signal: lifecycle.signal,
         });
       },
       lifecycle.signal,
     );
-    // A dropped SSE stream surfaces here; intentional close() disarms it.
-    if (options.onDisconnect !== undefined && liveTransport !== undefined)
-      liveTransport.onclose = options.onDisconnect;
-    if (authContext !== undefined) {
-      authContext.coordinator.probe = () =>
-        connectedClient
-          .listTools(undefined, { signal: lifecycle.signal })
-          .then(() => undefined);
-    }
     return {
       ok: true,
       client: await finishClient(
@@ -819,17 +879,13 @@ async function connectHttp(
         authContext,
         options.signal,
         closeLifecycle,
-        liveTransport,
+        live,
       ),
     };
   } catch (err) {
     closeLifecycle();
     await closeQuietly(() => client?.close() ?? Promise.resolve());
-    try {
-      callback?.close();
-    } catch {
-      // Setup has already failed; callback teardown is best effort.
-    }
+    await closeQuietly(() => Promise.resolve(callback?.close()));
     return {
       ok: false,
       serverName: config.name,

@@ -31,15 +31,54 @@ export interface MockTransportSelf {
   options:
     | { authProvider?: MockAuthProvider; requestInit?: RequestInit }
     | undefined;
+  /** Identity of the StreamableHTTPClientTransport instance. */
+  instanceId: number;
+  resourceMetadataUrl?: string;
+  scope?: string;
+  sessionId?: string;
+}
+
+export interface MockLiveTransport {
+  provider?: MockAuthProvider;
+  instanceId: number;
+  resourceMetadataUrl?: string;
+  scope?: string;
+  sessionId?: string;
+}
+
+function transportSnapshot(self: {
+  provider?: MockAuthProvider;
+  options?:
+    | { authProvider?: MockAuthProvider; requestInit?: RequestInit }
+    | undefined;
+  instanceId: number;
+  resourceMetadataUrl?: string;
+  scope?: string;
+  sessionId?: string;
+}): MockTransportSelf {
+  return {
+    provider: self.provider,
+    signal: self.options?.requestInit?.signal,
+    options: self.options,
+    instanceId: self.instanceId,
+    ...(self.resourceMetadataUrl !== undefined
+      ? { resourceMetadataUrl: self.resourceMetadataUrl }
+      : {}),
+    ...(self.scope !== undefined ? { scope: self.scope } : {}),
+    ...(self.sessionId !== undefined ? { sessionId: self.sessionId } : {}),
+  };
 }
 
 export interface McpClientMockHooks {
-  connect: (provider: MockAuthProvider | undefined) => Promise<void>;
+  connect: (
+    provider: MockAuthProvider | undefined,
+    transport?: MockLiveTransport,
+  ) => Promise<void>;
   listTools: (
     params: unknown,
     options: { signal?: AbortSignal } | undefined,
   ) => Promise<{ tools: [] }>;
-  callTool: () => Promise<{ content: [] }>;
+  callTool: (sessionId?: string) => Promise<{ content: [] }>;
   close: () => void | Promise<void>;
 }
 
@@ -64,11 +103,16 @@ export async function mockMcpClientModule(
     (real: typeof import("@modelcontextprotocol/sdk/client/index.js")) => ({
       ...real,
       Client: class {
-        async connect(transport?: {
-          provider?: MockAuthProvider;
-        }): Promise<void> {
+        #transport: MockLiveTransport | undefined = undefined;
+
+        get transport(): MockLiveTransport | undefined {
+          return this.#transport;
+        }
+
+        async connect(transport?: MockLiveTransport): Promise<void> {
+          this.#transport = transport;
           state.liveProvider = transport?.provider;
-          await hooks.connect(transport?.provider);
+          await hooks.connect(transport?.provider, transport);
         }
         async listTools(
           params?: unknown,
@@ -77,9 +121,10 @@ export async function mockMcpClientModule(
           return hooks.listTools(params, options);
         }
         async callTool(): Promise<{ content: [] }> {
-          return hooks.callTool();
+          return hooks.callTool(this.#transport?.sessionId);
         }
         async close(): Promise<void> {
+          this.#transport = undefined;
           await hooks.close();
         }
       },
@@ -91,6 +136,7 @@ export async function mockMcpTransportModule(
   state: McpSdkMockState,
   hooks: McpTransportMockHooks,
 ): Promise<void> {
+  let nextTransportId = 1;
   await withMockedModule(
     import.meta.resolve("@modelcontextprotocol/sdk/client/streamableHttp.js"),
     (
@@ -102,6 +148,10 @@ export async function mockMcpTransportModule(
         options?:
           | { authProvider?: MockAuthProvider; requestInit?: RequestInit }
           | undefined;
+        readonly instanceId: number;
+        resourceMetadataUrl?: string;
+        scope?: string;
+        sessionId?: string;
         constructor(
           _url: URL,
           options?: {
@@ -109,30 +159,21 @@ export async function mockMcpTransportModule(
             requestInit?: RequestInit;
           },
         ) {
+          this.instanceId = nextTransportId;
+          nextTransportId += 1;
           if (options?.authProvider !== undefined)
             this.provider = options.authProvider;
           this.options = options;
           const signal = options?.requestInit?.signal;
           if (signal !== undefined && signal !== null)
             state.lastRequestSignal = signal;
-          hooks.construct?.({ provider: this.provider, signal, options });
+          hooks.construct?.(transportSnapshot(this));
         }
         async finishAuth(): Promise<void> {
-          await hooks.finishAuth({
-            provider: this.provider,
-            signal: this.options?.requestInit?.signal,
-            options: this.options,
-          });
+          await hooks.finishAuth(transportSnapshot(this));
         }
         async auth(): Promise<void> {
-          await hooks.auth?.({
-            provider: this.provider,
-            signal: this.options?.requestInit?.signal,
-            options: this.options,
-          });
-        }
-        get sessionId(): string | undefined {
-          return undefined;
+          await hooks.auth?.(transportSnapshot(this));
         }
       },
     }),

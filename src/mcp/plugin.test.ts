@@ -31,7 +31,6 @@ function fakeEnvelopeClient(envelope: ScriptedMcpEnvelope): MCPClient {
         inputSchema: { type: "object", properties: {} },
       },
     ],
-    call: async () => "",
     callResult: async () => ({
       blocks: envelope.blocks,
       isError: envelope.isError === true,
@@ -69,7 +68,6 @@ function fakeClient(reply: string): MCPClient {
         inputSchema: { type: "object", properties: {} },
       },
     ],
-    call: async () => reply,
     callResult: async () => ({
       blocks: [{ type: "text", text: reply }],
       isError: false,
@@ -573,7 +571,7 @@ describe("mcpClientToAgentTools", () => {
     expect(payloads.map((payload) => payload.isError)).toEqual([false, true]);
   });
 
-  test("returns callResult text when call is also present", async () => {
+  test("returns callResult text", async () => {
     let calls = 0;
     const client: MCPClient = {
       serverName: "legacy",
@@ -584,7 +582,6 @@ describe("mcpClientToAgentTools", () => {
           inputSchema: { type: "object", properties: {} },
         },
       ],
-      call: async () => "unused",
       callResult: async () => {
         calls++;
         return {
@@ -620,9 +617,6 @@ describe("mcpClientToAgentTools", () => {
           inputSchema: { type: "object", properties: {} },
         },
       ],
-      call: async () => {
-        throw new Error("transport exploded");
-      },
       callResult: async () => {
         throw new Error("transport exploded");
       },
@@ -681,9 +675,6 @@ function makeFakeClient(serverName: string, toolNames: string[]): MCPClient {
       description: `${name} tool`,
       inputSchema: { type: "object", properties: {} },
     })),
-    async call() {
-      return "result";
-    },
     async callResult() {
       return {
         blocks: [{ type: "text", text: "result" }],
@@ -710,9 +701,6 @@ describe("mcpClientToAgentTools (production gated path)", () => {
           inputSchema: { type: "object" },
         },
       ],
-      async call() {
-        return "";
-      },
       async callResult(toolName, args) {
         capturedName = toolName;
         capturedArgs = args;

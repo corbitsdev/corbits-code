@@ -143,7 +143,11 @@ await mockMcpOAuthProviderModule(async (options: { serverURL: string }) => {
   return authProvider;
 });
 
-const { connectMCPServer, fetchWithConnectAbort } = await import("./client.js");
+const {
+  connectMCPServer,
+  fetchWithConnectAbort,
+  MCP_HTTP_RECONNECTION_OPTIONS,
+} = await import("./client.js");
 
 describe("HTTP MCP auth policy", () => {
   beforeEach(() => {
@@ -186,7 +190,9 @@ describe("HTTP MCP auth policy", () => {
     expect(providerCreates).toBe(0);
     // No signal and no provider: leave redirectPolicy unset so the SDK
     // default `same-origin` applies. Do not pin `follow`.
-    expect(transportOptions).toEqual([{}]);
+    expect(transportOptions).toEqual([
+      { reconnectionOptions: MCP_HTTP_RECONNECTION_OPTIONS },
+    ]);
   });
 
   test("closes a bound OAuth callback server when provider setup fails", async () => {
@@ -262,13 +268,14 @@ describe("HTTP MCP auth policy", () => {
     if (!result.ok) return;
     expect(transportOptions).toEqual([
       {
+        reconnectionOptions: MCP_HTTP_RECONNECTION_OPTIONS,
         authProvider,
         requestInit: { signal: expect.any(AbortSignal) },
         fetch: expect.any(Function),
       },
     ]);
 
-    const call = result.client.call("ping", {}, abort.signal);
+    const call = result.client.callResult("ping", {}, abort.signal);
     while (tokenRefreshSignals.length === 0) await Promise.resolve();
     expect(tokenRefreshSignals[0]).toBeDefined();
     expect(tokenRefreshSignals[0]?.aborted).toBe(false);
@@ -298,6 +305,7 @@ describe("HTTP MCP auth policy", () => {
     expect(providerServerURL).toBe("https://custom.example/mcp?mode=full");
     expect(transportOptions).toEqual([
       {
+        reconnectionOptions: MCP_HTTP_RECONNECTION_OPTIONS,
         authProvider,
         requestInit: { signal: expect.any(AbortSignal) },
         fetch: expect.any(Function),
@@ -322,7 +330,11 @@ describe("HTTP MCP auth policy", () => {
     expect(transport.requestInit?.signal).not.toBe(connectAbort.signal);
     expect(transport.fetch).toBeTypeOf("function");
 
-    const call = result.client.call("ping", {}, new AbortController().signal);
+    const call = result.client.callResult(
+      "ping",
+      {},
+      new AbortController().signal,
+    );
     while (tokenRefreshSignals.length === 0) await Promise.resolve();
     expect(tokenRefreshSignals[0]).not.toBe(connectAbort.signal);
     expect(tokenRefreshSignals[0]?.aborted).toBe(false);

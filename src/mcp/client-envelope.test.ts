@@ -50,23 +50,4 @@ describe("mcp client tool envelope", () => {
     expect(envelope.structuredContent).toEqual({ reason: "bad input" });
     await connected.client.close();
   });
-
-  test("legacy call still flattens text blocks", async () => {
-    scriptedCallToolResult = {
-      content: [{ type: "text", text: "hello" }],
-    };
-    const connected = await connectMCPServer(
-      { name: "envelope", command: "true" },
-      {},
-    );
-    if (!connected.ok) throw new Error("expected stdio connect to succeed");
-    const text = await connected.client.call(
-      "do_thing",
-      {},
-      new AbortController().signal,
-    );
-
-    expect(text).toBe("hello");
-    await connected.client.close();
-  });
 });

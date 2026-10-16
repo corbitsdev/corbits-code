@@ -19,7 +19,6 @@ await withMockedModule(
         client: {
           serverName: config.name,
           tools: [],
-          call: async () => "",
           callResult: async (
             toolName: string,
             args: Record<string, unknown>,

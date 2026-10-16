@@ -22,6 +22,7 @@ import {
   type MCPAuthIdentity,
   type MCPAuthState,
 } from "./auth-store.js";
+import { isAbortError } from "./quiet.js";
 import { MCP_CLIENT_NAME } from "../branding.js";
 
 export interface OAuthProviderOptions {
@@ -45,15 +46,6 @@ function redirectUrisInclude(
   const uris = info?.redirect_uris;
   if (uris === undefined || uris.length === 0) return true;
   return uris.includes(redirectUrl);
-}
-
-function isAbortError(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "name" in err &&
-    err.name === "AbortError"
-  );
 }
 
 // DCR bakes in the loopback redirect_uri (ephemeral port); a new-port session

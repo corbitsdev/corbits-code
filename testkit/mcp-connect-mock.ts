@@ -259,14 +259,6 @@ export async function installMcpConnectMock(
           client: {
             serverName: config.name,
             tools: resolveTools(mode),
-            call: async (
-              toolName: string,
-              args: Record<string, unknown>,
-              signal: AbortSignal,
-            ) => {
-              mock.calls.push({ toolName, args, signal });
-              return mock.toolCallResult;
-            },
             callResult: async (
               toolName: string,
               args: Record<string, unknown>,

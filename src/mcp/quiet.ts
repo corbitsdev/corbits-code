@@ -10,5 +10,9 @@ export function isAbortError(err: unknown): boolean {
 export async function closeQuietly(
   close: () => Promise<unknown>,
 ): Promise<void> {
-  await close().catch(() => undefined);
+  try {
+    await close();
+  } catch {
+    return undefined;
+  }
 }
