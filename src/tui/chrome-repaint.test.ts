@@ -42,7 +42,8 @@ describe("chrome repaint gate", () => {
     await withShell((shell) => {
       paintChrome(shell);
       const baseline = chromeComposeCount(shell);
-      // What stickyPoll does every 200ms while fully idle.
+      // Idle hosts used to call paintChrome on a 200ms poll. Repeating it
+      // must still recompose nothing.
       for (let tick = 0; tick < 10; tick++) paintChrome(shell);
       expect(chromeComposeCount(shell)).toBe(baseline);
     });

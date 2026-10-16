@@ -116,11 +116,11 @@ plus up to three dim tail lines of the command's live output and — when the
 feed window holds more than three lines — the same dim `⋯ +N lines` elision
 marker as the settle preview, `N` counting lines within the live window (the
 feed keeps only the most recent 8 KiB). The output
-travels through a polled bounded feed (`src/session/shell-output-feed.ts`),
+travels through a bounded feed (`src/session/shell-output-feed.ts`),
 not a reactor event: the plugin appends chunks (capped at an 8 KiB tail per
 call, emitting at most once per 100 ms plus a final flush at settle), and
-the product host's sticky poll reads the feed snapshot every 200 ms and
-repaints the pending row frame-coalesced. Nothing from the feed is
+the product host repaints the pending row on the next frame when the feed
+appends. Nothing from the feed is
 persisted. When the feed is not wired (tests, the demo shell), the row
 renders exactly as before — silent degradation.
 
@@ -160,7 +160,7 @@ on `LIVE_WORD_MS`; gated turns still read `waiting` or `stopping`.
 `ACTIVITY_STATES` exported from the session chrome module is the source
 of truth for what the slot can say, not this list. It is led by a single
 density cell
-(`rampPulse`, `src/tui/ramp.ts`). The cell, not the word,
+(`rampPulse`, `src/tui/ramp-glyphs.ts`). The cell, not the word,
 is what says whether the session is healthy, and it carries four states:
 
 | State     | Cell                                        | Reads as                |
