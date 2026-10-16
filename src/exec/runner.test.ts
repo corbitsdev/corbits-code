@@ -750,6 +750,68 @@ describe("exec advertised tools vs TUI", () => {
     });
     expect(isAdvertised("ask_operator")).toBe(true);
   });
+
+  test("parent prefix and dispatch call gate list approve_worker_call after send_input", () => {
+    const stub = (name: string) => ({
+      name,
+      description: name,
+      inputSchema: { type: "object" as const, properties: {} },
+    });
+    const expectBesideSendInput = (names: readonly string[]) => {
+      const send = names.indexOf("send_input");
+      expect(send).toBeGreaterThanOrEqual(0);
+      expect(names[send + 1]).toBe("approve_worker_call");
+    };
+    const registry = [
+      stub("read_file"),
+      stub("approve_worker_call"),
+      stub("send_input"),
+    ];
+    for (const toolAvailability of [
+      {
+        languageServerAvailable: false,
+        operatorAvailable: true,
+        waitAgentsMounted: false,
+      },
+      {
+        languageServerAvailable: false,
+        operatorAvailable: false,
+        waitAgentsMounted: true,
+      },
+    ] as const) {
+      expectBesideSendInput(
+        advertisedToolNamesForSessionMode(sessionMode, toolAvailability),
+      );
+      const tui = createAdvertisedToolset({
+        sessionMode,
+        toolAvailability,
+        getProvider: () => ({ providerName: "test", model: "test" }),
+      });
+      expectBesideSendInput(
+        tui.computeAdvertised(registry).map((def) => def.name),
+      );
+      expect(
+        createExecToolCallGate(tui.isAdvertised)("approve_worker_call"),
+      ).toBe(true);
+    }
+    const overlay = resolveExecDirectorOverlay("dispatch");
+    const exec = createAdvertisedToolset({
+      sessionMode,
+      toolAvailability: {
+        languageServerAvailable: false,
+        operatorAvailable: false,
+        waitAgentsMounted: true,
+      },
+      getProvider: () => ({ providerName: "test", model: "test" }),
+      builtInPrefix: overlay.advertisedAllow,
+    });
+    expectBesideSendInput(
+      exec.computeAdvertised(registry).map((def) => def.name),
+    );
+    expect(
+      createExecToolCallGate(exec.isAdvertised)("approve_worker_call"),
+    ).toBe(true);
+  });
 });
 
 describe("exec tool call gate and promoter", () => {
