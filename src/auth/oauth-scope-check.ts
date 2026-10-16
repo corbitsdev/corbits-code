@@ -91,7 +91,18 @@ export function isBlockingOAuthScopeCheckResult(
   return result.status === "blocked";
 }
 
+// Meta's API-key mint throws a plain Error for a dead identity token, not
+// OAuthTokenEndpointError. Only that 401/403 sentence is definitive; a
+// network Error or a non-auth mint failure must stay inconclusive.
+const META_SESSION_EXPIRED_AUTH_REJECTION =
+  /^Meta session expired \(status (?:401|403)\)/;
+
 function isDefinitiveRefreshAuthRejection(err: unknown): boolean {
+  if (
+    err instanceof Error &&
+    META_SESSION_EXPIRED_AUTH_REJECTION.test(err.message)
+  )
+    return true;
   if (!isOAuthTokenEndpointError(err)) return false;
   if (err.status === 401 || err.status === 403) return true;
   return /invalid_grant|revoked/i.test(err.detail);

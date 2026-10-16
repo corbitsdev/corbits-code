@@ -17,6 +17,11 @@ const xaiTokens = {
   refresh: "xai-refresh",
   expiresAt: Date.now() + 3_600_000,
 };
+const metaTokens = {
+  access: "LLM|staged",
+  refresh: "identity-token",
+  expiresAt: Date.now() + 3_600_000,
+};
 
 function stubFetch(
   impl: (url: string, init?: RequestInit) => Response | Promise<Response>,
@@ -308,5 +313,46 @@ describe("checkOAuthProviderScope", () => {
     const result = await checkOAuthProviderScope("xai", xaiTokens, commandName);
     expect(result.status).toBe("ok");
     expect(seen).toEqual([`${XAI_BASE_URL}/models`]);
+  });
+
+  test("meta: blocks a mint 401 session expiry", async () => {
+    const expired = { ...metaTokens, expiresAt: 0 };
+    stubFetch(() => new Response("expired", { status: 401 }));
+
+    const result = await checkOAuthProviderScope("meta", expired, commandName);
+
+    expect(result.status).toBe("blocked");
+    if (result.status === "blocked") {
+      expect(result.message).toMatch(/expired|revoked/i);
+    }
+  });
+
+  test("meta: blocks a mint 403 session expiry", async () => {
+    const expired = { ...metaTokens, expiresAt: 0 };
+    stubFetch(() => new Response("forbidden", { status: 403 }));
+
+    const result = await checkOAuthProviderScope("meta", expired, commandName);
+
+    expect(result.status).toBe("blocked");
+  });
+
+  test("meta: a non-expiry mint Error stays unavailable", async () => {
+    const expired = { ...metaTokens, expiresAt: 0 };
+    stubFetch(() => new Response("boom", { status: 500 }));
+
+    const result = await checkOAuthProviderScope("meta", expired, commandName);
+
+    expect(result.status).toBe("unavailable");
+  });
+
+  test("meta: a network Error during mint stays unavailable", async () => {
+    const expired = { ...metaTokens, expiresAt: 0 };
+    stubFetch(() => {
+      throw new Error("network down");
+    });
+
+    const result = await checkOAuthProviderScope("meta", expired, commandName);
+
+    expect(result.status).toBe("unavailable");
   });
 });
