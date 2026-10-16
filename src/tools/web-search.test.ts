@@ -19,9 +19,16 @@ await withMockedModule(
         client: {
           serverName: config.name,
           tools: [],
-          call: async (toolName: string, args: Record<string, unknown>) => {
+          call: async () => "",
+          callResult: async (
+            toolName: string,
+            args: Record<string, unknown>,
+          ) => {
             calls.push({ toolName, args });
-            return "mock result";
+            return {
+              blocks: [{ type: "text", text: "mock result" }],
+              isError: false,
+            };
           },
           close: async () => undefined,
         },

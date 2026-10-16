@@ -3,7 +3,11 @@ import { stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 
-import { connectMCPServer, type MCPClient } from "../mcp/client.js";
+import {
+  connectMCPServer,
+  unwrapToolContent,
+  type MCPClient,
+} from "../mcp/client.js";
 import { toolInputSchema } from "../util/tool-input-schema.js";
 import type { MCPServerConfig } from "../config/settings.js";
 import { EXA_MCP_URL } from "../mcp/exa.js";
@@ -157,7 +161,12 @@ export function createWebSearchTool(): AgentTool {
         const client = await getClient(provider);
         const args =
           provider === "parallel" ? parallelArgs(parsed) : exaArgs(parsed);
-        const result = await client.call(toolNameFor(provider), args, signal);
+        const envelope = await client.callResult(
+          toolNameFor(provider),
+          args,
+          signal,
+        );
+        const result = unwrapToolContent(envelope.blocks);
         return result.length > 0 ? result : "No results.";
       } catch (err) {
         return `Error: web_search (${provider}) failed: ${err instanceof Error ? err.message : String(err)}`;

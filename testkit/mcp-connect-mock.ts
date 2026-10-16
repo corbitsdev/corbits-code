@@ -267,6 +267,17 @@ export async function installMcpConnectMock(
               mock.calls.push({ toolName, args, signal });
               return mock.toolCallResult;
             },
+            callResult: async (
+              toolName: string,
+              args: Record<string, unknown>,
+              signal: AbortSignal,
+            ) => {
+              mock.calls.push({ toolName, args, signal });
+              return {
+                blocks: [{ type: "text" as const, text: mock.toolCallResult }],
+                isError: false,
+              };
+            },
             close,
           },
         };

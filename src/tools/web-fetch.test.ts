@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createServer, type Server } from "node:http";
-import type { MCPClient } from "../mcp/client.js";
 import { createDynamicToolRunner } from "../agent/dynamic-tool-runner.js";
 import {
   createExaMCPWebFetchTool,
@@ -134,7 +133,13 @@ describe("runWebFetch", () => {
 });
 
 describe("createExaMCPWebFetchTool", () => {
-  function createTool(call: MCPClient["call"]) {
+  function createTool(
+    call: (
+      name: string,
+      args: Record<string, unknown>,
+      signal: AbortSignal,
+    ) => Promise<string>,
+  ) {
     return createExaMCPWebFetchTool(
       {
         connect: async () => ({
@@ -144,7 +149,11 @@ describe("createExaMCPWebFetchTool", () => {
             tools: [
               { name: "web_fetch_exa", description: "Fetch", inputSchema: {} },
             ],
-            call,
+            call: async () => "",
+            callResult: async (name, args, signal) => ({
+              blocks: [{ type: "text", text: await call(name, args, signal) }],
+              isError: false,
+            }),
             close: async () => undefined,
           },
         }),
