@@ -1,5 +1,6 @@
 import {
   BoxRenderable,
+  ScrollBoxRenderable,
   TextRenderable,
   type RenderContext,
 } from "@opentui/core";
@@ -316,13 +317,24 @@ export function createOverlayView(ctx: RenderContext) {
     content: " overlay",
     fg: UI.textDim,
   });
-  const body = new BoxRenderable(ctx, {
+  const body = new ScrollBoxRenderable(ctx, {
     id: "shell-overlay-body",
     width: "100%",
     flexGrow: 1,
-    flexDirection: "column",
-    backgroundColor: UI.ground,
+    flexShrink: 1,
+    // The host scrolls as one surface. Arrow keys stay on the list selection;
+    // the scrollbox must not take focus and page itself.
+    focusable: false,
+    viewportCulling: true,
+    scrollY: true,
+    stickyScroll: false,
+    rootOptions: { backgroundColor: UI.ground },
+    contentOptions: { backgroundColor: UI.ground },
+    viewportOptions: { backgroundColor: UI.ground },
   });
+  body.horizontalScrollBar.visible = false;
+  body.horizontalScrollBar.focusable = false;
+  body.verticalScrollBar.focusable = false;
   host.add(title);
   host.add(body);
 
@@ -374,6 +386,7 @@ export function createOverlayView(ctx: RenderContext) {
       description: "",
     }));
     body.add(list.select);
+    revealList(list);
   }
 
   /** Rule + two-line description zone, painted when `describe` is set. */
@@ -415,10 +428,17 @@ export function createOverlayView(ctx: RenderContext) {
 
   /**
    * Detach the select before `clearBody` destroys the body's children — the
-   * list owns it across paints.
+   * list owns it across paints. ScrollBox.add parents into content, so the
+   * select's parent is not the scrollbox itself.
    */
   function detachList(list: OverlayList): void {
-    if (list.select.parent === body) body.remove(list.select);
+    if (list.select.parent) body.remove(list.select);
+  }
+
+  /** Keep the live choice inside the host viewport after a paint or move. */
+  function revealList(list: OverlayList): void {
+    if (list.select.parent === null || list.select.height <= 0) return;
+    body.scrollChildIntoView(list.select.id);
   }
 
   function paintList(
@@ -459,6 +479,7 @@ export function createOverlayView(ctx: RenderContext) {
     else addOverlayRow(` ${OVERLAY_EMPTY_STATE}`, UI.textDim);
     paintAnswerRow(presentation.answer, contentWidth);
     paintDescriptionZone(presentation.describe, contentWidth);
+    revealList(list);
   }
 
   function paintTitle(

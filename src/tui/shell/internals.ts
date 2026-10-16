@@ -356,7 +356,7 @@ export interface AppShell {
   readonly overlayView: ReturnType<typeof createOverlayView>;
   readonly overlayHost: BoxRenderable;
   readonly overlayTitle: TextRenderable;
-  readonly overlayBody: BoxRenderable;
+  readonly overlayBody: ScrollBoxRenderable;
   readonly prompt: PromptInput;
   readonly promptBox: BoxRenderable;
   /** The input's own row, bordered left and right only. */
@@ -723,11 +723,9 @@ interface ShellInternals {
 
 export const internals = new WeakMap<AppShell, ShellInternals>();
 
-/** Filler row sized to leftover viewport space so a short transcript
- * bottom-anchors against the prompt box; settles at zero once rows fill it.
- * A real child, not padding: `minHeight: "100%"` counts padding as viewport
- * height, so `scrollHeight - spacer.height` isolates the rows.
- * Index 0 is always the spacer. */
+/** Index-0 child of the transcript. Height stays 0: short logs bottom-align
+ * via the scroll content's justify-end, not a filler resized every frame.
+ * The node remains so row children keep a stable offset. */
 export const transcriptSpacers = new WeakMap<AppShell, BoxRenderable>();
 
 /** True while the landing composition is still mounted. */

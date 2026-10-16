@@ -133,22 +133,25 @@ function placeholderOptions(count: number): SelectOption[] {
 }
 
 /**
- * SelectRenderable keeps scroll offset and visible-item capacity private
- * (@opentui/core 0.5.10 exposes no accessors), so read them reflectively
- * and narrow instead of asserting a shape.
+ * SelectRenderable keeps its scroll offset private. The painted window is the
+ * same centered slice Select computes from its public height and selection,
+ * so callers can read it without reflecting into private fields.
  */
-function selectScrollState(select: SelectRenderable): {
-  offset: number;
-  visible: number;
-} {
-  const numberProp = (name: string): number => {
-    const value = Object.getOwnPropertyDescriptor(select, name)?.value;
-    return typeof value === "number" ? value : 1;
-  };
-  return {
-    offset: numberProp("scrollOffset"),
-    visible: Math.max(1, numberProp("maxVisibleItems")),
-  };
+function selectWindow(
+  select: SelectRenderable,
+  count: number,
+  rowsPerItem: number,
+): { offset: number; visible: number } {
+  if (count === 0) return { offset: 0, visible: 0 };
+  const linesPerItem = Math.max(1, rowsPerItem);
+  const visible = Math.max(1, Math.floor(select.height / linesPerItem));
+  const half = Math.floor(visible / 2);
+  const index = select.getSelectedIndex();
+  const offset = Math.max(
+    0,
+    Math.min(index - half, Math.max(0, count - visible)),
+  );
+  return { offset, visible };
 }
 
 export function createOverlayList(
@@ -165,6 +168,7 @@ export function createOverlayList(
 
   const build = (): SelectRenderable =>
     new SelectRenderable(ctx, {
+      id: "shell-overlay-select",
       options,
       selectedIndex: activeIndex,
       height: shape.items * shape.rowsPerItem,
@@ -221,7 +225,7 @@ export function createOverlayList(
       return shape.rowsPerItem;
     },
     get offset() {
-      return selectScrollState(select).offset;
+      return selectWindow(select, count, shape.rowsPerItem).offset;
     },
     get count() {
       return count;
@@ -251,7 +255,7 @@ export function createOverlayList(
       });
     },
     visibleRange() {
-      const { offset, visible } = selectScrollState(select);
+      const { offset, visible } = selectWindow(select, count, shape.rowsPerItem);
       return { start: offset, end: Math.min(count, offset + visible) };
     },
   };
