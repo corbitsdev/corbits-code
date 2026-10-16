@@ -1074,7 +1074,8 @@ export function createPruningCompactor(
       // summaries repair deterministically. A contradiction aborts the fold.
       // A repair that does not fit the summary cap still commits when the
       // handoff file carries the overflow — the live spine stays the thin
-      // extract, never a sliced denial.
+      // extract, never a denial of recorded failures. Shrink-to-fit is the
+      // same rule: a fitting appendix does not excuse a lying spine.
       const facts = extractContinuationFacts(summarizedTurns);
       const verified = verifyOrRepair(summary, facts, cfg.summaryMaxChars);
       const keepPrior = (
@@ -1117,22 +1118,29 @@ export function createPruningCompactor(
       let narrative = verified.summary;
       let handoff = buildHandoffFold(summarizedTurns, narrative, handoffOpts);
       let overflowFold = false;
+      const spineDeniesFailures = (): boolean =>
+        textDeniesRecordedFailures(handoff.spineText, facts);
+      const spineContradiction = () =>
+        keepPrior("contradiction", [
+          ...verified.misses,
+          {
+            kind: "contradiction",
+            detail: "spine denies failure while dropped turns record errors",
+          },
+        ]);
+      // Shrink-to-fit (and any other non-abort) still builds Decisions from
+      // folded user text. That line can deny failures the summary never said.
+      if (!verified.aborted && spineDeniesFailures()) {
+        return spineContradiction();
+      }
       if (verified.aborted) {
-        if (textDeniesRecordedFailures(handoff.spineText, facts)) {
-          return keepPrior("contradiction", [
-            ...verified.misses,
-            {
-              kind: "contradiction",
-              detail: "spine denies failure while dropped turns record errors",
-            },
-          ]);
-        }
+        if (spineDeniesFailures()) return spineContradiction();
         if (!handoffCarries(handoff.blob.bytes, handoff.spineText)) {
           narrative = repairSummary(narrative, facts, verified.misses);
           handoff = buildHandoffFold(summarizedTurns, narrative, handoffOpts);
         }
         if (
-          textDeniesRecordedFailures(handoff.spineText, facts) ||
+          spineDeniesFailures() ||
           !handoffCarries(handoff.blob.bytes, handoff.spineText)
         ) {
           return keepPrior("repair-overflow", verified.misses);

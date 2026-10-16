@@ -422,7 +422,7 @@ describe("verifyCompactionSummary", () => {
     }
   });
 
-  test("uppercase HTTP URL scores hostname case-insensitively", () => {
+  test("a URL path is required; hostname alone does not cover it", () => {
     const facts = extractContinuationFacts([
       textTurn("user", "Fix auth now"),
       {
@@ -441,6 +441,12 @@ describe("verifyCompactionSummary", () => {
     expect(
       verifyCompactionSummary(
         "Fix auth now. Called api.com.",
+        facts,
+      ).misses.some((m) => m.kind === "exactName"),
+    ).toBe(true);
+    expect(
+      verifyCompactionSummary(
+        "Fix auth now. Called API.COM/v1.",
         facts,
       ).misses.some((m) => m.kind === "exactName"),
     ).toBe(false);
@@ -758,6 +764,132 @@ describe("pruning compactor verify pass", () => {
     const spine = allText(result.output);
     expect(spine).toContain(COMPACTED_PREFIX);
     expect(spine).not.toMatch(/\bno\s+errors?\b/i);
+  });
+
+  test("shrink-to-fit does not ship a spine that denies recorded failures", async () => {
+    const folded: ConversationTurn[] = [
+      textTurn("user", "Fix auth now"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "c1",
+            name: "read_file",
+            arguments: { path: "src/auth.ts" },
+          },
+        ],
+        timestamp: 2,
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            callId: "c1",
+            isError: true,
+            content: [{ type: "text", text: "token refresh assertion failed" }],
+          },
+        ],
+        timestamp: 3,
+      },
+      textTurn("assistant", "Fix the token refresh assertion next."),
+      textTurn("user", "No errors remain"),
+      textTurn("user", "Keep going on the handler"),
+    ];
+    const turns: ConversationTurn[] = [
+      ...folded,
+      textTurn("user", "recent ask"),
+      textTurn("assistant", "recent reply"),
+    ];
+    const prose = "Padded model prose. ".repeat(40);
+    const facts = extractContinuationFacts(folded);
+    const misses = verifyCompactionSummary(prose, facts).misses;
+    const full = repairSummary(prose, facts, misses);
+    const appendixAt = full.indexOf(VERIFY_REPAIR_HEADING);
+    const appendix = full.slice(appendixAt).replace(/^\n+/, "");
+    const cap = appendix.length + 8;
+    expect(full.length).toBeGreaterThan(cap);
+    const shrunk = verifyOrRepair(prose, facts, cap);
+    expect(shrunk.aborted).toBe(false);
+    expect(shrunk.summary.length).toBeLessThanOrEqual(cap);
+
+    const apply = (summaryMaxChars: number) =>
+      createPruningCompactor({
+        summaryMaxChars,
+        compactionShape: { tailBudgetTokens: 10 },
+        summarize: async () => prose,
+      }).apply(turns, mockStrategyCtx);
+
+    const fitted = await apply(cap);
+    const fittedSpine = allText(fitted.output);
+    const committed = fitted.output.length < turns.length;
+    if (committed) {
+      expect(fittedSpine).not.toMatch(/\bno\s+errors?\s+remain\b/i);
+    } else {
+      expect(fitted.output).toBe(turns);
+      expect(fitted.record.decisions.verifyAbortReason).toBe("contradiction");
+    }
+    expect(committed && /\bno\s+errors?\s+remain\b/i.test(fittedSpine)).toBe(
+      false,
+    );
+
+    const tight = await apply(80);
+    expect(tight.output).toBe(turns);
+    expect(tight.record.decisions.verifyAbortReason).toBe("contradiction");
+  });
+
+  test("an over-cap fold does not commit without the exact URL path", async () => {
+    const url = "https://api.example/hooks/QUOKKA-CALLBACK";
+    const folded: ConversationTurn[] = [
+      textTurn("user", "Register the callback host api.example"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "c1",
+            name: "web_fetch",
+            arguments: { url },
+          },
+        ],
+        timestamp: 2,
+      },
+      textTurn("assistant", "Next step is to patch the handler QUOKKA-NEXT"),
+      textTurn("user", "Do not commit generated artifacts ever."),
+    ];
+    const turns: ConversationTurn[] = [
+      ...folded,
+      textTurn("user", "recent ask"),
+      textTurn("assistant", "recent reply"),
+    ];
+    const prose = "Work continues.";
+    const facts = extractContinuationFacts(folded);
+    expect(facts.exactNames).toContain(url);
+    const misses = verifyCompactionSummary(prose, facts).misses;
+    const full = repairSummary(prose, facts, misses);
+    const exactAt = full.indexOf("Exact references:");
+    expect(exactAt).toBeGreaterThan(0);
+    expect(full.slice(0, exactAt)).toContain("api.example");
+    expect(full.slice(0, exactAt)).not.toContain("QUOKKA-CALLBACK");
+
+    const result = await createPruningCompactor({
+      summaryMaxChars: exactAt,
+      compactionShape: { tailBudgetTokens: 10 },
+      summarize: async () => prose,
+    }).apply(turns, mockStrategyCtx);
+
+    const file = handoffFileText(result);
+    const spine = allText(result.output);
+    const keptPrior = result.output === turns;
+    const pathKept =
+      file.includes("hooks/QUOKKA-CALLBACK") ||
+      spine.includes("hooks/QUOKKA-CALLBACK");
+    expect(keptPrior || pathKept).toBe(true);
+    if (!keptPrior) {
+      expect(result.record.decisions.verifyAborted).toBeUndefined();
+      expect(result.record.reason.startsWith("compacted")).toBe(true);
+    }
   });
 });
 

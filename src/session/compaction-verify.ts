@@ -334,17 +334,33 @@ export function extractContinuationFacts(
 }
 
 // Basename for paths (a summary moving `src/auth.ts` to "auth.ts" still
-// names it); hostname for URLs (query strings get reworded freely). Match
+// names it). A URL with a path needs that path, not the hostname alone:
+// `api.example` does not cover `https://api.example/hooks/id`. Query strings
+// may be dropped. A URL with no path still matches on the hostname. Match
 // on token/path boundaries so "oauth.ts" does not cover "auth.ts" and
 // "www.api.com" does not cover hostname "api.com".
+function urlPathBody(url: string): string | undefined {
+  try {
+    const path = new URL(url).pathname.replace(/\/+$/, "");
+    if (path.length <= 1) return undefined;
+    return path.slice(1).toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
 function exactNameSupported(name: string, summary: string): boolean {
   const lowered = summary.toLowerCase();
   const loweredName = name.toLowerCase();
   if (loweredName.startsWith("http://") || loweredName.startsWith("https://")) {
+    if (tokenAppears(loweredName, lowered)) return true;
     const host = hostnameOf(name);
-    if (host !== undefined && tokenAppears(host.toLowerCase(), lowered))
-      return true;
-    return tokenAppears(loweredName, lowered);
+    if (host === undefined) return false;
+    const path = urlPathBody(name);
+    if (path === undefined) return tokenAppears(host.toLowerCase(), lowered);
+    return (
+      tokenAppears(host.toLowerCase(), lowered) && tokenAppears(path, lowered)
+    );
   }
   const base = name.split("/").pop() ?? name;
   return base.length > 0 && tokenAppears(base.toLowerCase(), lowered);
