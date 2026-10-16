@@ -373,7 +373,8 @@ export function createOverlayView(ctx: RenderContext) {
       name: line,
       description: "",
     }));
-    body.add(list.select);
+    body.add(list.viewport);
+    list.scrollActiveIntoView();
   }
 
   /** Rule + two-line description zone, painted when `describe` is set. */
@@ -414,11 +415,11 @@ export function createOverlayView(ctx: RenderContext) {
   }
 
   /**
-   * Detach the select before `clearBody` destroys the body's children — the
-   * list owns it across paints.
+   * Detach the list viewport before `clearBody` destroys the body's children —
+   * the list owns the select inside that ScrollBox across paints.
    */
   function detachList(list: OverlayList): void {
-    if (list.select.parent === body) body.remove(list.select);
+    if (list.viewport.parent) body.remove(list.viewport);
   }
 
   function paintList(
@@ -455,10 +456,11 @@ export function createOverlayView(ctx: RenderContext) {
     });
     // An empty list renders nothing: the renderable would claim a background
     // row the chooser did not reserve.
-    if (presentation.items.length > 0) body.add(list.select);
+    if (presentation.items.length > 0) body.add(list.viewport);
     else addOverlayRow(` ${OVERLAY_EMPTY_STATE}`, UI.textDim);
     paintAnswerRow(presentation.answer, contentWidth);
     paintDescriptionZone(presentation.describe, contentWidth);
+    list.scrollActiveIntoView();
   }
 
   function paintTitle(

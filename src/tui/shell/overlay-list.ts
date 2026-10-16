@@ -2,6 +2,8 @@
  * The overlay list wrapper (SelectRenderable) and its selection delegations.
  */
 import {
+  BoxRenderable,
+  ScrollBoxRenderable,
   SelectRenderable,
   type KeyEvent,
   type RenderContext,
@@ -133,22 +135,24 @@ function placeholderOptions(count: number): SelectOption[] {
 }
 
 /**
- * SelectRenderable keeps scroll offset and visible-item capacity private
- * (@opentui/core 0.5.10 exposes no accessors), so read them reflectively
- * and narrow instead of asserting a shape.
+ * Select keeps scroll offset private. The window is the same centered slice
+ * it would paint, taken from the reserved slot count rather than a reflective
+ * read. The ScrollBox viewport is what actually scrolls; this only names the
+ * slice.
  */
-function selectScrollState(select: SelectRenderable): {
-  offset: number;
-  visible: number;
-} {
-  const numberProp = (name: string): number => {
-    const value = Object.getOwnPropertyDescriptor(select, name)?.value;
-    return typeof value === "number" ? value : 1;
-  };
-  return {
-    offset: numberProp("scrollOffset"),
-    visible: Math.max(1, numberProp("maxVisibleItems")),
-  };
+function listWindow(
+  index: number,
+  count: number,
+  slots: number,
+): { offset: number; visible: number } {
+  if (count === 0) return { offset: 0, visible: 0 };
+  const visible = Math.max(1, slots);
+  const half = Math.floor(visible / 2);
+  const offset = Math.max(
+    0,
+    Math.min(index - half, Math.max(0, count - visible)),
+  );
+  return { offset, visible };
 }
 
 export function createOverlayList(
@@ -163,11 +167,17 @@ export function createOverlayList(
   const activeIndex = opts.activeIndex ?? 0;
   let options = placeholderOptions(count);
 
+  const rowSpan = (): number => Math.max(1, shape.rowsPerItem);
+
   const build = (): SelectRenderable =>
     new SelectRenderable(ctx, {
+      id: "shell-overlay-select",
       options,
       selectedIndex: activeIndex,
-      height: shape.items * shape.rowsPerItem,
+      // Full list, not the visible window. The viewport ScrollBox clips it and
+      // owns the scrollbar; a window-sized select would scroll a second time
+      // inside itself and the bar would never see overflow.
+      height: Math.max(rowSpan(), Math.max(shape.items, count) * rowSpan()),
       width: "100%",
       flexShrink: 0,
       showDescription: shape.rowsPerItem > 1,
@@ -189,6 +199,68 @@ export function createOverlayList(
 
   let select = build();
 
+  const viewport = new ScrollBoxRenderable(ctx, {
+    id: "shell-overlay-list-scroll",
+    width: "100%",
+    height: Math.max(1, shape.items * rowSpan()),
+    flexShrink: 0,
+    // Arrow keys stay on the shell's selection handler. A focusable scrollbox
+    // would page itself and steal the list.
+    focusable: false,
+    viewportCulling: true,
+    scrollY: true,
+    stickyScroll: false,
+    rootOptions: { backgroundColor: UI.ground },
+    contentOptions: { backgroundColor: UI.ground },
+    viewportOptions: { backgroundColor: UI.ground },
+  });
+  viewport.horizontalScrollBar.visible = false;
+  viewport.horizontalScrollBar.focusable = false;
+  viewport.verticalScrollBar.focusable = false;
+  // Vertical bar stays on the native auto rule: visible once the select is
+  // taller than the slot window. Forcing it off is the transcript's choice,
+  // not the overlay host's.
+  const placed = viewport.content.onSizeChange;
+  let revealing = false;
+
+  const anchor = new BoxRenderable(ctx, {
+    id: "shell-overlay-active-anchor",
+    position: "absolute",
+    left: 0,
+    width: 1,
+    height: rowSpan(),
+    top: 0,
+  });
+  viewport.add(select);
+  viewport.add(anchor);
+
+  const reveal = (): void => {
+    if (revealing) return;
+    revealing = true;
+    try {
+      const row = rowSpan();
+      const slots = Math.max(1, shape.items);
+      viewport.height = slots * row;
+      select.height = Math.max(row, Math.max(slots, count) * row);
+      const index = select.getSelectedIndex();
+      anchor.height = row;
+      anchor.top = index * row;
+      const { offset } = listWindow(index, count, slots);
+      const y = count === 0 ? 0 : offset * row;
+      viewport.scrollTop = y;
+      if (count > 0 && anchor.y !== 0 && viewport.viewport.y !== 0) {
+        viewport.scrollChildIntoView(anchor.id);
+      }
+      viewport.content.translateY = -y;
+    } finally {
+      revealing = false;
+    }
+  };
+  viewport.content.onSizeChange = () => {
+    placed?.call(viewport.content);
+    reveal();
+  };
+
   const reshape = (next: Partial<OverlayListShape>): void => {
     const merged = { ...shape, ...next };
     if (
@@ -201,16 +273,22 @@ export function createOverlayList(
     // (clamped to the new count) so a resize does not snap the cursor back.
     const current = select.getSelectedIndex();
     shape = merged;
+    if (select.parent) viewport.remove(select);
     select = build();
+    viewport.add(select, 0);
     select.setSelectedIndex(
       count === 0 ? 0 : Math.min(count - 1, Math.max(0, current)),
     );
+    reveal();
   };
+
+  reveal();
 
   return {
     get select() {
       return select;
     },
+    viewport,
     get activeIndex() {
       return select.getSelectedIndex();
     },
@@ -221,7 +299,7 @@ export function createOverlayList(
       return shape.rowsPerItem;
     },
     get offset() {
-      return selectScrollState(select).offset;
+      return listWindow(select.getSelectedIndex(), count, shape.items).offset;
     },
     get count() {
       return count;
@@ -229,6 +307,7 @@ export function createOverlayList(
     move(delta: number) {
       if (delta < 0) select.moveUp(-delta);
       else if (delta > 0) select.moveDown(delta);
+      reveal();
     },
     page(dir: -1 | 1) {
       this.move(dir * (shape.items > 1 ? shape.items - 1 : 1));
@@ -238,11 +317,13 @@ export function createOverlayList(
       select.setSelectedIndex(
         Math.max(0, Math.min(count - 1, Math.floor(index))),
       );
+      reveal();
     },
     setCount(next: number) {
       count = Math.max(0, Math.floor(next));
       options = placeholderOptions(count);
       select.options = options;
+      reveal();
     },
     setHeight(items: number, rowsPerItem?: number) {
       reshape({
@@ -250,8 +331,15 @@ export function createOverlayList(
         ...(rowsPerItem ? { rowsPerItem } : {}),
       });
     },
+    scrollActiveIntoView() {
+      reveal();
+    },
     visibleRange() {
-      const { offset, visible } = selectScrollState(select);
+      const { offset, visible } = listWindow(
+        select.getSelectedIndex(),
+        count,
+        shape.items,
+      );
       return { start: offset, end: Math.min(count, offset + visible) };
     },
   };

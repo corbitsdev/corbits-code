@@ -1047,23 +1047,33 @@ export function syncPromptRows(shell: AppShell): void {
 }
 
 /**
- * Resize the leading filler to soak leftover viewport space (`scrollHeight`
- * minus filler). Not at row-mutation time: mid-layout rows read short for a
- * frame, so a filler grown then would bury one. The render-frame hook calls
- * it after that pass.
+ * Pin a short transcript to the prompt. ScrollBox content is already at least
+ * the viewport tall (`minHeight: "100%"`); justify-end packs the rows against
+ * the bottom. The landing positions its own mark, so flex-end there would
+ * shove it twice. The index-0 spacer stays at height 0 — growing it was the
+ * old anchor.
  */
+const transcriptJustify = new WeakMap<AppShell, "flex-start" | "flex-end">();
+
 export function syncTranscriptSpacer(shell: AppShell): void {
   const spacer = transcriptSpacers.get(shell);
   if (spacer === undefined) return;
-  // The landing already bottom-anchors its mark via the above/below split; a
-  // filler would double-count and squeeze it.
-  if (isLanding(shell)) {
-    if (spacer.height !== 0) spacer.height = 0;
-    return;
-  }
-  const rowsHeight = Math.max(0, shell.transcript.scrollHeight - spacer.height);
-  const nextHeight = Math.max(0, shell.transcript.height - rowsHeight);
-  if (spacer.height !== nextHeight) spacer.height = nextHeight;
+  if (spacer.height !== 0) spacer.height = 0;
+  const justify = isLanding(shell) ? "flex-start" : "flex-end";
+  if (transcriptJustify.get(shell) === justify) return;
+  shell.transcript.contentOptions = { justifyContent: justify };
+  transcriptJustify.set(shell, justify);
+}
+
+/** Keep the newest row in view while the tail is followed. */
+export function followTranscriptTail(shell: AppShell): void {
+  if (isLanding(shell) || !isTranscriptFollowing(shell)) return;
+  const last = shell.transcript.getChildren().at(-1);
+  if (last === undefined || last.id === "shell-transcript-spacer") return;
+  if (last.height <= 0) return;
+  const viewportY = shell.transcript.viewport.y;
+  if (last.y === 0 && viewportY !== 0) return;
+  shell.transcript.scrollChildIntoView(last.id);
 }
 
 export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
@@ -1381,7 +1391,7 @@ export function replaceStreamRowAt(
 export function repaintTranscriptWindow(shell: AppShell): void {
   clearLandingMark(shell);
   shell.agentVoices = new Set(agentVoicesIn(shell.streamLog));
-  // The bottom-anchor spacer (index 0) stays; the eviction notice (if any)
+  // Index 0 is the zero-height spacer and stays; the eviction notice (if any)
   // and every row get torn down and rebuilt from the log.
   for (const child of shell.transcript.getChildren().slice(1)) {
     shell.transcript.remove(child);

@@ -33,8 +33,12 @@ function bodyRows(view: ReturnType<typeof createOverlayView>): string[] {
 function bodySelect(
   view: ReturnType<typeof createOverlayView>,
 ): SelectRenderable {
+  // The list lives in the host ScrollBox, not as a direct body child.
   const found = view.body
     .getChildren()
+    .flatMap((row) =>
+      row instanceof SelectRenderable ? [row] : row.getChildren(),
+    )
     .find((row) => row instanceof SelectRenderable);
   if (!(found instanceof SelectRenderable))
     throw new Error("expected the overlay list");

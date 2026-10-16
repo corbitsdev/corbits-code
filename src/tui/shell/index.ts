@@ -34,6 +34,7 @@ import { flushStreamRowUpdates } from "../runtime-bridge.js";
 import {
   type AppShell,
   type AppShellOptions,
+  bindTranscriptTailSticky,
   EMPTY_PRIMARY_BINDINGS,
   flashTimers,
   initShellInternals,
@@ -66,6 +67,7 @@ import {
   syncNoticeAfterLayout,
   syncPromptRows,
   syncTranscriptSpacer,
+  followTranscriptTail,
 } from "./chrome.js";
 import {
   clearPendingAttachments,
@@ -202,6 +204,7 @@ export function createAppShell(
     stickyScroll: true,
     stickyStart: "bottom",
     scrollY: true,
+    viewportCulling: true,
     focusable: true,
     rootOptions: { backgroundColor: UI.ground },
     contentOptions: { backgroundColor: UI.ground },
@@ -211,12 +214,14 @@ export function createAppShell(
   // row restating it.
   transcript.verticalScrollBar.visible = false;
   transcript.horizontalScrollBar.visible = false;
+  bindTranscriptTailSticky(transcript);
   // Markdown links live on nodes we do not own; this bubbling handler arms
   // them (armed rows stop propagation, so a click opens exactly once).
   armMarkdownLinks(transcript, ctx);
 
-  // Leading filler that bottom-anchors a short transcript; see
-  // `syncTranscriptSpacer`. Zero height until the first sync call.
+  // Index 0 stays a zero-height spacer so row offsets do not move. Short
+  // transcripts bottom-align through the scroll content (see
+  // `syncTranscriptSpacer`), not by growing this filler.
   const transcriptSpacer = new BoxRenderable(ctx, {
     id: "shell-transcript-spacer",
     width: "100%",
@@ -388,6 +393,7 @@ export function createAppShell(
     // After a natural render, not at mutation time: the row's box needs a
     // layout pass to size itself, and claiming the padding first starves it.
     syncTranscriptSpacer(shell);
+    followTranscriptTail(shell);
     syncNoticeAfterLayout(shell);
   };
 

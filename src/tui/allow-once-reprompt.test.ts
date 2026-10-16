@@ -484,7 +484,7 @@ describe("CL-8792 overlay host: suspend preserves the surface instead of dismiss
       openSlash(shell);
       const list = defined(shell.overlayList, "slash list");
       expect(list.select.isDestroyed).toBe(false);
-      expect(list.select.parent).toBe(shell.overlayView.body);
+      expect(list.viewport.parent).toBe(shell.overlayView.body);
 
       let resolved: unknown;
       emitter.emit("permission.gate", {
@@ -501,8 +501,8 @@ describe("CL-8792 overlay host: suspend preserves the surface instead of dismiss
       expect(shell.overlayKind).toBe("help");
       expect(shell.overlayList).toBe(list);
       expect(list.select.isDestroyed).toBe(false);
-      expect(list.select.parent).toBe(shell.overlayView.body);
-      expect(shell.overlayView.body.getChildren()).toContain(list.select);
+      expect(list.viewport.parent).toBe(shell.overlayView.body);
+      expect(shell.overlayView.body.getChildren()).toContain(list.viewport);
     });
   });
 

@@ -498,11 +498,39 @@ export type PrimaryOverlayKind =
   | "mcp"
   | "plugin_credentials";
 
-/** Whether the transcript viewport is stuck to the bottom (FOLLOW vs PINNED). */
+/** True when the viewport is on the tail (`scrollTop >= max`). */
 export function isTranscriptFollowing(shell: AppShell): boolean {
   const { transcript } = shell;
   const max = Math.max(0, transcript.scrollHeight - transcript.height);
-  return transcript.scrollTop >= max - 1;
+  return transcript.scrollTop >= max;
+}
+
+/** Bottom sticky stays armed only on the tail, so one detent up stays pinned. */
+export function bindTranscriptTailSticky(
+  transcript: ScrollBoxRenderable,
+): void {
+  const desc = Object.getOwnPropertyDescriptor(
+    Object.getPrototypeOf(transcript),
+    "scrollTop",
+  );
+  const get = desc?.get;
+  const set = desc?.set;
+  if (get === undefined || set === undefined) {
+    throw new Error("ScrollBox scrollTop accessor is missing");
+  }
+  const sync = (): void => {
+    const max = Math.max(0, transcript.scrollHeight - transcript.height);
+    transcript.stickyScroll = transcript.scrollTop >= max;
+  };
+  Object.defineProperty(transcript, "scrollTop", {
+    configurable: true,
+    enumerable: true,
+    get: () => get.call(transcript),
+    set: (value: number) => {
+      set.call(transcript, value);
+      sync();
+    },
+  });
 }
 
 /** Sticky-scroll mode label (surfaced on the notice row only when PINNED). */
@@ -546,6 +574,8 @@ export interface OverlayListRange {
  * rebuilds on geometry change. */
 export interface OverlayList {
   readonly select: SelectRenderable;
+  /** ScrollBox that clips the select and owns the host ScrollBar. */
+  readonly viewport: ScrollBoxRenderable;
   readonly activeIndex: number;
   /** Item-row capacity reserved by layout (not the renderable's row height). */
   readonly height: number;
@@ -557,6 +587,8 @@ export interface OverlayList {
   jump(index: number): void;
   setCount(count: number): void;
   setHeight(items: number, rowsPerItem?: number): void;
+  /** Move the host ScrollBox so the active row is inside the viewport. */
+  scrollActiveIntoView(): void;
   visibleRange(): OverlayListRange;
 }
 
@@ -723,11 +755,9 @@ interface ShellInternals {
 
 export const internals = new WeakMap<AppShell, ShellInternals>();
 
-/** Filler row sized to leftover viewport space so a short transcript
- * bottom-anchors against the prompt box; settles at zero once rows fill it.
- * A real child, not padding: `minHeight: "100%"` counts padding as viewport
- * height, so `scrollHeight - spacer.height` isolates the rows.
- * Index 0 is always the spacer. */
+/** Index-0 child of the transcript. Height stays 0: short logs bottom-align
+ * via the scroll content's justify-end, not a filler resized every frame.
+ * The node remains so row children keep a stable offset. */
 export const transcriptSpacers = new WeakMap<AppShell, BoxRenderable>();
 
 /** True while the landing composition is still mounted. */
