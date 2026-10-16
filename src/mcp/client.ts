@@ -26,6 +26,7 @@ import {
 } from "../telemetry/product-events.js";
 import { liveTelemetry } from "../telemetry/singleton.js";
 import { MCP_CLIENT_NAME } from "../branding.js";
+import { closeQuietly, isAbortError } from "./quiet.js";
 
 export interface MCPTool {
   name: string;
@@ -60,16 +61,9 @@ export interface MCPClient {
     args: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<string>;
-  /** Validated content blocks before flattening — for post-policy
-   * archive capture. */
-  callBlocks?(
-    toolName: string,
-    args: Record<string, unknown>,
-    signal: AbortSignal,
-  ): Promise<MCPContentBlock[]>;
   /** Full tool-result envelope: blocks plus tool-level
    * isError/structuredContent. */
-  callResult?(
+  callResult(
     toolName: string,
     args: Record<string, unknown>,
     signal: AbortSignal,
@@ -174,15 +168,6 @@ function isRecoverableAuthError(
   err: unknown,
 ): err is UnauthorizedError | OAuthError {
   return err instanceof UnauthorizedError || err instanceof OAuthError;
-}
-
-function isAbortError(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "name" in err &&
-    err.name === "AbortError"
-  );
 }
 
 export const MAX_BROWSER_AUTH_ATTEMPTS = 1;
@@ -612,12 +597,13 @@ async function finishClient(
     serverName,
     tools,
     async callResult(toolName, args, signal) {
-      const context =
-        authContext === undefined ? undefined : { ...authContext, signal };
-      const result = await withHTTPAuthorizationRecovery(context, () =>
-        client.callTool({ name: toolName, arguments: args }, undefined, {
-          signal,
-        }),
+      const result = await withHTTPAuthorizationRecovery(
+        authContext,
+        () =>
+          client.callTool({ name: toolName, arguments: args }, undefined, {
+            signal,
+          }),
+        signal,
       );
       const envelope: MCPToolResultEnvelope = {
         blocks: validateMcpContentBlocks(result.content),
@@ -634,34 +620,17 @@ async function finishClient(
       }
       return envelope;
     },
-    async callBlocks(toolName, args, signal) {
-      const result = await withHTTPAuthorizationRecovery(
-        authContext,
-        () =>
-          client.callTool({ name: toolName, arguments: args }, undefined, {
-            signal,
-          }),
-        signal,
+    async call(this: MCPClient, toolName, args, signal) {
+      return unwrapToolContent(
+        (await this.callResult(toolName, args, signal)).blocks,
       );
-      return validateMcpContentBlocks(result.content);
-    },
-    async call(toolName, args, signal) {
-      const result = await withHTTPAuthorizationRecovery(
-        authContext,
-        () =>
-          client.callTool({ name: toolName, arguments: args }, undefined, {
-            signal,
-          }),
-        signal,
-      );
-      return unwrapToolContent(validateMcpContentBlocks(result.content));
     },
     async close() {
       // Disarm first: the owner's hook reports unintentional death only.
       if (liveTransport !== undefined) liveTransport.onclose = () => undefined;
       closeLifecycle?.();
       authContext?.callback.close();
-      await client.close().catch(() => undefined);
+      await closeQuietly(() => client.close());
     },
   };
 }
@@ -730,7 +699,7 @@ async function connectStdio(
       ),
     };
   } catch (err) {
-    await client.close().catch(() => undefined);
+    await closeQuietly(() => client.close());
     return {
       ok: false,
       serverName: config.name,
@@ -798,7 +767,7 @@ async function connectHttp(
               signal: lifecycle.signal,
             });
           } finally {
-            await probeClient.close().catch(() => undefined);
+            await closeQuietly(() => probeClient.close());
           }
         },
       };
@@ -855,7 +824,7 @@ async function connectHttp(
     };
   } catch (err) {
     closeLifecycle();
-    await client?.close().catch(() => undefined);
+    await closeQuietly(() => client?.close() ?? Promise.resolve());
     try {
       callback?.close();
     } catch {

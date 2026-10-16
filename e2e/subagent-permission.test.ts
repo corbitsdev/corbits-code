@@ -296,9 +296,13 @@ test.serial(
               inputSchema: { type: "object", properties: {} },
             },
           ],
-          call: async () => {
+          call: async () => "changed",
+          callResult: async () => {
             calls++;
-            return "changed";
+            return {
+              blocks: [{ type: "text", text: "changed" }],
+              isError: false,
+            };
           },
           close: async () => undefined,
         };
@@ -350,9 +354,13 @@ test.serial(
               inputSchema: { type: "object", properties: {} },
             },
           ],
-          call: async () => {
+          call: async () => "changed",
+          callResult: async () => {
             calls++;
-            return "changed";
+            return {
+              blocks: [{ type: "text", text: "changed" }],
+              isError: false,
+            };
           },
           close: async () => undefined,
         };
@@ -480,9 +488,13 @@ test.serial(
               inputSchema: { type: "object", properties: {} },
             },
           ],
-          call: async () => {
+          call: async () => "changed",
+          callResult: async () => {
             calls++;
-            return "changed";
+            return {
+              blocks: [{ type: "text", text: "changed" }],
+              isError: false,
+            };
           },
           close: async () => undefined,
         };
@@ -561,9 +573,13 @@ test("storing parent-gated MCP tools then wrapping again denies without requestA
           inputSchema: { type: "object", properties: {} },
         },
       ],
-      call: async () => {
+      call: async () => "changed",
+      callResult: async () => {
         calls++;
-        return "changed";
+        return {
+          blocks: [{ type: "text", text: "changed" }],
+          isError: false,
+        };
       },
       close: async () => undefined,
     };

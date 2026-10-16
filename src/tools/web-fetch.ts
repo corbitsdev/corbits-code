@@ -7,7 +7,7 @@ import { checkUrlForSsrf } from "./ssrf-guard.js";
 import { htmlToMarkdown, htmlToText } from "./html-convert.js";
 import { COMMAND_NAME } from "../branding.js";
 import { toolInputSchema } from "../util/tool-input-schema.js";
-import type { MCPClient } from "../mcp/client.js";
+import { unwrapToolContent, type MCPClient } from "../mcp/client.js";
 import pkg from "../../package.json" with { type: "json" };
 
 export const MAX_FETCH_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -360,11 +360,12 @@ export function createExaMCPWebFetchTool(
                   "Error: Exa MCP web_fetch unavailable: connected Exa server did not advertise web_fetch_exa.",
               };
             }
-            const content = await connection.client.call(
+            const envelope = await connection.client.callResult(
               "web_fetch_exa",
               { urls: [parsed.url] },
               callSignal,
             );
+            const content = unwrapToolContent(envelope.blocks);
             return { callId: call.id, content };
           })(),
           timeoutPromise,

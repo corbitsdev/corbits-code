@@ -55,6 +55,17 @@ function linearClient(opts: {
       },
     ],
     call: opts.call ?? (async () => "ISSUE-1"),
+    async callResult(toolName, args, signal) {
+      const text = await (opts.call ?? (async () => "ISSUE-1"))(
+        toolName,
+        args,
+        signal,
+      );
+      return {
+        blocks: [{ type: "text", text }],
+        isError: false,
+      };
+    },
     async close() {
       return undefined;
     },

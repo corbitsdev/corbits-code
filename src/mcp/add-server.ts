@@ -14,152 +14,90 @@ import {
 import { deleteAuthState } from "./auth-store.js";
 import { EXA_MCP_SERVER_NAME } from "./exa.js";
 
-export interface GlobalSettingsWriter {
-  readonly enqueue: <T>(job: () => Promise<T>) => Promise<T>;
-  readonly update: (
-    apply: (base: Settings) => Settings | null,
-  ) => Promise<Settings | null>;
+interface SettingsWriter<T> {
+  readonly enqueue: <R>(job: () => Promise<R>) => Promise<R>;
+  readonly update: (apply: (base: T) => T | null) => Promise<T | null>;
   readonly updateAt: (
     path: string,
-    apply: (base: Settings) => Settings | null,
-  ) => Promise<Settings | null>;
-  readonly mutate: (
-    apply: (base: Settings) => Settings | null,
-  ) => Promise<"ok" | "skipped">;
+    apply: (base: T) => T | null,
+  ) => Promise<T | null>;
+  readonly mutate: (apply: (base: T) => T | null) => Promise<"ok" | "skipped">;
   readonly mutateAt: (
     path: string,
-    apply: (base: Settings) => Settings | null,
+    apply: (base: T) => T | null,
   ) => Promise<"ok" | "skipped">;
 }
 
-interface GlobalSettingsWriterDeps {
-  readonly load: (path: string) => Promise<Settings | null>;
-  readonly save: (path: string, settings: Settings) => Promise<void>;
+export type GlobalSettingsWriter = SettingsWriter<Settings>;
+export type LocalSettingsWriter = SettingsWriter<LocalSettings>;
+
+interface SettingsWriterDeps<T> {
+  readonly load: (path: string) => Promise<T | null>;
+  readonly save: (path: string, settings: T) => Promise<void>;
 }
 
-const defaultWriterDeps: GlobalSettingsWriterDeps = {
-  load: loadGlobalSettingsWriteBase,
-  save: saveGlobalSettings,
-};
+function createSettingsWriter<T>(
+  path: string,
+  deps: SettingsWriterDeps<T>,
+): SettingsWriter<T> {
+  let tail = Promise.resolve();
+  const enqueue = <R>(job: () => Promise<R>): Promise<R> => {
+    const run = tail.then(job);
+    tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
+
+  const updateAt = (
+    settingsPath: string,
+    apply: (base: T) => T | null,
+  ): Promise<T | null> =>
+    enqueue(async () => {
+      const base = await deps.load(settingsPath);
+      if (base === null) return null;
+      const next = apply(base);
+      if (next === null) return base;
+      await deps.save(settingsPath, next);
+      return next;
+    });
+
+  const mutateAt = async (
+    settingsPath: string,
+    apply: (base: T) => T | null,
+  ): Promise<"ok" | "skipped"> =>
+    (await updateAt(settingsPath, apply)) === null ? "skipped" : "ok";
+
+  return {
+    enqueue,
+    update: (apply) => updateAt(path, apply),
+    updateAt,
+    mutate: (apply) => mutateAt(path, apply),
+    mutateAt,
+  };
+}
 
 export function createGlobalSettingsWriter(
   path: string,
-  deps: Partial<GlobalSettingsWriterDeps> = {},
+  deps: Partial<SettingsWriterDeps<Settings>> = {},
 ): GlobalSettingsWriter {
-  const writerDeps: GlobalSettingsWriterDeps = {
-    ...defaultWriterDeps,
+  return createSettingsWriter(path, {
+    load: loadGlobalSettingsWriteBase,
+    save: saveGlobalSettings,
     ...deps,
-  };
-  let tail = Promise.resolve();
-  const enqueue = <T>(job: () => Promise<T>): Promise<T> => {
-    const run = tail.then(job);
-    tail = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  };
-
-  const updateAt = (
-    settingsPath: string,
-    apply: (base: Settings) => Settings | null,
-  ): Promise<Settings | null> =>
-    enqueue(async () => {
-      const base = await writerDeps.load(settingsPath);
-      if (base === null) return null;
-      const next = apply(base);
-      if (next === null) return base;
-      await writerDeps.save(settingsPath, next);
-      return next;
-    });
-
-  const mutateAt = async (
-    settingsPath: string,
-    apply: (base: Settings) => Settings | null,
-  ): Promise<"ok" | "skipped"> =>
-    (await updateAt(settingsPath, apply)) === null ? "skipped" : "ok";
-
-  return {
-    enqueue,
-    update: (apply) => updateAt(path, apply),
-    updateAt,
-    mutate: (apply) => mutateAt(path, apply),
-    mutateAt,
-  };
+  });
 }
-
-export interface LocalSettingsWriter {
-  readonly enqueue: <T>(job: () => Promise<T>) => Promise<T>;
-  readonly update: (
-    apply: (base: LocalSettings) => LocalSettings | null,
-  ) => Promise<LocalSettings | null>;
-  readonly updateAt: (
-    path: string,
-    apply: (base: LocalSettings) => LocalSettings | null,
-  ) => Promise<LocalSettings | null>;
-  readonly mutate: (
-    apply: (base: LocalSettings) => LocalSettings | null,
-  ) => Promise<"ok" | "skipped">;
-  readonly mutateAt: (
-    path: string,
-    apply: (base: LocalSettings) => LocalSettings | null,
-  ) => Promise<"ok" | "skipped">;
-}
-
-interface LocalSettingsWriterDeps {
-  readonly load: (path: string) => Promise<LocalSettings | null>;
-  readonly save: (path: string, settings: LocalSettings) => Promise<void>;
-}
-
-const defaultLocalWriterDeps: LocalSettingsWriterDeps = {
-  load: loadLocalSettingsWriteBase,
-  save: saveLocalSettings,
-};
 
 export function createLocalSettingsWriter(
   path: string,
-  deps: Partial<LocalSettingsWriterDeps> = {},
+  deps: Partial<SettingsWriterDeps<LocalSettings>> = {},
 ): LocalSettingsWriter {
-  const writerDeps: LocalSettingsWriterDeps = {
-    ...defaultLocalWriterDeps,
+  return createSettingsWriter(path, {
+    load: loadLocalSettingsWriteBase,
+    save: saveLocalSettings,
     ...deps,
-  };
-  let tail = Promise.resolve();
-  const enqueue = <T>(job: () => Promise<T>): Promise<T> => {
-    const run = tail.then(job);
-    tail = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  };
-
-  const updateAt = (
-    settingsPath: string,
-    apply: (base: LocalSettings) => LocalSettings | null,
-  ): Promise<LocalSettings | null> =>
-    enqueue(async () => {
-      const base = await writerDeps.load(settingsPath);
-      if (base === null) return null;
-      const next = apply(base);
-      if (next === null) return base;
-      await writerDeps.save(settingsPath, next);
-      return next;
-    });
-
-  const mutateAt = async (
-    settingsPath: string,
-    apply: (base: LocalSettings) => LocalSettings | null,
-  ): Promise<"ok" | "skipped"> =>
-    (await updateAt(settingsPath, apply)) === null ? "skipped" : "ok";
-
-  return {
-    enqueue,
-    update: (apply) => updateAt(path, apply),
-    updateAt,
-    mutate: (apply) => mutateAt(path, apply),
-    mutateAt,
-  };
+  });
 }
 
 export type PersistMCPServerResult =
