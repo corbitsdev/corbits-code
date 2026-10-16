@@ -558,6 +558,33 @@ export function createShellKeyHandlers(
       shell.promptKillRing = breakKillSequence(shell.promptKillRing);
     }
 
+    // Textarea defaults only run while the prompt is focused. After Tab the
+    // transcript holds focus, so call the same delete methods the default
+    // bindings use. capturePromptKills records the diff. Do not keymap-bind
+    // these: that would steal them from the focused textarea.
+    if (!shell.prompt.focused) {
+      if (key.ctrl && !key.meta && !key.option && keyName === "k") {
+        key.preventDefault();
+        shell.prompt.deleteToLineEnd();
+        return;
+      }
+      if (key.ctrl && !key.meta && !key.option && keyName === "u") {
+        key.preventDefault();
+        shell.prompt.deleteToLineStart();
+        return;
+      }
+      if (key.ctrl && !key.meta && !key.option && keyName === "w") {
+        key.preventDefault();
+        shell.prompt.deleteWordBackward();
+        return;
+      }
+      if ((key.meta || key.option) && !key.ctrl && keyName === "d") {
+        key.preventDefault();
+        shell.prompt.deleteWordForward();
+        return;
+      }
+    }
+
     if (key.ctrl && !key.meta && !key.option && keyName === "y") {
       key.preventDefault();
       const yank = beginYank(shell.promptKillRing, shell.prompt.cursorOffset);
