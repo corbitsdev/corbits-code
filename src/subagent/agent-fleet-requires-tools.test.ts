@@ -49,13 +49,14 @@ const BUILD_LIKE_PROFILE: AgentProfile = {
 function makeDeps(
   run: (params: RunSubAgentParams) => Promise<RunSubAgentResult>,
   capturedTelemetry: TelemetryEvent[],
+  providerOverride: AgentFleetDeps["provider"] = provider,
 ): AgentFleetDeps {
   const sessions = createSubAgentSessionStore();
   return {
     permissionGate: testPermissionGate,
     cwd: "/tmp",
     getWorkdirBase: () => "/tmp/workdir",
-    provider,
+    provider: providerOverride,
     run,
     sessions,
     fleetRecords: createFleetMailbox(sessions),
@@ -232,9 +233,36 @@ describe("spawn_agent requires_tools preflight", () => {
     expect(seenRequires).toEqual(["manage_tasks"]);
   });
 
-  test("update_plan alias survives dispatch and stamps manage_tasks", async () => {
+  test("default family rejects update_plan, a gpt-only wire", async () => {
     const telemetry: TelemetryEvent[] = [];
-    const deps = makeDeps(async () => ({ report: "done" }), telemetry);
+    let runCalled = false;
+    const deps = makeDeps(async () => {
+      runCalled = true;
+      return { report: "done" };
+    }, telemetry);
+    const spawn = createSpawnAgentTool(deps);
+
+    const result = await callSpawn(spawn, {
+      description: "alias plan job",
+      prompt: "track the work",
+      agent: "read-only-worker",
+      requires_tools: ["update_plan"],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('unknown tool "update_plan"');
+    expect(runCalled).toBe(false);
+    expect(deps.sessions.list()).toEqual([]);
+    expect(telemetry).toEqual([]);
+  });
+
+  test("gpt family accepts update_plan and stamps manage_tasks", async () => {
+    const telemetry: TelemetryEvent[] = [];
+    const deps = makeDeps(async () => ({ report: "done" }), telemetry, {
+      ...provider,
+      providerName: "codex",
+      model: "gpt-5",
+    });
     const spawn = createSpawnAgentTool(deps);
 
     const result = await callSpawn(spawn, {

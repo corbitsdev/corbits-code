@@ -3,13 +3,14 @@
  *
  * A `requires_tools` entry is a hard requirement: the tool must mount on
  * the worker or the dispatch rejects before any session, telemetry, or
- * worktree exists. Names are canonical engine ids on both sides (aliases
- * collapse via canonicalToolName), so `shell` and `run_shell` are the
- * same requirement. A wire name the worker's resolved profile advertises
- * maps onto the engine ids that profile projects it to, when the director
- * already allows one of those engines. A name that profile does not
- * advertise, and that is not a catalog engine, stays unknown. Fail-closed:
- * unknown names and allowlist/denylist misses reject.
+ * worktree exists. Engine ids are canonical on both sides. A wire name
+ * passes only when the worker's resolved profile advertises it, and then
+ * only as the engine ids that profile projects it onto — a rename is one
+ * engine, a fold is every covered engine. A wire some other profile
+ * advertises is unknown here (`shell` is gpt; default advertises `bash`).
+ * With no resolved profile, hidden aliases still canonicalize and a fold
+ * target stays unknown. Fail-closed: unknown names and allowlist/denylist
+ * misses reject.
  *
  * `stale_snapshot` is never emitted here — it is the mount-time echo in
  * run.ts (a stamped tool missing from the live mount). It lives in this
@@ -19,6 +20,7 @@
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import {
   enginesForAdvertisedWire,
+  toolProfiles,
   type ToolProfile,
 } from "../agent/tool-aliases.js";
 import {
@@ -57,9 +59,9 @@ export interface PreflightCapabilitiesInput {
   /** Worker label for messages (director id or profile id). */
   agentLabel: string;
   /**
-   * Tool profile of the model this spawn will run. `apply_patch` is the gpt
-   * wire name for the file-mutation engines, not a catalog id. Omit when no
-   * family is resolved — then apply_patch stays unknown.
+   * Tool profile of the model this spawn will run. Wire names resolve through
+   * that profile's projection. Omit when no family is resolved — hidden
+   * aliases still canonicalize, and a fold target stays unknown.
    */
   toolProfile?: ToolProfile | undefined;
 }
@@ -248,8 +250,9 @@ function enginesCoveredByDirector(
 
 /**
  * Profile wire names become the engines that profile advertises. Undefined
- * means this name is not a wire for the resolved profile — the caller falls
- * through to catalog engines. No resolved profile does not guess.
+ * means this name is not a wire for any profile — the caller falls through
+ * to catalog engines. A wire only another profile advertises is unknown.
+ * No resolved profile does not guess.
  */
 function expandAdvertisedWire(
   trimmed: string,
@@ -259,7 +262,25 @@ function expandAdvertisedWire(
 ): string[] | { unavailable: CapabilityUnavailable } | undefined {
   if (profile === undefined) return undefined;
   const mapped = enginesForAdvertisedWire(trimmed, profile);
-  if (mapped === undefined) return undefined;
+  if (mapped === undefined) {
+    const foreign = toolProfiles().some(
+      (candidate) =>
+        candidate !== profile &&
+        enginesForAdvertisedWire(trimmed, candidate) !== undefined,
+    );
+    if (!foreign) return undefined;
+    const suggestion = nearestToolName(trimmed);
+    const useful =
+      suggestion !== undefined &&
+      suggestion.toLowerCase() !== trimmed.toLowerCase();
+    return {
+      unavailable: {
+        code: "unknown_tool",
+        tool: trimmed,
+        ...(useful ? { suggestion } : {}),
+      },
+    };
+  }
   const covered = enginesCoveredByDirector(mapped, filter, postFilter);
   if (covered.length > 0) return [...covered];
   const hint = mapped[0];

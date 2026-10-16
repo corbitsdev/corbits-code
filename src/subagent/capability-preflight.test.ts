@@ -67,7 +67,7 @@ describe("preflightCapabilities", () => {
     });
   });
 
-  test("aliases collapse on both sides (shell requirement vs run_shell filter)", () => {
+  test("unresolved profile still collapses shell onto run_shell", () => {
     const result = preflight(["shell"], ALLOW_SHELL);
     expect(result).toEqual({ ok: true, canonical: ["run_shell"] });
   });
@@ -318,6 +318,51 @@ describe("preflightCapabilities", () => {
       toolProfile: "gpt",
     });
     expect(result).toEqual({ ok: true, canonical: ["write_file"] });
+  });
+
+  test("default profile rejects gpt-only wires even when the engine is allowed", () => {
+    const resolvedFilter: CapabilityFilter = {
+      mode: "allow",
+      tools: [...BUILD_TOOLS, "manage_tasks"],
+    };
+    for (const wire of ["apply_patch", "shell", "update_plan"] as const) {
+      const result = preflightCapabilities({
+        required: [wire],
+        resolvedFilter,
+        knownEngines: DEFAULT_KNOWN_ENGINES,
+        agentLabel: "coder",
+        toolProfile: "default",
+      });
+      expect(result.ok, wire).toBe(false);
+      if (result.ok) continue;
+      expect(result.unavailable.code, wire).toBe("unknown_tool");
+      expect(result.unavailable.tool, wire).toBe(wire);
+    }
+  });
+
+  test("default accepts bash, the wire it advertises for run_shell", () => {
+    const result = preflightCapabilities({
+      required: ["bash"],
+      resolvedFilter: ALLOW_SHELL,
+      knownEngines: DEFAULT_KNOWN_ENGINES,
+      agentLabel: "coder",
+      toolProfile: "default",
+    });
+    expect(result).toEqual({ ok: true, canonical: ["run_shell"] });
+  });
+
+  test("gpt rejects bash because that profile advertises shell", () => {
+    const result = preflightCapabilities({
+      required: ["bash"],
+      resolvedFilter: ALLOW_SHELL,
+      knownEngines: DEFAULT_KNOWN_ENGINES,
+      agentLabel: "coder",
+      toolProfile: "gpt",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected rejection");
+    expect(result.unavailable.code).toBe("unknown_tool");
+    expect(result.unavailable.tool).toBe("bash");
   });
 });
 
