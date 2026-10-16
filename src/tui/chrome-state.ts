@@ -152,8 +152,8 @@ export function formatChromeZones(
 }
 
 /** True while the strip needs wall-clock ticks: any live worker or a
- * finished row inside the linger window. Product host polls on it to keep
- * clocks fresh and freeze `syncAgentProgress` rewrites. */
+ * finished row inside the linger window. The product host runs a Timeline
+ * while this is true and skips `syncAgentProgress` rewrites for that span. */
 export function agentsChromeNeedsSticky(
   agents: readonly ChromeAgentSession[] | null | undefined,
   nowMs: number,
