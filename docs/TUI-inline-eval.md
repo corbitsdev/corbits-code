@@ -29,21 +29,21 @@ Nothing in the 0.6.4 types is an inline-mode renderable, an alternate inline sce
 - overlay selectors (empty-state fail-close, painted-id accept, shared list viewport)
 - the prompt kill ring
 
-A raw scrollback log also has no place for the shell-output preview the host paints on a timer. Sticky polling exists because the preview is a zone in the fullscreen tree, not a line already committed to scrollback.
+A raw scrollback log also has no place for the shell-output preview the host repaints from feed appends, coalesced on one animation frame, or for sticky chrome clocks that run on a renderer Timeline only while needed. That paint exists because the preview is a zone in the fullscreen tree, not a line already committed to scrollback.
 
 ## What stays
 
 - `src/tui/shell/layout.ts` applies terminal geometry: floors, prompt-row sync, landing split, relayout inputs.
 - `src/tui/geometry/zones.ts` defines the floors and the collapse order the layout refuses to violate.
 - `src/tui/shell/chrome.ts` `relayout` is the live entry that re-resolves the tree when visibility, prompt rows, or overlay mode change.
-- The `stickyPoll` interval in `src/tui/product-host.ts` keeps the shell-output preview and sticky chrome clocks painted. It is not scrollback.
+- Feed subscriptions and a renderer Timeline in `src/tui/product-host.ts` keep the shell-output preview and sticky chrome clocks painted. Idle does not arm an interval. Neither is scrollback.
 
 ## Deleted if inline mode were adopted
 
 It is not adopted. If it were, the deletion this record refuses is:
 
 - `shell/layout.ts`, the `geometry/zones.ts` floors, and `chrome.ts` relayout would be deleted or bypassed for a scrollback-only writer.
-- `stickyPoll` would go, because a raw scrollback commit has no sticky zone to repaint.
+- The host's shell-output subscription and Timeline would go, because a raw scrollback commit has no sticky zone to repaint.
 
 Those files stay. Bypassing them for `writeToScrollback` would drop the floors, the single scroll lease, overlay selectors, and the prompt kill ring. None of that is implied by a scrollback snapshot.
 

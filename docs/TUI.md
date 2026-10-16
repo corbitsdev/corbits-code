@@ -116,13 +116,13 @@ plus up to three dim tail lines of the command's live output and — when the
 feed window holds more than three lines — the same dim `⋯ +N lines` elision
 marker as the settle preview, `N` counting lines within the live window (the
 feed keeps only the most recent 8 KiB). The output
-travels through a polled bounded feed (`src/session/shell-output-feed.ts`),
+travels through a bounded feed (`src/session/shell-output-feed.ts`),
 not a reactor event: the plugin appends chunks (capped at an 8 KiB tail per
-call, emitting at most once per 100 ms plus a final flush at settle), and
-the product host's sticky poll reads the feed snapshot every 200 ms and
-repaints the pending row frame-coalesced. Nothing from the feed is
-persisted. When the feed is not wired (tests, the demo shell), the row
-renders exactly as before — silent degradation.
+call, emitting at most once per 100 ms plus a final flush at settle). The
+product host subscribes to those appends and repaints the pending row from
+the feed snapshot, coalesced onto one animation frame. Nothing from the
+feed is persisted. When the feed is not wired (tests, the demo shell), the
+row renders exactly as before — silent degradation.
 
 At settle the live tail is replaced by a preview of the full output: its
 last three lines plus a dim `⋯ +N lines` elision marker when more were
@@ -303,9 +303,9 @@ user follow-ups untouched.
 stack-only (`layoutMode: "stack"`, `railWidth: 0`); the zone max is
 `AGENTS_PANEL_MAX_VISIBLE + 1` (lanes plus a trailing `+N more`). Finished
 lanes (done / failed / cancelled / interrupted) linger for
-`AGENTS_PANEL_LINGER_MS` (4s) after `finishedAt`, then drop. Product-host sticky
-poll uses
-`agentsChromeNeedsSticky` so clocks and linger stay fresh; while sticky is
+`AGENTS_PANEL_LINGER_MS` (4s) after `finishedAt`, then drop. The product host
+arms a renderer Timeline only while sticky chrome or a live lane needs it
+(`agentsChromeNeedsSticky`); idle does not arm an interval. While sticky is
 needed it **does not** call `bridge.syncAgentProgress` — chrome owns the live
 clocks.
 
@@ -1058,10 +1058,10 @@ terminal. It cannot observe:
 
 - **Real paint.** Tests assert on the shell's in-memory row/rect state, not
   on what a terminal emulator actually draws to a screen buffer.
-- **The live shell tail's wall clock.** The feed itself is pure and the
-  cadence is injectable, so the live tail is headless-testable by driving a
-  fake feed and a fake clock through the same sync path the sticky poll
-  uses; what the harness cannot see is real-time emission timing.
+- **The live shell tail's wall clock.** The feed itself is pure, so the
+  live tail is headless-testable by appending to a fake feed and repainting
+  through the host subscription on the next frame; what the harness cannot
+  see is real-time emission timing.
 - **Modifier reporting.** Whether a real terminal can report Shift+Enter,
   Alt+letter, or similar modifier combinations depends on the terminal
   negotiating the kitty keyboard protocol (or an equivalent) with the actual
