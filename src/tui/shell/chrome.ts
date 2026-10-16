@@ -1065,9 +1065,7 @@ export function syncTranscriptSpacer(shell: AppShell): void {
   transcriptJustify.set(shell, justify);
 }
 
-/** Keep the newest row in view while the tail is followed. A child that has
- * not been laid out reports `y === 0`; scrolling that into view yanks the
- * viewport off the tail. */
+/** Keep the newest row in view while the tail is followed. */
 export function followTranscriptTail(shell: AppShell): void {
   if (isLanding(shell) || !isTranscriptFollowing(shell)) return;
   const last = shell.transcript.getChildren().at(-1);
@@ -1393,7 +1391,7 @@ export function replaceStreamRowAt(
 export function repaintTranscriptWindow(shell: AppShell): void {
   clearLandingMark(shell);
   shell.agentVoices = new Set(agentVoicesIn(shell.streamLog));
-  // The bottom-anchor spacer (index 0) stays; the eviction notice (if any)
+  // Index 0 is the zero-height spacer and stays; the eviction notice (if any)
   // and every row get torn down and rebuilt from the log.
   for (const child of shell.transcript.getChildren().slice(1)) {
     shell.transcript.remove(child);

@@ -498,14 +498,39 @@ export type PrimaryOverlayKind =
   | "mcp"
   | "plugin_credentials";
 
-/** Whether the transcript viewport is stuck to the bottom (FOLLOW vs PINNED).
- * The bottom is `scrollTop >= max` only. `max - 1` is one wheel detent up;
- * treating it as followed makes the next frame's `scrollChildIntoView` yank
- * the tail back. */
+/** True when the viewport is on the tail (`scrollTop >= max`). */
 export function isTranscriptFollowing(shell: AppShell): boolean {
   const { transcript } = shell;
   const max = Math.max(0, transcript.scrollHeight - transcript.height);
   return transcript.scrollTop >= max;
+}
+
+/** Bottom sticky stays armed only on the tail, so one detent up stays pinned. */
+export function bindTranscriptTailSticky(
+  transcript: ScrollBoxRenderable,
+): void {
+  const desc = Object.getOwnPropertyDescriptor(
+    Object.getPrototypeOf(transcript),
+    "scrollTop",
+  );
+  const get = desc?.get;
+  const set = desc?.set;
+  if (get === undefined || set === undefined) {
+    throw new Error("ScrollBox scrollTop accessor is missing");
+  }
+  const sync = (): void => {
+    const max = Math.max(0, transcript.scrollHeight - transcript.height);
+    transcript.stickyScroll = transcript.scrollTop >= max;
+  };
+  Object.defineProperty(transcript, "scrollTop", {
+    configurable: true,
+    enumerable: true,
+    get: () => get.call(transcript),
+    set: (value: number) => {
+      set.call(transcript, value);
+      sync();
+    },
+  });
 }
 
 /** Sticky-scroll mode label (surfaced on the notice row only when PINNED). */

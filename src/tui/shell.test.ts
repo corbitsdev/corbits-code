@@ -125,6 +125,37 @@ describe("createAppShell", () => {
     );
   });
 
+  test("one wheel detent survives a same-height content size pass", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          for (let i = 0; i < 50; i++) {
+            appendTranscript(shell, `seed-${i}`);
+          }
+          await h.renderOnce();
+          const max = Math.max(
+            0,
+            shell.transcript.scrollHeight - shell.transcript.height,
+          );
+          expect(max).toBeGreaterThan(1);
+          const scrollHeight = shell.transcript.scrollHeight;
+          shell.transcript.scrollTop = max - 1;
+          shell.transcript.content.onSizeChange?.();
+          expect(shell.transcript.scrollHeight).toBe(scrollHeight);
+          expect(shell.transcript.scrollTop).toBe(max - 1);
+          expect(isTranscriptFollowing(shell)).toBe(false);
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("one wheel detent up from a followed tail stays off the bottom", async () => {
     await withTestRenderer(
       async (h) => {

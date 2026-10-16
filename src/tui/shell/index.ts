@@ -34,6 +34,7 @@ import { flushStreamRowUpdates } from "../runtime-bridge.js";
 import {
   type AppShell,
   type AppShellOptions,
+  bindTranscriptTailSticky,
   EMPTY_PRIMARY_BINDINGS,
   flashTimers,
   initShellInternals,
@@ -213,6 +214,7 @@ export function createAppShell(
   // row restating it.
   transcript.verticalScrollBar.visible = false;
   transcript.horizontalScrollBar.visible = false;
+  bindTranscriptTailSticky(transcript);
   // Markdown links live on nodes we do not own; this bubbling handler arms
   // them (armed rows stop propagation, so a click opens exactly once).
   armMarkdownLinks(transcript, ctx);

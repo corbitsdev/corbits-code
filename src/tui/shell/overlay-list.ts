@@ -223,8 +223,6 @@ export function createOverlayList(
   const placed = viewport.content.onSizeChange;
   let revealing = false;
 
-  // Absolute marker at the active row. scrollChildIntoView on the whole select
-  // is a no-op when the select is taller than the viewport (both edges outside).
   const anchor = new BoxRenderable(ctx, {
     id: "shell-overlay-active-anchor",
     position: "absolute",
@@ -253,8 +251,6 @@ export function createOverlayList(
       if (count > 0 && anchor.y !== 0 && viewport.viewport.y !== 0) {
         viewport.scrollChildIntoView(anchor.id);
       }
-      // Applied last: scrollTop clamps until the bar has a content size, and
-      // that clamp rewrites translateY. The viewport paints this translation.
       viewport.content.translateY = -y;
     } finally {
       revealing = false;

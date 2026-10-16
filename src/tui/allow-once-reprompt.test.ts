@@ -485,7 +485,6 @@ describe("CL-8792 overlay host: suspend preserves the surface instead of dismiss
       const list = defined(shell.overlayList, "slash list");
       expect(list.select.isDestroyed).toBe(false);
       expect(list.viewport.parent).toBe(shell.overlayView.body);
-      expect(list.select.isDestroyed).toBe(false);
 
       let resolved: unknown;
       emitter.emit("permission.gate", {
