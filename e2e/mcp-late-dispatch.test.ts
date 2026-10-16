@@ -43,8 +43,13 @@ function permissionGate() {
 
 function linearClient(opts: {
   inputSchema?: MCPClient["tools"][number]["inputSchema"];
-  call?: MCPClient["call"];
+  call?: (
+    toolName: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ) => Promise<string>;
 }): MCPClient {
+  const invoke = opts.call ?? (async () => "ISSUE-1");
   return {
     serverName: "linear",
     tools: [
@@ -54,13 +59,8 @@ function linearClient(opts: {
         inputSchema: opts.inputSchema ?? LATE_MCP_SCHEMA,
       },
     ],
-    call: opts.call ?? (async () => "ISSUE-1"),
     async callResult(toolName, args, signal) {
-      const text = await (opts.call ?? (async () => "ISSUE-1"))(
-        toolName,
-        args,
-        signal,
-      );
+      const text = await invoke(toolName, args, signal);
       return {
         blocks: [{ type: "text", text }],
         isError: false,

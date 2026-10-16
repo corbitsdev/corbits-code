@@ -130,14 +130,19 @@ list is in effect, these actions edit that local file; add remains blocked.
 
 ## Dropped Transports Reconnect in the Background
 
-When a connected server's transport dies unexpectedly, the row goes
-**reconnecting** instead of failed: the redial attempt and the retained tool
-count stay on the row (for example, `acme — reconnecting · attempt 3 · 2
-tools`), and backoff redials behind the scenes with a jittered delay that
-grows per attempt and caps at 30 seconds. While reconnecting, the server's
-tools stay mounted but fail fast — calling one returns "MCP server is
-reconnecting; retry the call once it reports connected." rather than hanging
-or dispatching against a dead transport.
+Stdio and HTTP do not share a redial. A stdio child that exits is respawned
+here: the row goes **reconnecting** instead of failed, the redial attempt and
+the retained tool count stay on the row (for example, `acme — reconnecting ·
+attempt 3 · 2 tools`), and backoff redials behind the scenes with a jittered
+delay that grows per attempt and caps at 30 seconds. While that redial is in
+progress, the server's tools stay mounted but fail fast — calling one returns
+"MCP server is reconnecting; retry the call once it reports connected." rather
+than hanging or dispatching against a dead transport.
+
+An HTTP SSE drop does not start that second dial. The Streamable HTTP
+transport resumes the stream itself (`reconnectionOptions`: 1s start, doubling,
+30s cap). The row stays connected and tools stay live; only a real stdio death
+uses the fail-fast stubs and attempt count above.
 
 Pressing Enter on a failed or reconnecting row retries now with a single dial
 instead of waiting for backoff, reusing the saved settings row — it never

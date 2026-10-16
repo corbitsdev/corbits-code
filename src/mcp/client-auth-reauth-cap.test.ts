@@ -7,6 +7,7 @@ import {
   test,
 } from "bun:test";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import { InvalidScopeError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import {
   mockMcpCallbackServerModule,
   mockMcpClientModule,
@@ -19,6 +20,9 @@ interface MockState {
   finishAuthCalls: number;
   finishAuthError: Error | undefined;
   connectFailuresLeft: number;
+  connectCalls: number;
+  /** Thrown once, before any redirect, then cleared. */
+  connectOAuthError: Error | undefined;
   listFailuresLeft: number;
   callFailuresLeft: number;
   callToolCalls: number;
@@ -31,6 +35,7 @@ interface MockState {
   redirectVerifier: string | undefined;
   providerCreates: number;
   refreshCalls: number;
+  resetCalls: number;
   refreshSucceeds: boolean;
   authEvents: string[];
   authURLCount: number;
@@ -57,6 +62,8 @@ function freshMockState(): MockState {
     finishAuthCalls: 0,
     finishAuthError: new Error("finishAuth exploded"),
     connectFailuresLeft: 0,
+    connectCalls: 0,
+    connectOAuthError: undefined,
     listFailuresLeft: 0,
     callFailuresLeft: 0,
     callToolCalls: 0,
@@ -69,6 +76,7 @@ function freshMockState(): MockState {
     redirectVerifier: undefined,
     providerCreates: 0,
     refreshCalls: 0,
+    resetCalls: 0,
     refreshSucceeds: false,
     authEvents: [],
     authURLCount: 0,
@@ -95,7 +103,9 @@ function freshMockState(): MockState {
 const mock = freshMockState();
 
 const fakeProvider = {
-  resetAuthorization: async () => undefined,
+  resetAuthorization: async () => {
+    mock.resetCalls += 1;
+  },
   tokens: () => ({ access_token: "stale", refresh_token: "refresh-me" }),
   refreshToken: async () => {
     mock.refreshCalls += 1;
@@ -184,6 +194,12 @@ function waitForGate(signal: AbortSignal | undefined): Promise<void> {
 
 await mockMcpClientModule(mock, {
   connect: async (provider) => {
+    mock.connectCalls += 1;
+    if (mock.connectOAuthError !== undefined) {
+      const error = mock.connectOAuthError;
+      mock.connectOAuthError = undefined;
+      throw error;
+    }
     if (mock.connectFailuresLeft > 0) {
       mock.connectFailuresLeft -= 1;
       await emitRedirects(provider);
@@ -254,6 +270,7 @@ const {
   connectMCPServer,
   resetBrowserAuthState,
   setBrowserAuthWaitMs,
+  unwrapToolContent,
   MAX_BROWSER_AUTH_ATTEMPTS,
   BROWSER_AUTH_COOLDOWN_MS,
 } = await import("./client.js");
@@ -268,6 +285,17 @@ type ConnectedClient = Extract<
   Awaited<ReturnType<typeof connectMCPServer>>,
   { ok: true }
 >;
+
+function callText(
+  client: ConnectedClient["client"],
+  toolName: string,
+  args: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<string> {
+  return client
+    .callResult(toolName, args, signal)
+    .then((envelope) => unwrapToolContent(envelope.blocks));
+}
 
 async function connectWithAuthPrompt(): Promise<{
   ok: boolean;
@@ -301,14 +329,14 @@ async function runCappedEpisodes(
   for (let episode = 0; episode < MAX_BROWSER_AUTH_ATTEMPTS; episode += 1) {
     mock.callFailuresLeft = 1;
     await expect(
-      connected.client.call("ping", {}, new AbortController().signal),
+      callText(connected.client, "ping", {}, new AbortController().signal),
     ).rejects.toThrow("finishAuth exploded");
   }
   expect(mock.authURLCount).toBe(authURLsBefore + MAX_BROWSER_AUTH_ATTEMPTS);
 
   mock.callFailuresLeft = 1;
   await expect(
-    connected.client.call("ping", {}, new AbortController().signal),
+    callText(connected.client, "ping", {}, new AbortController().signal),
   ).rejects.toThrow("retrying paused");
   expect(mock.authURLCount).toBe(authURLsBefore + MAX_BROWSER_AUTH_ATTEMPTS);
 }
@@ -363,7 +391,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.listFailuresLeft = 1;
 
     await expect(
-      connected.client.call("ping", {}, new AbortController().signal),
+      callText(connected.client, "ping", {}, new AbortController().signal),
     ).rejects.toThrow("authorization required");
 
     expect(mock.refreshCalls).toBe(1);
@@ -380,18 +408,17 @@ describe("HTTP MCP re-auth loop prevention", () => {
     });
     expect(connected.ok).toBe(true);
     if (!connected.ok) return;
-    mock.redirectsPerFailure = 0;
     mock.callFailuresLeft = 2;
-    mock.listFailuresLeft = 1;
-    mock.redirectOnListFailure = true;
 
     const calls = [
-      connected.client.call(
+      callText(
+        connected.client,
         "first",
         { value: 1 },
         new AbortController().signal,
       ),
-      connected.client.call(
+      callText(
+        connected.client,
         "second",
         { value: 2 },
         new AbortController().signal,
@@ -399,7 +426,8 @@ describe("HTTP MCP re-auth loop prevention", () => {
     ];
 
     await expect(Promise.all(calls)).resolves.toEqual(["", ""]);
-    expect(mock.refreshCalls).toBe(1);
+    // SDK already redirected, so recovery must not refresh again.
+    expect(mock.refreshCalls).toBe(0);
     expect(mock.authURLCount).toBe(1);
     expect(mock.waitForCodeCalls).toBe(1);
     expect(mock.finishAuthCalls).toBe(1);
@@ -418,7 +446,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     });
     mock.redirectsPerFailure = 0;
     mock.callFailuresLeft = 1;
-    const first = connected.client.call(
+    const first = callText(connected.client, 
       "first",
       {},
       new AbortController().signal,
@@ -427,7 +455,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
 
     mock.redirectsPerFailure = 1;
     mock.callFailuresLeft = 1;
-    const second = connected.client.call(
+    const second = callText(connected.client, 
       "second",
       {},
       new AbortController().signal,
@@ -456,8 +484,8 @@ describe("HTTP MCP re-auth loop prevention", () => {
     if (!connected.ok) return;
     mock.callFailuresLeft = 2;
     const firstAbort = new AbortController();
-    const first = connected.client.call("first", {}, firstAbort.signal);
-    const second = connected.client.call(
+    const first = callText(connected.client, "first", {}, firstAbort.signal);
+    const second = callText(connected.client, 
       "second",
       {},
       new AbortController().signal,
@@ -487,7 +515,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     if (!connected.ok) return;
     mock.callFailuresLeft = 1;
     const abort = new AbortController();
-    const call = connected.client.call("ping", {}, abort.signal);
+    const call = callText(connected.client, "ping", {}, abort.signal);
     while (mock.authURLCount === 0 || mock.waitForCodeCalls === 0)
       await Promise.resolve();
 
@@ -516,7 +544,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
 
     mock.callFailuresLeft = 1;
     await expect(
-      connected.client.call("ping", {}, new AbortController().signal),
+      callText(connected.client, "ping", {}, new AbortController().signal),
     ).rejects.toThrow("finishAuth exploded");
     expect(mock.authURLCount).toBe(1);
     expect(mock.authorizedCount).toBe(0);
@@ -526,7 +554,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.redirectsPerFailure = 0;
     mock.callFailuresLeft = 1;
     await expect(
-      connected.client.call("ping", {}, new AbortController().signal),
+      callText(connected.client, "ping", {}, new AbortController().signal),
     ).resolves.toBe("");
     expect(mock.authorizedCount).toBe(1);
     expect(mock.authURLCount).toBe(1);
@@ -548,7 +576,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(connected.ok).toBe(true);
     if (!connected.ok) return;
     mock.callFailuresLeft = 1;
-    const call = connected.client.call(
+    const call = callText(connected.client, 
       "ping",
       {},
       new AbortController().signal,
@@ -570,7 +598,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.refreshGate = new Promise(() => undefined);
     mock.redirectsPerFailure = 0;
     mock.callFailuresLeft = 1;
-    const call = connected.client.call(
+    const call = callText(connected.client, 
       "ping",
       {},
       new AbortController().signal,
@@ -594,7 +622,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(connected.ok).toBe(true);
     if (!connected.ok) return;
     mock.callFailuresLeft = 1;
-    const call = connected.client.call(
+    const call = callText(connected.client, 
       "ping",
       {},
       new AbortController().signal,
@@ -622,12 +650,12 @@ describe("HTTP MCP re-auth loop prevention", () => {
       mock.releaseRetry = resolve;
     });
     mock.callFailuresLeft = 2;
-    const first = connected.client.call(
+    const first = callText(connected.client, 
       "first",
       {},
       new AbortController().signal,
     );
-    const second = connected.client.call(
+    const second = callText(connected.client, 
       "second",
       {},
       new AbortController().signal,
@@ -638,7 +666,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.refreshSucceeds = true;
     mock.redirectsPerFailure = 0;
     mock.callFailuresLeft = 1;
-    const third = connected.client.call(
+    const third = callText(connected.client, 
       "third",
       {},
       new AbortController().signal,
@@ -665,6 +693,36 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(mock.refreshCalls).toBe(0);
     expect(mock.finishAuthCalls).toBe(1);
     expect(mock.authURLCount).toBe(1);
+  });
+
+  test("InvalidScopeError before redirect still prompts once and retries", async () => {
+    mock.finishAuthError = undefined;
+    mock.connectOAuthError = new InvalidScopeError("scope not allowed");
+    mock.connectFailuresLeft = 1;
+
+    const result = await connectWithAuthPrompt();
+
+    expect(result.ok).toBe(true);
+    expect(mock.resetCalls).toBe(1);
+    expect(mock.authURLCount).toBe(1);
+    expect(mock.waitForCodeCalls).toBe(1);
+    expect(mock.finishAuthCalls).toBe(1);
+    expect(mock.refreshCalls).toBe(0);
+    expect(mock.authEvents).toEqual(["authURL"]);
+  });
+
+  test("InvalidScopeError with a silent post-wipe connect retries the real client", async () => {
+    mock.connectOAuthError = new InvalidScopeError("scope not allowed");
+
+    const result = await connectWithAuthPrompt();
+
+    expect(result.ok).toBe(true);
+    expect(result).not.toHaveProperty("error");
+    expect(mock.connectCalls).toBe(3);
+    expect(mock.resetCalls).toBe(1);
+    expect(mock.authURLCount).toBe(0);
+    expect(mock.waitForCodeCalls).toBe(0);
+    expect(mock.finishAuthCalls).toBe(0);
   });
 
   test("reconnect during in-flight waitForCode does not emit a second prompt", async () => {
@@ -715,7 +773,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.callFailuresLeft = 1;
 
     await expect(
-      connected.client.call("ping", {}, new AbortController().signal),
+      callText(connected.client, "ping", {}, new AbortController().signal),
     ).rejects.toThrow("finishAuth exploded");
 
     expect(mock.authURLCount).toBe(1);
@@ -810,7 +868,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.callFailuresLeft = 1;
 
     await expect(
-      connected.client.call("ping", {}, new AbortController().signal),
+      callText(connected.client, "ping", {}, new AbortController().signal),
     ).resolves.toBe("");
 
     expect(mock.authURLCount).toBe(1);
@@ -837,7 +895,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.callFailuresLeft = 1;
 
     await expect(
-      connected.client.call("ping", {}, new AbortController().signal),
+      callText(connected.client, "ping", {}, new AbortController().signal),
     ).resolves.toBe("");
 
     expect(mock.authURLCount).toBe(1);
@@ -864,7 +922,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     });
     mock.redirectsPerFailure = 0;
     mock.callFailuresLeft = 1;
-    const first = connected.client.call(
+    const first = callText(connected.client, 
       "first",
       {},
       new AbortController().signal,
@@ -887,7 +945,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.redirectsPerFailure = 1;
     mock.callFailuresLeft = 1;
     await expect(
-      connected.client.call("second", {}, new AbortController().signal),
+      callText(connected.client, "second", {}, new AbortController().signal),
     ).resolves.toBe("");
 
     expect(mock.authURLCount).toBe(1);
@@ -912,7 +970,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.callFailuresLeft = 2;
     mock.callRedirectsLeft = 1;
     await expect(
-      connected.client.call("ping", {}, new AbortController().signal),
+      callText(connected.client, "ping", {}, new AbortController().signal),
     ).rejects.toThrow("authorization required");
     expect(mock.authorizedCount).toBe(0);
     expect(mock.authURLCount).toBe(1);
@@ -923,7 +981,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.callRedirectsLeft = Number.POSITIVE_INFINITY;
     mock.callFailuresLeft = 1;
     await expect(
-      connected.client.call("ping", {}, new AbortController().signal),
+      callText(connected.client, "ping", {}, new AbortController().signal),
     ).rejects.toThrow("retrying paused");
     expect(mock.authURLCount).toBe(1);
     expect(mock.authorizedCount).toBe(0);
@@ -945,7 +1003,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.callFailuresLeft = 1;
     mock.callRedirectsLeft = 1;
     await expect(
-      connected.client.call("ping", {}, new AbortController().signal),
+      callText(connected.client, "ping", {}, new AbortController().signal),
     ).resolves.toBe("");
     expect(mock.authorizedCount).toBe(1);
     expect(mock.authURLCount).toBe(1);

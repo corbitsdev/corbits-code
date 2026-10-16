@@ -149,7 +149,6 @@ describe("createExaMCPWebFetchTool", () => {
             tools: [
               { name: "web_fetch_exa", description: "Fetch", inputSchema: {} },
             ],
-            call: async () => "",
             callResult: async (name, args, signal) => ({
               blocks: [{ type: "text", text: await call(name, args, signal) }],
               isError: false,

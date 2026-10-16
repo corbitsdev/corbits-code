@@ -296,7 +296,6 @@ test.serial(
               inputSchema: { type: "object", properties: {} },
             },
           ],
-          call: async () => "changed",
           callResult: async () => {
             calls++;
             return {
@@ -354,7 +353,6 @@ test.serial(
               inputSchema: { type: "object", properties: {} },
             },
           ],
-          call: async () => "changed",
           callResult: async () => {
             calls++;
             return {
@@ -488,7 +486,6 @@ test.serial(
               inputSchema: { type: "object", properties: {} },
             },
           ],
-          call: async () => "changed",
           callResult: async () => {
             calls++;
             return {
@@ -573,7 +570,6 @@ test("storing parent-gated MCP tools then wrapping again denies without requestA
           inputSchema: { type: "object", properties: {} },
         },
       ],
-      call: async () => "changed",
       callResult: async () => {
         calls++;
         return {
