@@ -116,11 +116,11 @@ plus up to three dim tail lines of the command's live output and — when the
 feed window holds more than three lines — the same dim `⋯ +N lines` elision
 marker as the settle preview, `N` counting lines within the live window (the
 feed keeps only the most recent 8 KiB). The output
-travels through a bounded feed (`src/session/shell-output-feed.ts`),
+travels through a polled bounded feed (`src/session/shell-output-feed.ts`),
 not a reactor event: the plugin appends chunks (capped at an 8 KiB tail per
 call, emitting at most once per 100 ms plus a final flush at settle), and
-the product host repaints the pending row on the next frame when the feed
-appends. Nothing from the feed is
+the product host's sticky poll reads the feed snapshot every 200 ms and
+repaints the pending row frame-coalesced. Nothing from the feed is
 persisted. When the feed is not wired (tests, the demo shell), the row
 renders exactly as before — silent degradation.
 

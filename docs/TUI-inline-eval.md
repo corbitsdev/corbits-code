@@ -36,14 +36,14 @@ A raw scrollback log also has no place for the shell-output preview the host pai
 - `src/tui/shell/layout.ts` applies terminal geometry: floors, prompt-row sync, landing split, relayout inputs.
 - `src/tui/geometry/zones.ts` defines the floors and the collapse order the layout refuses to violate.
 - `src/tui/shell/chrome.ts` `relayout` is the live entry that re-resolves the tree when visibility, prompt rows, or overlay mode change.
-- A Timeline in `src/tui/product-host.ts` keeps the shell-output preview's sibling chrome clocks painted while a lane is live. It is not scrollback.
+- The `stickyPoll` interval in `src/tui/product-host.ts` keeps the shell-output preview and sticky chrome clocks painted. It is not scrollback.
 
 ## Deleted if inline mode were adopted
 
 It is not adopted. If it were, the deletion this record refuses is:
 
 - `shell/layout.ts`, the `geometry/zones.ts` floors, and `chrome.ts` relayout would be deleted or bypassed for a scrollback-only writer.
-- The live chrome Timeline would go, because a raw scrollback commit has no sticky zone to repaint.
+- `stickyPoll` would go, because a raw scrollback commit has no sticky zone to repaint.
 
 Those files stay. Bypassing them for `writeToScrollback` would drop the floors, the single scroll lease, overlay selectors, and the prompt kill ring. None of that is implied by a scrollback snapshot.
 
