@@ -1,5 +1,5 @@
 import { describe, expect, test, afterEach } from "bun:test";
-import { hitUrlAt, linkColumnHits } from "./url-links.js";
+import { hitUrlAt, linkColumnHits } from "./code-links.js";
 import {
   isOpenableUrl,
   isUrlOpenClick,
@@ -8,8 +8,11 @@ import {
   setUrlOpener,
   resetUrlOpener,
 } from "./link-open.js";
-import { findLinks, splitLinkSpans } from "./link-spans.js";
-import { splitWrappedLinkSpans } from "./link-wrap.js";
+import {
+  findLinks,
+  splitLinkSpans,
+  splitWrappedLinkSpans,
+} from "./link-spans.js";
 
 afterEach(() => {
   resetUrlOpener();
