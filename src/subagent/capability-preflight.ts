@@ -5,8 +5,10 @@
  * the worker or the dispatch rejects before any session, telemetry, or
  * worktree exists. Names are canonical engine ids on both sides (aliases
  * collapse via canonicalToolName), so `shell` and `run_shell` are the
- * same requirement. Fail-closed: unknown names and allowlist/denylist
- * misses reject.
+ * same requirement. `apply_patch` is not an engine id: on the gpt profile
+ * it maps onto the file-mutation engines the director already allows, and
+ * with no resolved profile it stays unknown. Fail-closed: unknown names
+ * and allowlist/denylist misses reject.
  *
  * `stale_snapshot` is never emitted here — it is the mount-time echo in
  * run.ts (a stamped tool missing from the live mount). It lives in this
@@ -14,6 +16,7 @@
  */
 
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import { GPT_PATCH_ENGINES, type ToolProfile } from "../agent/tool-aliases.js";
 import {
   DIRECTOR_REGISTRY,
   packageToCapabilities,
@@ -49,6 +52,12 @@ export interface PreflightCapabilitiesInput {
   availableMcpTools?: readonly string[] | undefined;
   /** Worker label for messages (director id or profile id). */
   agentLabel: string;
+  /**
+   * Tool profile of the model this spawn will run. `apply_patch` is the gpt
+   * wire name for the file-mutation engines, not a catalog id. Omit when no
+   * family is resolved — then apply_patch stays unknown.
+   */
+  toolProfile?: ToolProfile | undefined;
 }
 
 export interface CapabilityUnavailable {
@@ -218,6 +227,50 @@ export function leafTierAlternatives(): readonly string[] {
     .slice(0, 3);
 }
 
+function patchEnginesCovered(
+  filter: CapabilityFilter | undefined,
+): readonly string[] {
+  if (filter === undefined) return GPT_PATCH_ENGINES;
+  const named = new Set(filter.tools.map((name) => canonicalToolName(name)));
+  if (filter.mode === "allow") {
+    return GPT_PATCH_ENGINES.filter((engine) => named.has(engine));
+  }
+  return GPT_PATCH_ENGINES.filter((engine) => !named.has(engine));
+}
+
+/**
+ * `apply_patch` is the gpt wire name for the file engines already on the
+ * director. Other profiles, and a missing profile, leave it unknown.
+ */
+function expandApplyPatch(
+  trimmed: string,
+  engine: string,
+  profile: ToolProfile | undefined,
+  filter: CapabilityFilter | undefined,
+): string[] | { unavailable: CapabilityUnavailable } {
+  if (engine !== "apply_patch") return [engine];
+  if (profile !== "gpt") {
+    const suggestion = nearestToolName(trimmed);
+    return {
+      unavailable: {
+        code: "unknown_tool",
+        tool: trimmed,
+        ...(suggestion !== undefined ? { suggestion } : {}),
+      },
+    };
+  }
+  const covered = patchEnginesCovered(filter);
+  if (covered.length > 0) return [...covered];
+  const denied = filter?.mode === "exclude";
+  return {
+    unavailable: {
+      code: denied ? "permission_static" : "missing_tool",
+      tool: "apply_patch",
+      alternatives: rerouteAlternatives("write_file"),
+    },
+  };
+}
+
 export function preflightCapabilities(
   input: PreflightCapabilitiesInput,
 ): CapabilityPreflightResult {
@@ -244,64 +297,75 @@ export function preflightCapabilities(
       return { ok: false, unavailable: { code: "unknown_tool", tool: raw } };
     }
     const engine = canonicalToolName(trimmed);
-    // A live inherited-MCP tool passes the catalog check — presence proves
-    // the mount (see availableMcpTools); an `mcp__*` name outside the live
-    // set still rejects below.
-    const isLiveMcp = isMcpToolName(engine) && liveMcp.has(engine);
-    if (!catalog.has(engine) && !isLiveMcp) {
-      const suggestion = nearestToolName(trimmed);
-      return {
-        ok: false,
-        unavailable: {
-          code: "unknown_tool",
-          tool: trimmed,
-          ...(suggestion !== undefined ? { suggestion } : {}),
-        },
-      };
+    const expanded = expandApplyPatch(
+      trimmed,
+      engine,
+      input.toolProfile,
+      resolvedFilter,
+    );
+    if (!Array.isArray(expanded)) {
+      return { ok: false, unavailable: expanded.unavailable };
     }
-    if (!isLiveMcp && !known.has(engine)) {
-      return {
-        ok: false,
-        unavailable: { code: "missing_binary", tool: engine },
-      };
-    }
-    if (!postFilter.has(engine) && !isLiveMcp) {
-      if (allow !== undefined && !allow.has(engine)) {
+    for (const resolved of expanded) {
+      // A live inherited-MCP tool passes the catalog check — presence proves
+      // the mount (see availableMcpTools); an `mcp__*` name outside the live
+      // set still rejects below.
+      const isLiveMcp = isMcpToolName(resolved) && liveMcp.has(resolved);
+      if (!catalog.has(resolved) && !isLiveMcp) {
+        const suggestion = nearestToolName(trimmed);
         return {
           ok: false,
           unavailable: {
-            code: "missing_tool",
-            tool: engine,
-            alternatives: rerouteAlternatives(engine),
+            code: "unknown_tool",
+            tool: trimmed,
+            ...(suggestion !== undefined ? { suggestion } : {}),
           },
         };
       }
-      if (deny !== undefined && deny.has(engine)) {
+      if (!isLiveMcp && !known.has(resolved)) {
+        return {
+          ok: false,
+          unavailable: { code: "missing_binary", tool: resolved },
+        };
+      }
+      if (!postFilter.has(resolved) && !isLiveMcp) {
+        if (allow !== undefined && !allow.has(resolved)) {
+          return {
+            ok: false,
+            unavailable: {
+              code: "missing_tool",
+              tool: resolved,
+              alternatives: rerouteAlternatives(resolved),
+            },
+          };
+        }
+        if (deny !== undefined && deny.has(resolved)) {
+          return {
+            ok: false,
+            unavailable: {
+              code: "permission_static",
+              tool: resolved,
+              alternatives: rerouteAlternatives(resolved),
+            },
+          };
+        }
+      } else if (isLiveMcp && deny !== undefined && deny.has(resolved)) {
+        // An explicit exclude naming a live MCP tool still withholds it —
+        // run.ts strips named tools in exclude mode, so the mount would drop
+        // it and the requirement must reject here, not as a stale snapshot.
         return {
           ok: false,
           unavailable: {
             code: "permission_static",
-            tool: engine,
-            alternatives: rerouteAlternatives(engine),
+            tool: resolved,
+            alternatives: rerouteAlternatives(resolved),
           },
         };
       }
-    } else if (isLiveMcp && deny !== undefined && deny.has(engine)) {
-      // An explicit exclude naming a live MCP tool still withholds it —
-      // run.ts strips named tools in exclude mode, so the mount would drop
-      // it and the requirement must reject here, not as a stale snapshot.
-      return {
-        ok: false,
-        unavailable: {
-          code: "permission_static",
-          tool: engine,
-          alternatives: rerouteAlternatives(engine),
-        },
-      };
-    }
-    if (!seen.has(engine)) {
-      seen.add(engine);
-      canonical.push(engine);
+      if (!seen.has(resolved)) {
+        seen.add(resolved);
+        canonical.push(resolved);
+      }
     }
   }
   return { ok: true, canonical };

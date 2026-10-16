@@ -42,12 +42,15 @@ const ENGINE_TO_WIRE_BY_PROFILE: Record<
   gpt: { ...DEFAULT_ENGINE_TO_WIRE, ...GPT_OVERRIDES },
 };
 
-/** Tools the gpt profile folds into the single apply_patch envelope tool. */
-const PATCH_FOLDED_ENGINES: ReadonlySet<string> = new Set([
+/** Registry engines the gpt profile folds into apply_patch, in advertise order. */
+export const GPT_PATCH_ENGINES = [
   "write_file",
   "edit_file",
   "delete_file",
-]);
+] as const;
+
+/** Tools the gpt profile folds into the single apply_patch envelope tool. */
+const PATCH_FOLDED_ENGINES: ReadonlySet<string> = new Set(GPT_PATCH_ENGINES);
 
 /** gpt models are trained on apply_patch, not write/edit/delete. Other
  * profiles and lists without a file-mutation tool pass through unchanged. */

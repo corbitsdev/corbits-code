@@ -10,6 +10,7 @@ import {
   type CapabilityUnavailable,
 } from "./capability-preflight.js";
 import type { CapabilityFilter } from "../agent/profile-types.js";
+import { DOCS_TOOLS, READ_TOOLS } from "../agent/directors/tool-sets.js";
 
 const ALLOW_SHELL: CapabilityFilter = {
   mode: "allow",
@@ -197,6 +198,72 @@ describe("preflightCapabilities", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected rejection");
     expect(result.unavailable.code).toBe("permission_static");
+  });
+
+  test("shakespeare on gpt accepts apply_patch when a file tool is allowed", () => {
+    const result = preflightCapabilities({
+      required: ["apply_patch"],
+      resolvedFilter: { mode: "allow", tools: [...DOCS_TOOLS] },
+      knownEngines: DEFAULT_KNOWN_ENGINES,
+      agentLabel: "shakespeare",
+      toolProfile: "gpt",
+    });
+    expect(result).toEqual({
+      ok: true,
+      canonical: ["write_file", "edit_file", "delete_file"],
+    });
+  });
+
+  test("shakespeare on the default family rejects apply_patch as unknown", () => {
+    const result = preflightCapabilities({
+      required: ["apply_patch"],
+      resolvedFilter: { mode: "allow", tools: [...DOCS_TOOLS] },
+      knownEngines: DEFAULT_KNOWN_ENGINES,
+      agentLabel: "shakespeare",
+      toolProfile: "default",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected rejection");
+    expect(result.unavailable.code).toBe("unknown_tool");
+    expect(result.unavailable.tool).toBe("apply_patch");
+    expect(
+      formatCapabilityUnavailable(result.unavailable, "shakespeare"),
+    ).toContain('worker "shakespeare" requires unknown tool "apply_patch"');
+  });
+
+  test("unresolved family does not treat apply_patch as known", () => {
+    const result = preflight(["apply_patch"], {
+      mode: "allow",
+      tools: [...DOCS_TOOLS],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected rejection");
+    expect(result.unavailable.code).toBe("unknown_tool");
+  });
+
+  test("gpt worker with no file-mutation tool rejects apply_patch", () => {
+    const result = preflightCapabilities({
+      required: ["apply_patch"],
+      resolvedFilter: { mode: "allow", tools: [...READ_TOOLS] },
+      knownEngines: DEFAULT_KNOWN_ENGINES,
+      agentLabel: "explorer",
+      toolProfile: "gpt",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected rejection");
+    expect(result.unavailable.code).toBe("missing_tool");
+    expect(result.unavailable.tool).toBe("apply_patch");
+  });
+
+  test("gpt apply_patch maps onto only the file engines the allowlist has", () => {
+    const result = preflightCapabilities({
+      required: ["apply_patch"],
+      resolvedFilter: { mode: "allow", tools: ["read_file", "write_file"] },
+      knownEngines: DEFAULT_KNOWN_ENGINES,
+      agentLabel: "shakespeare",
+      toolProfile: "gpt",
+    });
+    expect(result).toEqual({ ok: true, canonical: ["write_file"] });
   });
 });
 

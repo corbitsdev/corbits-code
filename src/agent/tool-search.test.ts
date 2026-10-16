@@ -1010,6 +1010,46 @@ describe("advertisedToolNamesForWorker", () => {
     expect(docs).toContain("tool_search");
   });
 
+  test("gpt docs surface folds file tools into apply_patch", () => {
+    const docs = advertisedToolNamesForWorker({
+      allow: DOCS_TOOLS,
+      profile: "gpt",
+    });
+    expect(docs).toContain("apply_patch");
+    expect(docs).not.toContain("write_file");
+    expect(docs).not.toContain("edit_file");
+    expect(docs).not.toContain("delete_file");
+    expect(docs).not.toContain("write");
+    expect(docs).not.toContain("edit");
+    expect(docs).not.toContain("delete");
+    expect(docs).not.toContain("shell");
+    expect(docs).not.toContain("run_shell");
+  });
+
+  test("default docs surface does not advertise apply_patch", () => {
+    const docs = advertisedToolNamesForWorker({
+      allow: DOCS_TOOLS,
+      profile: "default",
+    });
+    expect(docs).not.toContain("apply_patch");
+    expect(docs).toContain("write_file");
+    expect(docs).toContain("edit_file");
+    expect(docs).toContain("delete_file");
+  });
+
+  test("gpt build surface renames shell and folds file tools", () => {
+    const build = advertisedToolNamesForWorker({
+      allow: BUILD_TOOLS,
+      profile: "gpt",
+    });
+    expect(build).toContain("apply_patch");
+    expect(build).toContain("shell");
+    expect(build).not.toContain("bash");
+    expect(build).not.toContain("run_shell");
+    expect(build).not.toContain("write");
+    expect(build).not.toContain("write_file");
+  });
+
   test("nested orchestrator allowlist adds fleet verbs but not search_agents", () => {
     const orch = advertisedToolNamesForWorker({ allow: ORCHESTRATOR_TOOLS });
     expect(orch).toContain("spawn_agent");

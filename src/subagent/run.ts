@@ -1165,11 +1165,13 @@ async function runSubAgentInner(
       }
     }
 
+    const toolProfile = toolProfileForModel(params.provider);
     const workerPrefix = advertisedToolNamesForWorker({
       orchestrator: params.orchestrator === true,
       ...(params.capabilities?.mode === "allow"
         ? { allow: params.capabilities.tools }
         : {}),
+      profile: toolProfile,
     });
     const advertisedSet = createAdvertisedToolset({
       sessionMode: "orchestrator",
@@ -1236,7 +1238,6 @@ async function runSubAgentInner(
       ...(roleBody !== undefined ? [roleBody] : []),
       ...(attachedSection !== undefined ? [attachedSection] : []),
     ];
-    const toolProfile = toolProfileForModel(params.provider);
     const advertisedDefs = advertisedSet.computeAdvertised(
       tools.map((t) => t.definition),
     );

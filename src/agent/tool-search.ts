@@ -13,6 +13,8 @@ import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 import {
   advertisedToolName,
+  foldFileToolNames,
+  GPT_PATCH_ENGINES,
   projectToolDefinition,
   type ToolProfile,
 } from "./tool-aliases.js";
@@ -117,6 +119,8 @@ export function advertisedToolNamesForWorker(opts: {
   allow?: readonly string[];
   orchestrator?: boolean;
   languageServerAvailable?: boolean;
+  /** Family projection. Default keeps registry engine ids. */
+  profile?: ToolProfile;
 }): readonly string[] {
   const base =
     opts.allow !== undefined && opts.allow.length > 0
@@ -135,7 +139,11 @@ export function advertisedToolNamesForWorker(opts: {
     seen.add(name);
     out.push(name);
   }
-  return out;
+  if (opts.profile !== "gpt") return out;
+  return foldFileToolNames(
+    out.map((name) => advertisedToolName(name, "gpt")),
+    "gpt",
+  );
 }
 
 // Built-in file/search/web tools advertised with full schema alongside the
@@ -169,11 +177,19 @@ function isAlreadyAdvertised(
   advertisedNames: readonly string[],
 ): boolean {
   const engine = canonicalToolName(defName);
-  const wire = advertisedToolName(engine);
-  return (
+  if (
     advertisedNames.includes(defName) ||
     advertisedNames.includes(engine) ||
-    advertisedNames.includes(wire)
+    advertisedNames.includes(advertisedToolName(engine)) ||
+    advertisedNames.includes(advertisedToolName(engine, "gpt"))
+  ) {
+    return true;
+  }
+  // apply_patch stands in for the file engines; a gpt prefix lists the wire
+  // name only, so search must not offer write/edit/delete beside it.
+  return (
+    advertisedNames.includes("apply_patch") &&
+    (GPT_PATCH_ENGINES as readonly string[]).includes(engine)
   );
 }
 

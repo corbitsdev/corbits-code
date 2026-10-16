@@ -14,7 +14,11 @@ import {
 import { buildSubAgentSystemPrompt } from "./prompts.js";
 import { resolveModelFamilyPolicy } from "./model-family-policy.js";
 import { shouldApplyGrokAntiThrash } from "../subagent/provider-family.js";
-import { advertisedToolName } from "./tool-aliases.js";
+import {
+  advertisedToolName,
+  foldFileToolNames,
+  toolProfileForFamily,
+} from "./tool-aliases.js";
 import { canonicalToolName } from "./canonical-tool-name.js";
 import { manageTasksDefinition } from "./tasks.js";
 import { DELETE_FILE_DEFINITION } from "../plugins/delete-file-plugin.js";
@@ -86,7 +90,7 @@ function preFilterMountNames(): readonly string[] {
  */
 export function canonicalToolNamesForDirector(
   pkg: DirectorPackage,
-  _family: PromptSizeFamily,
+  family: PromptSizeFamily,
 ): readonly string[] {
   const filtered = [...preFilterMountNames()];
   const capabilities = packageToCapabilities(pkg);
@@ -130,7 +134,11 @@ export function canonicalToolNamesForDirector(
       `canonicalToolNamesForDirector(${pkg.id}): "${dupe}" mounted twice — the assembly drifted from src/subagent/run.ts`,
     );
   }
-  return names.map((name) => advertisedToolName(name));
+  const profile = toolProfileForFamily(family);
+  return foldFileToolNames(
+    names.map((name) => advertisedToolName(name, profile)),
+    profile,
+  );
 }
 
 /** Assemble one director prompt exactly as run.ts does. */
