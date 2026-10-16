@@ -19,6 +19,27 @@ import {
 interface MockState {
   finishAuthCalls: number;
   finishAuthError: Error | undefined;
+  finishAuthInstanceId: number | undefined;
+  finishAuthResourceMetadataUrl: string | undefined;
+  finishAuthScope: string | undefined;
+  redirectingInstanceId: number | undefined;
+  preFailureResourceMetadataUrl: string | undefined;
+  preFailureScope: string | undefined;
+  challengeResourceMetadataUrl: string | undefined;
+  challengeScope: string | undefined;
+  boundTransport:
+    | {
+        instanceId: number;
+        resourceMetadataUrl?: string;
+        scope?: string;
+        sessionId?: string;
+      }
+    | undefined;
+  stampSessionId: string | undefined;
+  sessionStamped: boolean;
+  callSessionIds: (string | undefined)[];
+  callOAuthError: Error | undefined;
+  callbackCloseThrows: boolean;
   connectFailuresLeft: number;
   connectCalls: number;
   /** Thrown once, before any redirect, then cleared. */
@@ -61,6 +82,20 @@ function freshMockState(): MockState {
   return {
     finishAuthCalls: 0,
     finishAuthError: new Error("finishAuth exploded"),
+    finishAuthInstanceId: undefined,
+    finishAuthResourceMetadataUrl: undefined,
+    finishAuthScope: undefined,
+    redirectingInstanceId: undefined,
+    preFailureResourceMetadataUrl: undefined,
+    preFailureScope: undefined,
+    challengeResourceMetadataUrl: undefined,
+    challengeScope: undefined,
+    boundTransport: undefined,
+    stampSessionId: undefined,
+    sessionStamped: false,
+    callSessionIds: [],
+    callOAuthError: undefined,
+    callbackCloseThrows: false,
     connectFailuresLeft: 0,
     connectCalls: 0,
     connectOAuthError: undefined,
@@ -193,17 +228,43 @@ function waitForGate(signal: AbortSignal | undefined): Promise<void> {
 }
 
 await mockMcpClientModule(mock, {
-  connect: async (provider) => {
+  connect: async (provider, transport) => {
     mock.connectCalls += 1;
+    if (transport !== undefined) mock.boundTransport = transport;
     if (mock.connectOAuthError !== undefined) {
+      if (
+        transport !== undefined &&
+        mock.preFailureResourceMetadataUrl !== undefined
+      ) {
+        transport.resourceMetadataUrl = mock.preFailureResourceMetadataUrl;
+        if (mock.preFailureScope !== undefined)
+          transport.scope = mock.preFailureScope;
+      }
       const error = mock.connectOAuthError;
       mock.connectOAuthError = undefined;
       throw error;
     }
     if (mock.connectFailuresLeft > 0) {
       mock.connectFailuresLeft -= 1;
+      if (
+        transport !== undefined &&
+        mock.challengeResourceMetadataUrl !== undefined
+      ) {
+        transport.resourceMetadataUrl = mock.challengeResourceMetadataUrl;
+        if (mock.challengeScope !== undefined)
+          transport.scope = mock.challengeScope;
+        mock.redirectingInstanceId = transport.instanceId;
+      }
       await emitRedirects(provider);
       throw new UnauthorizedError("authorization required");
+    }
+    if (
+      transport !== undefined &&
+      mock.stampSessionId !== undefined &&
+      !mock.sessionStamped
+    ) {
+      transport.sessionId = mock.stampSessionId;
+      mock.sessionStamped = true;
     }
   },
   listTools: async () => {
@@ -218,8 +279,23 @@ await mockMcpClientModule(mock, {
     }
     return { tools: [] };
   },
-  callTool: async () => {
+  callTool: async (sessionId) => {
     mock.callToolCalls += 1;
+    mock.callSessionIds.push(sessionId);
+    if (mock.callOAuthError !== undefined) {
+      if (
+        mock.boundTransport !== undefined &&
+        mock.preFailureResourceMetadataUrl !== undefined
+      ) {
+        mock.boundTransport.resourceMetadataUrl =
+          mock.preFailureResourceMetadataUrl;
+        if (mock.preFailureScope !== undefined)
+          mock.boundTransport.scope = mock.preFailureScope;
+      }
+      const error = mock.callOAuthError;
+      mock.callOAuthError = undefined;
+      throw error;
+    }
     if (mock.callFailuresLeft > 0) {
       mock.callFailuresLeft -= 1;
       if (mock.callRedirectsLeft > 0) {
@@ -237,6 +313,9 @@ await mockMcpClientModule(mock, {
 await mockMcpTransportModule(mock, {
   finishAuth: async (self) => {
     mock.finishAuthCalls += 1;
+    mock.finishAuthInstanceId = self.instanceId;
+    mock.finishAuthResourceMetadataUrl = self.resourceMetadataUrl;
+    mock.finishAuthScope = self.scope;
     mock.exchangedCodeVerifier = self.provider?.codeVerifier?.();
     if (mock.finishAuthError !== undefined) throw mock.finishAuthError;
   },
@@ -248,7 +327,9 @@ await mockMcpCallbackServerModule({
     await waitForGate(signal);
     return "code";
   },
-  close: () => undefined,
+  close: () => {
+    if (mock.callbackCloseThrows) throw new Error("callback close threw");
+  },
 });
 
 await mockMcpOAuthProviderModule(
@@ -732,6 +813,71 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(mock.authURLCount).toBe(0);
     expect(mock.waitForCodeCalls).toBe(0);
     expect(mock.finishAuthCalls).toBe(0);
+  });
+
+  const defaultDiscovery =
+    "https://mcp.linear.app/.well-known/oauth-protected-resource";
+  const challengeMetadata =
+    "https://resource.linear.app/.well-known/oauth-protected-resource/mcp";
+
+  test("finishAuth uses the redirecting transport's 401 resource metadata", async () => {
+    mock.finishAuthError = undefined;
+    mock.preFailureResourceMetadataUrl = defaultDiscovery;
+    mock.preFailureScope = "legacy";
+    mock.challengeResourceMetadataUrl = challengeMetadata;
+    mock.challengeScope = "mcp:read";
+    mock.connectOAuthError = new InvalidScopeError("scope not allowed");
+    mock.connectFailuresLeft = 1;
+
+    const result = await connectWithAuthPrompt();
+
+    expect(result.ok).toBe(true);
+    expect(mock.finishAuthCalls).toBe(1);
+    expect(mock.redirectingInstanceId).toBeDefined();
+    expect(mock.finishAuthInstanceId).toBe(mock.redirectingInstanceId);
+    expect(mock.finishAuthResourceMetadataUrl).toBe(challengeMetadata);
+    expect(mock.finishAuthScope).toBe("mcp:read");
+    expect(mock.finishAuthResourceMetadataUrl).not.toBe(defaultDiscovery);
+  });
+
+  test("open-session code exchange does not retry the wiped mcp-session-id", async () => {
+    mock.finishAuthError = undefined;
+    mock.stampSessionId = "sess-wiped";
+    mock.preFailureResourceMetadataUrl = defaultDiscovery;
+    mock.preFailureScope = "legacy";
+    mock.challengeResourceMetadataUrl = challengeMetadata;
+    mock.challengeScope = "mcp:read";
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => {
+        mock.authURLCount += 1;
+      },
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+
+    mock.callOAuthError = new InvalidScopeError("scope not allowed");
+    mock.connectFailuresLeft = 1;
+
+    await expect(
+      callText(connected.client, "ping", {}, new AbortController().signal),
+    ).resolves.toBe("");
+
+    expect(mock.finishAuthInstanceId).toBe(mock.redirectingInstanceId);
+    expect(mock.finishAuthResourceMetadataUrl).toBe(challengeMetadata);
+    expect(mock.finishAuthScope).toBe("mcp:read");
+    expect(mock.callSessionIds[0]).toBe("sess-wiped");
+    expect(mock.callSessionIds.at(-1)).toBeUndefined();
+  });
+
+  test("a sync callback close throw stays a failed connect result", async () => {
+    mock.callbackCloseThrows = true;
+    mock.connectOAuthError = new Error("dial failed");
+
+    const result = await connectMCPServer(config, {});
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("dial failed");
   });
 
   test("reconnect during in-flight waitForCode does not emit a second prompt", async () => {

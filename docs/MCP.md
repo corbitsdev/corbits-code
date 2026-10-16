@@ -141,8 +141,10 @@ than hanging or dispatching against a dead transport.
 
 An HTTP SSE drop does not start that second dial. The Streamable HTTP
 transport resumes the stream itself (`reconnectionOptions`: 1s start, doubling,
-30s cap). The row stays connected and tools stay live; only a real stdio death
-uses the fail-fast stubs and attempt count above.
+30s cap). Those options have no random factor and no exhaustion callback, so
+the delay is not jittered and a stream that stops retrying stays on the
+connected row instead of flipping to failed. Tools stay live; only a real
+stdio death uses the fail-fast stubs and attempt count above.
 
 Pressing Enter on a failed or reconnecting row retries now with a single dial
 instead of waiting for backoff, reusing the saved settings row — it never

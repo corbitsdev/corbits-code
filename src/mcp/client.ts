@@ -137,6 +137,9 @@ interface HTTPAuthContext {
   coordinator: SdkAuthFinish;
   interactive: boolean;
   serverName: string;
+  client: Client;
+  /** Builds the next HTTP transport and records it as the live session. */
+  openTransport: () => Transport;
   onAuthorized?: (serverName: string) => void;
 }
 
@@ -156,7 +159,11 @@ interface SdkAuthFinish {
   notified?: boolean;
   recoveryGeneration?: number;
   waiters?: number;
-  /** Transport the SDK already dialed. finishAuth reuses it; no second client. */
+  /**
+   * Transport that finishAuth must use. A probe dial replaces the pre-failure
+   * transport with the instance that called redirectToAuthorization, so the
+   * code exchange sends that instance's resource metadata and scope.
+   */
   transport?: StreamableHTTPClientTransport;
 }
 
@@ -456,6 +463,7 @@ async function dialForFreshAuthorization(
       coordinator.lifecycle.signal,
     ),
   );
+  let redirected = false;
   try {
     await probeClient.connect(transport as unknown as Transport, {
       signal: coordinator.lifecycle.signal,
@@ -463,9 +471,13 @@ async function dialForFreshAuthorization(
   } catch (probeErr) {
     if (!isRecoverableAuthError(probeErr)) throw probeErr;
     if (coordinator.browserFlow === undefined) throw probeErr;
+    redirected = true;
   } finally {
     await closeQuietly(() => probeClient.close());
   }
+  // The probe, not the pre-failure transport, holds the resource metadata and
+  // scope the authorize URL was built from. finishAuth has to run on it.
+  if (redirected) coordinator.transport = transport;
 }
 
 async function driveRecovery(
@@ -510,6 +522,19 @@ async function driveRecovery(
   if (transport === undefined)
     throw new Error("no live HTTP transport to finish authorization");
   await transport.finishAuth(code);
+  // The probe is a second client. After its close, the live session still
+  // carries the mcp-session-id from before resetAuthorization wiped tokens.
+  const liveSession = context.client.transport;
+  if (
+    liveSession !== undefined &&
+    liveSession !== transport &&
+    liveSession.sessionId !== undefined
+  ) {
+    await context.client.close();
+    await context.client.connect(context.openTransport(), {
+      signal: coordinator.lifecycle.signal,
+    });
+  }
 }
 
 function completeVerifiedRecovery(
@@ -619,7 +644,7 @@ async function finishClient(
   authContext?: HTTPAuthContext,
   signal?: AbortSignal,
   closeLifecycle?: () => void,
-  liveTransport?: { onclose?: () => void },
+  live?: { current?: { onclose?: () => void } },
 ): Promise<MCPClient> {
   const result = await withHTTPAuthorizationRecovery(authContext, () =>
     signal === undefined
@@ -668,7 +693,7 @@ async function finishClient(
     },
     async close() {
       // Disarm first: the owner's hook reports unintentional death only.
-      if (liveTransport !== undefined) liveTransport.onclose = () => undefined;
+      if (live?.current !== undefined) live.current.onclose = () => undefined;
       closeLifecycle?.();
       authContext?.callback.close();
       await closeQuietly(() => client.close());
@@ -735,6 +760,7 @@ async function connectStdio(
         options.onDisconnect?.();
       };
     }
+    const live = { current: transport };
     return {
       ok: true,
       client: await finishClient(
@@ -743,7 +769,7 @@ async function connectStdio(
         undefined,
         options.signal,
         undefined,
-        transport,
+        live,
       ),
     };
   } catch (err) {
@@ -781,13 +807,22 @@ async function connectHttp(
     const normalizedURL = normalizeMCPServerURL(config.url);
     const url = new URL(normalizedURL);
     let authContext: HTTPAuthContext | undefined;
+    const live: { current?: { onclose?: () => void } } = {};
+    const connectedClient = new Client({
+      name: MCP_CLIENT_NAME,
+      version: "1.0.0",
+    });
+    client = connectedClient;
     let makeTransport: () => Transport;
     if (config.oauth === false) {
-      makeTransport = () =>
-        new StreamableHTTPClientTransport(
+      makeTransport = () => {
+        const transport = new StreamableHTTPClientTransport(
           url,
           streamableHTTPTransportOptions(undefined, options.signal),
-        ) as unknown as Transport;
+        );
+        live.current = transport;
+        return transport as unknown as Transport;
+      };
     } else {
       callback = await startCallbackServer(config.name);
       const authProvider = await createOAuthProvider({
@@ -807,6 +842,7 @@ async function connectHttp(
           streamableHTTPTransportOptions(authProvider, lifecycle.signal),
         );
         coordinator.transport = transport;
+        live.current = transport;
         return transport as unknown as Transport;
       };
       authContext = {
@@ -816,24 +852,19 @@ async function connectHttp(
         coordinator,
         interactive: options.onAuthURL !== undefined,
         serverName: config.name,
+        client: connectedClient,
+        openTransport: () => makeTransport(),
         ...(options.onAuthorized !== undefined
           ? { onAuthorized: options.onAuthorized }
           : {}),
       };
       gateRedirectToAuthorization(authContext);
     }
-    const connectedClient = new Client({
-      name: MCP_CLIENT_NAME,
-      version: "1.0.0",
-    });
-    client = connectedClient;
     // Recovery may dial again after finishAuth; the last transport wins.
-    let liveTransport: Transport | undefined;
     await withHTTPAuthorizationRecovery(
       authContext,
       () => {
         const transport = makeTransport();
-        liveTransport = transport;
         return connectedClient.connect(transport, {
           signal: lifecycle.signal,
         });
@@ -848,7 +879,7 @@ async function connectHttp(
         authContext,
         options.signal,
         closeLifecycle,
-        liveTransport,
+        live,
       ),
     };
   } catch (err) {
