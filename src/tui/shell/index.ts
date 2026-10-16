@@ -83,6 +83,7 @@ import {
   createShellKeyHandlers,
   routePromptWheelToTranscript,
 } from "./keys.js";
+import { attachShellKeymap } from "./keymap.js";
 
 const DEFAULT_TITLE = "corbits";
 
@@ -364,6 +365,7 @@ export function createAppShell(
   }
 
   let disposed = false;
+  let detachKeymap: (() => void) | undefined;
   let session = createSessionQueue(run);
   const seedPending = Math.max(0, Math.floor(options?.pendingQueue ?? 0));
   for (let i = 0; i < seedPending; i++) {
@@ -518,6 +520,8 @@ export function createAppShell(
       shell.disposed = true;
       // Quit paths that skip idle Ctrl+C still drop Corbits-created files.
       clearPendingAttachments(shell);
+      detachKeymap?.();
+      detachKeymap = undefined;
       if (wireKeys) {
         renderer.keyInput.off("keypress", onKey);
         renderer.keyInput.off("paste", onPaste);
@@ -628,13 +632,14 @@ export function createAppShell(
   if (onObserveRequestOpt) {
     setPaletteOnObserveRequest(shell, onObserveRequestOpt);
   }
-  const { onKey, onPaste } = createShellKeyHandlers(shell, {
+  const { onKey, onPaste, keymap } = createShellKeyHandlers(shell, {
     isDisposed: () => disposed,
   });
   if (wireKeys) {
     renderer.keyInput.on("keypress", onKey);
     renderer.keyInput.on("paste", onPaste);
     prompt.onSubmit = onEnter;
+    detachKeymap = attachShellKeymap(renderer as CliRenderer, keymap);
   }
 
   applyLayout(shell, layout);

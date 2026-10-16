@@ -1,39 +1,25 @@
 # Keymap evaluation
 
-Decision record for a global keymap on the imperative `@opentui/core` 0.6.4 surface. This record changes no code.
+Decision record for application key bindings on `@opentui/core` 0.6.6. The engine is `@opentui/keymap`.
 
 ## Recommendation
 
-**Decline** a global keymap. Do not adopt one later under another name, and file no follow-up. The library does not ship an application keymap, and the shell behaviors that would have to move into one are not widget bindings.
+**Adopt** `@opentui/keymap` for application commands. Do not move widget-local editing, the scroll lease, or the kill ring into it.
 
-## What 0.6.4 actually provides
+`createDefaultOpenTuiKeymap(renderer)` installs the default parser, the event matcher, and the enabled and metadata fields. The shell registers one layer: `commands` (`name`, `run`) and `bindings` (`key`, `cmd`). Each `run` calls the existing handler in `src/tui/shell/keys.ts`. The help overlay reads those rows from the same catalog as the registration (`keymapShortcuts()` plus `promptLocalShortcuts()`).
 
-Bindings are per widget. `TextareaRenderable` takes `keyBindings` of `TextareaAction` (caret, selection, kill-to-line, undo, submit, and the rest of the editor action set). `SelectRenderable` takes `keyBindings` of `SelectAction`: `move-up`, `move-down`, `move-up-fast`, `move-down-fast`, `select-current`. The same shape exists on `TabSelect` and the terminal console; `Input` reuses the textarea actions. Each widget merges its defaults with the caller's list and looks up one event.
+## What stays a command body
 
-`mergeKeyBindings(defaults, custom)` in `lib/keybinding.internal.d.ts` is that merge: two `KeyBinding<Action>[]` lists become one list for one widget. It does not route across the shell, it does not know which surface holds focus, and it does not encode policy that spans widgets. There is no keymap engine package on this core. The repo depends on `@opentui/core` only.
+Widget `keyBindings` cannot express policy that spans the shell:
 
-## What stays
+- **Scroll lease.** One surface holds the lease. The wheel must not move the transcript while a modal is open. Arrow keys never scroll the transcript.
+- **Kill ring.** Ctrl+K/U/W and Alt+D kill, Ctrl+Y yanks, Alt+Y yank-pops. Those stay Textarea-local in `prompt-kill-ring.ts`. The keymap does not bind them.
+- **Ctrl+C.** Pause, stop sub-agents, and quit stay `handleCtrlC`. The keymap command calls that handler; it does not reimplement the arming window. A decision gate still declines before the arming handler runs.
 
-- `src/tui/shell/keys.ts` is the shell dispatcher: paste guard, overlay keys, prompt wheel forwarding, kill/yank orchestration, and Ctrl+C arming. It is not a binding table.
-- `src/tui/keybindings.ts` is the shortcut catalog the help overlay reads. `keybindings.test.ts` drives each row through a live shell. The catalog describes chords; it does not implement them.
-
-Neither file is a stand-in for `mergeKeyBindings`. Replacing them with widget tables would drop behavior the tables cannot express.
-
-## Deleted if a global keymap were adopted
-
-It is not adopted. If it were, the deletion this record refuses is:
-
-- `src/tui/shell/keys.ts` would be deleted or reduced to widget binding tables.
-- `src/tui/keybindings.ts` would be deleted in favor of `mergeKeyBindings` defaults.
-
-Those files stay. Reducing them would drop three policies that are not widget bindings:
-
-- **Scroll lease.** One surface holds the lease. The wheel must not move the transcript while a modal is open on top of it. Prompt wheel events are forwarded to the transcript only because the prompt itself does not scroll. Arrow keys never scroll anything: in the prompt they are caret motion or history recall, and in an overlay list they move the selection. Page keys move only the surface that holds the lease.
-- **Kill ring.** The prompt kill ring (kill chords and yank / yank-pop) is shell state. Textarea delete actions discard or edit a buffer; they are not that ring.
-- **Ctrl+C.** The first press pauses a busy run or clears an idle prompt. A later press inside the arming window quits, and live sub-agents insert a stop press before quit. That is session policy, not a textarea `submit` or select `select-current` binding.
+Paste, overlay accept, and prompt newline chords stay where they were. Enter, Up, and Down stay in `keys.ts` because the same chord sends, steers, recalls history, or moves the caret. Ctrl+X is the held-item drop and is a keymap command.
 
 ## Checks
 
-- [x] Decline a global keymap. `mergeKeyBindings` and per-widget `keyBindings` are the only real key APIs, and they are not an application map.
-- [ ] Adopt a global keymap and delete `shell/keys.ts` and `keybindings.ts`. Cannot check. No keymap engine exists on this core, and the adopt path would drop the scroll lease, the kill ring, and Ctrl+C policy. Leave this unchecked.
-- [x] File no follow-up. This record does not adopt a path that needs one.
+- [x] Use `@opentui/keymap` for application commands. Help rows for those chords come from the keymap catalog.
+- [x] Leave the scroll lease, the kill ring, and Ctrl+C policy as command bodies. Widget bindings cannot express them.
+- [ ] Delete `shell/keys.ts` and `keybindings.ts`. Cannot check. The dispatcher and the prompt-local catalog stay.
