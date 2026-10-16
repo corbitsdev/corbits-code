@@ -412,6 +412,7 @@ describe("resolveModelFamilyPolicy", () => {
       const p = v4({ orchestrator: false, directorId: "coder" });
       expect(p.family).toBe("deepseek");
       expect(p.leafRoleBody).toBeDefined();
+      expect(p.leafRoleBody).toContain("Identity: agent id `coder`");
       expect(p.leafRoleBody).toContain("Coder");
       expect(p.promptResidual).toBeUndefined();
     });
@@ -420,6 +421,7 @@ describe("resolveModelFamilyPolicy", () => {
       const p = v4({ orchestrator: false, directorId: "reviewer" });
       expect(p.family).toBe("deepseek");
       expect(p.leafRoleBody).toBeDefined();
+      expect(p.leafRoleBody).toContain("Identity: agent id `reviewer`");
       expect(p.leafRoleBody).toContain("Reviewer");
       expect(p.promptResidual).toBeUndefined();
     });

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { GROK_PROMPT_RESIDUAL } from "./model-family-policy.js";
-import { buildGrokLeafAntiThrashNote } from "./prompts.js";
+import {
+  GROK_PROMPT_RESIDUAL,
+  resolveModelFamilyPolicy,
+} from "./model-family-policy.js";
+import {
+  buildGrokLeafAntiThrashNote,
+  buildSubAgentSystemPrompt,
+} from "./prompts.js";
 import { shouldApplyGrokAntiThrash } from "../subagent/provider-family.js";
 
 describe("grok ceremony merge (CL-8296)", () => {
@@ -33,5 +39,25 @@ describe("grok ceremony merge (CL-8296)", () => {
 
   it("buildGrokLeafAntiThrashNote is the same single residual (one source of truth)", () => {
     expect(buildGrokLeafAntiThrashNote()).toBe(GROK_PROMPT_RESIDUAL);
+  });
+
+  it("grok leaves still append finish-bias and tool-budget as two blocks", () => {
+    const policy = resolveModelFamilyPolicy({
+      providerName: "xai/default",
+      model: "grok-4.6",
+      orchestrator: false,
+    });
+    const prompt = buildSubAgentSystemPrompt(["card"], undefined, undefined, {
+      orchestrator: false,
+      toolNames: ["read"],
+      grokAntiThrash: true,
+      promptResidual: policy.promptResidual,
+    });
+    expect(prompt).toContain("Finish bias (xAI / Grok worker):");
+    expect(prompt).toContain("Tool budget:");
+    expect(buildGrokLeafAntiThrashNote()).toContain(
+      "Finish bias (xAI / Grok worker):",
+    );
+    expect(buildGrokLeafAntiThrashNote()).not.toContain("Tool budget:");
   });
 });
