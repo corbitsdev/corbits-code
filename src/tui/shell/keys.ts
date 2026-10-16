@@ -289,17 +289,22 @@ export function readStopAffordance(shell: AppShell): {
 }
 
 /**
- * The prompt holds focus all session and has no scrollable content, so
- * wheel events land on it; forward its scrolls to the transcript.
- * `onMouseScroll` is the native hook. The scroll box still owns acceleration
- * and the fractional accumulator on `onMouseEvent` — there is no public
- * equivalent — so the forward calls that method instead of reimplementing it.
+ * The prompt holds focus all session, so a wheel that hits it (or misses and
+ * falls back to focus) would otherwise scroll the textarea. Replace
+ * `onMouseEvent` rather than adding `onMouseScroll`: `processMouseEvent`
+ * runs the scroll listener and then `onMouseEvent` with no
+ * `defaultPrevented` check, and `TextareaRenderable` scrolls in
+ * `onMouseEvent`. The scroll box still owns acceleration and the fractional
+ * accumulator on that method — there is no public equivalent — so the
+ * replacement forwards to it instead of reimplementing the scroll.
  */
 export function routePromptWheelToTranscript(
   prompt: Renderable,
   transcript: ScrollBoxRenderable,
 ): void {
-  prompt.onMouseScroll = (event: MouseEvent) => {
+  (
+    prompt as unknown as { onMouseEvent: (event: MouseEvent) => void }
+  ).onMouseEvent = (event: MouseEvent) => {
     if (event.type !== "scroll") return;
     (
       transcript as unknown as { onMouseEvent: (event: MouseEvent) => void }

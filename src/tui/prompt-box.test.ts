@@ -3,6 +3,7 @@
  * that toggle their surface shut when pressed a second time.
  */
 import { describe, expect, test } from "bun:test";
+import { MouseEvent } from "@opentui/core";
 
 import { defined } from "../../testkit/defined.js";
 import { PROMPT_KEY_BINDINGS } from "./prompt-input";
@@ -14,7 +15,11 @@ import {
 } from "./geometry/index.js";
 import { focusOwner } from "./focus/index.js";
 import { promptCaretRow, promptRowCount } from "./prompt-input.js";
-import { appendStreamRow, toggleShellFocus } from "./shell/chrome";
+import {
+  appendStreamRow,
+  appendTranscript,
+  toggleShellFocus,
+} from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import type { AppShell } from "./shell/internals";
 import { closeInsetOverlay } from "./shell/overlay-host";
@@ -152,6 +157,41 @@ describe("prompt box height", () => {
       const box = defined(shell.layout.regions.prompt);
       const frameRows = h.captureCharFrame().trimEnd().split("\n").length;
       expect(box.y + box.height).toBe(frameRows - 1);
+    });
+  });
+
+  test("a wheel over the focused prompt scrolls the transcript only", async () => {
+    // The draft is taller than the capped viewport, so the textarea has its
+    // own scrollY. One wheel must move the transcript and leave that offset.
+    await withShell({ columns: 80, rows: 41 }, async (shell, h) => {
+      for (let i = 0; i < 40; i++) {
+        appendTranscript(shell, `seed-${i}`);
+      }
+      await compose(shell, h, lines(60));
+      shell.prompt.focus();
+      const cap = Math.floor(40 * PROMPT_CAP_FRACTION);
+      expect(focusOwner(shell.focus)).toBe("prompt");
+      expect(shell.prompt.focused).toBe(true);
+      expect(promptRowCount(shell.prompt)).toBeGreaterThan(shell.prompt.height);
+      expect(shell.layout.heights.prompt).toBe(cap);
+      expect(shell.prompt.scrollY).toBeGreaterThan(0);
+      expect(shell.transcript.scrollTop).toBeGreaterThan(0);
+
+      const promptScroll = shell.prompt.scrollY;
+      const transcriptScroll = shell.transcript.scrollTop;
+      shell.prompt.processMouseEvent(
+        new MouseEvent(shell.prompt, {
+          type: "scroll",
+          button: 4,
+          x: shell.prompt.x,
+          y: shell.prompt.y,
+          modifiers: { shift: false, alt: false, ctrl: false },
+          scroll: { direction: "up", delta: 1 },
+        }),
+      );
+
+      expect(shell.transcript.scrollTop).toBeLessThan(transcriptScroll);
+      expect(shell.prompt.scrollY).toBe(promptScroll);
     });
   });
 });
