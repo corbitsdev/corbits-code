@@ -498,11 +498,14 @@ export type PrimaryOverlayKind =
   | "mcp"
   | "plugin_credentials";
 
-/** Whether the transcript viewport is stuck to the bottom (FOLLOW vs PINNED). */
+/** Whether the transcript viewport is stuck to the bottom (FOLLOW vs PINNED).
+ * The bottom is `scrollTop >= max` only. `max - 1` is one wheel detent up;
+ * treating it as followed makes the next frame's `scrollChildIntoView` yank
+ * the tail back. */
 export function isTranscriptFollowing(shell: AppShell): boolean {
   const { transcript } = shell;
   const max = Math.max(0, transcript.scrollHeight - transcript.height);
-  return transcript.scrollTop >= max - 1;
+  return transcript.scrollTop >= max;
 }
 
 /** Sticky-scroll mode label (surfaced on the notice row only when PINNED). */

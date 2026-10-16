@@ -125,6 +125,39 @@ describe("createAppShell", () => {
     );
   });
 
+  test("one wheel detent up from a followed tail stays off the bottom", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          for (let i = 0; i < 50; i++) {
+            appendTranscript(shell, `seed-${i}`);
+          }
+          await h.renderOnce();
+          const max = Math.max(
+            0,
+            shell.transcript.scrollHeight - shell.transcript.height,
+          );
+          expect(max).toBeGreaterThan(1);
+          expect(isTranscriptFollowing(shell)).toBe(true);
+
+          // One detent, not a multi-tick fling. The next frame must not
+          // treat max - 1 as the tail and scroll it back.
+          shell.transcript.scrollTop = max - 1;
+          await h.renderOnce();
+          expect(shell.transcript.scrollTop).toBe(max - 1);
+          expect(isTranscriptFollowing(shell)).toBe(false);
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("the notice says pinned only while the tail is off screen", async () => {
     await withTestRenderer(
       async (h) => {
