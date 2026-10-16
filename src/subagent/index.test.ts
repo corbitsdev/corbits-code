@@ -342,7 +342,7 @@ describe("sub-agent stop helpers", () => {
     ).toBe("incomplete-report");
   });
 
-  test("evaluateSubAgentStop returns incomplete-report-stop for Summary-only after the wrap-up nudge", () => {
+  test("evaluateSubAgentStop returns incomplete-report-stop after the wrap-up nudge cycle", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: false,
@@ -363,7 +363,7 @@ describe("sub-agent stop helpers", () => {
     ).toBe("stop");
   });
 
-  test("evaluateSubAgentStop nudges once on the first tool-less turn, then stops at the cap", () => {
+  test("evaluateSubAgentStop's toolLessNarrationCycles drives the spiral directly", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: false,

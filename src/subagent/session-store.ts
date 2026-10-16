@@ -11,6 +11,7 @@ import {
   isAlreadyClosed,
   isLiveStrip,
   isResumableLifecycle,
+  isRunEligible,
   projectLifecycleStatus,
   projectStripStatus,
   type WorkerLifecycle,
@@ -840,8 +841,7 @@ export function createSubAgentSessionStore(
   // record never coexists with a live lane: an interrupted worker that
   // resumes starts a new attempt.
   const reconcileTerminalRecord = (session: StoredSession): void => {
-    const state = session.lifecycle.state;
-    if (state === "pending_init" || state === "running") {
+    if (isRunEligible(session.lifecycle)) {
       delete session.failure;
       return;
     }
@@ -892,8 +892,7 @@ export function createSubAgentSessionStore(
   const enforceSettledRunInvariant = (id: string): void => {
     const session = sessions.get(id);
     if (session === undefined || !runInFlight.has(id)) return;
-    const state = session.lifecycle.state;
-    if (state === "pending_init" || state === "running") return;
+    if (isRunEligible(session.lifecycle)) return;
     if (
       interruptHandles.has(id) ||
       closeHandles.has(id) ||
@@ -991,8 +990,7 @@ export function createSubAgentSessionStore(
   // "completed" or "interrupted") is governed by pruneRetained's own cap,
   // not this one.
   const isOpenRetained = (s: StoredSession): boolean =>
-    s.retained === true &&
-    (s.lifecycle.state === "completed" || s.lifecycle.state === "interrupted");
+    isResumableLifecycle(s.retained, s.lifecycle);
 
   const isPinned = (id: string): boolean => (pinCounts.get(id) ?? 0) > 0;
 
@@ -2444,7 +2442,7 @@ export function createSubAgentSessionStore(
           runInFlight.delete(id);
           return;
         }
-        if (state === "pending_init" || state === "running") {
+        if (isRunEligible(session.lifecycle)) {
           session.lifecycle = { state: "interrupted", report };
           session.report = report;
           session.finishedAt = session.finishedAt ?? now();

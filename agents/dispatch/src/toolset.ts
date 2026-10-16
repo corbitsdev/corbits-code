@@ -1,27 +1,3 @@
-// Dispatch primary: orchestrator surface plus fleet discovery (Tier-1 only).
-// Drift against the app's DISPATCH_TOOLS is enforced by the in-tree
-// src/agent/directors/dispatch/package.test.ts.
-export const tools = [
-  "read_file",
-  "grep",
-  "search_files",
-  "list_dir",
-  "lsp",
-  "run_shell",
-  "web_fetch",
-  "web_search",
-  "skill_search",
-  "use_skill",
-  "write_file",
-  "edit_file",
-  "delete_file",
-  "spawn_agent",
-  "list_agents",
-  "close_agent",
-  "resume_agent",
-  "interrupt_agent",
-  "send_input",
-  "approve_worker_call",
-  "read_agent_trace",
-  "search_agents",
-] as const;
+import { DISPATCH_TOOLS } from "../../../src/agent/directors/tool-sets.js";
+
+export const tools = DISPATCH_TOOLS;

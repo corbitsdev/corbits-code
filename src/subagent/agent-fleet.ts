@@ -75,6 +75,7 @@ import {
 } from "./session-store.js";
 import {
   isLiveWaitStatus,
+  isRunEligible,
   projectWaitStatus,
   type WaitJSONStatus,
 } from "./lifecycle.js";
@@ -1035,11 +1036,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   };
   const isOverlapLive = (id: string): boolean => {
     const session = deps.sessions.get(id);
-    return (
-      session !== undefined &&
-      (session.lifecycle.state === "pending_init" ||
-        session.lifecycle.state === "running")
-    );
+    return session !== undefined && isRunEligible(session.lifecycle);
   };
   const isDeclaredReadOnly = (modelRole: ModelRole | undefined): boolean =>
     modelRole === "explore" ||
@@ -1520,9 +1517,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const stillAdmissible = (): boolean => {
         const live = deps.sessions.get(session.id);
         if (live === undefined) return false;
-        const state = live.lifecycle.state;
         // Interrupted lingers on the strip (isLiveStrip) but must not start run().
-        return state === "pending_init" || state === "running";
+        return isRunEligible(live.lifecycle);
       };
 
       const start = (): void => {

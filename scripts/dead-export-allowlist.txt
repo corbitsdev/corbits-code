@@ -14,64 +14,36 @@
 # Public contract of each private @corbits/code-agent-* package (agent-template
 # lane): the custom-agent authoring surface. DIRECTOR_REGISTRY consumes
 # `director`, and src/agent/prompts.ts consumes dispatch's `systemPrompt`, so
-# those names are not listed. `agent` in `agent.ts` is the definition the
-# package entry re-exports.
-agents/dispatch/src/index.ts: agent
-agents/dispatch/src/index.ts: defineAgent
+# those names are not listed. The agent/defineAgent wrappers were deleted with
+# their module (CL-10669): no production importer existed. The default scan
+# counts tools/systemPrompt/config alive through each package's contract test,
+# so they resurface only under the production agent-workspace scan.
 agents/dispatch/src/index.ts: tools
 agents/dispatch/src/index.ts: config
-agents/dispatch/src/agent.ts: agent
-agents/warden/src/index.ts: agent
-agents/warden/src/index.ts: defineAgent
 agents/warden/src/index.ts: tools
 agents/warden/src/index.ts: systemPrompt
 agents/warden/src/index.ts: config
-agents/warden/src/agent.ts: agent
-agents/designer/src/index.ts: agent
-agents/designer/src/index.ts: defineAgent
 agents/designer/src/index.ts: tools
 agents/designer/src/index.ts: systemPrompt
 agents/designer/src/index.ts: config
-agents/designer/src/agent.ts: agent
-agents/reviewer/src/index.ts: agent
-agents/reviewer/src/index.ts: defineAgent
 agents/reviewer/src/index.ts: tools
 agents/reviewer/src/index.ts: systemPrompt
 agents/reviewer/src/index.ts: config
-agents/reviewer/src/agent.ts: agent
-agents/planner/src/index.ts: agent
-agents/planner/src/index.ts: defineAgent
 agents/planner/src/index.ts: tools
 agents/planner/src/index.ts: systemPrompt
 agents/planner/src/index.ts: config
-agents/planner/src/agent.ts: agent
-agents/coder/src/index.ts: agent
-agents/coder/src/index.ts: defineAgent
 agents/coder/src/index.ts: tools
 agents/coder/src/index.ts: systemPrompt
 agents/coder/src/index.ts: config
-agents/coder/src/agent.ts: agent
-agents/explorer/src/index.ts: agent
-agents/explorer/src/index.ts: defineAgent
 agents/explorer/src/index.ts: tools
 agents/explorer/src/index.ts: systemPrompt
 agents/explorer/src/index.ts: config
-agents/explorer/src/agent.ts: agent
-agents/artist/src/index.ts: agent
-agents/artist/src/index.ts: defineAgent
 agents/artist/src/index.ts: tools
 agents/artist/src/index.ts: systemPrompt
 agents/artist/src/index.ts: config
-agents/artist/src/agent.ts: agent
-agents/shakespeare/src/index.ts: agent
-agents/shakespeare/src/index.ts: defineAgent
 agents/shakespeare/src/index.ts: tools
 agents/shakespeare/src/index.ts: systemPrompt
 agents/shakespeare/src/index.ts: config
-agents/shakespeare/src/agent.ts: agent
-agents/prober/src/index.ts: agent
-agents/prober/src/index.ts: defineAgent
 agents/prober/src/index.ts: tools
 agents/prober/src/index.ts: systemPrompt
 agents/prober/src/index.ts: config
-agents/prober/src/agent.ts: agent

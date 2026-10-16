@@ -280,9 +280,9 @@ describe("live knip scan semantics", () => {
       // The re-added allowlist entries match every surfaced finding.
       expect(isAllowlisted(rules, index, "tools")).toBe(true);
       expect(isAllowlisted(rules, index, "config")).toBe(true);
-      expect(isAllowlisted(rules, `${config}/src/agent.ts`, "agent")).toBe(
-        true,
-      );
+      // The agent/defineAgent wrappers were deleted with their module
+      // (CL-10669): no production importer existed, and the surface no
+      // longer carries them in either scan.
     }
     expect(reported("agents/dispatch/src/index.ts", "systemPrompt")).toBe(
       false,

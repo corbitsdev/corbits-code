@@ -82,6 +82,14 @@ export function isAlreadyClosed(lifecycle: WorkerLifecycle): boolean {
   return lifecycle.state === "failed" || lifecycle.state === "shutdown";
 }
 
+/**
+ * A run may still be attached: pending_init or running. Interrupted lingers
+ * as running on the strip (isLiveStrip) but must not start a run.
+ */
+export function isRunEligible(lifecycle: WorkerLifecycle): boolean {
+  return lifecycle.state === "pending_init" || lifecycle.state === "running";
+}
+
 export function isResumableLifecycle(
   retained: boolean | undefined,
   lifecycle: WorkerLifecycle,
