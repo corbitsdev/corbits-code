@@ -1,0 +1,37 @@
+# Corbits Triage policy.
+checks:
+  max-files-changed:
+    enabled: true
+    maxFiles: 25
+  max-lines-changed:
+    enabled: true
+    maxLines: 2500
+  focused:
+    enabled: true
+  docs:
+    enabled: false
+  linked-issue:
+    enabled: true
+    tracker: either
+  no-merge-conflicts:
+    enabled: true
+  ci-green:
+    enabled: true
+  no-forbidden-paths:
+    enabled: true
+    forbiddenGlobs:
+      - node_modules/**
+custom: []
+actions:
+  when:
+    - opened
+    - updated
+    - checks
+    - ready
+  pass: []
+  fail: []
+  unsure: []
+labels:
+  pass: "Triage: Ready"
+  fail: "Triage: Not Ready"
+  unsure: "Triage: Needs Human Review"
