@@ -668,12 +668,12 @@ describe("createSessionPruningCompactor stub fallback", () => {
   });
 
   test.each([
-    ["model unreachable", "verify"],
+    ["model unreachable", undefined],
     ["401 Unauthorized", "auth"],
     ["429 quota exceeded", "quota"],
   ])(
     "verify abort after summarizer failure (%s) keeps prior context and notifies",
-    async (errorMessage, reason) => {
+    async (errorMessage, failureKind) => {
       const notices: string[] = [];
       const kept: number[] = [];
       const folds: { stub: boolean }[] = [];
@@ -792,8 +792,14 @@ describe("createSessionPruningCompactor stub fallback", () => {
       expect(kept).toEqual([1]);
       expect(notices).toHaveLength(1);
       expect(notices[0]?.toLowerCase()).toContain("fail");
-      expect(notices[0]?.toLowerCase()).toContain("verify");
-      expect(notices[0]?.toLowerCase()).toContain(reason);
+      expect(notices[0]?.toLowerCase()).toContain("contradiction");
+      expect(notices[0]).not.toMatch(/\(verify\)/);
+      if (failureKind !== undefined) {
+        expect(notices[0]?.toLowerCase()).toContain(failureKind);
+        expect(notices[0]?.indexOf(failureKind) ?? -1).toBeLessThan(
+          notices[0]?.indexOf("contradiction") ?? -1,
+        );
+      }
       expect(notices[0]).not.toContain("statistics-only stub");
       expect(notices[0]).not.toContain("Compaction interrupted");
     },

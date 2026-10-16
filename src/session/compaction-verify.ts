@@ -47,7 +47,20 @@ export interface VerifyOutcome {
   summary: string;
   repaired: boolean;
   aborted: boolean;
+  /** Set only when the fold must keep prior context. */
+  abortReason?: VerifyAbortReason;
   misses: VerifyMiss[];
+}
+
+export type VerifyAbortReason = "contradiction" | "repair-overflow";
+
+/** Operator-facing cause for a verify keep-prior. Never the bare word "verify". */
+export function verifyAbortNoticeLabel(
+  abortReason: VerifyAbortReason | undefined,
+): string {
+  if (abortReason === "contradiction") return "contradiction";
+  if (abortReason === "repair-overflow") return "repair overflow";
+  return "kept-prior";
 }
 
 export const VERIFY_REPAIR_HEADING = "## Carry-forward (verify repair)";
@@ -391,6 +404,46 @@ export function verifyCompactionSummary(
   return { supported: misses.length === 0, misses };
 }
 
+/** Facts are present even if the text also denies failure. */
+export function continuationTextCarriesFacts(
+  text: string,
+  facts: ContinuationFacts,
+): boolean {
+  return verifyCompactionSummary(text, facts).misses.every(
+    (miss) => miss.kind === "contradiction",
+  );
+}
+
+/** Spine (or summary) explicitly denies failures the dropped turns recorded. */
+export function textDeniesRecordedFailures(
+  text: string,
+  facts: ContinuationFacts,
+): boolean {
+  return facts.blockers.length > 0 && DENIES_FAILURE.test(text);
+}
+
+/**
+ * Keep the carry-forward appendix inside the cap by shrinking model prose
+ * first. A naive head slice drops the critical prefix, which is what made
+ * every over-cap repair abort.
+ */
+function fitRepairWithinCap(repairedFull: string, maxChars: number): string {
+  if (maxChars <= 0) return "";
+  if (repairedFull.length <= maxChars) return repairedFull;
+  const at = repairedFull.indexOf(VERIFY_REPAIR_HEADING);
+  if (at < 0) return repairedFull.slice(0, maxChars);
+  let proseEnd = at;
+  while (proseEnd > 0 && repairedFull[proseEnd - 1] === "\n") proseEnd -= 1;
+  const prose = repairedFull.slice(0, proseEnd);
+  const appendix = repairedFull.slice(proseEnd).replace(/^\n+/, "");
+  if (appendix.length >= maxChars) return appendix.slice(0, maxChars);
+  const room = maxChars - appendix.length - 2;
+  if (room <= 0) return appendix;
+  const kept = prose.slice(0, room).trimEnd();
+  if (kept.length === 0) return appendix;
+  return `${kept}\n\n${appendix}`;
+}
+
 /**
  * Deterministic rewrite: append missing facts verbatim under a repair
  * heading so the next agent resumes with names and wording intact.
@@ -436,10 +489,12 @@ export function repairSummary(
 }
 
 /**
- * Verify a candidate handoff, repairing once or aborting the fold. A
- * contradiction aborts outright: an appended correction cannot retract the
- * handoff's false denial. A truncating repair that still misses any fact
- * aborts too — never ship a lying spine.
+ * Verify a candidate summary, repairing once. A contradiction aborts
+ * outright: an appended correction cannot retract a false denial. When the
+ * repair exceeds the cap, model prose shrinks so the critical prefix is
+ * kept. Residual misses are repair-overflow — the compactor still commits
+ * when the handoff file carries those facts, and aborts only when it does
+ * not. Never treat a truncated repair as a faithful spine.
  */
 export function verifyOrRepair(
   summary: string,
@@ -450,16 +505,33 @@ export function verifyOrRepair(
   if (first.supported)
     return { summary, repaired: false, aborted: false, misses: [] };
   if (first.misses.some((m) => m.kind === "contradiction"))
-    return { summary, repaired: false, aborted: true, misses: first.misses };
+    return {
+      summary,
+      repaired: false,
+      aborted: true,
+      abortReason: "contradiction",
+      misses: first.misses,
+    };
 
   const repairedFull = repairSummary(summary, facts, first.misses);
-  const repaired =
-    repairedFull.length > maxChars
-      ? repairedFull.slice(0, maxChars)
-      : repairedFull;
+  const repaired = fitRepairWithinCap(repairedFull, maxChars);
   const second = verifyCompactionSummary(repaired, facts);
+  if (second.misses.some((m) => m.kind === "contradiction"))
+    return {
+      summary,
+      repaired: false,
+      aborted: true,
+      abortReason: "contradiction",
+      misses: second.misses,
+    };
   if (second.misses.length > 0)
-    return { summary, repaired: false, aborted: true, misses: second.misses };
+    return {
+      summary: repaired,
+      repaired: false,
+      aborted: true,
+      abortReason: "repair-overflow",
+      misses: second.misses,
+    };
   return {
     summary: repaired,
     repaired: true,

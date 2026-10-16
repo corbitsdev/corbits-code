@@ -56,6 +56,7 @@ import {
   createPruningCompactor,
   type CompactionShape,
 } from "./compactor.js";
+import { verifyAbortNoticeLabel } from "./compaction-verify.js";
 import {
   classifySummarizerFailure,
   summarizerStubFallbackNotice,
@@ -479,9 +480,16 @@ export interface SessionPruningCompactorArgs {
 
 function compactionFailedKeepNotice(
   kind: SummarizerFailureClass | undefined,
+  abortReason: unknown,
 ): string {
-  const reason =
-    kind === "auth" || kind === "quota" ? `${kind}, verify` : "verify";
+  const why = verifyAbortNoticeLabel(
+    abortReason === "contradiction" || abortReason === "repair-overflow"
+      ? abortReason
+      : undefined,
+  );
+  // Auth and quota stay first: the operator needs the credential failure
+  // even when verify also refused the fold.
+  const reason = kind === "auth" || kind === "quota" ? `${kind}, ${why}` : why;
   return `Compaction failed — keeping prior context (${reason}).`;
 }
 
@@ -569,7 +577,12 @@ export function createSessionPruningCompactor(
       // interrupted notice.
       if (result.record.decisions.verifyAborted === 1) {
         args.onKeptPrior?.();
-        args.onFailure?.(compactionFailedKeepNotice(pendingFailureKind));
+        args.onFailure?.(
+          compactionFailedKeepNotice(
+            pendingFailureKind,
+            result.record.decisions.verifyAbortReason,
+          ),
+        );
         return result;
       }
       if (
