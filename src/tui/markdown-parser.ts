@@ -200,10 +200,6 @@ function parseLine(line: string): StyledSegment[] {
 
 const FENCE_OPEN_RE = /^\s*(```+|~~~+)/;
 const FENCE_CLOSE_RE = /^\s*(```+|~~~+)\s*$/;
-// A partially-typed closing fence: zero to two lone fence chars on a line
-// (zero = the empty line right after the body). Stripped from the streaming
-// tail so the block does not flicker while the fence is typed.
-const PARTIAL_FENCE_RE = /^\s*[`~]{0,2}\s*$/;
 const INDENTED_CODE_RE = /^(?: {4}|\t)(.*)$/;
 const CODE_GUTTER = "▏ ";
 
@@ -232,48 +228,6 @@ function fencedFoot(): StyledSegment[] {
   return [{ text: "╰", dim: true, codeFence: true }];
 }
 
-// Collect a fenced block from `start`: highlight the body by the fence's
-// language token and frame it with cap/gutter glyphs. An unclosed streaming
-// block drops a partial closing fence so the tail re-highlights cleanly.
-function parseFencedBlock(
-  input: string[],
-  start: number,
-  width: number,
-): FencedBlock {
-  const openerLine = input[start];
-  if (openerLine == null) throw new Error("fence opener missing");
-  const language =
-    openerLine.match(/^\s*(?:```+|~~~+)\s*([^\s`]*)/)?.[1] || undefined;
-  const body: string[] = [];
-  let i = start + 1;
-  let closed = false;
-  for (; i < input.length; i++) {
-    const line = input[i];
-    if (line == null) throw new Error("fence line missing");
-    if (FENCE_CLOSE_RE.test(line)) {
-      closed = true;
-      break;
-    }
-    body.push(line);
-  }
-  const consumed = closed ? i - start + 1 : i - start;
-
-  const last = body[body.length - 1];
-  if (!closed && last != null && PARTIAL_FENCE_RE.test(last)) {
-    body.pop();
-  }
-
-  const capLabel = language && language.length > 0 ? language : "code";
-  const lines: StyledSegment[][] = [fencedCap(capLabel)];
-  if (body.length > 0) {
-    lines.push(
-      ...highlightCode(body.join("\n"), language, width).map(codeGutterPrefix),
-    );
-  }
-  if (closed) lines.push(fencedFoot());
-  return { lines, consumed };
-}
-
 function parseIndentedCodeBlock(
   input: string[],
   start: number,
@@ -298,47 +252,6 @@ function parseIndentedCodeBlock(
   return { lines, consumed: i - start };
 }
 
-export type MemoizedParseMarkdown = ((
-  text: string,
-  width?: number,
-) => StyledSegment[][]) & {
-  clear: () => void;
-};
-
-const DEFAULT_MARKDOWN_CACHE_ENTRIES = 32;
-
-// Segments never change for a fixed (text, width) pair and resize-free
-// re-renders re-ask for the same pair, so a small bounded LRU makes those
-// hits. Callers clear() it with the per-block line cache (event-log.tsx /
-// app.tsx) so it does not grow across a session.
-export function createMemoizedParseMarkdown(
-  maxEntries = DEFAULT_MARKDOWN_CACHE_ENTRIES,
-): MemoizedParseMarkdown {
-  const cache = new Map<string, StyledSegment[][]>();
-
-  const memoized = (text: string, width = Infinity): StyledSegment[][] => {
-    const key = `${width}\x1f${text}`;
-    const cached = cache.get(key);
-    if (cached !== undefined) {
-      // Bump recency by re-inserting at the end of Map's iteration order.
-      cache.delete(key);
-      cache.set(key, cached);
-      return cached;
-    }
-
-    const result = parseMarkdown(text, width);
-    cache.set(key, result);
-    if (cache.size > maxEntries) {
-      const oldestKey = cache.keys().next().value;
-      if (oldestKey !== undefined) cache.delete(oldestKey);
-    }
-    return result;
-  };
-
-  memoized.clear = () => cache.clear();
-  return memoized;
-}
-
 // `width` is the column budget the event log wraps to; tables lay out to it
 // (default Infinity = natural width).
 export function parseMarkdown(
@@ -352,12 +265,17 @@ export function parseMarkdown(
     const line = input[i];
     if (line == null) throw new Error("markdown line missing");
 
-    // Fenced code block (``` or ~~~): collect it whole so the body can be
-    // syntax-highlighted by the fence's language token.
+    // Fenced code (``` / ~~~) paints through MarkdownRenderable. This walker
+    // still has to skip the body so a fence is not re-read as a table or list.
     if (FENCE_OPEN_RE.test(line)) {
-      const block = parseFencedBlock(input, i, width);
-      lines.push(...block.lines);
-      i += block.consumed - 1;
+      let closedAt = -1;
+      for (let j = i + 1; j < input.length; j++) {
+        if (FENCE_CLOSE_RE.test(input[j] ?? "")) {
+          closedAt = j;
+          break;
+        }
+      }
+      i = closedAt === -1 ? input.length - 1 : closedAt;
       continue;
     }
 
@@ -820,9 +738,10 @@ export function splitAtSettledHeading(text: string): MarkdownSplit | null {
 
 /**
  * Split at the last settled block boundary: heading, fence closer, or table
- * row. Null when none has content behind it. The walk mirrors parseMarkdown's
- * dispatch order, so halves render the same apart as together. An unclosed
- * fence consumes to the end; blank lines before the tail collapse to one.
+ * row. Null when none has content behind it. Fence, indented-code, table, and
+ * heading checks stay in that order so a settled block can freeze while the
+ * tail is still streaming. An unclosed fence consumes to the end; blank lines
+ * before the tail collapse to one.
  */
 export function splitAtSettledBlock(withheld: string): MarkdownSplit | null {
   const lines = withheld.split("\n");

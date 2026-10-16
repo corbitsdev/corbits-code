@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defined } from "../../testkit/defined.js";
 import {
-  createMemoizedParseMarkdown,
   nextStreamMarkdownState,
   parseMarkdown,
   splitAtSettledBlock,
@@ -115,74 +113,6 @@ describe("block elements", () => {
     expect(segs).toHaveLength(1);
     expect(segs[0]?.rule).toBe(true);
     expect(segs[0]?.text).not.toContain("-");
-  });
-
-  test("fenced code block renders inner lines as code without inline parsing", () => {
-    const lines = parseMarkdown("```\nconst x = **not bold**\n```");
-    const body = lines.flat().find((s) => s.text.includes("const x"));
-    expect(body?.code).toBe(true);
-    expect(body?.text).toContain("const x = **not bold**");
-    expect(lines[0]?.[0]?.text).toContain("╭");
-  });
-
-  test("a fenced block keeps its language cap with a plain body", () => {
-    const lines = parseMarkdown('```js\nconst x = "hi";\n```');
-    const body = lines.flat().find((s) => s.text.includes("const x"));
-    expect(body?.code).toBe(true);
-    expect(body?.color).toBeUndefined();
-    expect(lines[0]?.map((s) => s.text).join("")).toContain("js");
-  });
-
-  test("an unclosed streaming fence keeps a plain body", () => {
-    const lines = parseMarkdown("```js\nconst x = 1;");
-    const body = lines.flat().find((s) => s.text.includes("const x"));
-    expect(body?.code).toBe(true);
-    expect(body?.color).toBeUndefined();
-  });
-
-  test("drops a half-typed closing fence from the streaming tail", () => {
-    const lines = parseMarkdown("```js\nconst x = 1;\n``");
-    const rendered = lines
-      .flat()
-      .map((s) => s.text)
-      .join("");
-    expect(rendered).not.toContain("``");
-    expect(rendered).toContain("const");
-  });
-
-  test("closing fence streamed one character at a time never shrinks the block", () => {
-    // The newline after the body starts a fresh, empty line that could become
-    // the closing fence. Streaming ` then `` then ``` across it must never
-    // remove an already-visible line (shrink reads as flicker) — only hold
-    // steady or grow as the fence completes.
-    const base = "```js\nconst x = 1;\n";
-    const steps = [base, `${base}\``, `${base}\`\``, `${base}\`\`\``];
-    const lineCounts = steps.map((content) => parseMarkdown(content).length);
-    for (let i = 1; i < lineCounts.length; i++) {
-      expect(lineCounts[i]).toBeGreaterThanOrEqual(defined(lineCounts[i - 1]));
-    }
-  });
-
-  test("blank lines inside a fenced block keep a continuous gutter", () => {
-    const lines = parseMarkdown("```ts\nconst a = 1;\n\nconst b = 2;\n```");
-    // Cap, body, blank, body, foot — every body row carries the gutter so the
-    // frame does not fragment.
-    const gutterLines = lines.filter((line) =>
-      line.some((s) => s.text.includes("▏")),
-    );
-    expect(gutterLines.length).toBeGreaterThanOrEqual(3);
-    // The blank body line is not an empty segment array — it still paints ▏.
-    const blankBody = lines.find(
-      (line) =>
-        line.length === 1 &&
-        line[0]?.text === "▏ " &&
-        line[0]?.codeFence === true,
-    );
-    expect(blankBody).toBeDefined();
-    expect(lines[0]?.some((s) => s.text.includes("╭"))).toBe(true);
-    expect(lines[lines.length - 1]?.some((s) => s.text.includes("╰"))).toBe(
-      true,
-    );
   });
 });
 
@@ -493,54 +423,6 @@ test("link with an empty URL still renders as styled text, not raw characters", 
   expect(link?.text).toBe("docs");
   // No "(...)" suffix for an empty URL, and the text is not split char-by-char.
   expect(segs.some((s) => s.text.includes("("))).toBe(false);
-});
-
-describe("createMemoizedParseMarkdown", () => {
-  test("returns the same array reference for a repeated (text, width) call", () => {
-    const memoized = createMemoizedParseMarkdown();
-    const first = memoized("hello **world**", 80);
-    const second = memoized("hello **world**", 80);
-    expect(second).toBe(first);
-  });
-
-  test("misses on a different width even with identical text", () => {
-    const memoized = createMemoizedParseMarkdown();
-    const at80 = memoized("some prose", 80);
-    const at40 = memoized("some prose", 40);
-    expect(at40).not.toBe(at80);
-    expect(at40).toEqual(parseMarkdown("some prose", 40));
-  });
-
-  test("misses on different text at the same width", () => {
-    const memoized = createMemoizedParseMarkdown();
-    const a = memoized("first", 80);
-    const b = memoized("second", 80);
-    expect(b).not.toBe(a);
-  });
-
-  test("evicts the least recently used entry once over capacity", () => {
-    const memoized = createMemoizedParseMarkdown(2);
-    const a = memoized("a", 80);
-    const b = memoized("b", 80);
-    // Touch "a" again so "b" becomes the least recently used entry.
-    expect(memoized("a", 80)).toBe(a);
-    const c = memoized("c", 80); // over capacity: evicts "b"
-
-    // "b" was evicted: same content, but freshly parsed (not identical).
-    expect(memoized("b", 80)).not.toBe(b);
-    // "c" is still warm — inserted more recently than "a", which the re-fetch
-    // of "b" evicted.
-    expect(memoized("c", 80)).toBe(c);
-  });
-
-  test("clear() drops every cached entry", () => {
-    const memoized = createMemoizedParseMarkdown();
-    const first = memoized("hello", 80);
-    memoized.clear();
-    const second = memoized("hello", 80);
-    expect(second).not.toBe(first);
-    expect(second).toEqual(first);
-  });
 });
 
 describe("withholdIncompleteHeading", () => {
