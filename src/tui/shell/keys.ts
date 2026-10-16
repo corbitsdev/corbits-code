@@ -4,9 +4,9 @@
 import { getLogger } from "@intx/log";
 import {
   ScrollBoxRenderable,
-  type BaseRenderable,
   type KeyEvent,
   type MouseEvent,
+  type Renderable,
 } from "@opentui/core";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 import { badgeCount, pause } from "../delivery-queue.js";
@@ -291,14 +291,15 @@ export function readStopAffordance(shell: AppShell): {
 /**
  * The prompt holds focus all session and has no scrollable content, so
  * wheel events land on it; forward its scrolls to the transcript.
+ * `onMouseScroll` is the native hook. The scroll box still owns acceleration
+ * and the fractional accumulator on `onMouseEvent` — there is no public
+ * equivalent — so the forward calls that method instead of reimplementing it.
  */
 export function routePromptWheelToTranscript(
-  prompt: BaseRenderable,
+  prompt: Renderable,
   transcript: ScrollBoxRenderable,
 ): void {
-  (
-    prompt as unknown as { onMouseEvent: (event: MouseEvent) => void }
-  ).onMouseEvent = (event: MouseEvent) => {
+  prompt.onMouseScroll = (event: MouseEvent) => {
     if (event.type !== "scroll") return;
     (
       transcript as unknown as { onMouseEvent: (event: MouseEvent) => void }

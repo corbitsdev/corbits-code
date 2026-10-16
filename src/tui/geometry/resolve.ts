@@ -1,6 +1,15 @@
 // Pure: terminal size + zone visibility + overlay mode → rects. No I/O.
 
-import { resolveContentWidth, resolveSideMargin } from "./zones.js";
+import {
+  Align,
+  Direction,
+  Display,
+  Edge,
+  FlexDirection,
+  Justify,
+  Node,
+  PositionType,
+} from "@opentui/core/yoga";
 import {
   COLLAPSE_ORDER,
   FLEET_BOARD_CAP_FRACTION,
@@ -13,6 +22,8 @@ import {
   PROMPT_CAP_FRACTION,
   PROMPT_IDLE_ROWS,
   ZONE_REGISTRY,
+  resolveContentWidth,
+  resolveSideMargin,
   type ZoneId,
 } from "./zones.js";
 
@@ -300,26 +311,80 @@ function collapseOnce(
   return null;
 }
 
-function assignRects(
+function roundLayout(n: number): number {
+  return Math.round(n);
+}
+
+/**
+ * Place already-collapsed zone heights with Yoga. The ordered collapse pass
+ * stays in TypeScript: unequal `flexShrink` weights (the usual priority
+ * trick) make this Yoga build stop shrinking and overflow the column, and
+ * equal weights shrink zones together instead of in `COLLAPSE_ORDER`.
+ * Gutters are root padding; each zone is a column item with its height
+ * locked (basis, min, and max) so the native layout is the rect source.
+ */
+function layoutRects(
   heights: MutableHeights,
   terminal: TerminalSize,
 ): Partial<Record<ZoneId, Rect>> {
-  const regions: Partial<Record<ZoneId, Rect>> = {};
-  const x = resolveSideMargin(terminal.columns);
-  const contentWidth = resolveContentWidth(terminal.columns);
-  let y = 0;
-  for (const id of PAINT_ORDER) {
-    const height = heights[id];
-    if (height <= 0) continue;
-    regions[id] = {
-      x,
-      y,
-      width: contentWidth,
-      height,
-    };
-    y += height;
+  const sideMargin = resolveSideMargin(terminal.columns);
+  const root = Node.create();
+  try {
+    root.setWidth(terminal.columns);
+    root.setHeight(terminal.rows);
+    root.setFlexDirection(FlexDirection.Column);
+    root.setJustifyContent(Justify.FlexStart);
+    root.setAlignItems(Align.Stretch);
+    root.setDisplay(Display.Flex);
+    root.setPositionType(PositionType.Relative);
+    root.setPadding(Edge.Left, sideMargin);
+    root.setPadding(Edge.Right, sideMargin);
+    root.setPadding(Edge.Top, 0);
+    root.setPadding(Edge.Bottom, 0);
+
+    const placed: ZoneId[] = [];
+    for (const id of PAINT_ORDER) {
+      const height = heights[id];
+      if (height <= 0) continue;
+      const child = Node.create();
+      child.setDisplay(Display.Flex);
+      child.setPositionType(PositionType.Relative);
+      child.setFlexDirection(FlexDirection.Column);
+      child.setFlexGrow(0);
+      child.setFlexShrink(0);
+      child.setFlexBasis(height);
+      child.setHeight(height);
+      child.setMinHeight(height);
+      child.setMaxHeight(height);
+      child.setWidthPercent(100);
+      child.setMargin(Edge.Left, 0);
+      child.setMargin(Edge.Right, 0);
+      child.setMargin(Edge.Top, 0);
+      child.setMargin(Edge.Bottom, 0);
+      root.insertChild(child, root.getChildCount());
+      placed.push(id);
+    }
+
+    root.calculateLayout(terminal.columns, terminal.rows, Direction.LTR);
+
+    const regions: Partial<Record<ZoneId, Rect>> = {};
+    for (let index = 0; index < placed.length; index += 1) {
+      const id = placed[index];
+      if (id === undefined) continue;
+      const child = root.getChild(index);
+      if (child === null) continue;
+      const layout = child.getComputedLayout();
+      regions[id] = {
+        x: roundLayout(layout.left),
+        y: roundLayout(layout.top),
+        width: roundLayout(layout.width),
+        height: roundLayout(layout.height),
+      };
+    }
+    return regions;
+  } finally {
+    root.freeRecursive();
   }
-  return regions;
 }
 
 /** Resolve shell region rects from terminal size, optional chrome, and
@@ -426,7 +491,7 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
     heights.transcript += terminal.rows - assigned;
   }
 
-  const regions = assignRects(heights, terminal);
+  const regions = layoutRects(heights, terminal);
 
   return {
     terminal,
