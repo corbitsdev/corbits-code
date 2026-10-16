@@ -1,7 +1,8 @@
 /**
  * Transcript link targets: painted-line geometry plus markdown resolution
- * through childless library renderers. Span scanning, wrapped-URL fusion,
- * and the open gate live in link-spans, link-wrap, link-open.
+ * through childless library renderers. Span scanning and wrapped-URL fusion
+ * live in link-spans; the open gate lives in link-open. Fenced code gets
+ * bare URLs from Code `onHighlight` / `onChunks` (`detectLinks`).
  */
 import {
   CodeRenderable,
@@ -10,20 +11,22 @@ import {
   TextAttributes,
   TextRenderable,
   bold as boldChunk,
+  detectLinks,
   fg as fgChunk,
   link as linkChunk,
   underline as underlineChunk,
   type CliRenderer,
   type LineInfo,
   type MouseEvent,
+  type SimpleHighlight,
   type TextChunk,
 } from "@opentui/core";
 import { stringWidth } from "./view/height.js";
 import { isOpenableUrl, isUrlOpenClick, openUrl } from "./link-open.js";
 import {
   findLinks,
+  linkHits,
   trimUrlEnd,
-  type LinkHit,
   type LinkSpan,
 } from "./link-spans.js";
 import { UI } from "./theme.js";
@@ -198,69 +201,54 @@ export function isUnderlined(attributes: number): boolean {
  */
 const CONCEALABLE = new Set(["[", "]", "(", ")"]);
 
-/** Inline `[label](target)` links in one source line: label and target
- * both open the target. Images are skipped (no click behavior is
- * specified). */
-function findMarkdownLinks(line: string): LinkHit[] {
-  const spans: LinkHit[] = [];
-  const pattern = /\[([^\]]*)\]\(([^)\s]+)\)/g;
-  for (const match of line.matchAll(pattern)) {
+/**
+ * Inline `[label](target)` and bare http(s) ranges, resolved by
+ * `detectLinks`. Images are `markup.raw` so neither the label nor the
+ * destination opens. A label that is itself a URL stays a bare hit (it
+ * opens the label text, not the markdown target).
+ */
+function markdownHighlights(line: string): SimpleHighlight[] {
+  const highlights: SimpleHighlight[] = [];
+  for (const match of line.matchAll(/!\[[^\]]*\]\(([^)\s]+)\)/g)) {
+    const start = match.index ?? 0;
+    highlights.push([start, start + match[0].length, "markup.raw"]);
+  }
+  for (const match of line.matchAll(/\[([^\]]*)\]\(([^)\s]+)\)/g)) {
     const index = match.index ?? 0;
     if (index > 0 && line[index - 1] === "!") continue;
     const url = match[2] ?? "";
     const rawStart = index + match[0].lastIndexOf(url);
     const end = trimUrlEnd(line, rawStart, rawStart + url.length);
     if (end <= rawStart) continue;
-    const target = line.slice(rawStart, end);
     const label = match[1] ?? "";
-    if (label.length > 0)
-      spans.push({
-        url: target,
-        start: index + 1,
-        end: index + 1 + label.length,
-      });
-    spans.push({ url: target, start: rawStart, end });
+    if (label.length > 0 && !labelIsBareUrl(label)) {
+      highlights.push([
+        index + 1,
+        index + 1 + label.length,
+        "markup.link.label",
+      ]);
+    }
+    highlights.push([rawStart, end, "markup.link.url"]);
   }
-  return spans;
+  return highlights;
 }
 
-/** Whole `![label](target)` ranges: bare-URL scanning cannot tell image
- * markup from links, so the resolver discards bare matches touching them;
- * images stay non-openable. */
-function findImageRanges(line: string): { start: number; end: number }[] {
-  const ranges: { start: number; end: number }[] = [];
-  for (const match of line.matchAll(/!\[[^\]]*\]\(([^)\s]+)\)/g)) {
-    const start = match.index ?? 0;
-    ranges.push({ start, end: start + match[0].length });
-  }
-  return ranges;
+/** True when the label text is exactly one bare http(s) URL. */
+function labelIsBareUrl(label: string): boolean {
+  const hits = findLinks(label);
+  return (
+    hits.length === 1 && hits[0]?.start === 0 && hits[0].end === label.length
+  );
 }
 
 /**
- * Link target under one source offset: bare URLs first (URL-shaped labels
- * stay clickable), then inline `[label](target)` spans. A bare match fused
- * across a span boundary or inside image markup is a matcher artifact, so
- * only a bare match fully inside one span — or touching none — counts.
+ * Link target under one source offset. `detectLinks` applies bare URLs and
+ * the markdown label/destination highlights above; image raw ranges are
+ * omitted.
  */
 function markdownUrlAt(line: string, offset: number): string | null {
-  const spans = findMarkdownLinks(line);
-  const images = findImageRanges(line);
-  for (const hit of findLinks(line)) {
-    if (offset >= hit.start && offset < hit.end) {
-      const fused = spans.some(
-        (span) =>
-          hit.start < span.end &&
-          hit.end > span.start &&
-          (hit.start < span.start || hit.end > span.end),
-      );
-      const imaged = images.some(
-        (image) => hit.start < image.end && hit.end > image.start,
-      );
-      if (!fused && !imaged) return hit.url;
-    }
-  }
-  for (const span of spans) {
-    if (offset >= span.start && offset < span.end) return span.url;
+  for (const hit of linkHits(line, markdownHighlights(line))) {
+    if (offset >= hit.start && offset < hit.end) return hit.url;
   }
   return null;
 }
@@ -416,4 +404,25 @@ export function armMarkdownLinks(
     }
     press = null;
   };
+}
+
+/**
+ * Fenced code is a Code renderable without markdown's link callbacks.
+ * `onHighlight` keeps the tree-sitter groups; `onChunks` is `detectLinks`,
+ * so a bare URL becomes an OSC-8 span and survives native wrap. Markdown
+ * prose already sets both — do not replace those, or conceal regresses.
+ */
+export function armCodeLinks(node: Renderable): void {
+  const walk = (current: Renderable): void => {
+    if (current instanceof CodeRenderable) {
+      if (current.onHighlight === undefined) {
+        current.onHighlight = (highlights) => highlights;
+      }
+      if (current.onChunks === undefined) {
+        current.onChunks = (chunks, context) => detectLinks(chunks, context);
+      }
+    }
+    for (const child of current.getChildren()) walk(child);
+  };
+  walk(node);
 }

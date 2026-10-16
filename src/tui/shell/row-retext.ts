@@ -15,7 +15,7 @@ import {
 } from "@opentui/core";
 import { stringWidth } from "../view/height.js";
 import { viewToTableContent, type McpStructuredView } from "../mcp-view.js";
-import { paintLinkLine } from "../url-links.js";
+import { paintLinkLine } from "../code-links.js";
 import { splitLinkSpans } from "../link-spans.js";
 import {
   splitTrailingArrow,

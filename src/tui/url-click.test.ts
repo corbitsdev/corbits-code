@@ -9,14 +9,14 @@
  * (docs/TUI.md); headless, the mock delivers it like any click.
  */
 import { describe, expect, test } from "bun:test";
-import { TextRenderable } from "@opentui/core";
+import { TextRenderable, CodeRenderable, type Renderable } from "@opentui/core";
 
 import { defined } from "../../testkit/defined.js";
 import { withTestRenderer, type Harness } from "./harness";
 import { appendStreamRow, replaceStreamRowAt } from "./shell/chrome";
 import type { AppShell } from "./shell/internals";
 import { withAppShell } from "./test-helpers";
-import { isUnderlined, markdownLinkAt, paintLinkLine } from "./url-links";
+import { isUnderlined, markdownLinkAt, paintLinkLine } from "./code-links";
 import { isOpenableUrl, resetUrlOpener, setUrlOpener } from "./link-open";
 import { splitLinkSpans } from "./link-spans";
 import { type StreamRow } from "./stream";
@@ -279,6 +279,33 @@ describe("Ctrl+clicking a transcript URL", () => {
     }, 40);
   });
 
+  test("a fenced-code bare URL is an OSC8 link and opens on Ctrl+click", async () => {
+    await withUrlShell(async (shell, h, opened) => {
+      appendStreamRow(shell, {
+        role: "assistant",
+        text: "```js\nsee https://example.com/fence ok\n```",
+      });
+      const cell = await waitForPaintedCell(h, "example.com/fence");
+      const fence = codeNodes(shell.renderer.root).find((node) =>
+        node.content.includes("example.com/fence"),
+      );
+      expect(fence?.onHighlight).toBeDefined();
+      expect(fence?.onChunks).toBeDefined();
+      const linked = await waitForLinkAt(
+        h,
+        cell.x,
+        cell.y,
+        "https://example.com/fence",
+      );
+      expect(linked).toBe("https://example.com/fence");
+      await h.mockMouse.click(cell.x, cell.y, 0, {
+        modifiers: { ctrl: true },
+      });
+      await h.renderOnce();
+      expect(opened).toEqual(["https://example.com/fence"]);
+    });
+  });
+
   test("assistant markdown bare URL and link label open on Ctrl+click", async () => {
     await withUrlShell(async (shell, h, opened) => {
       // Markdown blocks paint through childless library renderers, so only
@@ -528,6 +555,39 @@ describe("transcript markdown resolver edges (CL-7955)", () => {
     });
   });
 });
+
+/** Code renderables under `root`, including fenced blocks inside markdown. */
+function codeNodes(root: Renderable): CodeRenderable[] {
+  const found: CodeRenderable[] = [];
+  const walk = (node: Renderable): void => {
+    if (node instanceof CodeRenderable) found.push(node);
+    for (const child of node.getChildren()) walk(child);
+  };
+  walk(root);
+  return found;
+}
+
+/** Poll until the cell's OSC-8 target is `url` (highlighting is async). */
+async function waitForLinkAt(
+  h: {
+    renderOnce: () => Promise<void>;
+    renderer: { getLinkAt(x: number, y: number): string | null };
+  },
+  x: number,
+  y: number,
+  url: string,
+  timeoutMs = 2000,
+): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  let found: string | null = null;
+  for (;;) {
+    await h.renderOnce();
+    found = h.renderer.getLinkAt(x, y);
+    if (found === url) return found;
+    if (Date.now() > deadline) return found;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
 
 /** Poll until `needle` paints, rendering between tries. */
 async function waitForPaintedCell(

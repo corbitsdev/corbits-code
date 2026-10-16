@@ -74,7 +74,7 @@ import {
   submitPrompt,
   syncPromptHighlights,
 } from "./prompt.js";
-import { armMarkdownLinks } from "../url-links.js";
+import { armMarkdownLinks } from "../code-links.js";
 import { NO_WORKER_WAIT } from "../worker-wait.js";
 import { NO_OPERATOR_INPUT_REQUIRED } from "../operator-input-required.js";
 import { NO_QUEUED_INPUT } from "../queued-input.js";

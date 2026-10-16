@@ -13,9 +13,17 @@ import {
 } from "@opentui/core";
 import { stringWidth } from "../view/height.js";
 import { viewToTableContent, type McpStructuredView } from "../mcp-view.js";
-import { armLinkLine, buildLinkLine, paintLinkLine } from "../url-links.js";
-import { findLinks, splitLinkSpans } from "../link-spans.js";
-import { splitWrappedLinkSpans } from "../link-wrap.js";
+import {
+  armCodeLinks,
+  armLinkLine,
+  buildLinkLine,
+  paintLinkLine,
+} from "../code-links.js";
+import {
+  findLinks,
+  splitLinkSpans,
+  splitWrappedLinkSpans,
+} from "../link-spans.js";
 import {
   nextStreamMarkdownState,
   splitAtSettledBlock,
@@ -212,6 +220,7 @@ function retextStreamRowBody(
     bodyNode.width = width;
     bodyNode.content = content;
     bodyNode.streaming = row.streaming === true;
+    armCodeLinks(bodyNode);
     return true;
   }
 
@@ -238,11 +247,13 @@ function retextStreamRowBody(
   frozenNode.width = width;
   if (transition.paintFrozen) {
     frozenNode.content = split.frozen;
+    armCodeLinks(frozenNode);
     liveNode.marginTop = split.gapRows;
   }
   liveNode.width = width;
   liveNode.content = split.live;
   liveNode.streaming = streaming;
+  armCodeLinks(liveNode);
   return true;
 }
 
@@ -435,28 +446,30 @@ function createMarkdownBody(
   const split = splitAtSettledBlock(content);
   if (split === null) {
     // Native incremental block stability: only the trailing block is unstable.
-    return new MarkdownRenderable(ctx, {
+    const body = new MarkdownRenderable(ctx, {
       ...markdownBodyOptions(ctx, gutter, width),
       content,
       streaming: row.streaming === true,
     });
+    armCodeLinks(body);
+    return body;
   }
   const column = new BoxRenderable(ctx, { flexDirection: "column", width });
-  column.add(
-    new MarkdownRenderable(ctx, {
-      ...markdownBodyOptions(ctx, gutter, width),
-      content: split.frozen,
-      streaming: false,
-    }),
-  );
-  column.add(
-    new MarkdownRenderable(ctx, {
-      ...markdownBodyOptions(ctx, gutter, width),
-      content: split.live,
-      streaming: row.streaming === true,
-      marginTop: split.gapRows,
-    }),
-  );
+  const frozen = new MarkdownRenderable(ctx, {
+    ...markdownBodyOptions(ctx, gutter, width),
+    content: split.frozen,
+    streaming: false,
+  });
+  const live = new MarkdownRenderable(ctx, {
+    ...markdownBodyOptions(ctx, gutter, width),
+    content: split.live,
+    streaming: row.streaming === true,
+    marginTop: split.gapRows,
+  });
+  armCodeLinks(frozen);
+  armCodeLinks(live);
+  column.add(frozen);
+  column.add(live);
   splitBodyMemory.set(column, {
     content,
     frozen: split.frozen,
