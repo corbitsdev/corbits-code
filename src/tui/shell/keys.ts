@@ -78,11 +78,8 @@ import { canPopFocus, focusOwner, popFocus } from "../focus/index.js";
 import {
   beginYank,
   breakKillSequence,
-  readKillToLineEnd,
-  readKillToLineStart,
-  readKillWordBackward,
-  readKillWordForward,
   recordKill,
+  removedByDelete,
   rotateYank,
 } from "../prompt-kill-ring.js";
 import {
@@ -311,6 +308,29 @@ export function routePromptWheelToTranscript(
 interface ShellKeyHandlers {
   onKey: (key: KeyEvent) => void;
   onPaste: (event: { bytes: Uint8Array; preventDefault: () => void }) => void;
+}
+
+function killThenRecord(
+  shell: AppShell,
+  direction: "forward" | "backward",
+  remove: (prompt: AppShell["prompt"]) => void,
+): void {
+  const before = shell.prompt.value;
+  remove(shell.prompt);
+  const after = shell.prompt.value;
+  const removal = removedByDelete(before, after);
+  // deleteRange can leave the caret past a grapheme it snapped off. Yank
+  // inserts at the caret, so park it where the lost span splices back in.
+  if (removal.text.length > 0) {
+    shell.prompt.cursorOffset = shell.prompt.editBuffer.measureText(
+      after.slice(0, removal.at),
+    );
+  }
+  shell.promptKillRing = recordKill(
+    shell.promptKillRing,
+    removal.text,
+    direction,
+  );
 }
 
 /**
@@ -634,49 +654,33 @@ export function createShellKeyHandlers(
 
     if (key.ctrl && !key.meta && !key.option && keyName === "k") {
       key.preventDefault();
-      const killed = readKillToLineEnd(shell.prompt);
-      shell.prompt.deleteToLineEnd();
-      shell.promptKillRing = recordKill(
-        shell.promptKillRing,
-        killed,
-        "forward",
-      );
+      killThenRecord(shell, "forward", (prompt) => {
+        prompt.deleteToLineEnd();
+      });
       return;
     }
 
     if (key.ctrl && !key.meta && !key.option && keyName === "u") {
       key.preventDefault();
-      const killed = readKillToLineStart(shell.prompt);
-      shell.prompt.deleteToLineStart();
-      shell.promptKillRing = recordKill(
-        shell.promptKillRing,
-        killed,
-        "backward",
-      );
+      killThenRecord(shell, "backward", (prompt) => {
+        prompt.deleteToLineStart();
+      });
       return;
     }
 
     if (key.ctrl && !key.meta && !key.option && keyName === "w") {
       key.preventDefault();
-      const killed = readKillWordBackward(shell.prompt);
-      shell.prompt.deleteWordBackward();
-      shell.promptKillRing = recordKill(
-        shell.promptKillRing,
-        killed,
-        "backward",
-      );
+      killThenRecord(shell, "backward", (prompt) => {
+        prompt.deleteWordBackward();
+      });
       return;
     }
 
     if ((key.meta || key.option) && !key.ctrl && keyName === "d") {
       key.preventDefault();
-      const killed = readKillWordForward(shell.prompt);
-      shell.prompt.deleteWordForward();
-      shell.promptKillRing = recordKill(
-        shell.promptKillRing,
-        killed,
-        "forward",
-      );
+      killThenRecord(shell, "forward", (prompt) => {
+        prompt.deleteWordForward();
+      });
       return;
     }
 

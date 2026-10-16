@@ -2,14 +2,12 @@
  * Readline-style kill ring for the OpenTUI prompt.
  *
  * Textarea and Input delete actions discard the removed text (they return
- * only whether they handled the key). The ring reads that span from the
- * edit buffer — `getTextRange` on the cursor the native delete is about to
- * use — then the shell runs the native action and records the span via
- * `recordKill`. `beginYank` / `rotateYank` hand back text for the shell to
- * splice in.
+ * only whether they handled the key). The shell snapshots the buffer, runs
+ * the native delete, and records what `removedByDelete` says the buffer
+ * actually lost — a cursor-offset read can name a grapheme `deleteRange`
+ * snapped past or refused. `beginYank` / `rotateYank` hand back text for
+ * the shell to splice in.
  */
-
-import type { PromptInput } from "./prompt-input.js";
 
 export const KILL_RING_MAX = 10;
 
@@ -117,52 +115,36 @@ export function rotateYank(
   };
 }
 
-function rangeText(prompt: PromptInput, start: number, end: number): string {
-  return prompt.editBuffer.getTextRange(start, end);
-}
-
-/** Span `deleteToLineEnd` is about to drop. The native call ignores a selection. */
-export function readKillToLineEnd(prompt: PromptInput): string {
-  const cursor = prompt.editBuffer.getCursorPosition();
-  return rangeText(prompt, cursor.offset, prompt.editBuffer.getEOL().offset);
-}
-
 /**
- * Span `deleteToLineStart` is about to drop: the current line back to column
- * 0, or the preceding newline when the cursor is already at column 0.
+ * Contiguous span `after` is missing from `before`.
+ *
+ * `deleteRange` no-ops or snaps when the caret sits inside a wide cell, and
+ * `getTextRange` still returns the overlapping grapheme. Recording that
+ * prediction yanks text the buffer never lost. `text` is empty when nothing
+ * was deleted or the change is not a pure deletion. `at` is the code-unit
+ * index of the span in `before` (and where it splices back into `after`).
  */
-export function readKillToLineStart(prompt: PromptInput): string {
-  const cursor = prompt.editBuffer.getCursorPosition();
-  if (cursor.col > 0) {
-    return rangeText(
-      prompt,
-      prompt.editBuffer.getLineStartOffset(cursor.row),
-      cursor.offset,
-    );
+export function removedByDelete(
+  before: string,
+  after: string,
+): { text: string; at: number } {
+  if (after.length > before.length || before === after)
+    return { text: "", at: 0 };
+  let at = 0;
+  while (at < after.length && before.charCodeAt(at) === after.charCodeAt(at)) {
+    at += 1;
   }
-  if (cursor.row > 0)
-    return rangeText(prompt, cursor.offset - 1, cursor.offset);
-  return "";
-}
-
-/** Span `deleteWordForward` is about to drop, including a live selection. */
-export function readKillWordForward(prompt: PromptInput): string {
-  if (prompt.hasSelection()) return prompt.getSelectedText();
-  const cursor = prompt.editBuffer.getCursorPosition();
-  return rangeText(
-    prompt,
-    cursor.offset,
-    prompt.editBuffer.getNextWordBoundary().offset,
-  );
-}
-
-/** Span `deleteWordBackward` is about to drop, including a live selection. */
-export function readKillWordBackward(prompt: PromptInput): string {
-  if (prompt.hasSelection()) return prompt.getSelectedText();
-  const cursor = prompt.editBuffer.getCursorPosition();
-  return rangeText(
-    prompt,
-    prompt.editBuffer.getPrevWordBoundary().offset,
-    cursor.offset,
-  );
+  let beforeEnd = before.length;
+  let afterEnd = after.length;
+  while (
+    afterEnd > at &&
+    before.charCodeAt(beforeEnd - 1) === after.charCodeAt(afterEnd - 1)
+  ) {
+    beforeEnd -= 1;
+    afterEnd -= 1;
+  }
+  if (after !== `${before.slice(0, at)}${before.slice(beforeEnd)}`) {
+    return { text: "", at: 0 };
+  }
+  return { text: before.slice(at, beforeEnd), at };
 }

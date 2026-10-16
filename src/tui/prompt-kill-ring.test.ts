@@ -7,6 +7,7 @@ import {
   breakKillSequence,
   emptyKillRing,
   recordKill,
+  removedByDelete,
   rotateYank,
 } from "./prompt-kill-ring";
 
@@ -43,6 +44,21 @@ describe("recordKill / beginYank", () => {
   test("empty kill text is a no-op that still breaks the sequence", () => {
     const ring = recordKill(emptyKillRing, "", "forward");
     expect(ring).toEqual(emptyKillRing);
+  });
+});
+
+describe("removedByDelete", () => {
+  test("an unchanged buffer records nothing", () => {
+    expect(removedByDelete("你", "你")).toEqual({ text: "", at: 0 });
+  });
+
+  test("records the grapheme deleteRange dropped, not the overlapping tail", () => {
+    expect(removedByDelete("你好!", "你!")).toEqual({ text: "好", at: 1 });
+    expect(removedByDelete("ab你cd", "abd")).toEqual({ text: "你c", at: 2 });
+  });
+
+  test("a replacement that is not a pure deletion records nothing", () => {
+    expect(removedByDelete("abcd", "abXd")).toEqual({ text: "", at: 0 });
   });
 });
 
@@ -173,6 +189,66 @@ describe("prompt kill ring chords", () => {
       expect(shell.prompt.value).toBe("newer");
       h.pressKey("y", { meta: true });
       expect(shell.prompt.value).toBe("older");
+    });
+  });
+
+  test("ctrl+k then ctrl+y on a parked wide glyph leaves it unchanged", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      });
+      shell.prompt.value = "你";
+      h.pressKey("k", { ctrl: true });
+      expect(shell.prompt.value).toBe("你");
+      expect(shell.promptKillRing.entries).toEqual([]);
+      h.pressKey("y", { ctrl: true });
+      expect(shell.prompt.value).toBe("你");
+    });
+  });
+
+  test("ctrl+k then ctrl+y restores a parked CJK line", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      });
+      shell.prompt.value = "你好!";
+      h.pressKey("k", { ctrl: true });
+      h.pressKey("y", { ctrl: true });
+      expect(shell.prompt.value).toBe("你好!");
+    });
+  });
+
+  test("ctrl+w inside a wide glyph records nothing when the delete does not", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      });
+      shell.prompt.value = "ab你cd";
+      shell.prompt.cursorOffset = 3;
+      h.pressKey("w", { ctrl: true });
+      expect(shell.prompt.value).toBe("ab你cd");
+      expect(shell.promptKillRing.entries).toEqual([]);
+      h.pressKey("y", { ctrl: true });
+      expect(shell.prompt.value).toBe("ab你cd");
+    });
+  });
+
+  test("alt+d yank restores only the span deleteRange removed", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      });
+      shell.prompt.value = "ab你cd";
+      shell.prompt.cursorOffset = 3;
+      h.pressKey("d", { meta: true });
+      expect(shell.prompt.value).toBe("abd");
+      expect(shell.promptKillRing.entries[0]).toBe("你c");
+      h.pressKey("y", { ctrl: true });
+      expect(shell.prompt.value).toBe("ab你cd");
     });
   });
 });
