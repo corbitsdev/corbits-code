@@ -1,12 +1,12 @@
 /**
  * Readline-style kill ring for the OpenTUI prompt.
  *
- * InputRenderable implements the delete and word-motion keys natively but
- * discards the deleted text, so yank has nothing to restore. This module is
- * the pure, testable half of that gap: shell.ts runs the native deletes,
- * diffs value/cursor to learn what was removed, and records it via
- * `recordKill`; `beginYank` / `rotateYank` hand back text for shell.ts to
- * splice in.
+ * Textarea and Input delete actions discard the removed text (they return
+ * only whether they handled the key). The shell snapshots the buffer, runs
+ * the native delete, and records what `removedByDelete` says the buffer
+ * actually lost — a cursor-offset read can name a grapheme `deleteRange`
+ * snapped past or refused. `beginYank` / `rotateYank` hand back text for
+ * the shell to splice in.
  */
 
 export const KILL_RING_MAX = 10;
@@ -116,29 +116,59 @@ export function rotateYank(
 }
 
 /**
- * Forward kill (Ctrl+K, Alt+D): the cursor does not move, so the killed text
- * is the pre-delete slice at the pre-delete cursor, sized by the shrink.
+ * Contiguous span `after` is missing from `before`.
+ *
+ * `deleteRange` no-ops or snaps when the caret sits inside a wide cell, and
+ * `getTextRange` still returns the overlapping grapheme. Recording that
+ * prediction yanks text the buffer never lost. `text` is empty when nothing
+ * was deleted or the change is not a pure deletion. `at` is the code-unit
+ * index of the span in `before` (and where it splices back into `after`).
+ *
+ * A repeated span has more than one such index. The longest common prefix
+ * is the rightmost, which is the other copy. `hole` is the native caret in
+ * `after` (display cells, via `measure`). The span whose splice point lands
+ * on that caret wins; if the caret sits on none of them, the longest common
+ * prefix stands so a snapped wide cell can still be parked.
  */
-export function killedTextForward(
-  beforeValue: string,
-  beforeCursor: number,
-  afterValue: string,
-): string {
-  const removedLen = beforeValue.length - afterValue.length;
-  if (removedLen <= 0) return "";
-  return beforeValue.slice(beforeCursor, beforeCursor + removedLen);
-}
-
-/**
- * Backward kill (Ctrl+U, Ctrl+W): the cursor moves back to the deletion
- * start, so the killed text is the pre-delete slice between the new and old
- * cursor.
- */
-export function killedTextBackward(
-  beforeValue: string,
-  beforeCursor: number,
-  afterCursor: number,
-): string {
-  if (afterCursor >= beforeCursor) return "";
-  return beforeValue.slice(afterCursor, beforeCursor);
+export function removedByDelete(
+  before: string,
+  after: string,
+  hole?: { caret: number; measure: (text: string) => number },
+): { text: string; at: number } {
+  if (after.length > before.length || before === after)
+    return { text: "", at: 0 };
+  let at = 0;
+  while (at < after.length && before.charCodeAt(at) === after.charCodeAt(at)) {
+    at += 1;
+  }
+  let beforeEnd = before.length;
+  let afterEnd = after.length;
+  while (
+    afterEnd > at &&
+    before.charCodeAt(beforeEnd - 1) === after.charCodeAt(afterEnd - 1)
+  ) {
+    beforeEnd -= 1;
+    afterEnd -= 1;
+  }
+  if (after !== `${before.slice(0, at)}${before.slice(beforeEnd)}`) {
+    return { text: "", at: 0 };
+  }
+  const removedLen = beforeEnd - at;
+  let chosen = at;
+  if (hole !== undefined && removedLen > 0) {
+    let min = at;
+    while (
+      min > 0 &&
+      before.charCodeAt(min - 1) === before.charCodeAt(min - 1 + removedLen)
+    ) {
+      min -= 1;
+    }
+    for (let candidate = min; candidate < at; candidate += 1) {
+      if (hole.measure(after.slice(0, candidate)) === hole.caret) {
+        chosen = candidate;
+        break;
+      }
+    }
+  }
+  return { text: before.slice(chosen, chosen + removedLen), at: chosen };
 }

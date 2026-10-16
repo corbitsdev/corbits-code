@@ -78,9 +78,8 @@ import { canPopFocus, focusOwner, popFocus } from "../focus/index.js";
 import {
   beginYank,
   breakKillSequence,
-  killedTextBackward,
-  killedTextForward,
   recordKill,
+  removedByDelete,
   rotateYank,
 } from "../prompt-kill-ring.js";
 import {
@@ -309,6 +308,34 @@ export function routePromptWheelToTranscript(
 interface ShellKeyHandlers {
   onKey: (key: KeyEvent) => void;
   onPaste: (event: { bytes: Uint8Array; preventDefault: () => void }) => void;
+}
+
+function killThenRecord(
+  shell: AppShell,
+  direction: "forward" | "backward",
+  remove: (prompt: AppShell["prompt"]) => void,
+): void {
+  const before = shell.prompt.value;
+  remove(shell.prompt);
+  const after = shell.prompt.value;
+  const measure = (prefix: string): number =>
+    shell.prompt.editBuffer.measureText(prefix);
+  const removal = removedByDelete(before, after, {
+    caret: shell.prompt.cursorOffset,
+    measure,
+  });
+  // A snapped wide cell leaves the caret off the grapheme it dropped. Yank
+  // inserts at the caret, so park it where the lost span splices back in.
+  // When the native caret already sits on that hole, this is a no-op and
+  // does not slide it onto the other copy of a repeated prefix.
+  if (removal.text.length > 0) {
+    shell.prompt.cursorOffset = measure(after.slice(0, removal.at));
+  }
+  shell.promptKillRing = recordKill(
+    shell.promptKillRing,
+    removal.text,
+    direction,
+  );
 }
 
 /**
@@ -632,73 +659,33 @@ export function createShellKeyHandlers(
 
     if (key.ctrl && !key.meta && !key.option && keyName === "k") {
       key.preventDefault();
-      const before = shell.prompt.value;
-      const beforeCursor = shell.prompt.cursorOffset;
-      shell.prompt.deleteToLineEnd();
-      const killed = killedTextForward(
-        before,
-        beforeCursor,
-        shell.prompt.value,
-      );
-      shell.promptKillRing = recordKill(
-        shell.promptKillRing,
-        killed,
-        "forward",
-      );
+      killThenRecord(shell, "forward", (prompt) => {
+        prompt.deleteToLineEnd();
+      });
       return;
     }
 
     if (key.ctrl && !key.meta && !key.option && keyName === "u") {
       key.preventDefault();
-      const before = shell.prompt.value;
-      const beforeCursor = shell.prompt.cursorOffset;
-      shell.prompt.deleteToLineStart();
-      const killed = killedTextBackward(
-        before,
-        beforeCursor,
-        shell.prompt.cursorOffset,
-      );
-      shell.promptKillRing = recordKill(
-        shell.promptKillRing,
-        killed,
-        "backward",
-      );
+      killThenRecord(shell, "backward", (prompt) => {
+        prompt.deleteToLineStart();
+      });
       return;
     }
 
     if (key.ctrl && !key.meta && !key.option && keyName === "w") {
       key.preventDefault();
-      const before = shell.prompt.value;
-      const beforeCursor = shell.prompt.cursorOffset;
-      shell.prompt.deleteWordBackward();
-      const killed = killedTextBackward(
-        before,
-        beforeCursor,
-        shell.prompt.cursorOffset,
-      );
-      shell.promptKillRing = recordKill(
-        shell.promptKillRing,
-        killed,
-        "backward",
-      );
+      killThenRecord(shell, "backward", (prompt) => {
+        prompt.deleteWordBackward();
+      });
       return;
     }
 
     if ((key.meta || key.option) && !key.ctrl && keyName === "d") {
       key.preventDefault();
-      const before = shell.prompt.value;
-      const beforeCursor = shell.prompt.cursorOffset;
-      shell.prompt.deleteWordForward();
-      const killed = killedTextForward(
-        before,
-        beforeCursor,
-        shell.prompt.value,
-      );
-      shell.promptKillRing = recordKill(
-        shell.promptKillRing,
-        killed,
-        "forward",
-      );
+      killThenRecord(shell, "forward", (prompt) => {
+        prompt.deleteWordForward();
+      });
       return;
     }
 
