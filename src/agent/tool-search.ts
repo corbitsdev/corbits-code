@@ -12,9 +12,9 @@ import {
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 import {
+  advertisedNamesForEngine,
   advertisedToolName,
   foldFileToolNames,
-  GPT_PATCH_ENGINES,
   projectToolDefinition,
   type ToolProfile,
 } from "./tool-aliases.js";
@@ -139,10 +139,10 @@ export function advertisedToolNamesForWorker(opts: {
     seen.add(name);
     out.push(name);
   }
-  if (opts.profile !== "gpt") return out;
+  if (opts.profile === undefined || opts.profile === "default") return out;
   return foldFileToolNames(
-    out.map((name) => advertisedToolName(name, "gpt")),
-    "gpt",
+    out.map((name) => advertisedToolName(name, opts.profile)),
+    opts.profile,
   );
 }
 
@@ -177,19 +177,11 @@ function isAlreadyAdvertised(
   advertisedNames: readonly string[],
 ): boolean {
   const engine = canonicalToolName(defName);
-  if (
-    advertisedNames.includes(defName) ||
-    advertisedNames.includes(engine) ||
-    advertisedNames.includes(advertisedToolName(engine)) ||
-    advertisedNames.includes(advertisedToolName(engine, "gpt"))
-  ) {
+  if (advertisedNames.includes(defName) || advertisedNames.includes(engine)) {
     return true;
   }
-  // apply_patch stands in for the file engines; a gpt prefix lists the wire
-  // name only, so search must not offer write/edit/delete beside it.
-  return (
-    advertisedNames.includes("apply_patch") &&
-    (GPT_PATCH_ENGINES as readonly string[]).includes(engine)
+  return advertisedNamesForEngine(engine).some((name) =>
+    advertisedNames.includes(name),
   );
 }
 

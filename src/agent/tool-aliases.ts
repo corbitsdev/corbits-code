@@ -42,29 +42,101 @@ const ENGINE_TO_WIRE_BY_PROFILE: Record<
   gpt: { ...DEFAULT_ENGINE_TO_WIRE, ...GPT_OVERRIDES },
 };
 
-/** Registry engines the gpt profile folds into apply_patch, in advertise order. */
-export const GPT_PATCH_ENGINES = [
-  "write_file",
-  "edit_file",
-  "delete_file",
-] as const;
+/**
+ * Engines one advertised wire replaces. A profile without an entry keeps
+ * the 1:1 wire table. Adding a family is a new ToolProfile plus a row here
+ * and in ENGINE_TO_WIRE_BY_PROFILE — not a new director package.
+ */
+const PROFILE_FOLDS: Record<
+  ToolProfile,
+  { wire: string; engines: readonly string[] } | undefined
+> = {
+  default: undefined,
+  gpt: {
+    wire: "apply_patch",
+    engines: ["write_file", "edit_file", "delete_file"],
+  },
+};
 
-/** Tools the gpt profile folds into the single apply_patch envelope tool. */
-const PATCH_FOLDED_ENGINES: ReadonlySet<string> = new Set(GPT_PATCH_ENGINES);
+function buildAdvertisedWireEngines(
+  profile: ToolProfile,
+): ReadonlyMap<string, readonly string[]> {
+  const fold = PROFILE_FOLDS[profile];
+  const folded = new Set(fold?.engines ?? []);
+  const map = new Map<string, string[]>();
+  for (const [engine, wire] of Object.entries(
+    ENGINE_TO_WIRE_BY_PROFILE[profile],
+  )) {
+    if (folded.has(engine)) continue;
+    const existing = map.get(wire);
+    if (existing === undefined) map.set(wire, [engine]);
+    else existing.push(engine);
+  }
+  if (fold !== undefined) map.set(fold.wire, [...fold.engines]);
+  return map;
+}
+
+const ADVERTISED_WIRE_ENGINES = Object.fromEntries(
+  (Object.keys(ENGINE_TO_WIRE_BY_PROFILE) as ToolProfile[]).map((profile) => [
+    profile,
+    buildAdvertisedWireEngines(profile),
+  ]),
+) as Record<ToolProfile, ReadonlyMap<string, readonly string[]>>;
+
+export function toolProfiles(): readonly ToolProfile[] {
+  return Object.keys(ENGINE_TO_WIRE_BY_PROFILE) as ToolProfile[];
+}
+
+/** Wire name → engine ids this profile advertises. Folded wires map to every engine they replace. */
+export function advertisedWireEngines(
+  profile: ToolProfile,
+): ReadonlyMap<string, readonly string[]> {
+  return ADVERTISED_WIRE_ENGINES[profile];
+}
+
+/**
+ * Engines `wire` stands for on `profile`. Undefined when this profile does
+ * not advertise that name (a later family follows the same table).
+ */
+export function enginesForAdvertisedWire(
+  wire: string,
+  profile: ToolProfile,
+): readonly string[] | undefined {
+  const table = ADVERTISED_WIRE_ENGINES[profile];
+  return table.get(wire) ?? table.get(wire.toLowerCase());
+}
+
+/** Every wire any profile advertises for `engine`, including fold wires. */
+export function advertisedNamesForEngine(engine: string): readonly string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const profile of toolProfiles()) {
+    const fold = PROFILE_FOLDS[profile];
+    const wire =
+      fold !== undefined && fold.engines.includes(engine)
+        ? fold.wire
+        : advertisedToolName(engine, profile);
+    if (seen.has(wire)) continue;
+    seen.add(wire);
+    names.push(wire);
+  }
+  return names;
+}
 
 /** gpt models are trained on apply_patch, not write/edit/delete. Other
- * profiles and lists without a file-mutation tool pass through unchanged. */
+ * profiles and lists without a folded tool pass through unchanged. */
 export function foldFileToolNames(
   names: readonly string[],
   profile: ToolProfile,
 ): readonly string[] {
-  if (profile !== "gpt") return names;
+  const fold = PROFILE_FOLDS[profile];
+  if (fold === undefined) return names;
   const folded = (name: string): boolean =>
-    PATCH_FOLDED_ENGINES.has(engineToolName(name));
+    fold.engines.includes(engineToolName(name));
   if (!names.some(folded)) return names;
   const first = names.findIndex(folded);
   return names.flatMap((name, i) =>
-    i === first ? ["apply_patch"] : folded(name) ? [] : [name],
+    i === first ? [fold.wire] : folded(name) ? [] : [name],
   );
 }
 
@@ -72,10 +144,12 @@ export function foldFileToolDefinitions(
   defs: readonly ToolDefinition[],
   profile: ToolProfile,
 ): ToolDefinition[] {
-  if (profile !== "gpt" || !defs.some((d) => d.name === "apply_patch")) {
+  const fold = PROFILE_FOLDS[profile];
+  if (fold === undefined || !defs.some((d) => d.name === fold.wire)) {
     return [...defs];
   }
-  return defs.filter((d) => !PATCH_FOLDED_ENGINES.has(engineToolName(d.name)));
+  const folded = new Set(fold.engines);
+  return defs.filter((d) => !folded.has(engineToolName(d.name)));
 }
 
 export function toolProfileForFamily(family: ModelFamily): ToolProfile {

@@ -5,10 +5,11 @@
  * the worker or the dispatch rejects before any session, telemetry, or
  * worktree exists. Names are canonical engine ids on both sides (aliases
  * collapse via canonicalToolName), so `shell` and `run_shell` are the
- * same requirement. `apply_patch` is not an engine id: on the gpt profile
- * it maps onto the file-mutation engines the director already allows, and
- * with no resolved profile it stays unknown. Fail-closed: unknown names
- * and allowlist/denylist misses reject.
+ * same requirement. A wire name the worker's resolved profile advertises
+ * maps onto the engine ids that profile projects it to, when the director
+ * already allows one of those engines. A name that profile does not
+ * advertise, and that is not a catalog engine, stays unknown. Fail-closed:
+ * unknown names and allowlist/denylist misses reject.
  *
  * `stale_snapshot` is never emitted here — it is the mount-time echo in
  * run.ts (a stamped tool missing from the live mount). It lives in this
@@ -16,7 +17,10 @@
  */
 
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
-import { GPT_PATCH_ENGINES, type ToolProfile } from "../agent/tool-aliases.js";
+import {
+  enginesForAdvertisedWire,
+  type ToolProfile,
+} from "../agent/tool-aliases.js";
 import {
   DIRECTOR_REGISTRY,
   packageToCapabilities,
@@ -227,46 +231,45 @@ export function leafTierAlternatives(): readonly string[] {
     .slice(0, 3);
 }
 
-function patchEnginesCovered(
+function enginesCoveredByDirector(
+  engines: readonly string[],
   filter: CapabilityFilter | undefined,
+  postFilter: ReadonlySet<string>,
 ): readonly string[] {
-  if (filter === undefined) return GPT_PATCH_ENGINES;
+  if (filter === undefined) return engines;
   const named = new Set(filter.tools.map((name) => canonicalToolName(name)));
   if (filter.mode === "allow") {
-    return GPT_PATCH_ENGINES.filter((engine) => named.has(engine));
+    return engines.filter(
+      (engine) => named.has(engine) || postFilter.has(engine),
+    );
   }
-  return GPT_PATCH_ENGINES.filter((engine) => !named.has(engine));
+  return engines.filter((engine) => !named.has(engine));
 }
 
 /**
- * `apply_patch` is the gpt wire name for the file engines already on the
- * director. Other profiles, and a missing profile, leave it unknown.
+ * Profile wire names become the engines that profile advertises. Undefined
+ * means this name is not a wire for the resolved profile — the caller falls
+ * through to catalog engines. No resolved profile does not guess.
  */
-function expandApplyPatch(
+function expandAdvertisedWire(
   trimmed: string,
-  engine: string,
   profile: ToolProfile | undefined,
   filter: CapabilityFilter | undefined,
-): string[] | { unavailable: CapabilityUnavailable } {
-  if (engine !== "apply_patch") return [engine];
-  if (profile !== "gpt") {
-    const suggestion = nearestToolName(trimmed);
-    return {
-      unavailable: {
-        code: "unknown_tool",
-        tool: trimmed,
-        ...(suggestion !== undefined ? { suggestion } : {}),
-      },
-    };
-  }
-  const covered = patchEnginesCovered(filter);
+  postFilter: ReadonlySet<string>,
+): string[] | { unavailable: CapabilityUnavailable } | undefined {
+  if (profile === undefined) return undefined;
+  const mapped = enginesForAdvertisedWire(trimmed, profile);
+  if (mapped === undefined) return undefined;
+  const covered = enginesCoveredByDirector(mapped, filter, postFilter);
   if (covered.length > 0) return [...covered];
-  const denied = filter?.mode === "exclude";
+  const hint = mapped[0];
   return {
     unavailable: {
-      code: denied ? "permission_static" : "missing_tool",
-      tool: "apply_patch",
-      alternatives: rerouteAlternatives("write_file"),
+      code: filter?.mode === "exclude" ? "permission_static" : "missing_tool",
+      tool: trimmed,
+      ...(hint !== undefined
+        ? { alternatives: rerouteAlternatives(hint) }
+        : {}),
     },
   };
 }
@@ -297,15 +300,16 @@ export function preflightCapabilities(
       return { ok: false, unavailable: { code: "unknown_tool", tool: raw } };
     }
     const engine = canonicalToolName(trimmed);
-    const expanded = expandApplyPatch(
+    const wireExpanded = expandAdvertisedWire(
       trimmed,
-      engine,
       input.toolProfile,
       resolvedFilter,
+      postFilter,
     );
-    if (!Array.isArray(expanded)) {
-      return { ok: false, unavailable: expanded.unavailable };
+    if (wireExpanded !== undefined && !Array.isArray(wireExpanded)) {
+      return { ok: false, unavailable: wireExpanded.unavailable };
     }
+    const expanded = wireExpanded ?? [engine];
     for (const resolved of expanded) {
       // A live inherited-MCP tool passes the catalog check — presence proves
       // the mount (see availableMcpTools); an `mcp__*` name outside the live

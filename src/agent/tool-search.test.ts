@@ -29,6 +29,7 @@ import {
   ORCHESTRATOR_TOOLS,
   READ_TOOLS,
 } from "./directors/tool-sets.js";
+import { advertisedWireEngines, toolProfiles } from "./tool-aliases.js";
 
 const FULL_AVAILABILITY: ToolAvailability = {
   languageServerAvailable: true,
@@ -1048,6 +1049,25 @@ describe("advertisedToolNamesForWorker", () => {
     expect(build).not.toContain("run_shell");
     expect(build).not.toContain("write");
     expect(build).not.toContain("write_file");
+  });
+
+  test("every non-default profile projects allowlisted engines through its wire table", () => {
+    const allow = BUILD_TOOLS as readonly string[];
+    for (const profile of toolProfiles()) {
+      const names = advertisedToolNamesForWorker({
+        allow: BUILD_TOOLS,
+        profile,
+      });
+      if (profile === "default") {
+        expect(names).toContain("write_file");
+        expect(names).not.toContain("apply_patch");
+        continue;
+      }
+      for (const [wire, engines] of advertisedWireEngines(profile)) {
+        if (!engines.some((engine) => allow.includes(engine))) continue;
+        expect(names, `${profile} ${wire}`).toContain(wire);
+      }
+    }
   });
 
   test("nested orchestrator allowlist adds fleet verbs but not search_agents", () => {

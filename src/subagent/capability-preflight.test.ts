@@ -10,7 +10,12 @@ import {
   type CapabilityUnavailable,
 } from "./capability-preflight.js";
 import type { CapabilityFilter } from "../agent/profile-types.js";
-import { DOCS_TOOLS, READ_TOOLS } from "../agent/directors/tool-sets.js";
+import {
+  BUILD_TOOLS,
+  DOCS_TOOLS,
+  READ_TOOLS,
+} from "../agent/directors/tool-sets.js";
+import { advertisedWireEngines, toolProfiles } from "../agent/tool-aliases.js";
 
 const ALLOW_SHELL: CapabilityFilter = {
   mode: "allow",
@@ -253,6 +258,55 @@ describe("preflightCapabilities", () => {
     if (result.ok) throw new Error("expected rejection");
     expect(result.unavailable.code).toBe("missing_tool");
     expect(result.unavailable.tool).toBe("apply_patch");
+  });
+
+  test("gpt wire names pass when the worker has the underlying engines", () => {
+    const resolvedFilter: CapabilityFilter = {
+      mode: "allow",
+      tools: [...BUILD_TOOLS],
+    };
+    const cases = [
+      {
+        wire: "apply_patch",
+        canonical: ["write_file", "edit_file", "delete_file"],
+      },
+      { wire: "shell", canonical: ["run_shell"] },
+      { wire: "update_plan", canonical: ["manage_tasks"] },
+    ];
+    for (const entry of cases) {
+      expect(
+        preflightCapabilities({
+          required: [entry.wire],
+          resolvedFilter,
+          knownEngines: DEFAULT_KNOWN_ENGINES,
+          agentLabel: "coder",
+          toolProfile: "gpt",
+        }),
+        entry.wire,
+      ).toEqual({ ok: true, canonical: entry.canonical });
+    }
+  });
+
+  test("every profile accepts its advertised wires when those engines are allowed", () => {
+    const known = new Set(DEFAULT_KNOWN_ENGINES);
+    const tools = [...BUILD_TOOLS, "manage_tasks", "wait_agents"];
+    for (const profile of toolProfiles()) {
+      for (const [wire, mapped] of advertisedWireEngines(profile)) {
+        if (!mapped.every((engine) => known.has(engine))) continue;
+        const result = preflightCapabilities({
+          required: [wire],
+          resolvedFilter: { mode: "allow", tools },
+          knownEngines: DEFAULT_KNOWN_ENGINES,
+          agentLabel: "coder",
+          toolProfile: profile,
+        });
+        expect(result.ok, `${profile} ${wire}`).toBe(true);
+        if (!result.ok) continue;
+        for (const engine of result.canonical) {
+          expect(mapped, `${profile} ${wire}`).toContain(engine);
+        }
+      }
+    }
   });
 
   test("gpt apply_patch maps onto only the file engines the allowlist has", () => {
