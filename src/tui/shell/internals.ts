@@ -356,7 +356,7 @@ export interface AppShell {
   readonly overlayView: ReturnType<typeof createOverlayView>;
   readonly overlayHost: BoxRenderable;
   readonly overlayTitle: TextRenderable;
-  readonly overlayBody: ScrollBoxRenderable;
+  readonly overlayBody: BoxRenderable;
   readonly prompt: PromptInput;
   readonly promptBox: BoxRenderable;
   /** The input's own row, bordered left and right only. */
@@ -546,6 +546,8 @@ export interface OverlayListRange {
  * rebuilds on geometry change. */
 export interface OverlayList {
   readonly select: SelectRenderable;
+  /** ScrollBox that clips the select and owns the host ScrollBar. */
+  readonly viewport: ScrollBoxRenderable;
   readonly activeIndex: number;
   /** Item-row capacity reserved by layout (not the renderable's row height). */
   readonly height: number;
@@ -557,6 +559,8 @@ export interface OverlayList {
   jump(index: number): void;
   setCount(count: number): void;
   setHeight(items: number, rowsPerItem?: number): void;
+  /** Move the host ScrollBox so the active row is inside the viewport. */
+  scrollActiveIntoView(): void;
   visibleRange(): OverlayListRange;
 }
 

@@ -83,6 +83,8 @@ async function paintOverlay(
 /**
  * Every interior row must be blank or exactly one expected overlay row; two
  * renderables sharing cells produces a hybrid string that matches nothing.
+ * A native ScrollBar thumb occupies the last column when the list overflows;
+ * that glyph is not a second copy of the row.
  */
 function expectCleanInterior(
   interior: readonly string[],
@@ -90,8 +92,9 @@ function expectCleanInterior(
 ): void {
   const allowed = new Set(expected.map((e) => e.trimEnd()));
   for (const row of interior) {
-    if (row.trim().length === 0) continue;
-    expect(allowed.has(row)).toBe(true);
+    const withoutBar = row.replace(/[▀▄█▌▐░▒▓]+$/u, "").trimEnd();
+    if (withoutBar.length === 0) continue;
+    expect(allowed.has(withoutBar)).toBe(true);
   }
 }
 
@@ -125,7 +128,8 @@ describe("overlay host never shares cells with the prompt border", () => {
       expectCleanInterior(interior.slice(1), expected);
 
       // The selected row must be intact, not overwritten by the model label.
-      expect(interior).toContain(` ${ITEMS[0]}`);
+      // A ScrollBar thumb may sit on the same line, so match the label prefix.
+      expect(interior.some((row) => row.startsWith(` ${ITEMS[0]}`))).toBe(true);
       for (const row of interior) {
         expect(row.includes(MODEL_LABEL)).toBe(false);
         expect(row.includes("alice")).toBe(false);
