@@ -7,7 +7,6 @@ import * as openaiCompatible from "./openai-compatible-adapter.js";
 import * as opencodeGo from "./opencode-go-adapter.js";
 import * as codexResponses from "./codex-responses.js";
 import * as grokResponses from "./grok-responses.js";
-import * as metaResponses from "./meta-responses.js";
 import * as bifrostAdapter from "./bifrost-adapter.js";
 import * as deepseekV4 from "./deepseek-v4-adapter.js";
 import * as openaiResponses from "./openai-responses.js";
@@ -17,7 +16,10 @@ import {
   withCodexContentTypeRepair,
 } from "./codex-responses.js";
 import { GROK_RESPONSES_PROVIDER } from "./grok-responses.js";
-import { META_PROVIDER } from "@corbits/meta-provider";
+import {
+  META_PROVIDER,
+  createMetaResponsesAdapter,
+} from "@corbits/meta-provider";
 import { withAnthropicCacheBreakpoint } from "./anthropic-cache-breakpoint.js";
 import { withReplaySanitizer } from "./replay-sanitizer.js";
 import { isPollOnlyPendingBatch } from "../subagent/poll-exempt.js";
@@ -93,7 +95,7 @@ const localModules: Record<string, unknown> = {
   "opencode-go-adapter": opencodeGo,
   "codex-responses": codexResponses,
   "grok-responses": grokResponses,
-  "meta-responses": metaResponses,
+  "meta-responses": { createMetaResponsesAdapter },
   "bifrost-adapter": bifrostAdapter,
   "deepseek-v4-adapter": deepseekV4,
   "openai-responses": openaiResponses,
