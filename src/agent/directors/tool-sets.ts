@@ -65,6 +65,7 @@ export const ORCHESTRATOR_TOOLS = [
   "resume_agent",
   "interrupt_agent",
   "send_input",
+  "approve_worker_call",
   "read_agent_trace",
 ] as const;
 

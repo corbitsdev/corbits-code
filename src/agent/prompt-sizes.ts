@@ -126,6 +126,7 @@ export function canonicalToolNamesForDirector(
       "resume_agent",
       "interrupt_agent",
       "send_input",
+      "approve_worker_call",
     );
   }
   const dupe = names.find((name, index) => names.indexOf(name) !== index);

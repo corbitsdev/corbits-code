@@ -92,6 +92,15 @@ describe("DISPATCH_TOOLS / ORCHESTRATOR_TOOLS", () => {
     );
   });
 
+  test("approve_worker_call sits beside send_input on both dispatch surfaces", () => {
+    for (const surface of [DISPATCH_TOOLS, ORCHESTRATOR_TOOLS] as const) {
+      const names = surface as readonly string[];
+      const send = names.indexOf("send_input");
+      expect(send).toBeGreaterThanOrEqual(0);
+      expect(names[send + 1]).toBe("approve_worker_call");
+    }
+  });
+
   test("skill_search + use_skill mount on every worker surface, never ask_operator", () => {
     expect([...SKILL_TOOLS]).toEqual(["skill_search", "use_skill"]);
     for (const surface of [
