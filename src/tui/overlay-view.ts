@@ -368,6 +368,7 @@ export function createOverlayView(ctx: RenderContext) {
     );
     list.setHeight(list.height, 1);
     list.select.showSelectionIndicator = false;
+    list.select.showScrollIndicator = false;
     list.select.options = lines.map((line) => ({
       name: line,
       description: "",
@@ -444,7 +445,8 @@ export function createOverlayView(ctx: RenderContext) {
     // nothing wraps, nothing clips. A cramped host may already have dropped
     // that air.
     list.setHeight(list.height, list.rowsPerItem);
-    list.select.showSelectionIndicator = true;
+    list.select.showSelectionIndicator = false;
+    list.select.showScrollIndicator = false;
     list.select.options = presentation.items.map((label, i) => {
       const id = presentation.itemIds?.[i];
       return id === undefined

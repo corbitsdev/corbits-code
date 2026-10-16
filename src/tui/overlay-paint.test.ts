@@ -117,17 +117,15 @@ describe("overlay host never shares cells with the prompt border", () => {
         size,
       );
 
-      const expected = [
-        ` ▶ ${ITEMS[0]}`,
-        ...ITEMS.slice(1).map((i) => `   ${i}`),
-      ];
+      // Selection is text color only: no marker column, so each row is the label.
+      const expected = ITEMS.map((i) => ` ${i}`);
       // Row 0 is the title/how-to line: the supplied title must show; its
       // exact hint wording is not part of this contract.
       expect(interior[0]).toContain("model");
       expectCleanInterior(interior.slice(1), expected);
 
       // The selected row must be intact, not overwritten by the model label.
-      expect(interior).toContain(` ▶ ${ITEMS[0]}`);
+      expect(interior).toContain(` ${ITEMS[0]}`);
       for (const row of interior) {
         expect(row.includes(MODEL_LABEL)).toBe(false);
         expect(row.includes("alice")).toBe(false);
