@@ -60,6 +60,27 @@ describe("removedByDelete", () => {
   test("a replacement that is not a pure deletion records nothing", () => {
     expect(removedByDelete("abcd", "abXd")).toEqual({ text: "", at: 0 });
   });
+
+  test("a repeated prefix uses the caret hole, not the other copy", () => {
+    const hole = {
+      caret: 0,
+      measure: (text: string) => text.length,
+    };
+    expect(removedByDelete("hello hello", "hello", hole)).toEqual({
+      text: "hello ",
+      at: 0,
+    });
+    expect(removedByDelete("aaa", "aa", hole)).toEqual({ text: "a", at: 0 });
+  });
+
+  test("a caret that sits on no hole keeps the longest common prefix", () => {
+    expect(
+      removedByDelete("hello hello", "hello", {
+        caret: 7,
+        measure: (text: string) => text.length,
+      }),
+    ).toEqual({ text: " hello", at: 5 });
+  });
 });
 
 describe("rotateYank", () => {
@@ -189,6 +210,56 @@ describe("prompt kill ring chords", () => {
       expect(shell.prompt.value).toBe("newer");
       h.pressKey("y", { meta: true });
       expect(shell.prompt.value).toBe("older");
+    });
+  });
+
+  test("ctrl+u on a repeated prefix kills the span at the caret", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      });
+      shell.prompt.value = "hello hello";
+      shell.prompt.cursorOffset = 6;
+      h.pressKey("u", { ctrl: true });
+      expect(shell.prompt.value).toBe("hello");
+      expect(shell.prompt.cursorOffset).toBe(0);
+      expect(shell.promptKillRing.entries[0]).toBe("hello ");
+      h.pressKey("y", { ctrl: true });
+      expect(shell.prompt.value).toBe("hello hello");
+    });
+  });
+
+  test("ctrl+u inside a run of the same character leaves the caret at the hole", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      });
+      shell.prompt.value = "aaa";
+      shell.prompt.cursorOffset = 1;
+      h.pressKey("u", { ctrl: true });
+      expect(shell.prompt.value).toBe("aa");
+      expect(shell.prompt.cursorOffset).toBe(0);
+      h.pressKey("x");
+      expect(shell.prompt.value).toBe("xaa");
+    });
+  });
+
+  test("ctrl+u on a unique prefix still kills that prefix", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      });
+      shell.prompt.value = "hello world";
+      shell.prompt.cursorOffset = 6;
+      h.pressKey("u", { ctrl: true });
+      expect(shell.prompt.value).toBe("world");
+      expect(shell.prompt.cursorOffset).toBe(0);
+      expect(shell.promptKillRing.entries[0]).toBe("hello ");
+      h.pressKey("z", { shift: true });
+      expect(shell.prompt.value).toBe("Zworld");
     });
   });
 

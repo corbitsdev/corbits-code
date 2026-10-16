@@ -318,13 +318,18 @@ function killThenRecord(
   const before = shell.prompt.value;
   remove(shell.prompt);
   const after = shell.prompt.value;
-  const removal = removedByDelete(before, after);
-  // deleteRange can leave the caret past a grapheme it snapped off. Yank
+  const measure = (prefix: string): number =>
+    shell.prompt.editBuffer.measureText(prefix);
+  const removal = removedByDelete(before, after, {
+    caret: shell.prompt.cursorOffset,
+    measure,
+  });
+  // A snapped wide cell leaves the caret off the grapheme it dropped. Yank
   // inserts at the caret, so park it where the lost span splices back in.
+  // When the native caret already sits on that hole, this is a no-op and
+  // does not slide it onto the other copy of a repeated prefix.
   if (removal.text.length > 0) {
-    shell.prompt.cursorOffset = shell.prompt.editBuffer.measureText(
-      after.slice(0, removal.at),
-    );
+    shell.prompt.cursorOffset = measure(after.slice(0, removal.at));
   }
   shell.promptKillRing = recordKill(
     shell.promptKillRing,

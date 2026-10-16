@@ -123,10 +123,17 @@ export function rotateYank(
  * prediction yanks text the buffer never lost. `text` is empty when nothing
  * was deleted or the change is not a pure deletion. `at` is the code-unit
  * index of the span in `before` (and where it splices back into `after`).
+ *
+ * A repeated span has more than one such index. The longest common prefix
+ * is the rightmost, which is the other copy. `hole` is the native caret in
+ * `after` (display cells, via `measure`). The span whose splice point lands
+ * on that caret wins; if the caret sits on none of them, the longest common
+ * prefix stands so a snapped wide cell can still be parked.
  */
 export function removedByDelete(
   before: string,
   after: string,
+  hole?: { caret: number; measure: (text: string) => number },
 ): { text: string; at: number } {
   if (after.length > before.length || before === after)
     return { text: "", at: 0 };
@@ -146,5 +153,22 @@ export function removedByDelete(
   if (after !== `${before.slice(0, at)}${before.slice(beforeEnd)}`) {
     return { text: "", at: 0 };
   }
-  return { text: before.slice(at, beforeEnd), at };
+  const removedLen = beforeEnd - at;
+  let chosen = at;
+  if (hole !== undefined && removedLen > 0) {
+    let min = at;
+    while (
+      min > 0 &&
+      before.charCodeAt(min - 1) === before.charCodeAt(min - 1 + removedLen)
+    ) {
+      min -= 1;
+    }
+    for (let candidate = min; candidate < at; candidate += 1) {
+      if (hole.measure(after.slice(0, candidate)) === hole.caret) {
+        chosen = candidate;
+        break;
+      }
+    }
+  }
+  return { text: before.slice(chosen, chosen + removedLen), at: chosen };
 }
