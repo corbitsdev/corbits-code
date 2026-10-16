@@ -21,6 +21,7 @@ export const tools = [
   "resume_agent",
   "interrupt_agent",
   "send_input",
+  "approve_worker_call",
   "read_agent_trace",
   "search_agents",
 ] as const;
