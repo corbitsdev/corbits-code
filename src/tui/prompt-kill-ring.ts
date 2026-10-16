@@ -1,13 +1,15 @@
 /**
  * Readline-style kill ring for the OpenTUI prompt.
  *
- * InputRenderable implements the delete and word-motion keys natively but
- * discards the deleted text, so yank has nothing to restore. This module is
- * the pure, testable half of that gap: shell.ts runs the native deletes,
- * diffs value/cursor to learn what was removed, and records it via
- * `recordKill`; `beginYank` / `rotateYank` hand back text for shell.ts to
+ * Textarea and Input delete actions discard the removed text (they return
+ * only whether they handled the key). The ring reads that span from the
+ * edit buffer — `getTextRange` on the cursor the native delete is about to
+ * use — then the shell runs the native action and records the span via
+ * `recordKill`. `beginYank` / `rotateYank` hand back text for the shell to
  * splice in.
  */
+
+import type { PromptInput } from "./prompt-input.js";
 
 export const KILL_RING_MAX = 10;
 
@@ -115,30 +117,52 @@ export function rotateYank(
   };
 }
 
-/**
- * Forward kill (Ctrl+K, Alt+D): the cursor does not move, so the killed text
- * is the pre-delete slice at the pre-delete cursor, sized by the shrink.
- */
-export function killedTextForward(
-  beforeValue: string,
-  beforeCursor: number,
-  afterValue: string,
-): string {
-  const removedLen = beforeValue.length - afterValue.length;
-  if (removedLen <= 0) return "";
-  return beforeValue.slice(beforeCursor, beforeCursor + removedLen);
+function rangeText(prompt: PromptInput, start: number, end: number): string {
+  return prompt.editBuffer.getTextRange(start, end);
+}
+
+/** Span `deleteToLineEnd` is about to drop. The native call ignores a selection. */
+export function readKillToLineEnd(prompt: PromptInput): string {
+  const cursor = prompt.editBuffer.getCursorPosition();
+  return rangeText(prompt, cursor.offset, prompt.editBuffer.getEOL().offset);
 }
 
 /**
- * Backward kill (Ctrl+U, Ctrl+W): the cursor moves back to the deletion
- * start, so the killed text is the pre-delete slice between the new and old
- * cursor.
+ * Span `deleteToLineStart` is about to drop: the current line back to column
+ * 0, or the preceding newline when the cursor is already at column 0.
  */
-export function killedTextBackward(
-  beforeValue: string,
-  beforeCursor: number,
-  afterCursor: number,
-): string {
-  if (afterCursor >= beforeCursor) return "";
-  return beforeValue.slice(afterCursor, beforeCursor);
+export function readKillToLineStart(prompt: PromptInput): string {
+  const cursor = prompt.editBuffer.getCursorPosition();
+  if (cursor.col > 0) {
+    return rangeText(
+      prompt,
+      prompt.editBuffer.getLineStartOffset(cursor.row),
+      cursor.offset,
+    );
+  }
+  if (cursor.row > 0)
+    return rangeText(prompt, cursor.offset - 1, cursor.offset);
+  return "";
+}
+
+/** Span `deleteWordForward` is about to drop, including a live selection. */
+export function readKillWordForward(prompt: PromptInput): string {
+  if (prompt.hasSelection()) return prompt.getSelectedText();
+  const cursor = prompt.editBuffer.getCursorPosition();
+  return rangeText(
+    prompt,
+    cursor.offset,
+    prompt.editBuffer.getNextWordBoundary().offset,
+  );
+}
+
+/** Span `deleteWordBackward` is about to drop, including a live selection. */
+export function readKillWordBackward(prompt: PromptInput): string {
+  if (prompt.hasSelection()) return prompt.getSelectedText();
+  const cursor = prompt.editBuffer.getCursorPosition();
+  return rangeText(
+    prompt,
+    prompt.editBuffer.getPrevWordBoundary().offset,
+    cursor.offset,
+  );
 }

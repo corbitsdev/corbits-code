@@ -899,8 +899,10 @@ without retyping it. The popup only splices a path into the prompt; submit
 inlines `@file` contents and summarizes `@dir` via `ingestOperatorPrompt`.
 
 A readline-style kill ring backs Ctrl+K/U/W (kill) and Ctrl+Y/Alt+Y
-(yank/yank-pop) on top of the textarea's native delete bindings, which
-otherwise discard what they delete (`src/tui/prompt-kill-ring.ts`).
+(yank/yank-pop). Native textarea deletes discard the removed text, so the
+ring reads that span from the edit buffer (`getTextRange` on the cursor the
+delete is about to use) before the native action runs
+(`src/tui/prompt-kill-ring.ts`).
 Consecutive kills in the same direction accumulate into one ring entry the
 way readline does, so a `Ctrl+K Ctrl+K … Ctrl+Y` sequence restores the whole
 killed run in original order.

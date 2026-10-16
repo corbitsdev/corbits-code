@@ -78,8 +78,10 @@ import { canPopFocus, focusOwner, popFocus } from "../focus/index.js";
 import {
   beginYank,
   breakKillSequence,
-  killedTextBackward,
-  killedTextForward,
+  readKillToLineEnd,
+  readKillToLineStart,
+  readKillWordBackward,
+  readKillWordForward,
   recordKill,
   rotateYank,
 } from "../prompt-kill-ring.js";
@@ -632,14 +634,8 @@ export function createShellKeyHandlers(
 
     if (key.ctrl && !key.meta && !key.option && keyName === "k") {
       key.preventDefault();
-      const before = shell.prompt.value;
-      const beforeCursor = shell.prompt.cursorOffset;
+      const killed = readKillToLineEnd(shell.prompt);
       shell.prompt.deleteToLineEnd();
-      const killed = killedTextForward(
-        before,
-        beforeCursor,
-        shell.prompt.value,
-      );
       shell.promptKillRing = recordKill(
         shell.promptKillRing,
         killed,
@@ -650,14 +646,8 @@ export function createShellKeyHandlers(
 
     if (key.ctrl && !key.meta && !key.option && keyName === "u") {
       key.preventDefault();
-      const before = shell.prompt.value;
-      const beforeCursor = shell.prompt.cursorOffset;
+      const killed = readKillToLineStart(shell.prompt);
       shell.prompt.deleteToLineStart();
-      const killed = killedTextBackward(
-        before,
-        beforeCursor,
-        shell.prompt.cursorOffset,
-      );
       shell.promptKillRing = recordKill(
         shell.promptKillRing,
         killed,
@@ -668,14 +658,8 @@ export function createShellKeyHandlers(
 
     if (key.ctrl && !key.meta && !key.option && keyName === "w") {
       key.preventDefault();
-      const before = shell.prompt.value;
-      const beforeCursor = shell.prompt.cursorOffset;
+      const killed = readKillWordBackward(shell.prompt);
       shell.prompt.deleteWordBackward();
-      const killed = killedTextBackward(
-        before,
-        beforeCursor,
-        shell.prompt.cursorOffset,
-      );
       shell.promptKillRing = recordKill(
         shell.promptKillRing,
         killed,
@@ -686,14 +670,8 @@ export function createShellKeyHandlers(
 
     if ((key.meta || key.option) && !key.ctrl && keyName === "d") {
       key.preventDefault();
-      const before = shell.prompt.value;
-      const beforeCursor = shell.prompt.cursorOffset;
+      const killed = readKillWordForward(shell.prompt);
       shell.prompt.deleteWordForward();
-      const killed = killedTextForward(
-        before,
-        beforeCursor,
-        shell.prompt.value,
-      );
       shell.promptKillRing = recordKill(
         shell.promptKillRing,
         killed,
