@@ -1,6 +1,7 @@
-// Chrome zone registry for the OpenTUI shell.
-// Source of truth: docs/TUI.md "How it should look" (zone table + collapse order).
-// Pure data — no process.stdout, no paint framework.
+// Normative geometry constants for the OpenTUI shell.
+// Source of truth: docs/TUI.md "How it should look" (gutter, pads, floors,
+// collapse order). Rects are read back from Yoga in geometry/resolve.ts.
+// No process.stdout, no paint framework.
 
 /** Constitution zone ids (snake_case matches the registry table). */
 const ZONE_IDS = [
