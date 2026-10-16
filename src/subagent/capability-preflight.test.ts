@@ -10,6 +10,12 @@ import {
   type CapabilityUnavailable,
 } from "./capability-preflight.js";
 import type { CapabilityFilter } from "../agent/profile-types.js";
+import {
+  BUILD_TOOLS,
+  DOCS_TOOLS,
+  READ_TOOLS,
+} from "../agent/directors/tool-sets.js";
+import { advertisedWireEngines, toolProfiles } from "../agent/tool-aliases.js";
 
 const ALLOW_SHELL: CapabilityFilter = {
   mode: "allow",
@@ -61,7 +67,7 @@ describe("preflightCapabilities", () => {
     });
   });
 
-  test("aliases collapse on both sides (shell requirement vs run_shell filter)", () => {
+  test("unresolved profile still collapses shell onto run_shell", () => {
     const result = preflight(["shell"], ALLOW_SHELL);
     expect(result).toEqual({ ok: true, canonical: ["run_shell"] });
   });
@@ -197,6 +203,200 @@ describe("preflightCapabilities", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected rejection");
     expect(result.unavailable.code).toBe("permission_static");
+  });
+
+  test("shakespeare on gpt accepts apply_patch when a file tool is allowed", () => {
+    const result = preflightCapabilities({
+      required: ["apply_patch"],
+      resolvedFilter: { mode: "allow", tools: [...DOCS_TOOLS] },
+      knownEngines: DEFAULT_KNOWN_ENGINES,
+      agentLabel: "shakespeare",
+      toolProfile: "gpt",
+    });
+    expect(result).toEqual({
+      ok: true,
+      canonical: ["write_file", "edit_file", "delete_file"],
+    });
+  });
+
+  test("shakespeare on the default family rejects apply_patch as unknown", () => {
+    const result = preflightCapabilities({
+      required: ["apply_patch"],
+      resolvedFilter: { mode: "allow", tools: [...DOCS_TOOLS] },
+      knownEngines: DEFAULT_KNOWN_ENGINES,
+      agentLabel: "shakespeare",
+      toolProfile: "default",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected rejection");
+    expect(result.unavailable.code).toBe("unknown_tool");
+    expect(result.unavailable.tool).toBe("apply_patch");
+    expect(
+      formatCapabilityUnavailable(result.unavailable, "shakespeare"),
+    ).toContain('worker "shakespeare" requires unknown tool "apply_patch"');
+  });
+
+  test("unresolved family does not treat apply_patch as known", () => {
+    const result = preflight(["apply_patch"], {
+      mode: "allow",
+      tools: [...DOCS_TOOLS],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected rejection");
+    expect(result.unavailable.code).toBe("unknown_tool");
+  });
+
+  test("gpt worker with no file-mutation tool rejects apply_patch", () => {
+    const result = preflightCapabilities({
+      required: ["apply_patch"],
+      resolvedFilter: { mode: "allow", tools: [...READ_TOOLS] },
+      knownEngines: DEFAULT_KNOWN_ENGINES,
+      agentLabel: "explorer",
+      toolProfile: "gpt",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected rejection");
+    expect(result.unavailable.code).toBe("missing_tool");
+    expect(result.unavailable.tool).toBe("apply_patch");
+  });
+
+  test("gpt wire names pass when the worker has the underlying engines", () => {
+    const resolvedFilter: CapabilityFilter = {
+      mode: "allow",
+      tools: [...BUILD_TOOLS],
+    };
+    const cases = [
+      {
+        wire: "apply_patch",
+        canonical: ["write_file", "edit_file", "delete_file"],
+      },
+      { wire: "shell", canonical: ["run_shell"] },
+      { wire: "update_plan", canonical: ["manage_tasks"] },
+    ];
+    for (const entry of cases) {
+      expect(
+        preflightCapabilities({
+          required: [entry.wire],
+          resolvedFilter,
+          knownEngines: DEFAULT_KNOWN_ENGINES,
+          agentLabel: "coder",
+          toolProfile: "gpt",
+        }),
+        entry.wire,
+      ).toEqual({ ok: true, canonical: entry.canonical });
+    }
+  });
+
+  test("every profile accepts its advertised wires when those engines are allowed", () => {
+    const known = new Set(DEFAULT_KNOWN_ENGINES);
+    const tools = [...BUILD_TOOLS, "manage_tasks", "wait_agents"];
+    for (const profile of toolProfiles()) {
+      for (const [wire, mapped] of advertisedWireEngines(profile)) {
+        if (!mapped.every((engine) => known.has(engine))) continue;
+        const result = preflightCapabilities({
+          required: [wire],
+          resolvedFilter: { mode: "allow", tools },
+          knownEngines: DEFAULT_KNOWN_ENGINES,
+          agentLabel: "coder",
+          toolProfile: profile,
+        });
+        expect(result.ok, `${profile} ${wire}`).toBe(true);
+        if (!result.ok) continue;
+        for (const engine of result.canonical) {
+          expect(mapped, `${profile} ${wire}`).toContain(engine);
+        }
+      }
+    }
+  });
+
+  test("gpt apply_patch maps onto only the file engines the allowlist has", () => {
+    const result = preflightCapabilities({
+      required: ["apply_patch"],
+      resolvedFilter: { mode: "allow", tools: ["read_file", "write_file"] },
+      knownEngines: DEFAULT_KNOWN_ENGINES,
+      agentLabel: "shakespeare",
+      toolProfile: "gpt",
+    });
+    expect(result).toEqual({ ok: true, canonical: ["write_file"] });
+  });
+
+  test("default profile rejects gpt-only wires even when the engine is allowed", () => {
+    const resolvedFilter: CapabilityFilter = {
+      mode: "allow",
+      tools: [...BUILD_TOOLS, "manage_tasks"],
+    };
+    for (const wire of ["apply_patch", "shell", "update_plan"] as const) {
+      const result = preflightCapabilities({
+        required: [wire],
+        resolvedFilter,
+        knownEngines: DEFAULT_KNOWN_ENGINES,
+        agentLabel: "coder",
+        toolProfile: "default",
+      });
+      expect(result.ok, wire).toBe(false);
+      if (result.ok) continue;
+      expect(result.unavailable.code, wire).toBe("unknown_tool");
+      expect(result.unavailable.tool, wire).toBe(wire);
+    }
+  });
+
+  test("default accepts bash, the wire it advertises for run_shell", () => {
+    const result = preflightCapabilities({
+      required: ["bash"],
+      resolvedFilter: ALLOW_SHELL,
+      knownEngines: DEFAULT_KNOWN_ENGINES,
+      agentLabel: "coder",
+      toolProfile: "default",
+    });
+    expect(result).toEqual({ ok: true, canonical: ["run_shell"] });
+  });
+
+  test("gpt rejects bash because that profile advertises shell", () => {
+    const result = preflightCapabilities({
+      required: ["bash"],
+      resolvedFilter: ALLOW_SHELL,
+      knownEngines: DEFAULT_KNOWN_ENGINES,
+      agentLabel: "coder",
+      toolProfile: "gpt",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected rejection");
+    expect(result.unavailable.code).toBe("unknown_tool");
+    expect(result.unavailable.tool).toBe("bash");
+  });
+
+  test("gpt exclude denies the wire and the engine together", () => {
+    const cases = [
+      { exclude: "manage_tasks", required: ["update_plan", "manage_tasks"] },
+      { exclude: "update_plan", required: ["update_plan", "manage_tasks"] },
+      { exclude: "run_shell", required: ["shell", "run_shell"] },
+      { exclude: "shell", required: ["shell", "run_shell"] },
+    ] as const;
+    for (const entry of cases) {
+      for (const required of entry.required) {
+        const result = preflightCapabilities({
+          required: [required],
+          resolvedFilter: { mode: "exclude", tools: [entry.exclude] },
+          knownEngines: DEFAULT_KNOWN_ENGINES,
+          agentLabel: "coder",
+          toolProfile: "gpt",
+        });
+        const label = `${entry.exclude} blocks ${required}`;
+        expect(result.ok, label).toBe(false);
+        if (result.ok) continue;
+        expect(result.unavailable.code, label).toBe("permission_static");
+      }
+    }
+    for (const required of ["manage_tasks", "update_plan"] as const) {
+      const result = preflightCapabilities({
+        required: [required],
+        resolvedFilter: { mode: "exclude", tools: ["read_file"] },
+        knownEngines: DEFAULT_KNOWN_ENGINES,
+        agentLabel: "coder",
+        toolProfile: "gpt",
+      });
+      expect(result.ok, required).toBe(true);
+    }
   });
 });
 

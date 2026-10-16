@@ -29,6 +29,7 @@ import {
   ORCHESTRATOR_TOOLS,
   READ_TOOLS,
 } from "./directors/tool-sets.js";
+import { advertisedWireEngines, toolProfiles } from "./tool-aliases.js";
 
 const FULL_AVAILABILITY: ToolAvailability = {
   languageServerAvailable: true,
@@ -1008,6 +1009,121 @@ describe("advertisedToolNamesForWorker", () => {
     expect(docs).toContain("write_file");
     expect(docs).not.toContain("run_shell");
     expect(docs).toContain("tool_search");
+  });
+
+  test("gpt docs surface folds file tools into apply_patch", () => {
+    const docs = advertisedToolNamesForWorker({
+      allow: DOCS_TOOLS,
+      profile: "gpt",
+    });
+    expect(docs).toContain("apply_patch");
+    expect(docs).not.toContain("write_file");
+    expect(docs).not.toContain("edit_file");
+    expect(docs).not.toContain("delete_file");
+    expect(docs).not.toContain("write");
+    expect(docs).not.toContain("edit");
+    expect(docs).not.toContain("delete");
+    expect(docs).not.toContain("shell");
+    expect(docs).not.toContain("run_shell");
+  });
+
+  test("default docs surface does not advertise apply_patch", () => {
+    const docs = advertisedToolNamesForWorker({
+      allow: DOCS_TOOLS,
+      profile: "default",
+    });
+    expect(docs).not.toContain("apply_patch");
+    expect(docs).toContain("write_file");
+    expect(docs).toContain("edit_file");
+    expect(docs).toContain("delete_file");
+  });
+
+  test("gpt build surface renames shell and folds file tools", () => {
+    const build = advertisedToolNamesForWorker({
+      allow: BUILD_TOOLS,
+      profile: "gpt",
+    });
+    expect(build).toContain("apply_patch");
+    expect(build).toContain("shell");
+    expect(build).not.toContain("bash");
+    expect(build).not.toContain("run_shell");
+    expect(build).not.toContain("write");
+    expect(build).not.toContain("write_file");
+  });
+
+  test("gpt shell is advertised, so a shell call does not promote run_shell", async () => {
+    const prefix = advertisedToolNamesForWorker({
+      allow: BUILD_TOOLS,
+      profile: "gpt",
+    });
+    const runner = createDynamicToolRunner([
+      {
+        kind: "string",
+        definition: {
+          name: "run_shell",
+          description: "run a shell command",
+          inputSchema: { type: "object", properties: {}, required: [] },
+        },
+        handler: async () => "ran:shell",
+      },
+      {
+        kind: "string",
+        definition: {
+          name: "apply_patch",
+          description: "apply a patch",
+          inputSchema: { type: "object", properties: {}, required: [] },
+        },
+        handler: async () => "ran:patch",
+      },
+    ]);
+    const advertised = createAdvertisedToolset({
+      sessionMode: "orchestrator",
+      toolAvailability: { languageServerAvailable: false },
+      getProvider: () => ({ providerName: "openai", model: "gpt-5-codex" }),
+      builtInPrefix: prefix,
+    });
+    expect(advertised.isAdvertised("shell")).toBe(true);
+    expect(advertised.isAdvertised("run_shell")).toBe(true);
+    expect(advertised.isAdvertised("apply_patch")).toBe(true);
+    const promoted: string[] = [];
+    runner.setCallGate((name) => advertised.isAdvertised(name));
+    runner.setOnUndeclaredCall((name) => {
+      promoted.push(name);
+      advertised.activated.activate([name]);
+    });
+    const signal = new AbortController().signal;
+    const shell = await runner.run(
+      { id: "shell", name: "shell", arguments: { command: "true" } },
+      signal,
+    );
+    const patch = await runner.run(
+      { id: "patch", name: "apply_patch", arguments: {} },
+      signal,
+    );
+    expect(shell.content).toBe("ran:shell");
+    expect(shell.isError).toBeUndefined();
+    expect(patch.content).toBe("ran:patch");
+    expect(patch.isError).toBeUndefined();
+    expect(promoted).toEqual([]);
+  });
+
+  test("every non-default profile projects allowlisted engines through its wire table", () => {
+    const allow = BUILD_TOOLS as readonly string[];
+    for (const profile of toolProfiles()) {
+      const names = advertisedToolNamesForWorker({
+        allow: BUILD_TOOLS,
+        profile,
+      });
+      if (profile === "default") {
+        expect(names).toContain("write_file");
+        expect(names).not.toContain("apply_patch");
+        continue;
+      }
+      for (const [wire, engines] of advertisedWireEngines(profile)) {
+        if (!engines.some((engine) => allow.includes(engine))) continue;
+        expect(names, `${profile} ${wire}`).toContain(wire);
+      }
+    }
   });
 
   test("nested orchestrator allowlist adds fleet verbs but not search_agents", () => {

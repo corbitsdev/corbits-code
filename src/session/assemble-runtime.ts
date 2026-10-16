@@ -452,17 +452,17 @@ export function createAdvertisedToolset(args: {
     );
   };
   const isAdvertised = (name: string): boolean => {
-    const denied = deniedFor(args.getProvider());
+    const provider = args.getProvider();
+    const profile = toolProfileForModel(provider);
+    const denied = deniedFor(provider);
     if (denied.includes(name) || denied.includes(canonicalToolName(name))) {
       return false;
     }
-    const effective = foldFileToolNames(
-      prefix,
-      toolProfileForModel(args.getProvider()),
-    );
+    const effective = foldFileToolNames(prefix, profile);
     return nameMatchesAdvertisedListing(
       name,
       (n) => effective.includes(n) || activated.has(n),
+      profile,
     );
   };
   const flushPromotions = (): boolean => {

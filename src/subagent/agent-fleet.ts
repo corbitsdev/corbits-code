@@ -44,6 +44,7 @@ import {
   formatDirectorSystemPrompt,
   packageAllowedSkillNames,
 } from "../agent/directors/identity.js";
+import { toolProfileForModel } from "../agent/tool-aliases.js";
 import type { Settings } from "../config/settings.js";
 import { resolveInferenceWithPolicy } from "../config/settings.js";
 import {
@@ -1250,6 +1251,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           knownEngines: DEFAULT_KNOWN_ENGINES,
           availableMcpTools,
           agentLabel: resolved.agentLabel,
+          toolProfile: toolProfileForModel({
+            providerName: provider.providerName,
+            model: provider.model,
+          }),
         });
         if (!preflight.ok) {
           return fleetResult(

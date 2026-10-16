@@ -204,15 +204,33 @@ describe("director prompt size budget", () => {
         expect(new Set(names).size, `${directorId} [${family}]`).toBe(
           names.length,
         );
-        // Hidden Codex aliases (apply_patch/shell/update_plan) are not advertised,
-        // as must list_dir, which no subagent mount installs.
-        for (const phantom of [
-          "list_dir",
-          "apply_patch",
-          "shell",
-          "update_plan",
-        ]) {
-          expect(names, `${directorId} [${family}]`).not.toContain(phantom);
+        // list_dir is not installed on a subagent mount. apply_patch, shell,
+        // and update_plan are the gpt wire names — other families keep the
+        // default wires.
+        expect(names, `${directorId} [${family}]`).not.toContain("list_dir");
+        if (family === "gpt") {
+          const defaults = canonicalToolNamesForDirector(
+            DIRECTOR_REGISTRY[directorId],
+            "default",
+          );
+          expect(names.includes("apply_patch"), directorId).toBe(
+            defaults.includes("write"),
+          );
+          expect(names.includes("shell"), directorId).toBe(
+            defaults.includes("bash"),
+          );
+          expect(names.includes("update_plan"), directorId).toBe(
+            defaults.includes("todowrite"),
+          );
+          expect(names, directorId).not.toContain("write");
+          expect(names, directorId).not.toContain("edit");
+          expect(names, directorId).not.toContain("delete");
+          expect(names, directorId).not.toContain("bash");
+          expect(names, directorId).not.toContain("todowrite");
+        } else {
+          for (const phantom of ["apply_patch", "shell", "update_plan"]) {
+            expect(names, `${directorId} [${family}]`).not.toContain(phantom);
+          }
         }
         if (DIRECTOR_REGISTRY[directorId].spawn.maySpawn) {
           for (const verb of ["spawn_agent", "send_input"]) {
@@ -224,6 +242,25 @@ describe("director prompt size budget", () => {
         }
       }
     }
+  });
+
+  test("gpt shakespeare lists apply_patch, not write/edit/delete", () => {
+    const names = canonicalToolNamesForDirector(
+      DIRECTOR_REGISTRY.shakespeare,
+      "gpt",
+    );
+    expect(names).toContain("apply_patch");
+    expect(names).not.toContain("write");
+    expect(names).not.toContain("edit");
+    expect(names).not.toContain("delete");
+    expect(names).not.toContain("write_file");
+    expect(names).not.toContain("shell");
+    const defaults = canonicalToolNamesForDirector(
+      DIRECTOR_REGISTRY.shakespeare,
+      "default",
+    );
+    expect(defaults).not.toContain("apply_patch");
+    expect(defaults).toContain("write");
   });
 });
 

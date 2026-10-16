@@ -12,7 +12,9 @@ import {
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 import {
+  advertisedNamesForEngine,
   advertisedToolName,
+  foldFileToolNames,
   projectToolDefinition,
   type ToolProfile,
 } from "./tool-aliases.js";
@@ -117,6 +119,8 @@ export function advertisedToolNamesForWorker(opts: {
   allow?: readonly string[];
   orchestrator?: boolean;
   languageServerAvailable?: boolean;
+  /** Family projection. Default keeps registry engine ids. */
+  profile?: ToolProfile;
 }): readonly string[] {
   const base =
     opts.allow !== undefined && opts.allow.length > 0
@@ -135,7 +139,11 @@ export function advertisedToolNamesForWorker(opts: {
     seen.add(name);
     out.push(name);
   }
-  return out;
+  if (opts.profile === undefined || opts.profile === "default") return out;
+  return foldFileToolNames(
+    out.map((name) => advertisedToolName(name, opts.profile)),
+    opts.profile,
+  );
 }
 
 // Built-in file/search/web tools advertised with full schema alongside the
@@ -169,11 +177,11 @@ function isAlreadyAdvertised(
   advertisedNames: readonly string[],
 ): boolean {
   const engine = canonicalToolName(defName);
-  const wire = advertisedToolName(engine);
-  return (
-    advertisedNames.includes(defName) ||
-    advertisedNames.includes(engine) ||
-    advertisedNames.includes(wire)
+  if (advertisedNames.includes(defName) || advertisedNames.includes(engine)) {
+    return true;
+  }
+  return advertisedNamesForEngine(engine).some((name) =>
+    advertisedNames.includes(name),
   );
 }
 

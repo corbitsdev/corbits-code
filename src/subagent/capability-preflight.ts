@@ -3,9 +3,13 @@
  *
  * A `requires_tools` entry is a hard requirement: the tool must mount on
  * the worker or the dispatch rejects before any session, telemetry, or
- * worktree exists. Names are canonical engine ids on both sides (aliases
- * collapse via canonicalToolName), so `shell` and `run_shell` are the
- * same requirement. Fail-closed: unknown names and allowlist/denylist
+ * worktree exists. Engine ids are canonical on both sides. A wire name
+ * passes only when the worker's resolved profile advertises it, and then
+ * only as the engine ids that profile projects it onto — a rename is one
+ * engine, a fold is every covered engine. A wire some other profile
+ * advertises is unknown here (`shell` is gpt; default advertises `bash`).
+ * With no resolved profile, hidden aliases still canonicalize and a fold
+ * target stays unknown. Fail-closed: unknown names and allowlist/denylist
  * misses reject.
  *
  * `stale_snapshot` is never emitted here — it is the mount-time echo in
@@ -14,6 +18,11 @@
  */
 
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import {
+  enginesForAdvertisedWire,
+  toolProfiles,
+  type ToolProfile,
+} from "../agent/tool-aliases.js";
 import {
   DIRECTOR_REGISTRY,
   packageToCapabilities,
@@ -49,6 +58,12 @@ export interface PreflightCapabilitiesInput {
   availableMcpTools?: readonly string[] | undefined;
   /** Worker label for messages (director id or profile id). */
   agentLabel: string;
+  /**
+   * Tool profile of the model this spawn will run. Wire names resolve through
+   * that profile's projection. Omit when no family is resolved — hidden
+   * aliases still canonicalize, and a fold target stays unknown.
+   */
+  toolProfile?: ToolProfile | undefined;
 }
 
 export interface CapabilityUnavailable {
@@ -218,6 +233,71 @@ export function leafTierAlternatives(): readonly string[] {
     .slice(0, 3);
 }
 
+function enginesCoveredByDirector(
+  engines: readonly string[],
+  filter: CapabilityFilter | undefined,
+  postFilter: ReadonlySet<string>,
+): readonly string[] {
+  if (filter === undefined) return engines;
+  const named = new Set(filter.tools.map((name) => canonicalToolName(name)));
+  if (filter.mode === "allow") {
+    return engines.filter(
+      (engine) => named.has(engine) || postFilter.has(engine),
+    );
+  }
+  // An explicit exclude names the engine. Post-filter mounts (manage_tasks)
+  // are not exempt here — update_plan and manage_tasks must agree, and the
+  // engine-id path applies the same denylist.
+  return engines.filter((engine) => !named.has(engine));
+}
+
+/**
+ * Profile wire names become the engines that profile advertises. Undefined
+ * means this name is not a wire for any profile — the caller falls through
+ * to catalog engines. A wire only another profile advertises is unknown.
+ * No resolved profile does not guess.
+ */
+function expandAdvertisedWire(
+  trimmed: string,
+  profile: ToolProfile | undefined,
+  filter: CapabilityFilter | undefined,
+  postFilter: ReadonlySet<string>,
+): string[] | { unavailable: CapabilityUnavailable } | undefined {
+  if (profile === undefined) return undefined;
+  const mapped = enginesForAdvertisedWire(trimmed, profile);
+  if (mapped === undefined) {
+    const foreign = toolProfiles().some(
+      (candidate) =>
+        candidate !== profile &&
+        enginesForAdvertisedWire(trimmed, candidate) !== undefined,
+    );
+    if (!foreign) return undefined;
+    const suggestion = nearestToolName(trimmed);
+    const useful =
+      suggestion !== undefined &&
+      suggestion.toLowerCase() !== trimmed.toLowerCase();
+    return {
+      unavailable: {
+        code: "unknown_tool",
+        tool: trimmed,
+        ...(useful ? { suggestion } : {}),
+      },
+    };
+  }
+  const covered = enginesCoveredByDirector(mapped, filter, postFilter);
+  if (covered.length > 0) return [...covered];
+  const hint = mapped[0];
+  return {
+    unavailable: {
+      code: filter?.mode === "exclude" ? "permission_static" : "missing_tool",
+      tool: trimmed,
+      ...(hint !== undefined
+        ? { alternatives: rerouteAlternatives(hint) }
+        : {}),
+    },
+  };
+}
+
 export function preflightCapabilities(
   input: PreflightCapabilitiesInput,
 ): CapabilityPreflightResult {
@@ -244,64 +324,69 @@ export function preflightCapabilities(
       return { ok: false, unavailable: { code: "unknown_tool", tool: raw } };
     }
     const engine = canonicalToolName(trimmed);
-    // A live inherited-MCP tool passes the catalog check — presence proves
-    // the mount (see availableMcpTools); an `mcp__*` name outside the live
-    // set still rejects below.
-    const isLiveMcp = isMcpToolName(engine) && liveMcp.has(engine);
-    if (!catalog.has(engine) && !isLiveMcp) {
-      const suggestion = nearestToolName(trimmed);
-      return {
-        ok: false,
-        unavailable: {
-          code: "unknown_tool",
-          tool: trimmed,
-          ...(suggestion !== undefined ? { suggestion } : {}),
-        },
-      };
+    const wireExpanded = expandAdvertisedWire(
+      trimmed,
+      input.toolProfile,
+      resolvedFilter,
+      postFilter,
+    );
+    if (wireExpanded !== undefined && !Array.isArray(wireExpanded)) {
+      return { ok: false, unavailable: wireExpanded.unavailable };
     }
-    if (!isLiveMcp && !known.has(engine)) {
-      return {
-        ok: false,
-        unavailable: { code: "missing_binary", tool: engine },
-      };
-    }
-    if (!postFilter.has(engine) && !isLiveMcp) {
-      if (allow !== undefined && !allow.has(engine)) {
+    const expanded = wireExpanded ?? [engine];
+    for (const resolved of expanded) {
+      // A live inherited-MCP tool passes the catalog check — presence proves
+      // the mount (see availableMcpTools); an `mcp__*` name outside the live
+      // set still rejects below.
+      const isLiveMcp = isMcpToolName(resolved) && liveMcp.has(resolved);
+      if (!catalog.has(resolved) && !isLiveMcp) {
+        const suggestion = nearestToolName(trimmed);
         return {
           ok: false,
           unavailable: {
-            code: "missing_tool",
-            tool: engine,
-            alternatives: rerouteAlternatives(engine),
+            code: "unknown_tool",
+            tool: trimmed,
+            ...(suggestion !== undefined ? { suggestion } : {}),
           },
         };
       }
-      if (deny !== undefined && deny.has(engine)) {
+      if (!isLiveMcp && !known.has(resolved)) {
+        return {
+          ok: false,
+          unavailable: { code: "missing_binary", tool: resolved },
+        };
+      }
+      // Explicit exclude wins over the post-filter mount exemption and over a
+      // live MCP mount. Otherwise gpt update_plan (wire path) is
+      // permission_static while manage_tasks (engine-id path) still passes.
+      // shell / run_shell share that rule. run.ts strips named tools in
+      // exclude mode, so an excluded MCP tool must reject here.
+      if (deny !== undefined && deny.has(resolved)) {
         return {
           ok: false,
           unavailable: {
             code: "permission_static",
-            tool: engine,
-            alternatives: rerouteAlternatives(engine),
+            tool: resolved,
+            alternatives: rerouteAlternatives(resolved),
           },
         };
       }
-    } else if (isLiveMcp && deny !== undefined && deny.has(engine)) {
-      // An explicit exclude naming a live MCP tool still withholds it —
-      // run.ts strips named tools in exclude mode, so the mount would drop
-      // it and the requirement must reject here, not as a stale snapshot.
-      return {
-        ok: false,
-        unavailable: {
-          code: "permission_static",
-          tool: engine,
-          alternatives: rerouteAlternatives(engine),
-        },
-      };
-    }
-    if (!seen.has(engine)) {
-      seen.add(engine);
-      canonical.push(engine);
+      if (!postFilter.has(resolved) && !isLiveMcp) {
+        if (allow !== undefined && !allow.has(resolved)) {
+          return {
+            ok: false,
+            unavailable: {
+              code: "missing_tool",
+              tool: resolved,
+              alternatives: rerouteAlternatives(resolved),
+            },
+          };
+        }
+      }
+      if (!seen.has(resolved)) {
+        seen.add(resolved);
+        canonical.push(resolved);
+      }
     }
   }
   return { ok: true, canonical };
