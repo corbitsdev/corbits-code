@@ -11,7 +11,7 @@ import {
   STALL_BLINK_BURST_MS,
   STALL_BLINK_CYCLE_MS,
   type RampPhase,
-} from "./ramp";
+} from "./ramp-glyphs";
 import { UI } from "./theme";
 
 const idle = (nowMs: number): LockupInput => ({

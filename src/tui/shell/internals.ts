@@ -17,7 +17,7 @@ import {
 import { type SentHistoryBrowse } from "../sent-message-history.js";
 import { type PromptRecognitionSource } from "../prompt-recognition.js";
 import { type PromptInput } from "../prompt-input.js";
-import type { RampPhase, StallAge } from "../ramp.js";
+import type { RampPhase, StallAge } from "../ramp-glyphs.js";
 import type { ActivityState } from "../chrome-state.js";
 import { type CostContextMeter } from "../prompt-border.js";
 import { type FocusState } from "../focus/index.js";

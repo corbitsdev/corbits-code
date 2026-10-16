@@ -22,7 +22,7 @@ import {
 } from "@opentui/core";
 
 import { PRODUCT_NAME } from "../branding.js";
-import { MARK_PERIOD_SECONDS, renderMark } from "./mark-anim.js";
+import { MARK_PERIOD_SECONDS, renderMark } from "./mark-raster.js";
 import {
   MARK_LARGE,
   MARK_MID,

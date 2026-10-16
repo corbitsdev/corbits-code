@@ -18,7 +18,7 @@ import { middleEllipsis } from "./command-display.js";
 import { renderDiff } from "./diff.js";
 import { wrapLanding } from "./landing.js";
 import { lockupWidth } from "./lockup.js";
-import type { RampPhase } from "./ramp.js";
+import type { RampPhase } from "./ramp-glyphs.js";
 import { formatPaletteRows } from "./command-catalog.js";
 import { composeDecisionBody, wrapWords } from "./overlay-body.js";
 import { thinkingLivePreviewLines, thinkingSettledLine } from "./thinking.js";

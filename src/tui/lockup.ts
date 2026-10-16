@@ -4,17 +4,22 @@
  * It rides the prompt box's bottom border. Idle it reads `corbits code`;
  * while a turn runs it reads the live phase — `thinking`, `responding`,
  * the running tool's name — led by a single density cell (`rampPulse` in
- * `ramp.ts`): the word alone printed the same static `working` for a
+ * `ramp-glyphs.ts`): the word alone printed the same static `working` for a
  * live run and a hung one. The cell cycles while the turn moves, holds a
  * static half block on an operator gate, and blinks a bang when stalled
- * (glyph and motion carry the states — see ramp.ts).
+ * (glyph and motion carry the states — see ramp-glyphs.ts).
  *
  * Cell and word share the phase's color, so the slot never disagrees
  * with it. Pure and clock-injected: `nowMs` in, cells out.
  */
 
-import { type MarkCell } from "./mark-anim.js";
-import { rampFg, rampPulse, type RampPhase, type StallAge } from "./ramp.js";
+import { type MarkCell } from "./mark-raster.js";
+import {
+  rampFg,
+  rampPulse,
+  type RampPhase,
+  type StallAge,
+} from "./ramp-glyphs.js";
 import { UI } from "./theme.js";
 import { stringWidth } from "./view/height.js";
 

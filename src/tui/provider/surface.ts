@@ -16,7 +16,7 @@ import { PRODUCT_NAME } from "../../branding.js";
 import { ollamaDiscoveryFailureLine } from "../../provider/ollama.js";
 import { TELEMETRY_NOTICE } from "../../telemetry/index.js";
 import { wrapLines } from "../view/height.js";
-import { rampFor, rampLine } from "../ramp.js";
+import { rampFor, rampLine } from "../ramp-glyphs.js";
 import { destroySubtree } from "../teardown.js";
 import { UI } from "../theme.js";
 import {
