@@ -215,7 +215,11 @@ describe("director prompt size budget", () => {
           expect(names, `${directorId} [${family}]`).not.toContain(phantom);
         }
         if (DIRECTOR_REGISTRY[directorId].spawn.maySpawn) {
-          for (const verb of ["spawn_agent", "send_input"]) {
+          for (const verb of [
+            "spawn_agent",
+            "send_input",
+            "approve_worker_call",
+          ]) {
             expect(
               names.filter((n) => n === verb).length,
               `${directorId} [${family}] mounts ${verb} once`,
