@@ -446,7 +446,8 @@ describe("HTTP MCP re-auth loop prevention", () => {
     });
     mock.redirectsPerFailure = 0;
     mock.callFailuresLeft = 1;
-    const first = callText(connected.client, 
+    const first = callText(
+      connected.client,
       "first",
       {},
       new AbortController().signal,
@@ -455,7 +456,8 @@ describe("HTTP MCP re-auth loop prevention", () => {
 
     mock.redirectsPerFailure = 1;
     mock.callFailuresLeft = 1;
-    const second = callText(connected.client, 
+    const second = callText(
+      connected.client,
       "second",
       {},
       new AbortController().signal,
@@ -485,7 +487,8 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.callFailuresLeft = 2;
     const firstAbort = new AbortController();
     const first = callText(connected.client, "first", {}, firstAbort.signal);
-    const second = callText(connected.client, 
+    const second = callText(
+      connected.client,
       "second",
       {},
       new AbortController().signal,
@@ -576,7 +579,8 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(connected.ok).toBe(true);
     if (!connected.ok) return;
     mock.callFailuresLeft = 1;
-    const call = callText(connected.client, 
+    const call = callText(
+      connected.client,
       "ping",
       {},
       new AbortController().signal,
@@ -598,7 +602,8 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.refreshGate = new Promise(() => undefined);
     mock.redirectsPerFailure = 0;
     mock.callFailuresLeft = 1;
-    const call = callText(connected.client, 
+    const call = callText(
+      connected.client,
       "ping",
       {},
       new AbortController().signal,
@@ -622,7 +627,8 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(connected.ok).toBe(true);
     if (!connected.ok) return;
     mock.callFailuresLeft = 1;
-    const call = callText(connected.client, 
+    const call = callText(
+      connected.client,
       "ping",
       {},
       new AbortController().signal,
@@ -650,12 +656,14 @@ describe("HTTP MCP re-auth loop prevention", () => {
       mock.releaseRetry = resolve;
     });
     mock.callFailuresLeft = 2;
-    const first = callText(connected.client, 
+    const first = callText(
+      connected.client,
       "first",
       {},
       new AbortController().signal,
     );
-    const second = callText(connected.client, 
+    const second = callText(
+      connected.client,
       "second",
       {},
       new AbortController().signal,
@@ -666,7 +674,8 @@ describe("HTTP MCP re-auth loop prevention", () => {
     mock.refreshSucceeds = true;
     mock.redirectsPerFailure = 0;
     mock.callFailuresLeft = 1;
-    const third = callText(connected.client, 
+    const third = callText(
+      connected.client,
       "third",
       {},
       new AbortController().signal,
@@ -922,7 +931,8 @@ describe("HTTP MCP re-auth loop prevention", () => {
     });
     mock.redirectsPerFailure = 0;
     mock.callFailuresLeft = 1;
-    const first = callText(connected.client, 
+    const first = callText(
+      connected.client,
       "first",
       {},
       new AbortController().signal,

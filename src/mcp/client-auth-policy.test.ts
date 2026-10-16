@@ -143,8 +143,11 @@ await mockMcpOAuthProviderModule(async (options: { serverURL: string }) => {
   return authProvider;
 });
 
-const { connectMCPServer, fetchWithConnectAbort, MCP_HTTP_RECONNECTION_OPTIONS } =
-  await import("./client.js");
+const {
+  connectMCPServer,
+  fetchWithConnectAbort,
+  MCP_HTTP_RECONNECTION_OPTIONS,
+} = await import("./client.js");
 
 describe("HTTP MCP auth policy", () => {
   beforeEach(() => {
