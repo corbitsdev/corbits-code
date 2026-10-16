@@ -1,119 +1,88 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 import {
+  DIRECTOR_CARDS,
   DISPATCH_ROUTE_ROWS,
   REPORT_ENVELOPE_SHAPE,
+  dispatchRouteSection,
+  doneGate,
+  identityLine,
+  outOfLane,
 } from "../../../packages/prompt-fragments/src/index.js";
 import { DIRECTOR_REGISTRY } from "./registry.js";
 import { DIRECTOR_IDS } from "./types.js";
 
 /**
- * Fragment composition byte-stability (CL-10674 P1): cards compose the shared
- * prompt fragments and keep only lane-specific shape. These are the structural
- * frame asserts (frames appear exactly once, per adopted lane); the exact byte
- * pin is src/agent/directors/prompt-golden.test.ts, which compares every
- * registry card against the blessed, HEAD~1-equal golden bytes in
- * packages/prompt-fragments/src/goldens.ts. That guarded pin makes "a
- * fragment change is a fleet-wide prompt change" a contract, not a hope: a
- * fragment edit fails the golden pin until the goldens are regenerated
- * deliberately alongside the size baselines (src/agent/prompt-sizes.test.ts).
+ * Composed-output pin (CL-10674). The fragment package is the only copy of
+ * the card prose; these hashes fail when a fragment edit changes bytes.
+ * Director modules must keep calling the composed card, not restating it.
  */
-describe("prompt fragment composition byte-stability", () => {
-  // Cards that adopt the DONE GATE / OUT OF LANE / identity fragments.
-  const OBSERVATIONS = {
-    identityBanner: [
-      "artist",
-      "coder",
-      "designer",
-      "explorer",
-      "planner",
-      "prober",
-      "reviewer",
-      "shakespeare",
-      "warden",
-    ],
-    envelopeShape: [
-      "artist",
-      "coder",
-      "designer",
-      "planner",
-      "prober",
-      "qa-lead",
-      "reviewer",
-    ],
-    doneGate: ["explorer", "shakespeare"],
-    outOfLaneLine: [
-      "artist",
-      "coder",
-      "designer",
-      "explorer",
-      "planner",
-      "qa-lead",
-      "reviewer",
-      "shakespeare",
-    ],
-  } as const;
+const CARD_SHA256: Record<(typeof DIRECTOR_IDS)[number], string> = {
+  dispatch: "0ce0493f3119a02b999b87b5e5c51d61df01ae8042923710404cae6ee9758328",
+  explorer: "d4cac32fe0703953bf4d68c68b02aa67e3e50d2172b8137c5692ccdb1afc76eb",
+  planner: "6ce04bb2349e9a67cfab538c1cbcb08c4eaa7dfe2eb40dca94bd022e4608bc23",
+  coder: "6e872830d642935e98407b1e45a23740e73c731abfb3e6297a242201abd09092",
+  reviewer: "9de0237970a17a030db9bc4c387d46d5d25788e91a806a7e9713b93778d75d5b",
+  designer: "d021f346f451eda0770d6580b7647441311c89faef919e670ac6ab4ae9aa297f",
+  artist: "8ba1a961af72fabbaa6310b322e931872aa759e6572dda327f48d9deefe12ecb",
+  warden: "585add005436fea88c84b66d2f0aaa0bc4454c8165b6951989678226ebd0e27c",
+  shakespeare:
+    "e993db0e6bee1090aa64c1a7f8501e6c87c15e6eed26ce686b7efba7fcfd9541",
+  prober: "a34f956da1245a4f370eeedeb71e09f4dfe3d6df009b0083fc5220a30790ac59",
+  "qa-lead": "5beb75426761fdf952fdd889fb06c3152d90e2ead9358071d747169b10518c0e",
+};
 
-  const card = (id: (typeof DIRECTOR_IDS)[number]): string =>
-    DIRECTOR_REGISTRY[id].systemPrompt;
+function sha256(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
 
-  for (const id of OBSERVATIONS.identityBanner) {
-    test(`[${id}] identity banner composes once`, () => {
-      const banner = card(id).split("\n")[0];
-      expect(banner).toMatch(
-        /^You are \w+Director \(\w+\), a specialist in Corbits Code\.$/,
-      );
-    });
-  }
-
-  for (const id of OBSERVATIONS.envelopeShape) {
-    test(`[${id}] report envelope shape is the single fragment string`, () => {
-      expect(card(id)).toContain(REPORT_ENVELOPE_SHAPE);
-      expect(
-        card(id).split(REPORT_ENVELOPE_SHAPE).length - 1,
-      ).toBeGreaterThanOrEqual(1);
-    });
-  }
-
-  for (const id of OBSERVATIONS.doneGate) {
-    test(`[${id}] done gate frame composes once`, () => {
-      expect(card(id).split("DONE GATE: Stop when ").length - 1).toBe(1);
-      expect(card(id)).toContain(
-        "OR explicitly blocked under Blockers. Do not ",
-      );
-    });
-  }
-
-  for (const id of OBSERVATIONS.outOfLaneLine) {
-    test(`[${id}] out-of-lane line frame composes once`, () => {
-      expect(card(id).split("\nOUT OF LANE: ").length - 1).toBe(1);
-    });
-  }
-
-  test("prober keeps its lane-wrapped literal until a measured unwrap", () => {
-    // Prober's DONE GATE / OUT OF LANE blocks are hand-wrapped 80-col text;
-    // adopting the single-line fragments would change bytes, so they stay
-    // literal until blessed as a deliberate baseline move.
-    expect(card("prober")).toContain(
-      "DONE GATE: stop when the brief's measure ask is answered with evidence\nOR explicitly blocked under Blockers.",
-    );
-    expect(card("prober")).toContain(
-      "OUT OF LANE: shipping product code, tuning prompts or model-family\npolicy",
-    );
-  });
-
-  test("dispatch composes its route section from the shared table", () => {
-    for (const row of DISPATCH_ROUTE_ROWS) {
-      expect(card("dispatch")).toContain(`spawn ${row.lane} (${row.hint}`);
+describe("director cards compose from prompt-fragments", () => {
+  test("registry system prompts are the composed cards", () => {
+    for (const id of DIRECTOR_IDS) {
+      expect(DIRECTOR_REGISTRY[id].systemPrompt).toBe(DIRECTOR_CARDS[id]);
     }
   });
 
-  test("no card duplicates the done-gate or out-of-lane frame", () => {
+  test("composed output hash pin", () => {
     for (const id of DIRECTOR_IDS) {
-      expect(card(id).split("DONE GATE:").length - 1).toBeLessThanOrEqual(1);
-      expect(
-        card(id).split(/\bOUT OF LANE[:\u2192]/).length - 1,
-      ).toBeLessThanOrEqual(1);
+      expect(sha256(DIRECTOR_CARDS[id])).toBe(CARD_SHA256[id]);
+    }
+  });
+
+  test("shared frames are the fragment helpers, not a second wording", () => {
+    expect(DIRECTOR_CARDS.explorer.startsWith(identityLine("Explorer"))).toBe(
+      true,
+    );
+    expect(DIRECTOR_CARDS.coder).toContain(REPORT_ENVELOPE_SHAPE);
+    expect(DIRECTOR_CARDS.coder).toContain(
+      outOfLane(
+        "pure exploration maps, speculative abstractions, review-only verdicts, mechanical command lists without implementing, fleet orchestration or spawning",
+      ),
+    );
+    expect(DIRECTOR_CARDS.explorer).toContain(
+      doneGate(
+        "every success_criteria item from the brief is answered",
+        "Do not invent architecture, ship code, or expand the brief after criteria are satisfied. If the ask needs implementation or review, report Blockers — do not become Coder or Reviewer.",
+      ),
+    );
+    expect(DIRECTOR_CARDS.dispatch).toContain(dispatchRouteSection());
+    expect(DISPATCH_ROUTE_ROWS.map((row) => row.lane).sort()).toEqual(
+      DIRECTOR_IDS.filter((id) => id !== "dispatch").sort(),
+    );
+  });
+
+  test("director modules do not embed a second copy of the card", () => {
+    for (const id of DIRECTOR_IDS) {
+      const path =
+        id === "qa-lead"
+          ? new URL("./qa-lead/package.ts", import.meta.url)
+          : new URL(`../../../agents/${id}/src/prompt.ts`, import.meta.url);
+      const text = readFileSync(path, "utf8");
+      expect(text).not.toContain("PRIMARY INTENT");
+      expect(text).not.toContain("OUT OF LANE:");
+      expect(text).not.toContain("# Route");
     }
   });
 });

@@ -61,8 +61,8 @@ import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
+import { shouldApplyGrokAntiThrash } from "./provider-family.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
-import { composeLeafRoleBody } from "../agent/directors/identity.js";
 import { createCorbitsRetryPolicy } from "../agent/retry-policy.js";
 import {
   createInterventionLog,
@@ -1233,16 +1233,7 @@ async function runSubAgentInner(
             skillDirs,
           })
         : undefined;
-    // A family-tuned leaf role body replaces only the card body: the
-    // identity header from the already-formatted prompt stays on the wire
-    // (ONE identity authority; see identity.ts composeLeafRoleBody).
-    const roleBody =
-      modelFamilyPolicy.leafRoleBody !== undefined
-        ? composeLeafRoleBody(
-            params.systemPromptRole,
-            modelFamilyPolicy.leafRoleBody,
-          )
-        : params.systemPromptRole;
+    const roleBody = modelFamilyPolicy.leafRoleBody ?? params.systemPromptRole;
     const extensions = [
       ...(roleBody !== undefined ? [roleBody] : []),
       ...(attachedSection !== undefined ? [attachedSection] : []),
@@ -1267,6 +1258,11 @@ async function runSubAgentInner(
       {
         orchestrator: params.orchestrator === true,
         toolNames,
+        grokAntiThrash: shouldApplyGrokAntiThrash({
+          providerName: params.provider.providerName,
+          model: params.provider.model,
+          orchestrator: params.orchestrator === true,
+        }),
         promptResidual: modelFamilyPolicy.promptResidual,
       },
     );
