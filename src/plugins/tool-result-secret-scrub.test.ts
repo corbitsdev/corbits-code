@@ -234,6 +234,59 @@ describe("bare-KEY names in JSON paths", () => {
   });
 });
 
+describe("query secrets keep characters after quotes", () => {
+  test("does not leave a tail after a quote in password, api_key, or token", () => {
+    for (const name of ["password", "api_key", "token"] as const) {
+      for (const quote of ["'", '"'] as const) {
+        const text = `GET https://provider.invalid/v1?${name}=p${quote}LEAKTAIL&format=json`;
+        const out = scrubSecretShapedContent(text);
+        expect(out).toBe(
+          `GET https://provider.invalid/v1?${name}=${CREDENTIAL_REDACTION}&format=json`,
+        );
+        expect(out).not.toContain("LEAKTAIL");
+      }
+    }
+  });
+});
+
+describe("storage key names stay readable", () => {
+  test("keeps partition, sort, primary, cache, and prompt_cache keys", () => {
+    const value = {
+      partition_key: "tenant",
+      sort_key: 2,
+      primary_key: ["id"],
+      cache_key: [1, 2],
+      prompt_cache_key: 9,
+      OPENAI_KEY: "sk-live-abc123",
+      api_key: ["still-secret"],
+    };
+    expect(scrubSecretShapedValue(value)).toEqual({
+      partition_key: "tenant",
+      sort_key: 2,
+      primary_key: ["id"],
+      cache_key: [1, 2],
+      prompt_cache_key: 9,
+      OPENAI_KEY: CREDENTIAL_REDACTION,
+      api_key: CREDENTIAL_REDACTION,
+    });
+
+    const text =
+      '{"partition_key":"tenant","sort_key":2,"primary_key":["id"],"cache_key":[1],"prompt_cache_key":"sess","OPENAI_KEY":"sk-live-abc123","api_key":"still-secret"}';
+    const scrubbed = scrubSecretShapedContent(text);
+    expect(scrubbed).toContain('"partition_key":"tenant"');
+    expect(scrubbed).toContain('"sort_key":2');
+    expect(scrubbed).toContain('"primary_key":["id"]');
+    expect(scrubbed).toContain('"cache_key":[1]');
+    expect(scrubbed).toContain('"prompt_cache_key":"sess"');
+    expect(scrubbed).not.toContain("sk-live-abc123");
+    expect(scrubbed).not.toContain("still-secret");
+
+    const query =
+      "GET https://provider.invalid/v1?sort_key=created_at&partition_key=tenant&format=json";
+    expect(scrubSecretShapedContent(query)).toBe(query);
+  });
+});
+
 describe("bare-KEY names in query parameters", () => {
   test("redacts ?OPENAI_KEY= among benign params, adjacent params survive", () => {
     const text =
