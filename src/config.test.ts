@@ -1467,11 +1467,11 @@ describe("buildOpenAISource", () => {
     });
   });
 
-  test("flows temperature and top_p together when both are present (CL-10760)", () => {
-    // The temperature/topP exclusion lives in the settings schema (load
-    // rejects both); buildOpenAISource itself merges whatever it is given, so
-    // provider-mandated pairs (e.g. DeepSeek V4 model-card defaults) still
-    // reach the wire.
+  test("flows temperature and top_p together when both are present", () => {
+    // Settings load rejects both knobs. This builder still forwards a pair
+    // it is given. DeepSeek V4 model-card defaults reach the wire because
+    // the adapter writes top_p 0.95 and temperature 1.0 when each body
+    // field is absent, not because this merge supplies those defaults.
     const source = buildOpenAISource({
       id: "fp",
       baseURL: "https://fp/v1",

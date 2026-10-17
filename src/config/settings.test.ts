@@ -85,8 +85,8 @@ test("provider settings reject simultaneous sampling fields but preserve zero", 
   expect(isSettings({ providers: { custom: { ...provider, topP: 0 } } })).toBe(
     false,
   );
-  // CL-10760: the exclusion is enforced at load, not just by isSettings —
-  // a persisted file with both knobs fails to load.
+  // The exclusion is enforced at load, not just by isSettings — a persisted
+  // file with both knobs fails to load.
   const cwd = await mkdtemp(join(tmpdir(), "both-sampling-knobs-"));
   try {
     const path = join(cwd, "settings.json");
