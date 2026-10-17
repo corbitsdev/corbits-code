@@ -20,6 +20,88 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
+## [0.3.39] - 2026-10-17
+
+### What's Changed
+* docs(changelog): regenerate the 0.3.38 section from merged pulls by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1419
+* fix(compaction): notify and stop when compaction fails by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1446
+* fix(authz): discard typed approvals from non-local ingress by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1422
+* feat(shell): opt-in os sandboxing via sandbox-runtime by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1428
+* chore(deps): drop unused ssri catalog pin by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1447
+* docs(tui): record opentui 0.6.4 compatibility spike findings by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1448
+* chore(deps): bump @types/bun, oxlint, oxfmt; float hono + drizzle by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1421
+* fix(permissions): add typed parent approval by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1440
+* test: share signal fixtures and stringify hook signal codes by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1445
+* fix(authz): redact capability ids and scrub persisted approval args by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1426
+* fix(session): surface swallowed store/resume errors instead of silent defaults by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1436
+* chore(vendor): re-sync interchange vendor trees to 0.4.0, re-carry patches by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1424
+* perf(git): batch context-store index writes on isomorphic-git 1.44.2 by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1423
+* fix(tui): bump @opentui/core packages to 0.6.4 by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1442
+* feat(tui): report session state and read clipboard images by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1449
+* feat(tui): route runtime notices through the console overlay by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1450
+* refactor(tools): derive tool inputSchemas from arktype types by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1425
+* refactor(tools): share arg guards, bounded reads, and process spawn by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1444
+* perf(session): cut per-turn store walks, re-parses and stringifies by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1434
+* chore(gate): drive the dead-export guard with knip, drop ts-prune by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1427
+* chore(deps): bump provider pins, remove unused ws devDep by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1429
+* chore(vendor): adopt interchange 4cc6972 drift in vendored trees by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1431
+* fix(mcp): bump @modelcontextprotocol/sdk to 1.32.x by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1443
+* perf(session): coalesce per-turn persistence to ~2 disk-touching writes by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1437
+* refactor(logging): collapse double-log storms, fix levels, correlate ids by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1430
+* chore: delete five verified-dead artifacts by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1432
+* refactor(config): fold duplicate flag spellings into single parse paths by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1438
+* refactor(auth): extract shared provider auth helpers (C1-C7) by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1433
+* refactor(provider): share error-body reading, adapter mechanics, protocol sets by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1435
+* chore: keep the Corbits Triage policy in .corbits-triage.yaml by @corbits-triage[bot] in https://github.com/corbitsdev/corbits-code/pull/1451
+* fix(agent): fold gpt tool names for workers by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1452
+* fix(dispatch): advertise approve_worker_call on the parent surface by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1454
+* refactor(agents): one toolset source, one nudge runtime, one lifecycle projection by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1439
+* refactor(prompts): extract shared card fragments, one discipline authority by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1441
+* refactor(mcp): drop result projection and duplicate tool-call paths by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1455
+* fix(tui): hide the overlay select marker and scroll indicator by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1456
+* refactor(tui): keep markdown stream settling beside native render by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1457
+* refactor(mcp): drop cross-process mcp auth file locking by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1458
+* docs(tui): decline a global keymap and inline mode by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1459
+* feat(tui): scroll the transcript and overlay through ScrollBox by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1461
+* feat(tui): adopt Code onHighlight and detectLinks by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1464
+* refactor(mcp): let the SDK finish HTTP auth and SSE reconnect by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1462
+* fix(session): commit folds when handoff carries verify overflow by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1463
+* fix(tui): read kill spans from the edit buffer before native deletes by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1465
+* refactor(tui): read zone rects from Yoga instead of stacking them by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1466
+* refactor(tui): rename mark and ramp glyph modules by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1468
+* perf(tui): drive motion with Timeline and drop the sticky poll by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1467
+* docs(tui): drop the removed shell-output poll by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1469
+* feat(permissions): replace global grants with a process file by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1470
+* feat(evals): wire @corbits/evals and add dispatch-routing eval by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1411
+* feat(tui): route shell shortcuts through opentui keymap by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1460
+* feat(session): gate saveCrashState on crashed state by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1478
+* docs(config): correct topP/temperature mutual-exclusion comment by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1473
+* chore(audit): keep only the pricing refresh log by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1472
+* chore(knip): scan eval entry files by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1479
+* docs(permissions): clarify project-layer scope and log canonical grant-file path by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1474
+* fix(provider): keep a positive Codex retry floor by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1480
+* fix(mcp): pin streamable HTTP redirects to same-origin by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1481
+* fix(plugins): widen secret-scrub to bare-KEY and credentialed URLs by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1476
+* fix(mcp): fail in-flight calls when resume exhaustion redials by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1477
+* fix(config): restore --no-workflow as warn-and-ignore shim by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1475
+* fix(secret-scrub): redact bare-KEY names in JSON object and text paths by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1471
+* refactor(plugins): drop the duplicate path-escape throw by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1483
+* refactor(session): drop the run.json payload skip by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1482
+* refactor(session): drop the run.json snapshot debounce by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1484
+* refactor: delete unused renderer, event log, and prompt checkpoint by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1488
+* docs: drop references to the deleted renderer by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1489
+* test: drop hollow prompt and span pins by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1490
+* fix(config): recognize subcommands after leading global flags by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1487
+* fix(session): stop the base store warning on every session load by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1491
+* fix(tui): defer agent reload until the reactor's message run ends by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1486
+* fix(tui): rebuild the agent for every MCP tool-set change by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1494
+* fix(session): keep a parked approval in the turn log beside its call by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1495
+
+### New Contributors
+* @corbits-triage[bot] made their first contribution in https://github.com/corbitsdev/corbits-code/pull/1451
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.38...v0.3.39
+
 ## [0.3.38] - 2026-10-14
 
 ### What's Changed
