@@ -6,7 +6,7 @@ Decision record for application key bindings on `@opentui/core` 0.6.6. The engin
 
 **Adopt** `@opentui/keymap` for application commands. Do not move widget-local editing, the scroll lease, or the kill ring into it.
 
-`createDefaultOpenTuiKeymap(renderer)` installs the default parser, the event matcher, and the enabled and metadata fields. The shell registers one layer. Each command `run` calls one existing function. There is no parallel key switch. Help lines are the keymap's registered `desc` values plus the widget-default rows.
+`keymapFor` builds `new Keymap(guardHost(renderer))`, then registers the default parser, the enabled fields, and the metadata fields. The shell registers one layer. Each command `run` calls one existing function. There is no parallel key switch. Help lines are the keymap's registered `desc` values plus the widget-default rows.
 
 Textarea defaults are not registered again. `renderables/Textarea.d.ts` `TextareaAction` and the shipped `defaultTextareaKeyBindings` already cover cursor motion, word motion, Ctrl+D, Ctrl+K/U/W, and Alt+D. `PROMPT_KEY_BINDINGS` already maps Enter to submit and Ctrl+Enter / Ctrl+J / Shift+Enter to newline. The kill ring only diffs those deletes and yanks.
 

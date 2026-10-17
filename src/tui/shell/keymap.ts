@@ -1,6 +1,5 @@
 /**
  * Registers `APP_CHORDS` on `@opentui/keymap`. Lookup belongs to the package.
- * There is no second switch from key name to handler.
  *
  * The default host keeps its keypress listener until the destroy event, but
  * `isDestroyed` flips first and leftover stdin then throws inside
@@ -90,7 +89,6 @@ function keymapFor(renderer: CliRenderer): ShellKeymap {
   return keymap;
 }
 
-/** True while this renderer's keymap is still subscribed to keypress. */
 export function shellKeymapListening(renderer: CliRenderer): boolean {
   return keymaps.has(renderer) && !detached.has(renderer);
 }

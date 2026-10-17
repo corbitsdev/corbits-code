@@ -3,7 +3,6 @@
  * registration (`bindAppHelp`). Widget-default rows are the Textarea chords
  * `defaultTextareaKeyBindings` / `PROMPT_KEY_BINDINGS` already perform, plus
  * the kill-ring yank chords the textarea does not implement.
- * There is no second copy of the application chord table here.
  */
 
 export interface ShellShortcut {
@@ -80,7 +79,6 @@ let appRows: readonly ShellShortcut[] = [];
 let readAppHelp: () => readonly string[] = () =>
   appRows.map((row) => `${row.keys} — ${row.description}`);
 
-/** Called when the keymap module loads, and again from the live keymap. */
 export function setAppShortcutRows(rows: readonly ShellShortcut[]): void {
   appRows = rows;
 }
@@ -93,7 +91,6 @@ export function bindAppHelp(read: () => readonly string[]): () => void {
   };
 }
 
-/** Catalog the live tests drive. Application rows are whatever the keymap registered. */
 export function shellShortcuts(): readonly ShellShortcut[] {
   return [...appRows, ...WIDGET_DEFAULT_SHORTCUTS];
 }
