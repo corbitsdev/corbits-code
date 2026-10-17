@@ -834,6 +834,14 @@ export function createReactor(config: ReactorConfig): Reactor {
           break;
         }
       }
+      // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-resume-opens-message-run
+      // A parked call normally resumes inside the run that parked it. One
+      // rehydrated from the store after a restart has no run open, so the
+      // approval opens one for the re-dispatch and its continuation; the
+      // usual reply/wait/done terminal or failure closes it.
+      if (dispatch.mode !== "gate-cleared" && currentMessageRunId === null) {
+        openMessageRun(message.headers.messageId);
+      }
       // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-atomic-approval-acceptance
       // Observers may reenter: publish only after consumption and continuation
       // enqueue, while the claim still excludes a duplicate delivery.
