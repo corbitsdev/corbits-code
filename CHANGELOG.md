@@ -20,6 +20,14 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
+## [0.3.40] - 2026-10-17
+
+### What's Changed
+* fix(inference): tolerate null role and tool_calls deltas by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1499
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.39...v0.3.40
+
 ## [0.3.39] - 2026-10-17
 
 ### What's Changed
