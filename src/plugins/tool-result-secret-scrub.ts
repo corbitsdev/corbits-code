@@ -22,7 +22,7 @@ const SECRET_QUERY_PARAMETER =
   /([?&](?:api[_-]?key|access[_-]?token|token|password|secret|credential)=)(?!\[redacted: looks like a credential\])[^&#\s]+/gi;
 
 const JSON_CREDENTIAL_FIELD =
-  /("(?:api[_-]?key|access[_-]?token|token|password|secret|credential|authorization)"\s*:\s*")([^"\r\n]+)(")/gi;
+  /("(?:api[_-]?key|access[_-]?token|token|password|secret|credential|authorization|[^"]+_key)"\s*:\s*")([^"\r\n]+)(")/gi;
 
 // Grep/shell lines often look like path:line:KEY=value
 const ENV_ASSIGNMENT = /(?:^|:)([A-Z][A-Z0-9_]+)=([^\n]+)/gm;
@@ -76,8 +76,11 @@ export function scrubSecretShapedContent(text: string): string {
 }
 
 const JSON_SAFE_ERROR = "Tool result is not JSON-safe";
+// Bare-KEY class (OPENAI_KEY, MY_API_KEY): the underscore boundary keeps
+// MONKEY-style words out, and the required prefix keeps an ordinary field
+// named exactly "key" readable.
 const CREDENTIAL_FIELD =
-  /^(?:api[_ -]?key|access[_ -]?token|token|password|secret|credential|authorization|auth)$/i;
+  /^(?:api[_ -]?key|access[_ -]?token|token|password|secret|credential|authorization|auth|.+_key)$/i;
 
 /**
  * Returns a detached JSON-safe value without invoking input accessors or custom

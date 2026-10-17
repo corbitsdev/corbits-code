@@ -196,6 +196,44 @@ describe("scrubSecretShapedValue key handling", () => {
   });
 });
 
+describe("bare-KEY names in JSON paths", () => {
+  test("redacts bare-KEY names in JSON objects", () => {
+    const out = scrubSecretShapedValue({
+      OPENAI_KEY: "sk-live-abc123",
+      nested: { MY_API_KEY: "stripe-live-xyz" },
+    });
+    expect(out).toEqual({
+      OPENAI_KEY: CREDENTIAL_REDACTION,
+      nested: { MY_API_KEY: CREDENTIAL_REDACTION },
+    });
+  });
+
+  test("redacts bare-KEY names in JSON text", () => {
+    const pretty = scrubSecretShapedContent('{"OPENAI_KEY": "sk-live-abc123"}');
+    expect(pretty).toBe(`{"OPENAI_KEY": "${CREDENTIAL_REDACTION}"}`);
+    const compact = scrubSecretShapedContent('{"OPENAI_KEY":"sk-live-abc123"}');
+    expect(compact).toBe(`{"OPENAI_KEY":"${CREDENTIAL_REDACTION}"}`);
+    expect(compact).not.toContain("sk-live-abc123");
+  });
+
+  test("leaves MONKEY-style words and ordinary key fields alone", () => {
+    const value = scrubSecretShapedValue({
+      MONKEY: "banana",
+      monkey: "banana",
+      key: "ctrl+s",
+      hotkey: "ctrl+s",
+    });
+    expect(value).toEqual({
+      MONKEY: "banana",
+      monkey: "banana",
+      key: "ctrl+s",
+      hotkey: "ctrl+s",
+    });
+    const text = '{"MONKEY": "banana", "key": "ctrl+s"}';
+    expect(scrubSecretShapedContent(text)).toBe(text);
+  });
+});
+
 describe("toolResultSecretScrubPlugin", () => {
   const next =
     (content: ToolResult["content"], isError = false) =>
