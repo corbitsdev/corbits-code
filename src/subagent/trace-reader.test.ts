@@ -169,6 +169,28 @@ describe("readAgentTrace", () => {
     expect(result.entries).toHaveLength(1);
   });
 
+  test("a pending approval record line is not a turn and not a warning", async () => {
+    const root = tempDir();
+    const childDir = path.join(root, "subagents", "worker-1");
+    const call = { id: "call-1", name: "run_shell", arguments: {} };
+    writeTurns(childDir, [
+      { role: "assistant", content: [{ type: "tool_call", ...call }] },
+      {
+        pendingApproval: {
+          correlationId: "corr-1",
+          kind: "approval",
+          registeredAt: 1,
+          gateId: "gate-1",
+          suspendedCall: call,
+        },
+      },
+    ]);
+
+    const result = await readAgentTrace(root, "worker-1");
+    expect(result.totalTurns).toBe(1);
+    expect(result.parseWarnings).toBe(0);
+  });
+
   test("bounds the entry count to the requested limit and reports omission", async () => {
     const root = tempDir();
     const childDir = path.join(root, "subagents", "worker-1");

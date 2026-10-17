@@ -7,14 +7,12 @@ import {
   type CommitSigner,
 } from "@intx/storage-isogit/node";
 import {
-  ApprovalSnapshot,
   ContentBlock,
   ConnectorThreadState,
   type AuditStore,
   TokenUsage,
   type ConversationTurn,
   type PendingOperation,
-  ToolCall,
 } from "@intx/types/runtime";
 import { getLogger } from "@intx/log";
 import {
@@ -28,6 +26,10 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { loadOrCreateCommitSigner } from "./commit-signer.js";
 import { withResolvedDirLock } from "./session-dir-lock.js";
 import { scrubPersistedPendingOperations } from "./pending-snapshot-scrub.js";
+import {
+  parsePendingApprovalRecord,
+  StoredPendingOperationSchema,
+} from "./pending-approval-record.js";
 
 const TURNS_FILE = "turns.jsonl";
 const PROMPT_FILE = "prompt.jsonl";
@@ -218,6 +220,8 @@ function parseSegmentTurns(
         cause,
       });
     }
+    // Approval records share the log but are never history.
+    if (parsePendingApprovalRecord(raw) !== null) continue;
     const result = ConversationTurnSchema(raw);
     if (result instanceof type.errors) {
       if (skipMalformed) {
@@ -264,17 +268,6 @@ function emptyMetadata(): SessionMetadata {
  * Legacy files still carry tokenUsage (the old vendor shape) and read as the
  * fallback when the sidecar holds nothing.
  */
-const StoredPendingOperationSchema = type({
-  correlationId: "string",
-  kind: "'approval'",
-  "expectedFrom?": "string",
-  registeredAt: "number",
-  gateId: "string",
-  "timeoutAt?": "number",
-  "suspendedCall?": ToolCall,
-  "approvalSnapshot?": ApprovalSnapshot,
-});
-
 const StoredMetadataSchema = type({
   pendingOperations: StoredPendingOperationSchema.array(),
   "tokenUsage?": TokenUsage,
@@ -1572,8 +1565,17 @@ export async function createSessionStores(
     },
     branch: (name, signal) => base.branch(name, signal),
     log: (limit, signal) => base.log(limit, signal),
-    async readAt(hash, signal) {
-      const baseTurns = await base.readAt(hash, signal);
+    async readAt(hash) {
+      // The base store's strict parser knows turns only; the log also holds
+      // approval records.
+      let baseText: string | null = null;
+      try {
+        baseText = await blobTextAtCommit(dir, hash, TURNS_FILE);
+      } catch (cause) {
+        if (!isNotFoundError(cause)) throw cause;
+      }
+      const baseTurns =
+        baseText === null ? [] : parseSegmentTurns(baseText, false, TURNS_FILE);
       const extraNames = await turnSegmentNamesAtCommit(dir, hash);
       if (extraNames.length === 0) return baseTurns;
 
