@@ -215,6 +215,38 @@ test("loadConfig --no-auto disables auto mode", async () => {
   });
 });
 
+// Warn-and-ignore: the flag must not consume the following task token or
+// change parsed command/auto versus the same argv without it.
+test("loadConfig --no-workflow warns and is ignored", async () => {
+  await withSettings(async ({ cwd, globalSettingsPath }) => {
+    const { impl } = offlineFetch();
+    const stderr = captureStderr();
+    try {
+      const options = {
+        globalSettingsPath,
+        pricing: { fetchImpl: impl },
+      };
+      const config = await loadConfig(
+        ["--cwd", cwd, "--no-workflow", "do something"],
+        options,
+      );
+      const baseline = await loadConfig(
+        ["--cwd", cwd, "do something"],
+        options,
+      );
+      expect(config.configured).toBe(true);
+      expect(config.task).toBe(baseline.task);
+      expect(config.command).toBe(baseline.command);
+      expect(config.auto).toBe(baseline.auto);
+      expect(stderr.output()).toContain(
+        "--no-workflow is deprecated and has no effect; ignoring.",
+      );
+    } finally {
+      stderr.restore();
+    }
+  });
+});
+
 test("loadConfig uses the injected pricing fetchImpl instead of the network", async () => {
   await withSettings(async ({ cwd, globalSettingsPath }) => {
     resetPricingMetadataRefreshForTests();

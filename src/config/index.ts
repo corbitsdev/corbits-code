@@ -750,6 +750,7 @@ Flags:
                                the default settings file is machine-wide;
                                --config selects another source
   --auto / --no-auto          auto mode on/off
+  --no-workflow               deprecated and ignored
   --help, -h                  show this help
   --version, -V               show version
 `;
@@ -958,6 +959,15 @@ export async function loadConfig(
     }
     if (arg === "--no-auto") {
       auto = false;
+      continue;
+    }
+    // Warn-and-ignore so existing `--no-workflow` wrappers keep starting
+    // instead of the unrecognized-flag error. Do not consume the next token
+    // or set a config field.
+    if (arg === "--no-workflow") {
+      process.stderr.write(
+        "--no-workflow is deprecated and has no effect; ignoring.\n",
+      );
       continue;
     }
     if (arg === "-p") {
