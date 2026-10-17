@@ -225,11 +225,14 @@ export async function assembleTUISession(
     auto: config.auto,
     // Main session: gating rides the reactor's approval-suspend seam.
     reactorGated: true,
+    permissionsPath: config.permissionsPath,
     onGrant: (approval, covers) =>
       emitter.emit("permission.grant", { approval, covers }),
   });
 
-  const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
+  const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd, {
+    permissionsPath: config.permissionsPath,
+  });
 
   // Derive the subagent provider from the live config binding on every spawn
   // so a /agent switch (provider, model, reasoning effort) reaches subagents

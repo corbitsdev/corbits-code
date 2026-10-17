@@ -7,13 +7,13 @@ import {
   spyOn,
   test,
 } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getLogger } from "@intx/log";
 import type { ConversationTurn, ToolCall } from "@intx/types/runtime";
 
-import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import { LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
 import * as permissionStore from "../permission/store.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { GrantScope } from "../permission/types.js";
@@ -229,6 +229,188 @@ describe("loadSeededApprovals merge order", () => {
   });
 });
 
+describe("loadSeededApprovals --permissions replacement", () => {
+  let cwd = "";
+  let home = "";
+  let sessionId = "";
+
+  afterEach(async () => {
+    if (cwd !== "") await rm(cwd, { recursive: true, force: true });
+    if (home !== "") await rm(home, { recursive: true, force: true });
+    cwd = "";
+    home = "";
+    sessionId = "";
+  });
+
+  async function setup(): Promise<void> {
+    cwd = await mkdtemp(join(tmpdir(), "perm-flag-"));
+    home = await mkdtemp(join(tmpdir(), "perm-flag-home-"));
+    sessionId = generateSessionId();
+    await initSessionDir(cwd, sessionId, home);
+  }
+
+  test("seeds the file grant and ignores a grant that exists only in the user global file", async () => {
+    await setup();
+    await permissionStore.saveGlobalApproval(
+      { tool: "run_shell", pattern: "global-only git *" },
+      home,
+    );
+    await permissionStore.saveProviderModelApproval(
+      "openai:gpt-5",
+      { tool: "run_shell", pattern: "provider-only npm *" },
+      home,
+    );
+    await mkdir(sessionDir(cwd, sessionId, home), { recursive: true });
+    await writeFile(
+      join(sessionDir(cwd, sessionId, home), "permissions.json"),
+      JSON.stringify({
+        approvals: [{ tool: "run_shell", pattern: "session keep *" }],
+      }),
+    );
+    await permissionStore.saveProjectApproval(
+      cwd,
+      { tool: "run_shell", pattern: "project keep *" },
+      home,
+    );
+    const projectPath = join(cwd, ".corbits", "permissions.json");
+    const projectFile = JSON.parse(await readFile(projectPath, "utf-8")) as {
+      approvals: { tool: string; pattern: string }[];
+    };
+    projectFile.approvals.push({
+      tool: "run_shell",
+      pattern: "project unconfirmed *",
+    });
+    await writeFile(projectPath, JSON.stringify(projectFile));
+
+    const permissionsPath = join(cwd, "grants.json");
+    await writeFile(
+      permissionsPath,
+      JSON.stringify({
+        approvals: [
+          { tool: "run_shell", pattern: "bun install*" },
+          {
+            tool: "run_shell",
+            pattern: "scoped cargo *",
+            providerModel: "openai:gpt-5",
+          },
+        ],
+      }),
+    );
+
+    const without = await loadSeededApprovals(cwd, sessionId, home);
+    expect(without).toEqual(
+      expect.arrayContaining([
+        { tool: "run_shell", pattern: "global-only git *" },
+        {
+          tool: "run_shell",
+          pattern: "provider-only npm *",
+          providerModel: "openai:gpt-5",
+        },
+      ]),
+    );
+
+    const seeded = await loadSeededApprovals(cwd, sessionId, home, {
+      permissionsPath,
+    });
+    expect(seeded).toEqual([
+      { tool: "run_shell", pattern: "session keep *" },
+      { tool: "run_shell", pattern: "project keep *" },
+      { tool: "run_shell", pattern: "bun install*" },
+      {
+        tool: "run_shell",
+        pattern: "scoped cargo *",
+        providerModel: "openai:gpt-5",
+      },
+    ]);
+    expect(
+      seeded.some((approval) => approval.pattern === "global-only git *"),
+    ).toBe(false);
+    expect(
+      seeded.some((approval) => approval.pattern === "provider-only npm *"),
+    ).toBe(false);
+    expect(
+      seeded.some((approval) => approval.pattern === "project unconfirmed *"),
+    ).toBe(false);
+  });
+
+  test("an empty approvals list replaces global grants instead of merging them", async () => {
+    await setup();
+    await permissionStore.saveGlobalApproval(
+      { tool: "run_shell", pattern: "global-only git *" },
+      home,
+    );
+    const permissionsPath = join(cwd, "empty.json");
+    await writeFile(permissionsPath, JSON.stringify({ approvals: [] }));
+
+    const seeded = await loadSeededApprovals(cwd, sessionId, home, {
+      permissionsPath,
+    });
+
+    expect(seeded).toEqual([]);
+  });
+
+  test("a missing approvals key is an empty replacement and ignores providerModels", async () => {
+    await setup();
+    await permissionStore.saveGlobalApproval(
+      { tool: "run_shell", pattern: "global-only git *" },
+      home,
+    );
+    const permissionsPath = join(cwd, "no-approvals.json");
+    await writeFile(
+      permissionsPath,
+      JSON.stringify({
+        providerModels: {
+          "openai:gpt-5": [{ tool: "run_shell", pattern: "hidden npm *" }],
+        },
+      }),
+    );
+
+    const seeded = await loadSeededApprovals(cwd, sessionId, home, {
+      permissionsPath,
+    });
+    expect(seeded).toEqual([]);
+
+    await writeFile(
+      permissionsPath,
+      JSON.stringify({
+        approvals: [{ tool: "run_shell", pattern: "bun install*" }],
+        providerModels: {
+          "openai:gpt-5": [{ tool: "run_shell", pattern: "hidden npm *" }],
+        },
+      }),
+    );
+    const withApprovals = await loadSeededApprovals(cwd, sessionId, home, {
+      permissionsPath,
+    });
+    expect(withApprovals).toEqual([
+      { tool: "run_shell", pattern: "bun install*" },
+    ]);
+  });
+
+  test("a missing permissions file fails", async () => {
+    await setup();
+    await expect(
+      loadSeededApprovals(cwd, sessionId, home, {
+        permissionsPath: join(cwd, "missing.json"),
+      }),
+    ).rejects.toThrow(/not found/);
+  });
+
+  test("a wildcard-only pattern fails", async () => {
+    await setup();
+    const permissionsPath = join(cwd, "wild.json");
+    await writeFile(
+      permissionsPath,
+      JSON.stringify({
+        approvals: [{ tool: "run_shell", pattern: "*" }],
+      }),
+    );
+    await expect(
+      loadSeededApprovals(cwd, sessionId, home, { permissionsPath }),
+    ).rejects.toThrow(/literal floor/);
+  });
+});
+
 describe("createApprovalPersist", () => {
   const persistLogger = getLogger([LOG_NAMESPACE_ROOT, "session", "approvals"]);
 
@@ -290,6 +472,124 @@ describe("createApprovalPersist", () => {
       "anthropic:claude-opus",
       approval,
     );
+  });
+
+  test("Allow Always with --permissions appends to the file and does not touch the user store", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "perm-persist-"));
+    const home = await mkdtemp(join(tmpdir(), "perm-persist-home-"));
+    try {
+      await permissionStore.saveGlobalApproval(
+        { tool: "run_shell", pattern: "global-only git *" },
+        home,
+      );
+      await permissionStore.saveProviderModelApproval(
+        "openai:gpt-5",
+        { tool: "run_shell", pattern: "provider-only npm *" },
+        home,
+      );
+      const permissionsPath = join(cwd, "grants.json");
+      await writeFile(
+        permissionsPath,
+        JSON.stringify({
+          approvals: [{ tool: "run_shell", pattern: "bun install*" }],
+        }),
+      );
+      const userStorePath = join(home, SETTINGS_DIR_NAME, "permissions.json");
+      const userStoreBefore = await readFile(userStorePath, "utf-8");
+
+      const userWrites: Promise<void>[] = [];
+      const originalAppend = permissionStore.appendPermissionsFileApproval;
+      const originalProject = permissionStore.saveProjectApproval;
+      const appends: Promise<void>[] = [];
+      const projects: Promise<void>[] = [];
+      spyOn(permissionStore, "saveGlobalApproval").mockImplementation(() => {
+        const write = Promise.reject(
+          new Error("user global store must not be mutated"),
+        );
+        userWrites.push(write);
+        return write;
+      });
+      spyOn(permissionStore, "saveProviderModelApproval").mockImplementation(
+        () => {
+          const write = Promise.reject(
+            new Error("user provider-model store must not be mutated"),
+          );
+          userWrites.push(write);
+          return write;
+        },
+      );
+      spyOn(
+        permissionStore,
+        "appendPermissionsFileApproval",
+      ).mockImplementation((path, approval) => {
+        const write = originalAppend(path, approval);
+        appends.push(write);
+        return write;
+      });
+      spyOn(permissionStore, "saveProjectApproval").mockImplementation(
+        (projectCwd, approval, projectHome) => {
+          const write = originalProject(projectCwd, approval, projectHome);
+          projects.push(write);
+          return write;
+        },
+      );
+
+      const persist = createApprovalPersist(
+        cwd,
+        () => "openai:gpt-5",
+        undefined,
+        permissionsPath,
+      );
+      persist(
+        {
+          tool: "run_shell",
+          pattern: "bun test*",
+          providerModel: "stale:model",
+        },
+        "global",
+      );
+      persist(
+        { tool: "run_shell", pattern: "npm *", providerModel: "stale:model" },
+        "provider-model",
+      );
+      persist({ tool: "write_file", pattern: "src/*" }, "project");
+      persist({ tool: "run_shell", pattern: "session only *" }, "session");
+
+      await Promise.all([...appends, ...projects]);
+      await Promise.allSettled(userWrites);
+
+      const file = JSON.parse(await readFile(permissionsPath, "utf-8")) as {
+        approvals: {
+          tool: string;
+          pattern: string;
+          providerModel?: string;
+        }[];
+        providerModels?: unknown;
+      };
+      expect(file.providerModels).toBeUndefined();
+      expect(file.approvals).toEqual([
+        { tool: "run_shell", pattern: "bun install*" },
+        { tool: "run_shell", pattern: "bun test*" },
+        {
+          tool: "run_shell",
+          pattern: "npm *",
+          providerModel: "openai:gpt-5",
+        },
+      ]);
+      expect(await readFile(userStorePath, "utf-8")).toBe(userStoreBefore);
+      const projectFile = JSON.parse(
+        await readFile(
+          join(cwd, SETTINGS_DIR_NAME, "permissions.json"),
+          "utf-8",
+        ),
+      ) as { approvals: { tool: string; pattern: string }[] };
+      expect(projectFile.approvals).toEqual([
+        expect.objectContaining({ tool: "write_file", pattern: "src/*" }),
+      ]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
   });
 
   const persistedScopes: {

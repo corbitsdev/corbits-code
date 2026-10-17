@@ -722,6 +722,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       // Main session: gating rides the reactor's approval-suspend seam. In
       // headless exec an ask resolves to a deny effect, so the hook blocks.
       reactorGated: true,
+      permissionsPath: config.permissionsPath,
     });
 
     const liveSubAgentProvider: { current: SubAgentProvider } = {

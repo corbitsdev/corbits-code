@@ -72,6 +72,8 @@ export async function runOnboarding(
   const argv: string[] = ["--cwd", config.cwd];
   if (config.cliConfigPath !== undefined)
     argv.push("--config", config.cliConfigPath);
+  if (config.permissionsPath !== undefined)
+    argv.push("--permissions", config.permissionsPath);
   if (config.dangerouslySkipPermissions)
     argv.push("--dangerously-skip-permissions");
   if (config.task.length > 0) argv.push(config.task);

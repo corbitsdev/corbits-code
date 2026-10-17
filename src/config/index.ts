@@ -103,6 +103,7 @@ import {
   type ResolvedMCPServerConfig,
 } from "../mcp/exa.js";
 import { resolveProfile } from "./profiles.js";
+import { loadPermissionsFile } from "../permission/store.js";
 
 // Per-call token ceiling for inference sources, shared by agent creation
 // (runner.ts) and live provider switching (the /agent modal) so a live switch
@@ -618,6 +619,12 @@ export interface Config {
   command: "tui" | "exec";
   /** Active settings source, including an explicit --config path. */
   globalSettingsPath: string;
+  /**
+   * Absolute path from `--permissions`. When set, that file's approvals
+   * replace the user-global and provider-model grant lists for this process
+   * only. Not a settings key.
+   */
+  permissionsPath?: string;
   globalDefaultProvider?: string;
   // Every provider available to switch to at runtime. From the settings file
   // when present; env-only mode has just the single resolved provider.
@@ -691,6 +698,11 @@ export interface UnconfiguredConfig {
   globalSettingsPath: string;
   /** Original CLI path, present only when --config selected the write target. */
   cliConfigPath?: string;
+  /**
+   * Absolute path from `--permissions`, replayed after onboarding so the
+   * process-only grant file is not dropped on the reload.
+   */
+  permissionsPath?: string;
   /** Whether the caller requested an OAuth-isolated programmatic settings load. */
   programmaticSettingsPath: boolean;
   // The original error message, used for non-TUI (exec) error output.
@@ -721,6 +733,7 @@ Continue verbs (project-keyed to this checkout's git toplevel):
 Flags:
   --cwd <dir>                 working directory (default: process.cwd())
   --config <path>             settings file (default: ~/.corbits/settings.json)
+  --permissions <path>        grant file replacing ~/.corbits/permissions.json for this process
   --provider <name>           configured provider name
   --model <id>                model for the active provider
   --profile <name>            settings profile
@@ -875,6 +888,7 @@ export async function loadConfig(
   let auto = true;
   let director: DirectorId | undefined;
   let configPath: string | undefined;
+  let permissionsPath: string | undefined;
   let provider: string | undefined;
   let model: string | undefined;
   let profileFlag: string | undefined;
@@ -899,6 +913,10 @@ export async function loadConfig(
     }
     if (arg === "--config") {
       configPath = resolve(requireValue("--config", args[++i]));
+      continue;
+    }
+    if (arg === "--permissions") {
+      permissionsPath = resolve(requireValue("--permissions", args[++i]));
       continue;
     }
     if (arg === "--provider") {
@@ -977,6 +995,14 @@ export async function loadConfig(
       throw new Error(`unrecognized flag: ${arg}`);
     }
     positional.push(arg);
+  }
+
+  if (permissionsPath !== undefined) {
+    try {
+      await loadPermissionsFile(permissionsPath);
+    } catch (err) {
+      throw new CliUserError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   const pricingCachePath = defaultPricingCachePath();
@@ -1103,6 +1129,7 @@ export async function loadConfig(
         : {}),
       globalSettingsPath: effectiveSettingsPath,
       ...(configPath !== undefined ? { cliConfigPath: configPath } : {}),
+      ...(permissionsPath !== undefined ? { permissionsPath } : {}),
       programmaticSettingsPath: options.globalSettingsPath !== undefined,
       providerError: err instanceof Error ? err.message : String(err),
       // Keep diagnostics when provider setup fails early so junk local files
@@ -1197,6 +1224,7 @@ export async function loadConfig(
     command,
     ...(director !== undefined ? { director } : {}),
     globalSettingsPath: effectiveSettingsPath,
+    ...(permissionsPath !== undefined ? { permissionsPath } : {}),
     sessionId,
     ...(resumeMode !== undefined
       ? {

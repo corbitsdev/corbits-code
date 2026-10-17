@@ -270,6 +270,11 @@ export interface SessionGateArgs {
   /** Route this gate's decisions through the reactor authz seam (main session). */
   reactorGated: boolean;
   onGrant?: PermissionGateOptions["onGrant"] | undefined;
+  /**
+   * `--permissions` file. When set, its approvals replace global and
+   * provider-model grants for this process.
+   */
+  permissionsPath?: string | undefined;
 }
 
 export interface SessionGate {
@@ -278,7 +283,8 @@ export interface SessionGate {
 }
 
 /**
- * Seed approvals (session → project → global → provider-model) and build the
+ * Seed approvals (session → project → global → provider-model, or the
+ * --permissions file in place of those last two layers) and build the
  * permission gate over roots, persist, and log wiring. Runners differ only
  * in the operator channel (modal vs stdin); approval arrives as a callback.
  */
@@ -289,7 +295,10 @@ export async function assembleSessionGate(
     args.cwd,
     args.sessionId,
     undefined,
-    { onPendingProjectGrants: args.onPendingProjectGrants },
+    {
+      onPendingProjectGrants: args.onPendingProjectGrants,
+      permissionsPath: args.permissionsPath,
+    },
   );
   const gate = createPermissionGate({
     approvals: seededApprovals,
@@ -304,6 +313,7 @@ export async function assembleSessionGate(
       args.cwd,
       args.getActiveProviderModel,
       args.onPersistNotice,
+      args.permissionsPath,
     ),
     approvalLog: createApprovalLog(sessionDir(args.cwd, args.sessionId)),
     interactive: args.interactive,
