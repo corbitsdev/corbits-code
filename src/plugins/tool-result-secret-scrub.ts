@@ -27,15 +27,37 @@ const JSON_CREDENTIAL_FIELD =
 // Grep/shell lines often look like path:line:KEY=value
 const ENV_ASSIGNMENT = /(?:^|:)([A-Z][A-Z0-9_]+)=([^\n]+)/gm;
 
-// Connection-string keys (DATABASE_URL and friends) are deliberately NOT
-// matched here. Widening this shape-classifier would redact every benign
-// connection string in tool output — a false-positive blast radius on a scrub
-// path, not a prompt path. The gap stays documented, not silently fixed.
-function isSecretEnvKey(key: string): boolean {
+// Connection-string env names (DATABASE_URL and friends). Redaction additionally
+// requires a credential-bearing value (see carriesConnectionCredentials), so
+// benign sqlite paths and bare hostnames in tool output stay readable.
+function isConnectionStringEnvKey(key: string): boolean {
   return (
+    /(?:_|^)(?:URL|URI|DSN)$/.test(key) || key.includes("CONNECTION_STRING")
+  );
+}
+
+// True when a connection-string value actually carries credentials: a URI with
+// userinfo (scheme://user:pass@host/...) or embedded password material.
+function carriesConnectionCredentials(value: string): boolean {
+  if (!value.includes("://")) return false;
+  return (
+    value.slice(value.indexOf("://") + 3).includes("@") ||
+    /password=/i.test(value)
+  );
+}
+
+function isSecretEnvKey(key: string, value: string): boolean {
+  if (
     key === "API_KEY" ||
     /(?:SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIAL|AUTH)/.test(key)
-  );
+  ) {
+    return true;
+  }
+  // Bare-KEY class (OPENAI_KEY, STRIPE_KEY, *_API_KEY): ENV-assignment scope
+  // only. The (^|_) boundary keeps plain words ending in KEY (MONKEY) out.
+  if (/(?:^|_)KEY$/.test(key)) return true;
+  if (isConnectionStringEnvKey(key)) return carriesConnectionCredentials(value);
+  return false;
 }
 
 function replaceAll(
@@ -65,12 +87,15 @@ export function scrubSecretShapedContent(text: string): string {
       `${prefix}${CREDENTIAL_REDACTION}${suffix}`,
   );
 
-  result = result.replace(ENV_ASSIGNMENT, (match, key: string) => {
-    if (!isSecretEnvKey(key)) return match;
-    const prefixEnd = match.lastIndexOf(key);
-    const prefix = match.slice(0, prefixEnd);
-    return `${prefix}${key}=${CREDENTIAL_REDACTION}`;
-  });
+  result = result.replace(
+    ENV_ASSIGNMENT,
+    (match, key: string, value: string) => {
+      if (!isSecretEnvKey(key, value)) return match;
+      const prefixEnd = match.lastIndexOf(key);
+      const prefix = match.slice(0, prefixEnd);
+      return `${prefix}${key}=${CREDENTIAL_REDACTION}`;
+    },
+  );
 
   return result;
 }
