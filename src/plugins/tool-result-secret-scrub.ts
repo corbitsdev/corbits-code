@@ -19,7 +19,7 @@ const API_KEY_PATTERNS: RegExp[] = [
 ];
 
 const SECRET_QUERY_PARAMETER =
-  /([?&](?:api[_-]?key|access[_-]?token|token|password|secret|credential)=)(?!\[redacted: looks like a credential\])[^&#\s]+/gi;
+  /([?&](?:api[_-]?key|access[_-]?token|token|password|secret|credential|[^&#\s='"]*_key)=)(?!\[redacted: looks like a credential\])[^&#\s"']+/gi;
 
 const JSON_CREDENTIAL_FIELD =
   /("(?:api[_-]?key|access[_-]?token|token|password|secret|credential|authorization|[^"]+_key)"\s*:\s*")([^"\r\n]+)(")/gi;

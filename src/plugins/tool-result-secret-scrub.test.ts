@@ -234,6 +234,34 @@ describe("bare-KEY names in JSON paths", () => {
   });
 });
 
+describe("bare-KEY names in query parameters", () => {
+  test("redacts ?OPENAI_KEY= among benign params, adjacent params survive", () => {
+    const text =
+      "GET https://provider.invalid/v1?model=test&OPENAI_KEY=live-value&format=json";
+    const out = scrubSecretShapedContent(text);
+    expect(out).toBe(
+      `GET https://provider.invalid/v1?model=test&OPENAI_KEY=${CREDENTIAL_REDACTION}&format=json`,
+    );
+    expect(out).not.toContain("live-value");
+  });
+
+  test("redacts bare-KEY query params case-insensitively with quote bounds", () => {
+    const out = scrubSecretShapedContent(
+      '{"url": "https://provider.invalid/v1?openai_key=live-value&model=test"}',
+    );
+    expect(out).toBe(
+      `{"url": "https://provider.invalid/v1?openai_key=${CREDENTIAL_REDACTION}&model=test"}`,
+    );
+    expect(out).not.toContain("live-value");
+  });
+
+  test("leaves MONKEY-style and ordinary query params alone", () => {
+    const text =
+      "GET https://provider.invalid/v1?MONKEY=banana&model=test&format=json";
+    expect(scrubSecretShapedContent(text)).toBe(text);
+  });
+});
+
 describe("toolResultSecretScrubPlugin", () => {
   const next =
     (content: ToolResult["content"], isError = false) =>
