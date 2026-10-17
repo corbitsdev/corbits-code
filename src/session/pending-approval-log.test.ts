@@ -351,6 +351,11 @@ describe("a parked approval in the turn log", () => {
   test("in a parallel batch, answering one parked call leaves only the other open", async () => {
     const dir = tempDir();
     const second = approvalFor("call-2", { path: "a" });
+    second.suspendedCall = {
+      id: "call-2",
+      name: "read_file",
+      arguments: { path: "a" },
+    };
     const { store } = await parkCall(dir, [user, assistant], [op, second]);
     expect(lineKinds(dir)).toEqual(["turn", "turn", "record", "record"]);
     expect(await openOps(dir)).toEqual([
@@ -525,5 +530,88 @@ describe("a pending approval left on a legacy metadata.json", () => {
   test("one whose call is not in history does not re-arm", async () => {
     const dir = await legacySession([user]);
     expect(await openOps(dir)).toEqual([]);
+  });
+
+  test("a closed log record does not tombstone an open op with the same correlationId", async () => {
+    const dir = tempDir();
+    const closed = {
+      pendingApproval: {
+        ...op,
+        suspendedCall: {
+          id: "gone",
+          name: "run_shell",
+          arguments: { api_key: SECRET },
+        },
+      },
+    };
+    fs.writeFileSync(
+      path.join(dir, "turns.jsonl"),
+      jsonl([user, assistant, closed]),
+    );
+    fs.writeFileSync(
+      metadataPath(dir),
+      JSON.stringify({ pendingOperations: [op], connectorState: null }),
+    );
+
+    const loaded = await (await createOptimizedContextStore(dir)).load();
+    expect(callIds(loaded.turns)).toContain("call-1");
+    expect(
+      loaded.pendingOperations.map((pending) => pending.correlationId),
+    ).toEqual([op.correlationId]);
+  });
+
+  test("an answered call stays closed when metadata.json still lists the logged approval", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(
+      path.join(dir, "turns.jsonl"),
+      jsonl([
+        user,
+        assistant,
+        siblingResult,
+        { pendingApproval: op },
+        answered,
+      ]),
+    );
+    fs.writeFileSync(
+      metadataPath(dir),
+      JSON.stringify({ pendingOperations: [op], connectorState: null }),
+    );
+    expect(await openOps(dir)).toEqual([]);
+  });
+});
+
+describe("a parked approval must be the historical tool call", () => {
+  test("a suspendedCall whose body differs from the unanswered tool_call is not open", async () => {
+    const dir = tempDir();
+    const parked: ConversationTurn = {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_call",
+          id: "call-1",
+          name: "run_shell",
+          arguments: { cmd: "true" },
+        },
+      ],
+      timestamp: 2,
+    };
+    const mismatched = {
+      pendingApproval: {
+        ...op,
+        suspendedCall: {
+          id: "call-1",
+          name: "run_shell",
+          arguments: { cmd: "false" },
+        },
+      },
+    };
+    fs.writeFileSync(
+      path.join(dir, "turns.jsonl"),
+      jsonl([user, parked, mismatched]),
+    );
+
+    const loaded = await (await createOptimizedContextStore(dir)).load();
+    expect(callIds(loaded.turns)).toContain("call-1");
+    expect(loaded.pendingOperations).toEqual([]);
   });
 });

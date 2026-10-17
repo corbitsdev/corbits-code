@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import git, { type CommitObject } from "isomorphic-git";
-import type { ConversationTurn } from "@intx/types/runtime";
+import type { ConversationTurn, PendingOperation } from "@intx/types/runtime";
 import {
   createOptimizedContextStore,
   createSessionStores,
@@ -943,6 +943,114 @@ describe("concurrent sessions write disjoint transcripts", () => {
     expect(
       turnTexts(readTurnsFromFile(path.join(dir, defined(versioned[0])))),
     ).toEqual(turnTexts(turnsB));
+  });
+
+  test("a diverted write does not drop an approval load() still has to return", async () => {
+    const dir = tempDir();
+    const parked: ConversationTurn = {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_call",
+          id: "call-1",
+          name: "run_shell",
+          arguments: { cmd: "true" },
+        },
+      ],
+      timestamp: 2,
+    };
+    const turns = [turn("probe"), parked];
+    const approval: PendingOperation = {
+      correlationId: "corr-call-1",
+      kind: "approval",
+      registeredAt: 1,
+      gateId: "pending-corr-call-1",
+      suspendedCall: {
+        id: "call-1",
+        name: "run_shell",
+        arguments: { cmd: "true" },
+      },
+    };
+    const sessionA = await createOptimizedContextStore(dir, {
+      ownerId: "session-A",
+    });
+    await sessionA.writeTurns(turns);
+    await sessionA.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await sessionA.commit({ message: "session A" });
+
+    const sessionB = await createOptimizedContextStore(dir, {
+      ownerId: "session-B",
+    });
+    await sessionB.writeTurns(turns);
+    await sessionB.writeMetadata({
+      pendingOperations: [approval],
+      tokenUsage: EMPTY_CHECKPOINT_METADATA.tokenUsage,
+    });
+    await sessionB.commit({ message: "divert" });
+    await sessionB.writeMetadata({
+      pendingOperations: [approval],
+      tokenUsage: EMPTY_CHECKPOINT_METADATA.tokenUsage,
+    });
+    await sessionB.commit({ message: "divert again" });
+
+    const loaded = await (await createOptimizedContextStore(dir)).load();
+    expect(
+      loaded.turns.some((candidate) =>
+        candidate.content.some(
+          (block) => block.type === "tool_call" && block.id === "call-1",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      loaded.pendingOperations.map((pending) => pending.correlationId),
+    ).toEqual(["corr-call-1"]);
+  });
+
+  test("a same-owner approval is logged in turns.jsonl and dropped from metadata.json", async () => {
+    const dir = tempDir();
+    const parked: ConversationTurn = {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_call",
+          id: "call-1",
+          name: "run_shell",
+          arguments: { cmd: "true" },
+        },
+      ],
+      timestamp: 2,
+    };
+    const approval: PendingOperation = {
+      correlationId: "corr-call-1",
+      kind: "approval",
+      registeredAt: 1,
+      gateId: "pending-corr-call-1",
+      suspendedCall: {
+        id: "call-1",
+        name: "run_shell",
+        arguments: { cmd: "true" },
+      },
+    };
+    const owner = await createOptimizedContextStore(dir, {
+      ownerId: "session-A",
+    });
+    await owner.writeTurns([turn("probe"), parked]);
+    await owner.writeMetadata({
+      pendingOperations: [approval],
+      tokenUsage: EMPTY_CHECKPOINT_METADATA.tokenUsage,
+    });
+    await owner.commit({ message: "park" });
+
+    expect(fs.existsSync(path.join(dir, "metadata.json"))).toBe(false);
+    const lines = fs
+      .readFileSync(path.join(dir, TURNS_FILE), "utf8")
+      .split("\n")
+      .filter((line) => line.length > 0);
+    expect(lines.some((line) => line.includes("corr-call-1"))).toBe(true);
+    const loaded = await (await createOptimizedContextStore(dir)).load();
+    expect(
+      loaded.pendingOperations.map((pending) => pending.correlationId),
+    ).toEqual(["corr-call-1"]);
   });
 
   test("markerless resume can still extend the shared log", async () => {

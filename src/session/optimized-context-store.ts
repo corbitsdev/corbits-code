@@ -1127,32 +1127,47 @@ async function managedPathsDiffer(
 }
 
 /**
- * A parked call's approval is open while its call is in history and no
- * tool_result answers it; an op with no parked call is an async marker and
- * always passes. First occurrence of a correlationId wins, so callers list
- * the log before legacy metadata.json.
+ * A parked call's approval is open while its call is in history, unanswered,
+ * and the same call (id, name, and arguments). An op with no parked call is
+ * an async marker and always passes. The first op actually accepted as open
+ * wins for its correlationId: a closed record must not tombstone a later open
+ * one, because load() lists the log before legacy metadata.json.
  */
 function openPendingOperations(
   turns: readonly ConversationTurn[],
   candidates: readonly PendingOperation[],
 ): PendingOperation[] {
-  const called = new Set<string>();
+  const called = new Map<string, { name: string; arguments: unknown }>();
   const answered = new Set<string>();
   for (const turn of turns) {
     for (const block of turn.content) {
-      if (block.type === "tool_call") called.add(block.id);
-      else if (block.type === "tool_result") answered.add(block.callId);
+      if (block.type === "tool_call") {
+        if (!called.has(block.id)) {
+          called.set(block.id, {
+            name: block.name,
+            arguments: block.arguments,
+          });
+        }
+      } else if (block.type === "tool_result") answered.add(block.callId);
     }
   }
   const seen = new Set<string>();
   const open: PendingOperation[] = [];
   for (const op of candidates) {
     if (seen.has(op.correlationId)) continue;
-    seen.add(op.correlationId);
-    const callId = op.suspendedCall?.id;
-    if (callId !== undefined && (!called.has(callId) || answered.has(callId))) {
-      continue;
+    const call = op.suspendedCall;
+    if (call !== undefined) {
+      const historical = called.get(call.id);
+      if (
+        historical === undefined ||
+        answered.has(call.id) ||
+        historical.name !== call.name ||
+        JSON.stringify(historical.arguments) !== JSON.stringify(call.arguments)
+      ) {
+        continue;
+      }
     }
+    seen.add(op.correlationId);
     open.push(op);
   }
   return open;
@@ -1310,6 +1325,10 @@ export async function createSessionStores(
   ): Promise<void> {
     const { lines, included } = withApprovalRecords(turns);
     await writeSegmented(writeTurnsSegmented, lines);
+    // Diversion writes a versioned base load() never reads. Counting that as
+    // logged would drop the approval from metadata.json while the unanswered
+    // call is still only in the canonical log.
+    if (turnsBaseName !== TURNS_FILE) return;
     for (const id of included) loggedApprovalIds.add(id);
   }
 
