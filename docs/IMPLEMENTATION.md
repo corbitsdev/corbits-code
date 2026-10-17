@@ -611,7 +611,7 @@ Run all three before declaring work complete.
 
 ## Testing
 
-- **Unit tests** are co-located with source as `*.test.ts` (e.g. `config.test.ts`, `director.test.ts`, `prompts.test.ts`, `renderer.test.ts`, `permission/permission.test.ts`, each `plugins/*.test.ts`, and TUI tests under `tui/`). Shared test helpers live in `testkit/` (repo root, shared by unit and e2e).
+- **Unit tests** are co-located with source as `*.test.ts` (e.g. `config.test.ts`, `director.test.ts`, `prompts.test.ts`, `permission/permission.test.ts`, each `plugins/*.test.ts`, and TUI tests under `tui/`). Shared test helpers live in `testkit/` (repo root, shared by unit and e2e).
 - **`fixtures/`** holds fixture repos and comparison assets (e.g. `demo-comparison/`, `multi-file-service/`).
 - **`e2e/`** holds scenario tests driven over the production agent loop with scripted models (`@intx/inference-testing`) — fixture-repo seeding, `runUntilDone`/`runUntilSuspended`/`sendOperatorTurn` drivers (see `e2e/harness.ts`), and the reactor permission / multi-turn exercises formerly under `tests/integration/`.
 - **Capability evals** (`evals/capability/`) are **not** the integration harness: they drive the product path (`corbits exec` / `runExec`) with real models against fixture copies and objective `verify.sh` graders. Case format + loader tests live under `evals/capability/`; run with `bun run eval:capability` (see `evals/capability/README.md`). Use `--baseline` to detect improve/regress across models or commits.
