@@ -1153,6 +1153,43 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     await services.sessionOps.awaitTail();
     expect(builds()).toBe(3);
   });
+
+  test("a pending reload held for an open run does not survive interrupt", async () => {
+    const { state, services, builds } = await lifecycleWithOpenRun();
+    state.pendingReload = true;
+    defined(state.reloadIfIdle, "reloadIfIdle")();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(1);
+    expect(state.pendingReload).toBe(true);
+    defined(state.interrupt, "interrupt")();
+    await services.sessionOps.awaitTail();
+    expect(state.pendingReload).toBe(false);
+    expect(builds()).toBe(2);
+    await runWhileAgentBusy(state, async () => undefined);
+    expect(builds()).toBe(2);
+    expect(state.pendingReload).toBe(false);
+  });
+
+  test("a pending reload held for an open run does not survive session rotation", async () => {
+    const { state, services, builds } = await lifecycleWithOpenRun();
+    const dirs = stubRotationDirs();
+    try {
+      state.pendingReload = true;
+      defined(state.reloadIfIdle, "reloadIfIdle")();
+      await services.sessionOps.awaitTail();
+      expect(builds()).toBe(1);
+      expect(state.pendingReload).toBe(true);
+      defined(state.newSession, "newSession")();
+      await services.sessionOps.awaitTail();
+      expect(state.pendingReload).toBe(false);
+      expect(builds()).toBe(2);
+      await runWhileAgentBusy(state, async () => undefined);
+      expect(builds()).toBe(2);
+      expect(state.pendingReload).toBe(false);
+    } finally {
+      for (const spy of dirs) spy.mockRestore();
+    }
+  });
 });
 
 // An interrupt can hit close() mid-teardown and leak the workdir lock (see

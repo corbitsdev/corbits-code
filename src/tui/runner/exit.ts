@@ -499,6 +499,13 @@ export async function createRunLifecycle(
     // mid-run by interrupt or rotation) can never emit its end.
     openMessageRuns.clear();
     resumingOutsideRun = false;
+    // Those rebuilds already construct the agent a deferred reload was
+    // waiting on. Clear before the await so a connect that lands during
+    // buildAgent can still mark tools this build did not see. Initial and
+    // reload builds leave the flag to reloadIfIdle.
+    if (reason === "interrupt" || reason === "session-rotation") {
+      state.pendingReload = false;
+    }
     state.currentAgent = await services.buildAgent();
   };
   const agentBusy = (): boolean =>
