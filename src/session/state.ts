@@ -209,7 +209,7 @@ export async function finalizeRunState(
 // enforced here, not left to caller discipline: both production callers
 // (process-handlers.ts handleFatal and the signal handlers) flip it via
 // markCrashed() before finalizing, and any other caller fails closed instead
-// of landing a terminal record queued snapshot writes may then clobber.
+// of landing a terminal record that queued snapshot writes may then clobber.
 //
 // Second terminal path, separate on purpose: only index.ts's process-level
 // uncaughtException/unhandledRejection and signal handlers reach it (a crash
