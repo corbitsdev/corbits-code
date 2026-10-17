@@ -410,10 +410,13 @@ export function streamableHTTPTransportOptions(
   authProvider: CorbitsOAuthProvider | undefined,
   signal: AbortSignal | undefined,
 ) {
-  // Leave redirectPolicy unset. SDK 1.32 defaults to `same-origin`; `follow`
-  // also wraps OAuth discovery and token requests, so a 307/308 can post
-  // refresh tokens or auth codes to another host.
+  // Pin same-origin explicitly rather than relying on the SDK default:
+  // `follow` also wraps OAuth discovery and token requests, so a 307/308
+  // could post refresh tokens or auth codes to another host. Aligned with
+  // the ^1.32.1 SDK range in package.json, where `same-origin` follows
+  // within-origin chains (capped) for discovery, token, and SSE traffic.
   return {
+    redirectPolicy: "same-origin" as const,
     reconnectionOptions: MCP_HTTP_RECONNECTION_OPTIONS,
     ...(authProvider === undefined ? {} : { authProvider }),
     ...(signal === undefined

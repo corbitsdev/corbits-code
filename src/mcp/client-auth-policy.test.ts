@@ -188,10 +188,13 @@ describe("HTTP MCP auth policy", () => {
     });
     expect(callbackStarts).toBe(0);
     expect(providerCreates).toBe(0);
-    // No signal and no provider: leave redirectPolicy unset so the SDK
-    // default `same-origin` applies. Do not pin `follow`.
+    // No signal and no provider: same-origin is pinned so the SDK default
+    // can never widen to `follow`. Do not pin `follow`.
     expect(transportOptions).toEqual([
-      { reconnectionOptions: MCP_HTTP_RECONNECTION_OPTIONS },
+      {
+        redirectPolicy: "same-origin",
+        reconnectionOptions: MCP_HTTP_RECONNECTION_OPTIONS,
+      },
     ]);
   });
 
@@ -268,6 +271,7 @@ describe("HTTP MCP auth policy", () => {
     if (!result.ok) return;
     expect(transportOptions).toEqual([
       {
+        redirectPolicy: "same-origin",
         reconnectionOptions: MCP_HTTP_RECONNECTION_OPTIONS,
         authProvider,
         requestInit: { signal: expect.any(AbortSignal) },
@@ -305,6 +309,7 @@ describe("HTTP MCP auth policy", () => {
     expect(providerServerURL).toBe("https://custom.example/mcp?mode=full");
     expect(transportOptions).toEqual([
       {
+        redirectPolicy: "same-origin",
         reconnectionOptions: MCP_HTTP_RECONNECTION_OPTIONS,
         authProvider,
         requestInit: { signal: expect.any(AbortSignal) },
