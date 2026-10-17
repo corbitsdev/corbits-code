@@ -1918,7 +1918,7 @@ export async function createSessionStores(
           extraPaths = [...new Set([...add, ...remove])];
 
           // Array `git.add` / `git.remove` each write the index once.
-          // Array `remove` is isomorphic-git 1.44.2; array `add` is older.
+          // Array `remove` is isomorphic-git 1.43.0; array `add` is older.
           // A mid-batch add failure leaves the index unwritten. Only the
           // outer catch calls `resetIndexPaths`.
           if (add.length > 0) {

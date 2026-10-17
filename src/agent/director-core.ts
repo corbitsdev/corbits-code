@@ -28,7 +28,6 @@ export function composeDirectedPrompt(
 function ephemeralNudgeTurn(text: string): ConversationTurn {
   return {
     role: "user",
-    // Trim caller padding so the nudge matches the cached literal exactly.
     content: [{ type: "text", text: text.trim() }],
     timestamp: Date.now(),
   };

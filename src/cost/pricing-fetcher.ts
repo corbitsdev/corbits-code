@@ -292,8 +292,7 @@ export async function loadPricing(
     await writePricingCache(pricing, cachePath);
     return pricing;
   } catch (err) {
-    // Refresh runs fire-and-forget off a timer, so it must never throw. One
-    // debug line keeps the failure observable while stale cache carries on.
+    // One debug line keeps a failed refresh observable while stale cache carries on.
     log.debug("pricing refresh failed, keeping cached pricing: {error}", {
       error: err instanceof Error ? err.message : String(err),
     });

@@ -296,7 +296,6 @@ export function resolveOtelExportConfig(
   }
 
   let resourceAttributes: Record<string, string> = {};
-  // Env replaces settings wholesale (no merge): a set-but-empty env still wins.
   if (envResourceAttrsRaw !== undefined) {
     const parsed = parseOtelKeyValueList(
       envResourceAttrsRaw,

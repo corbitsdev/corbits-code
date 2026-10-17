@@ -74,10 +74,6 @@ Precedence:
 - **`otel.enabled: false`:** disables export when only settings provide an
   endpoint; an explicit env endpoint still enables export
 
-Operator note: the env attribute list replaces settings wholesale instead of
-merging — when `OTEL_RESOURCE_ATTRIBUTES` is set, attributes left only in
-settings are ignored, so move every attribute you need into the env list.
-
 Do not put credentials in the endpoint URL (`https://user:pass@…` is rejected).
 Use headers instead.
 
