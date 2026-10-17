@@ -259,7 +259,7 @@ describe("createCorbitsRetryPolicy", () => {
       error: {
         category: "protocol_mismatch",
         message:
-          "openai parseResponse: SSE chunk failed schema validation: choices0.delta.role must be a string (was null)",
+          "openai parseResponse: SSE chunk failed schema validation: choices[0].delta.role must be a string or null (was a number)",
       },
     });
     expect(decision).toEqual({ kind: "abort" });
