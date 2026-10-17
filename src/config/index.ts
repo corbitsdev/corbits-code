@@ -960,6 +960,15 @@ export async function loadConfig(
       auto = false;
       continue;
     }
+    // CL-10755: deprecated no-op retained for one release as warn-and-ignore
+    // so existing `--no-workflow` wrappers keep starting instead of hitting
+    // the catch-all "unrecognized flag" error below.
+    if (arg === "--no-workflow") {
+      process.stderr.write(
+        "--no-workflow is deprecated and has no effect; ignoring.\n",
+      );
+      continue;
+    }
     if (arg === "-p") {
       continue;
     }

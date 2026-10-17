@@ -215,6 +215,31 @@ test("loadConfig --no-auto disables auto mode", async () => {
   });
 });
 
+// CL-10755: --no-workflow is a deprecated no-op. It must stay accepted for
+// one release (stderr warn-and-ignore) instead of hitting the catch-all
+// "unrecognized flag" error.
+test("loadConfig --no-workflow warns and is ignored", async () => {
+  await withSettings(async ({ cwd, globalSettingsPath }) => {
+    const { impl } = offlineFetch();
+    const stderr = captureStderr();
+    try {
+      const config = await loadConfig(
+        ["--cwd", cwd, "--no-workflow", "do something"],
+        {
+          globalSettingsPath,
+          pricing: { fetchImpl: impl },
+        },
+      );
+      expect(config.configured).toBe(true);
+      expect(stderr.output()).toContain(
+        "--no-workflow is deprecated and has no effect; ignoring.",
+      );
+    } finally {
+      stderr.restore();
+    }
+  });
+});
+
 test("loadConfig uses the injected pricing fetchImpl instead of the network", async () => {
   await withSettings(async ({ cwd, globalSettingsPath }) => {
     resetPricingMetadataRefreshForTests();
