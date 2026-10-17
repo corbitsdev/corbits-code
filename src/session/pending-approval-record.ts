@@ -32,6 +32,14 @@ const PendingApprovalRecordSchema = type({
   "+": "reject",
 });
 
+export type PendingApprovalRecord = { pendingApproval: PendingOperation };
+
+export function pendingApprovalRecord(
+  op: PendingOperation,
+): PendingApprovalRecord {
+  return { pendingApproval: op };
+}
+
 /** The approval a turn log line records, or null when the line is not one. */
 export function parsePendingApprovalRecord(
   raw: unknown,

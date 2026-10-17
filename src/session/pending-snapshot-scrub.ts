@@ -1,5 +1,6 @@
-// Approval snapshot args at rest. metadata.json (git-backed session state
-// under .agent-state) persists each PendingOperation verbatim,
+// Approval snapshot args at rest. Session state (git-backed, under
+// .agent-state: the turn log record next to a parked call, or metadata.json)
+// persists each PendingOperation verbatim,
 // `approvalSnapshot.arguments` included — the raw model arguments of an ask
 // the operator has not answered yet. The result-side secret scrubber never
 // sees these, so a parked call carrying a bearer-shaped argument persisted it
