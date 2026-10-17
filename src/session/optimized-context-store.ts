@@ -510,9 +510,8 @@ export async function loadRecentTurns(
 }
 
 /**
- * Resilient parse of `turns.jsonl` alone (extras merged by the caller).
- * Mirrors `load()`'s recovery when the isogit base hard-fails, so a torn or
- * poisoned base cannot block the healing write.
+ * Resilient parse of `turns.jsonl` alone (extras merged by the caller), so a
+ * torn or poisoned base cannot block the healing write.
  */
 async function readBaseTurnsFromDisk(dir: string): Promise<ConversationTurn[]> {
   const basePath = path.join(dir, TURNS_FILE);
@@ -1358,9 +1357,7 @@ export async function createSessionStores(
     return count;
   }
 
-  async function readLiveTurnsCached(
-    signal?: AbortSignal,
-  ): Promise<ConversationTurn[]> {
+  async function readLiveTurnsCached(): Promise<ConversationTurn[]> {
     const segments = await turnSegmentStats();
     if (
       turnsCache !== null &&
@@ -1375,23 +1372,14 @@ export async function createSessionStores(
         : sharedSegmentPrefix(turnsCache.segments, segments);
     // Base segment stat unchanged: its parse is still exactly what disk
     // holds, so only the newer segments get re-read and re-parsed.
-    let baseTurns: ConversationTurn[];
-    if (reused >= 1 && turnsCache !== null) {
-      baseTurns = turnsCache.baseTurns;
-    } else {
-      try {
-        baseTurns = (await base.load(signal)).turns;
-      } catch (cause) {
-        // A torn or poisoned base must not block the healing write; recover
-        // the usable turns the same way load() always has. Corrupt
-        // metadata.json also slides — callers here only need the turns.
-        log.warn(
-          "base context store load failed; recovering base segment from disk",
-          { cause: cause instanceof Error ? cause.message : String(cause) },
-        );
-        baseTurns = await readBaseTurnsFromDisk(dir);
-      }
-    }
+    // Otherwise parse turns.jsonl here rather than through the isogit base's
+    // load(): that also validates metadata.json against the vendor shape,
+    // which this store no longer writes (tokenUsage lives on the sidecar).
+    // Metadata is read separately by readSessionMetadata.
+    const baseTurns =
+      reused >= 1 && turnsCache !== null
+        ? turnsCache.baseTurns
+        : await readBaseTurnsFromDisk(dir);
     const parsedExtras: ConversationTurn[][] = [];
     for (let index = 1; index < segments.length; index++) {
       const cached =
@@ -1422,10 +1410,8 @@ export async function createSessionStores(
     return merged;
   }
 
-  async function readLiveTurns(
-    signal?: AbortSignal,
-  ): Promise<ConversationTurn[]> {
-    return readLiveTurnsCached(signal);
+  async function readLiveTurns(): Promise<ConversationTurn[]> {
+    return readLiveTurnsCached();
   }
 
   async function resolveFirstWrite(
@@ -1546,15 +1532,15 @@ export async function createSessionStores(
 
   const store: ContextStore & AuditStore = {
     // Full-history read: the reactor's initialization contract. Turns come
-    // through the shared generation cache (strict base parse with resilient
-    // recovery, resilient extras, orphan-tail heal), so a repeated load within
-    // one store generation does not re-parse segments whose stat is unchanged.
+    // through the shared generation cache (resilient base and extras,
+    // orphan-tail heal), so a repeated load within one store generation does
+    // not re-parse segments whose stat is unchanged.
     // Metadata stays a fresh read: corrupt metadata.json soft-defaults so
     // resume does not die or wipe pending ops.
-    async load(signal) {
+    async load() {
       let turns: ConversationTurn[];
       try {
-        turns = await readLiveTurnsCached(signal);
+        turns = await readLiveTurnsCached();
       } catch (cause) {
         // Unrecoverable history: rethrow with the file name in the message.
         throw new Error(
