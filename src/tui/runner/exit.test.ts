@@ -937,6 +937,15 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     new Promise((resolve) => setTimeout(resolve, 0));
 
   async function lifecycleWithOpenRun() {
+    const lifecycle = await idleLifecycle();
+    // The operator's send opens the reactor's message run; an ask-tier call
+    // then parks it on the approval gate without closing it.
+    lifecycle.push(runStarted("run-1"));
+    await drainStream();
+    return lifecycle;
+  }
+
+  async function idleLifecycle() {
     const directorHolder: RunnerServices["directorHolder"] = {};
     const live = pushableStreamAgent();
     const { state, services } = stubSendLifecycle(live.agent);
@@ -946,6 +955,7 @@ describe("reload-if-idle waits for the reactor's message run", () => {
         current: () => undefined,
         advanceToNextMessage: () => undefined,
         consumeTerminal: () => undefined,
+        consumeConnectorReply: () => undefined,
         reset: () => undefined,
       },
     });
@@ -958,10 +968,6 @@ describe("reload-if-idle waits for the reactor's message run", () => {
       return builds === 1 ? live.agent : recordingAgent([]);
     }) as unknown as RunnerServices["buildAgent"];
     await createRunLifecycle(state, services);
-    // The operator's send opens the reactor's message run; an ask-tier call
-    // then parks it on the approval gate without closing it.
-    live.push(runStarted("run-1"));
-    await drainStream();
     return { state, services, push: live.push, builds: () => builds };
   }
 
@@ -1003,6 +1009,37 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     expect(builds()).toBe(1);
     expect(state.pendingReload).toBe(true);
     push(runEnded("run-2"));
+    await drainStream();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(2);
+    expect(state.pendingReload).toBe(false);
+    expect(state.fatalBuildError).toBeNull();
+  });
+
+  test("an approval resumed with no open run defers the reload until its reply", async () => {
+    // A reactor that rehydrated a parked approval from disk resumes it on the
+    // correlated decision without opening a message run, so no run bracket
+    // covers the re-dispatched tool or the inference that follows it.
+    const { state, services, push, builds } = await idleLifecycle();
+    push({
+      type: "message.correlated",
+      seq: 3,
+      data: { message: {}, correlationId: "corr-1" },
+    });
+    await drainStream();
+    state.pendingReload = true;
+    defined(state.reloadIfIdle, "reloadIfIdle")();
+    await services.sessionOps.awaitTail();
+    push({
+      type: "tool.done",
+      seq: 4,
+      data: { call: { id: "c1", name: "mcp__x__y", arguments: {} } },
+    });
+    await drainStream();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(1);
+    expect(state.pendingReload).toBe(true);
+    push({ type: "connector.reply", seq: 5, data: { content: "done" } });
     await drainStream();
     await services.sessionOps.awaitTail();
     expect(builds()).toBe(2);

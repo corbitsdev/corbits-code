@@ -369,12 +369,22 @@ export async function createRunLifecycle(
   // next inference execute inside it. Only reply/wait/done (or a fatal
   // abandon) close it.
   const openMessageRuns = new Set<string>();
+  // A reactor that rehydrated a parked approval from disk resumes it on the
+  // correlated decision without opening a message run, so no bracket covers
+  // the re-dispatched tool or the inference after it. Hold rebuilds from
+  // that correlation until the reactor reaches a terminal it announces: a
+  // reply, a run end, a fatal error, or shutdown. A bare `wait` terminal
+  // emits nothing, so the hold then lasts until the next run ends.
+  let resumingOutsideRun = false;
   const streamSink = (
     event: Parameters<typeof services.runSink.sink>[0],
   ): void => {
     let eventForSink = event;
     if (event.type === "message.run.started") {
       openMessageRuns.add(event.data.messageRunId);
+    }
+    if (event.type === "message.correlated" && openMessageRuns.size === 0) {
+      resumingOutsideRun = true;
     }
     if (event.type === "message.received") {
       providerFailureAttempts.advanceToNextMessage();
@@ -461,8 +471,17 @@ export async function createRunLifecycle(
         billingIdentityFromSource(event.data.source),
       );
     }
+    if (
+      event.type === "connector.reply" ||
+      event.type === "reactor.done" ||
+      (event.type === "reactor.error" && event.data.fatal)
+    ) {
+      resumingOutsideRun = false;
+      state.reloadIfIdle?.();
+    }
     if (event.type === "message.run.ended") {
       openMessageRuns.delete(event.data.messageRunId);
+      resumingOutsideRun = false;
       state.reloadIfIdle?.();
     }
   };
@@ -475,10 +494,11 @@ export async function createRunLifecycle(
     // The outgoing agent's stream has drained; a run it left open (closed
     // mid-run by interrupt or rotation) can never emit its end.
     openMessageRuns.clear();
+    resumingOutsideRun = false;
     state.currentAgent = await services.buildAgent();
   };
   const agentBusy = (): boolean =>
-    state.inFlight > 0 || openMessageRuns.size > 0;
+    state.inFlight > 0 || openMessageRuns.size > 0 || resumingOutsideRun;
 
   await buildLiveAgent("initial");
   resyncIdleWithFleetFlag(services);
