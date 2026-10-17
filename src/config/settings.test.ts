@@ -72,7 +72,7 @@ test("invalid token settings cannot be loaded or overwrite a saved provider", as
   }
 });
 
-test("provider settings reject simultaneous sampling fields but preserve zero", () => {
+test("provider settings reject simultaneous sampling fields but preserve zero", async () => {
   const provider = {
     baseURL: "https://custom.example/v1",
     keyless: true,
@@ -85,6 +85,19 @@ test("provider settings reject simultaneous sampling fields but preserve zero", 
   expect(isSettings({ providers: { custom: { ...provider, topP: 0 } } })).toBe(
     false,
   );
+  // The exclusion is enforced at load, not just by isSettings — a persisted
+  // file with both knobs fails to load.
+  const cwd = await mkdtemp(join(tmpdir(), "both-sampling-knobs-"));
+  try {
+    const path = join(cwd, "settings.json");
+    await writeFile(
+      path,
+      JSON.stringify({ providers: { custom: { ...provider, topP: 0 } } }),
+    );
+    await expect(loadSettings(path)).rejects.toThrow();
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });
 
 afterEach(() => {

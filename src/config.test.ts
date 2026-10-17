@@ -1467,6 +1467,25 @@ describe("buildOpenAISource", () => {
     });
   });
 
+  test("flows temperature and top_p together when both are present", () => {
+    // Settings load rejects both knobs. This builder still forwards a pair
+    // it is given. DeepSeek V4 model-card defaults reach the wire because
+    // the adapter writes top_p 0.95 and temperature 1.0 when each body
+    // field is absent, not because this merge supplies those defaults.
+    const source = buildOpenAISource({
+      id: "fp",
+      baseURL: "https://fp/v1",
+      apiKey: "k",
+      model: "m",
+      temperature: 0.7,
+      topP: 0.9,
+    });
+    expect(source.defaults).toEqual({
+      maxTokens: SOURCE_MAX_TOKENS,
+      providerOptions: { temperature: 0.7, top_p: 0.9 },
+    });
+  });
+
   test("coexists temperature with reasoning_effort in one providerOptions", () => {
     const source = buildOpenAISource({
       id: "fp",
