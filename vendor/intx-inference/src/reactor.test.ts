@@ -7,7 +7,7 @@ import { createCorrelationRegistry } from "./correlation";
 import { createReactor, mergeInferenceOptions } from "./reactor";
 import { createDefaultDependencies } from "./providers";
 import { createDefaultDirector } from "./default-director";
-import { assertWellFormedToolSequence } from "./turns";
+import { assertWellFormedToolSequence, createToolResultTurn } from "./turns";
 import { createInboundMessage } from "@intx/mime";
 import { waitUntil } from "@intx/types/testing";
 import { PerCallInferenceOptions } from "@intx/types/runtime";
@@ -5551,6 +5551,125 @@ describe("createReactor — resolved approval persists pending-operation removal
       ),
     ).toBe(true);
     expect(() => assertWellFormedToolSequence(cell.turns)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A parked call that already has a result is never answered again
+// ---------------------------------------------------------------------------
+
+describe("createReactor — answered parked call is not re-answered", () => {
+  function parkedOp(correlationId: string, timeoutAt: number): PendingOperation {
+    return {
+      correlationId,
+      kind: "approval",
+      registeredAt: Date.now(),
+      gateId: `pending-${correlationId}`,
+      timeoutAt,
+      suspendedCall: { id: "call-ask", name: "charge_card", arguments: {} },
+    };
+  }
+
+  function resultsFor(turns: ConversationTurn[], callId: string): number {
+    return turns
+      .flatMap((t) => t.content)
+      .filter((b) => b.type === "tool_result" && b.callId === callId).length;
+  }
+
+  test("startup drops and persists the removal of a pending operation whose call already has a result", async () => {
+    // The state a crash between the result-turn write and the metadata write
+    // leaves behind: the parked call is answered on disk, but its pending
+    // operation was never removed.
+    const deadline = Date.now() + 200;
+    const cell: PersistedCell = {
+      turns: [
+        suspendToolCallTurn,
+        createToolResultTurn([{ callId: "call-ask", content: "charged" }]),
+      ],
+      pendingOperations: [parkedOp("stale-corr", deadline)],
+      tokenUsage: emptyUsage(),
+    };
+
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: makeInferenceRunner({
+        type: "done",
+        turn: makeAssistantTurn("resumed"),
+        usage: emptyUsage(),
+      }),
+    });
+    reactor.start();
+    await waitFor("reactor.start");
+
+    expect(cell.pendingOperations).toEqual([]);
+
+    // A re-armed gate would fire at the deadline and append "approval timed
+    // out" for the answered call; the next inference would then fail the
+    // well-formedness tripwire.
+    await waitUntil(() => Date.now() > deadline + 50);
+    reactor.deliver(makeInboundMessage());
+    const settled = await waitForEvent(
+      events,
+      (e) => e.type === "connector.reply" || e.type === "reactor.done",
+    );
+
+    expect(events.filter((e) => e.type === "reactor.error")).toEqual([]);
+    expect(settled.type).toBe("connector.reply");
+    expect(resultsFor(cell.turns, "call-ask")).toBe(1);
+
+    reactor.abort("admin_kill");
+    await waitFor("reactor.done");
+  });
+
+  test("a gate timeout for a parked call that already has a result injects no second result", async () => {
+    // The op is live at startup (its call is unanswered), then the call is
+    // answered by a path other than its approval, so only the timeout guard
+    // stands between the deadline and a duplicate tool_result.
+    const deadline = Date.now() + 200;
+    const cell: PersistedCell = {
+      turns: [suspendToolCallTurn],
+      pendingOperations: [parkedOp("answered-corr", deadline)],
+      tokenUsage: emptyUsage(),
+    };
+
+    let messages = 0;
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: directorFromTable(
+        {
+          "message.received": (_e, _s, caps) => {
+            messages += 1;
+            return messages === 1
+              ? caps.executeTools([
+                  { id: "call-ask", name: "charge_card", arguments: {} },
+                ])
+              : caps.reply("ok");
+          },
+        },
+        "wait",
+      ),
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "charged",
+      })),
+    });
+    reactor.start();
+    await waitFor("reactor.start");
+
+    reactor.deliver(makeInboundMessage());
+    await waitFor("tool.done");
+    expect(resultsFor(cell.turns, "call-ask")).toBe(1);
+
+    await waitUntil(() => Date.now() > deadline + 50);
+    reactor.deliver(makeInboundMessage());
+    await waitFor("connector.reply");
+
+    expect(resultsFor(cell.turns, "call-ask")).toBe(1);
+    expect(() => assertWellFormedToolSequence(cell.turns)).not.toThrow();
+
+    reactor.abort("admin_kill");
+    await waitFor("reactor.done");
   });
 });
 
