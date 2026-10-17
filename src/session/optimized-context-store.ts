@@ -88,7 +88,7 @@ const ConversationTurnSchema = type({
 
 // Persisted turns are immutable once appended; re-parsed history rebuilds its
 // memo entries anyway, so this skips re-serializing an unchanged history on
-// every comparison (contentPrefixLength, promptEqualsLiveTurns).
+// every comparison (contentPrefixLength).
 const turnJsonMemo = new WeakMap<ConversationTurn, string>();
 
 function turnJson(turn: ConversationTurn): string {
@@ -1162,8 +1162,8 @@ async function publishMetadataDocument(
 
 /**
  * Interchange git-store wrapper that avoids O(session length) work per
- * checkpoint: turns and prompts write as rolling segments so only the active
- * one re-hashes; `base.commit()` keeps the vendor lock, durable commit,
+ * checkpoint: turns write as rolling segments so only the active one
+ * re-hashes; `base.commit()` keeps the vendor lock, durable commit,
  * signing, and GC.
  */
 export async function createSessionStores(
@@ -1177,14 +1177,10 @@ export async function createSessionStores(
   const ownerToken = opts?.ownerId ?? globalThis.crypto.randomUUID();
   const explicitOwnerId = opts?.ownerId;
   let turnsBaseName = TURNS_FILE;
-  let promptBaseName = PROMPT_FILE;
   let versionedBase: string | null = null;
   let writeTurnsSegmented = createSegmentedJSONLWriter(dir, TURNS_FILE);
-  let writePromptSegmented = createSegmentedJSONLWriter(dir, PROMPT_FILE);
   let liveTurnRefs: readonly ConversationTurn[] | null = null;
   let unpublishedRewrite: ConversationTurn[] | null = null;
-  let pendingPrompt: ConversationTurn[] | null = null;
-  let stagedPrompt: ConversationTurn[] | null = null;
   // metadata.json ownership (CL-10667): this store writes the file itself, so
   // the base's pendingConnectorState buffer would never land. The written
   // payload is the compare baseline — metadata.json changes only through this
@@ -1249,8 +1245,6 @@ export async function createSessionStores(
     versionedBase = versionedBaseName(TURNS_FILE);
     turnsBaseName = versionedBase;
     writeTurnsSegmented = createSegmentedJSONLWriter(dir, turnsBaseName);
-    promptBaseName = versionedBaseName(PROMPT_FILE);
-    writePromptSegmented = createSegmentedJSONLWriter(dir, promptBaseName);
   }
 
   function refPrefixLength(
@@ -1474,32 +1468,6 @@ export async function createSessionStores(
     return "divert";
   }
 
-  async function queuePrompt(
-    turns: readonly ConversationTurn[],
-  ): Promise<void> {
-    if (versionedBase !== null && liveTurnRefs === null) {
-      stagedPrompt = [...turns];
-      pendingPrompt = null;
-      return;
-    }
-    if (
-      liveTurnRefs === null &&
-      unpublishedRewrite === null &&
-      versionedBase === null
-    ) {
-      pendingPrompt = [...turns];
-      return;
-    }
-    await writePromptIfDiffered(turns);
-  }
-
-  async function flushPendingPrompt(): Promise<void> {
-    if (pendingPrompt === null) return;
-    const prompt = pendingPrompt;
-    pendingPrompt = null;
-    await writePromptIfDiffered(prompt);
-  }
-
   async function writeTurnsLiveOrStage(
     turns: readonly ConversationTurn[],
   ): Promise<void> {
@@ -1536,21 +1504,15 @@ export async function createSessionStores(
       if (decision === "divert") {
         divertToVersionedBases();
         unpublishedRewrite = [...turns];
-        if (pendingPrompt !== null) {
-          stagedPrompt = pendingPrompt;
-          pendingPrompt = null;
-        }
         return;
       }
       if (decision === "rewrite") {
         unpublishedRewrite = [...turns];
-        await flushPendingPrompt();
         return;
       }
       await writeSegmented(writeTurnsSegmented, turns);
       liveTurnRefs = [...turns];
       invalidateTurnsCache();
-      await flushPendingPrompt();
     });
   }
 
@@ -1580,66 +1542,6 @@ export async function createSessionStores(
 
     if (keepExtras === 0) return baseTurns;
     return [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
-  }
-
-  function promptEqualsLiveTurns(
-    live: readonly ConversationTurn[],
-    prompt: readonly ConversationTurn[],
-  ): boolean {
-    if (live.length !== prompt.length) return false;
-    for (let index = 0; index < prompt.length; index++) {
-      const liveTurn = live[index];
-      const promptTurn = prompt[index];
-      if (liveTurn === undefined || promptTurn === undefined) return false;
-      if (liveTurn === promptTurn) continue;
-      if (turnJson(liveTurn) !== turnJson(promptTurn)) return false;
-    }
-    return true;
-  }
-
-  // The reactor checkpoints the prompt every cycle; identical snapshots
-  // double disk and re-hash cost for nothing. load() never reads
-  // prompt.jsonl, so skipping leaves resume unchanged; differing prompts
-  // still write.
-  async function writePromptIfDiffered(
-    turns: readonly ConversationTurn[],
-  ): Promise<void> {
-    let live: readonly ConversationTurn[] | null = null;
-    if (unpublishedRewrite !== null) live = unpublishedRewrite;
-    else if (liveTurnRefs !== null) live = liveTurnRefs;
-    else {
-      // Fresh instance: recover live turns through the shared generation
-      // cache; failure falls through to a normal write so an unreadable
-      // baseline cannot drop the snapshot.
-      try {
-        live = await readLiveTurnsCached();
-      } catch {
-        live = null;
-      }
-    }
-    if (versionedBase !== null && liveTurnRefs === null) {
-      // No versioned file before commit; a crash would orphan it.
-      return;
-    }
-    if (live === null || !promptEqualsLiveTurns(live, turns)) {
-      // A differing prompt is normal on resume and must not divert.
-      await writeSegmented(writePromptSegmented, turns);
-      return;
-    }
-    // Identical: converge disk to no prompt segment so a stale snapshot
-    // cannot linger; removals join pendingSegmentPaths for commit staging.
-    const highest = await highestSegmentIndex(dir, promptBaseName);
-    let removed = false;
-    for (let index = 0; index <= highest; index++) {
-      const name = segmentFileName(promptBaseName, index);
-      if (!(await pathExists(path.join(dir, name)))) continue;
-      await fs.promises.unlink(path.join(dir, name));
-      pendingSegmentPaths.add(name);
-      removed = true;
-    }
-    if (removed) {
-      writePromptSegmented = createSegmentedJSONLWriter(dir, promptBaseName);
-    }
   }
 
   const store: ContextStore & AuditStore = {
@@ -1732,9 +1634,10 @@ export async function createSessionStores(
       return [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
     },
     readBlob: (key, signal) => base.readBlob(key, signal),
-    // Skipped identical snapshots fall back to live turns; load() never reads
-    // prompt.jsonl.
-    writePrompt: (turns) => queuePrompt(turns),
+    // load() reads turns.jsonl, never prompt.jsonl. The checkpoint duplicated
+    // that history and nothing reads it, same fold as writeResponse. Legacy
+    // trees that still hold one keep staging as a vendor root.
+    writePrompt: () => Promise.resolve(),
     // CL-10667 fold: response.jsonl duplicated the assistant turn turns.jsonl
     // already carries, and nothing in the repo reads it (grep over src,
     // scripts, e2e, and the vendored packages: write-only). The per-commit
@@ -1743,8 +1646,7 @@ export async function createSessionStores(
     writeResponse: () => Promise.resolve(),
     async writeManifest(records, signal) {
       if (records.length === 0) {
-        // Empty cycle buffers converge the worktree to no manifest, the same
-        // way an identical prompt converges to no prompt segment: the removal
+        // Empty cycle buffers converge the worktree to no manifest: the removal
         // joins the pending set, one index write carries it at commit, and
         // readManifestHistory reads a missing manifest as no records.
         if (await pathExists(path.join(dir, MANIFEST_FILE))) {
@@ -1766,30 +1668,7 @@ export async function createSessionStores(
     },
     async commit(options, signal) {
       return withResolvedDirLock(dir, async () => {
-        if (
-          pendingPrompt !== null &&
-          versionedBase === null &&
-          unpublishedRewrite === null &&
-          liveTurnRefs === null
-        ) {
-          const marker = await readOwnerMarker(dir);
-          if (
-            marker !== null &&
-            explicitOwnerId !== undefined &&
-            marker.ownerId !== ownerToken
-          ) {
-            divertToVersionedBases();
-            stagedPrompt = pendingPrompt;
-            pendingPrompt = null;
-          } else {
-            const prompt = pendingPrompt;
-            pendingPrompt = null;
-            await writePromptIfDiffered(prompt);
-          }
-        }
-
         const stagedRewrite = unpublishedRewrite;
-        const promptToPublish = stagedPrompt;
         // The staged rewrite lands on the working-tree segments before the git
         // operations below; snapshot them so a failed commit can restore the
         // published generation. The rewrite stays staged so a retry can still
@@ -1798,10 +1677,6 @@ export async function createSessionStores(
           stagedRewrite === null
             ? null
             : await snapshotTurnSegments(dir, turnsBaseName);
-        const promptSnapshot =
-          promptToPublish === null
-            ? null
-            : await snapshotTurnSegments(dir, promptBaseName);
         // One HEAD resolution per commit. The catch re-resolves on purpose:
         // it must observe HEAD after the commit to detect a landed commit.
         let headWithinLock: Promise<string | null> | undefined;
@@ -1809,19 +1684,13 @@ export async function createSessionStores(
           headWithinLock ??= headOid(dir);
           return headWithinLock;
         };
-        const headBefore =
-          stagedRewrite === null && promptToPublish === null
-            ? null
-            : await lockedHead();
+        const headBefore = stagedRewrite === null ? null : await lockedHead();
         let extraPaths: string[] = [];
 
         try {
           if (stagedRewrite !== null) {
             await writeSegmented(writeTurnsSegmented, stagedRewrite);
             invalidateTurnsCache();
-          }
-          if (promptToPublish !== null) {
-            await writeSegmented(writePromptSegmented, promptToPublish);
           }
           const listing = await surveyWorktree(dir);
           const toAdd: string[] = [];
@@ -1851,7 +1720,7 @@ export async function createSessionStores(
           );
           await reconcileSegmentStaging(
             dir,
-            promptBaseName,
+            PROMPT_FILE,
             toAdd,
             toRemove,
             listing,
@@ -1954,11 +1823,10 @@ export async function createSessionStores(
             liveTurnRefs = stagedRewrite;
             unpublishedRewrite = null;
           }
-          if (promptToPublish !== null) stagedPrompt = null;
           return committed;
         } catch (cause) {
           await resetIndexPaths(dir, extraPaths);
-          if (segmentSnapshot !== null || promptSnapshot !== null) {
+          if (segmentSnapshot !== null) {
             // Restore the published generation unless the commit actually
             // landed despite throwing (a ref write or post-commit check can
             // fail after HEAD moved), in which case the on-disk rewrite
@@ -1967,47 +1835,22 @@ export async function createSessionStores(
             const landed =
               headBefore !== null && headNow !== null && headNow !== headBefore;
             if (!landed) {
-              if (segmentSnapshot !== null) {
-                try {
-                  await restoreTurnSegments(
-                    dir,
-                    segmentSnapshot,
-                    turnsBaseName,
-                  );
-                } catch {
-                  // A partial restore must not mask the real commit error.
-                }
-              }
-              if (promptSnapshot !== null) {
-                try {
-                  await restoreTurnSegments(
-                    dir,
-                    promptSnapshot,
-                    promptBaseName,
-                  );
-                } catch {
-                  // A partial restore must not mask the real commit error.
-                }
+              try {
+                await restoreTurnSegments(dir, segmentSnapshot, turnsBaseName);
+              } catch {
+                // A partial restore must not mask the real commit error.
               }
             }
             // Drop the writer's stale in-memory state so a retry rewrites from
             // scratch.
-            if (segmentSnapshot !== null) {
-              writeTurnsSegmented = createSegmentedJSONLWriter(
-                dir,
-                turnsBaseName,
-              );
-              liveTurnRefs = null;
-              // The restore rewrote the published generation; the cached
-              // live-turns parse predates it in general, so rebuild from disk.
-              invalidateTurnsCache();
-            }
-            if (promptSnapshot !== null) {
-              writePromptSegmented = createSegmentedJSONLWriter(
-                dir,
-                promptBaseName,
-              );
-            }
+            writeTurnsSegmented = createSegmentedJSONLWriter(
+              dir,
+              turnsBaseName,
+            );
+            liveTurnRefs = null;
+            // The restore rewrote the published generation; the cached
+            // live-turns parse predates it in general, so rebuild from disk.
+            invalidateTurnsCache();
           }
           throw cause;
         }
