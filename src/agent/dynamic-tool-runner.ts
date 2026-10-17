@@ -47,7 +47,31 @@ export type DynamicToolRunner = AgentToolRunner & {
    * director-side triggers.
    */
   setOnUndeclaredCall(handler: (name: string) => void): void;
+  /**
+   * Record the current tool set as the one the agent being built can
+   * authorize. The reactor snapshots definitions at build, so a tool mounted
+   * later would reach dispatch with no approval snapshot. Until the next pin,
+   * `agentDefinitions` hides such tools and `isLateTool` names them. A runner
+   * that is never pinned exposes every registered tool.
+   */
+  pinAgentToolSet(): void;
+  // Registered tools the pinned agent can authorize (all of them unpinned).
+  agentDefinitions(): ToolDefinition[];
+  // A name that resolves to a registered tool the pinned agent lacks.
+  isLateTool(name: string): boolean;
+  // How the registry moved since the last pin; empty when never pinned.
+  agentToolSetDrift(): AgentToolSetDrift;
 };
+
+interface AgentToolSetDrift {
+  added: string[];
+  removed: string[];
+  changed: string[];
+}
+
+// Description and schema are what the approval snapshot and the wire carry.
+const definitionShape = (definition: ToolDefinition): string =>
+  `${definition.description ?? ""}|${JSON.stringify(definition.inputSchema ?? null)}`;
 
 export function createDynamicToolRunner(
   initial: AgentTool[],
@@ -57,6 +81,9 @@ export function createDynamicToolRunner(
   let callGate: ((name: string) => boolean) | undefined;
   let isActivated: ((name: string) => boolean) | undefined;
   let onUndeclaredCall: ((name: string) => void) | undefined;
+  // Pinned while the agent's tool resolution walks the bundle, where the
+  // live-dispatch shim swaps the global Map; arrays and a Set stay clear of it.
+  let pinned: { names: Set<string>; definitions: ToolDefinition[] } | undefined;
 
   const addTools = (tools: AgentTool[]): void => {
     const incoming = new Set<string>();
@@ -78,6 +105,43 @@ export function createDynamicToolRunner(
   const currentDefinitions = (): ToolDefinition[] =>
     [...byName.values()].map((t) => t.definition);
 
+  const agentDefinitions = (): ToolDefinition[] => {
+    const live = currentDefinitions();
+    if (pinned === undefined) return live;
+    const names = pinned.names;
+    return live.filter((definition) => names.has(definition.name));
+  };
+
+  const isLateTool = (name: string): boolean => {
+    if (pinned === undefined) return false;
+    const resolved = resolveRegisteredToolName(name, (n) => byName.has(n));
+    return resolved !== undefined && !pinned.names.has(resolved);
+  };
+
+  const agentToolSetDrift = (): AgentToolSetDrift => {
+    if (pinned === undefined) return { added: [], removed: [], changed: [] };
+    const pinnedShapes = new Map(
+      pinned.definitions.map((definition) => [
+        definition.name,
+        definitionShape(definition),
+      ]),
+    );
+    const live = currentDefinitions();
+    const liveNames = new Set(live.map((definition) => definition.name));
+    return {
+      added: live
+        .filter((definition) => !pinnedShapes.has(definition.name))
+        .map((definition) => definition.name),
+      removed: [...pinnedShapes.keys()].filter((name) => !liveNames.has(name)),
+      changed: live
+        .filter((definition) => {
+          const before = pinnedShapes.get(definition.name);
+          return before !== undefined && before !== definitionShape(definition);
+        })
+        .map((definition) => definition.name),
+    };
+  };
+
   return {
     get definitions(): readonly ToolDefinition[] {
       return currentDefinitions();
@@ -85,6 +149,16 @@ export function createDynamicToolRunner(
     addTools,
     removeTools,
     currentDefinitions,
+    pinAgentToolSet(): void {
+      const definitions = currentDefinitions();
+      pinned = {
+        names: new Set(definitions.map((definition) => definition.name)),
+        definitions,
+      };
+    },
+    agentDefinitions,
+    isLateTool,
+    agentToolSetDrift,
     setCallGate(
       isCallable: (name: string) => boolean,
       options?: { isActivated?: (name: string) => boolean },

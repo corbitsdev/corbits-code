@@ -59,6 +59,7 @@ import { createChatDirector, type ChatDirector } from "../agent/director.js";
 import { createDoomLoopCorrectiveNote } from "../agent/doom-loop-note.js";
 import type { AgentToolset } from "../agent/tools.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
+import { denyLateTools } from "../agent/late-tool-authorize.js";
 import { createSessionStores } from "./optimized-context-store.js";
 import { getActiveRun } from "./active-run.js";
 import { createAttachmentRehydrateTransform } from "./attachment-store.js";
@@ -530,6 +531,13 @@ export interface ChatAgentWiring {
   agentId: string;
   systemPrompt: string;
   getDynamicRunner: () => AgentToolset["dynamicRunner"];
+  /**
+   * Pin the runner's tool set at each build so tools mounted afterwards stay
+   * hidden and unauthorizable until the next build. Set by hosts that
+   * rebuild when the tool set changes (the TUI); exec builds once and keeps
+   * every late tool reachable.
+   */
+  pinToolSetAtBuild?: boolean;
   computeAdvertised: (all: readonly ToolDefinition[]) => ToolDefinition[];
   inactivityTimeoutMs: number;
   totalTimeoutMs?: number | undefined;
@@ -670,7 +678,11 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
   const toolsFactory = defineTool({
     id: wiring.toolsId,
     definitions: [],
-    factory: () => withAuthzParityDefinitions(wiring.getDynamicRunner()),
+    factory: () => {
+      const runner = wiring.getDynamicRunner();
+      if (wiring.pinToolSetAtBuild === true) runner.pinAgentToolSet();
+      return withAuthzParityDefinitions(runner);
+    },
   });
 
   const provider = wiring.getProvider();
@@ -750,6 +762,13 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
             },
           };
     stickyFromStore = await stickyExtraInstructionsFromStore(storageForAgent);
+    const archivedAuthorize =
+      primaryArchive === undefined
+        ? wiring.authorize
+        : wrapAuthorizeWithEvidenceArchive(
+            wiring.authorize,
+            () => primaryArchive,
+          );
     const agent = await createAgentWithLiveToolDispatch(agentDef, {
       sources: wiring.getSources(),
       defaultSource: wiring.getDefaultSource(),
@@ -767,7 +786,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         doomLoopPolicy: "fail-run",
         doomLoopCorrectiveNote: createDoomLoopCorrectiveNote(() =>
           wiring
-            .computeAdvertised(wiring.getDynamicRunner().currentDefinitions())
+            .computeAdvertised(wiring.getDynamicRunner().agentDefinitions())
             .map((def) => def.name),
         ),
         contextTransforms: [
@@ -794,12 +813,11 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
       // finalize evidence admission after guards resolve, never scrubbing
       // exec args.
       authorize:
-        primaryArchive === undefined
-          ? wiring.authorize
-          : wrapAuthorizeWithEvidenceArchive(
-              wiring.authorize,
-              () => primaryArchive,
-            ),
+        wiring.pinToolSetAtBuild === true
+          ? denyLateTools(archivedAuthorize, (name) =>
+              wiring.getDynamicRunner().isLateTool(name),
+            )
+          : archivedAuthorize,
       directors: createDirectorRegistry({
         factories: [chatDirectorDef.factory],
         defaultId: `${ID_PREFIX}/chat`,

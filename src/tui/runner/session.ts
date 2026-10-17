@@ -709,6 +709,9 @@ export async function assembleTUISession(
     agentId: `${ID_PREFIX}/tui-agent`,
     systemPrompt,
     getDynamicRunner: () => toolset.dynamicRunner,
+    // MCP tool-set changes rebuild the agent (exit.ts reloadIfIdle), so each
+    // build pins what it can authorize.
+    pinToolSetAtBuild: true,
     computeAdvertised,
     inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
     totalTimeoutMs: config.totalTimeoutMs,
@@ -765,7 +768,7 @@ export async function assembleTUISession(
               pruneIdlePromotions,
               refreshAdvertised: () => {
                 directorHolder.instance?.updateToolDefinitions(
-                  computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
+                  computeAdvertised(toolset.dynamicRunner.agentDefinitions()),
                 );
               },
               persist: () => {

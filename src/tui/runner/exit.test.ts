@@ -318,7 +318,18 @@ function stubSendLifecycle(agent: Agent): {
     emitter: new EventEmitter(),
     sessionOps: createSessionOperationQueue(),
     deliveryGeneration: createDeliveryGeneration(),
-    toolset: { setToolPromoter: () => undefined },
+    toolset: {
+      setToolPromoter: () => undefined,
+      // A pending reload exists because MCP mounted something new.
+      dynamicRunner: {
+        agentDefinitions: () => [],
+        agentToolSetDrift: () => ({
+          added: ["mcp__linear__save_issue"],
+          removed: [],
+          changed: [],
+        }),
+      },
+    },
     directorHolder: {},
     subAgentSessions: { cancelAll: async () => [], list: () => [] },
     activeRunHandle: { task: "", startedAt: 0, model: "" },
@@ -1101,6 +1112,20 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     } finally {
       info.mockRestore();
     }
+  });
+
+  test("a rebuild request the previous build already absorbed is skipped", async () => {
+    const { state, services, builds } = await idleLifecycle();
+    Object.assign(services.toolset, {
+      dynamicRunner: {
+        agentDefinitions: () => [],
+        agentToolSetDrift: () => ({ added: [], removed: [], changed: [] }),
+      },
+    });
+    defined(state.requestToolSetRebuild, "requestToolSetRebuild")();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(1);
+    expect(state.pendingReload).toBe(false);
   });
 
   test("an MCP retry while idle rebuilds the agent", async () => {

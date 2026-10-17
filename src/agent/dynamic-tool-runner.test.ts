@@ -374,3 +374,71 @@ describe("terminal control stripping", () => {
     expect(result.content).toBe("beforeredafter");
   });
 });
+
+describe("agent tool set pin", () => {
+  const names = (runner: ReturnType<typeof createDynamicToolRunner>) =>
+    runner.agentDefinitions().map((definition) => definition.name);
+
+  test("an unpinned runner exposes every registered tool", () => {
+    const runner = createDynamicToolRunner([stringTool("read_file", "core")]);
+    runner.addTools([stringTool("mcp__acme__do", "late")]);
+    expect(names(runner)).toEqual(["read_file", "mcp__acme__do"]);
+    expect(runner.isLateTool("mcp__acme__do")).toBe(false);
+    expect(runner.agentToolSetDrift()).toEqual({
+      added: [],
+      removed: [],
+      changed: [],
+    });
+  });
+
+  test("tools mounted after the pin stay hidden until the next pin", () => {
+    const runner = createDynamicToolRunner([
+      stringTool("read_file", "core"),
+      stringTool("mcp__old__go", "old"),
+    ]);
+    runner.pinAgentToolSet();
+    runner.addTools([stringTool("mcp__acme__do", "late")]);
+    runner.removeTools(["mcp__old__go"]);
+    expect(names(runner)).toEqual(["read_file"]);
+    expect(runner.isLateTool("mcp__acme__do")).toBe(true);
+    // Harness-namespaced spellings resolve to the same late tool.
+    expect(runner.isLateTool("default.mcp__acme__do")).toBe(true);
+    expect(runner.isLateTool("read_file")).toBe(false);
+    expect(runner.isLateTool("mcp__never__mounted")).toBe(false);
+    expect(runner.agentToolSetDrift()).toEqual({
+      added: ["mcp__acme__do"],
+      removed: ["mcp__old__go"],
+      changed: [],
+    });
+
+    runner.pinAgentToolSet();
+    expect(names(runner)).toEqual(["read_file", "mcp__acme__do"]);
+    expect(runner.isLateTool("mcp__acme__do")).toBe(false);
+    expect(runner.agentToolSetDrift()).toEqual({
+      added: [],
+      removed: [],
+      changed: [],
+    });
+  });
+
+  test("a remount under the same name with a new schema counts as drift", () => {
+    const runner = createDynamicToolRunner([stringTool("web_fetch", "a")]);
+    runner.pinAgentToolSet();
+    runner.removeTools(["web_fetch"]);
+    runner.addTools([
+      {
+        ...stringTool("web_fetch", "b"),
+        definition: {
+          name: "web_fetch",
+          description: "fetch through exa",
+          inputSchema: { type: "object", properties: {}, required: [] },
+        },
+      },
+    ]);
+    expect(runner.agentToolSetDrift()).toEqual({
+      added: [],
+      removed: [],
+      changed: ["web_fetch"],
+    });
+  });
+});

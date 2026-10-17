@@ -345,7 +345,7 @@ export async function createRunLifecycle(
     if (services.flushPromotions()) {
       services.directorHolder.instance?.updateToolDefinitions(
         services.computeAdvertised(
-          services.toolset.dynamicRunner.currentDefinitions(),
+          services.toolset.dynamicRunner.agentDefinitions(),
         ),
       );
     }
@@ -538,6 +538,20 @@ export async function createRunLifecycle(
         state.pendingReload = true;
         return;
       }
+      // Several connects can queue rebuilds before the first one runs; the
+      // first build pins them all, so the rest find nothing new.
+      const drift = services.toolset.dynamicRunner.agentToolSetDrift();
+      if (
+        drift.added.length === 0 &&
+        drift.removed.length === 0 &&
+        drift.changed.length === 0
+      ) {
+        return;
+      }
+      tuiLogger.info(
+        "MCP tool set changed: added {added}, removed {removed}, changed {changed}",
+        { ...drift, sessionId: state.sessionId },
+      );
       try {
         const old = liveAgent(state);
         const closedCleanly = await closeAgentForRebuild(old, "reload");

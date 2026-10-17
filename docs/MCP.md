@@ -90,9 +90,11 @@ present. The built-in Exa default is still injected beside local MCP unless a
 global or local `exa` entry disables or overrides it as described above.
 
 Tools from connected servers are not advertised to the model up front; they are
-registered for dispatch as soon as the server connects (including later in the
-same turn) and surfaced on demand through dynamic tool discovery
-(`tool_search`). A match is a ranked handful of names plus capped
+surfaced on demand through dynamic tool discovery (`tool_search`). In the TUI a
+server that connects mid-turn joins at the agent rebuild after that turn: until
+then `tool_search` reports its matching tools as callable next turn, and a call
+to one is denied with the same hint rather than reaching a prompt that cannot
+show it. A match is a ranked handful of names plus capped
 descriptions. The top five cards also include a compact input schema and
 are loaded onto the next inference's advertised tail (Codex/Pi deferred)
 and into `run.json`. Remaining hits stay name + description until called
