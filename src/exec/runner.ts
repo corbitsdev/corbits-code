@@ -541,14 +541,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
     | ReturnType<typeof createRunSnapshotDebouncer>
     | undefined;
 
-  // CL-10667: last written running snapshot is the compare baseline for the
-  // identical-payload skip (terminal writes always land).
-  let lastProgressJson: string | null = null;
-
   const persist = async (
     status: "running" | "done" | "failed" | "cancelled",
     extra?: { error?: string },
-    force = false,
   ): Promise<void> => {
     if (finalized && status === "running") return;
     if (status !== "running") {
@@ -583,12 +578,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
         ? { error: sanitizeExecDiagnostic(extra.error) }
         : {}),
     };
-    const payloadJson = JSON.stringify(snapshot, null, 2);
-    // force = heartbeat tick: mtime freshness is the write's job even when
-    // the payload is byte-identical to the baseline.
-    if (status === "running" && !force && payloadJson === lastProgressJson) {
-      return;
-    }
     const write =
       status === "running"
         ? saveState(config.cwd, sessionId, snapshot).then(() => {
@@ -599,9 +588,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
         : finalizeRunState(config.cwd, sessionId, snapshot);
     try {
       await write;
-      // Baseline only what actually landed: a transient save failure (next
-      // tick or boundary snapshot then retries the same payload).
-      lastProgressJson = payloadJson;
     } catch (err: unknown) {
       logger.warn(
         "saveState failed for session {sessionId} status={status}: {error}",
@@ -620,9 +606,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
   });
   stopHeartbeat = startRunHeartbeat({
     shouldTick: () => !finalized,
-    // The heartbeat's job is mtime freshness, not payload change: force the
-    // write past the identical-payload skip.
-    tick: () => persist("running", undefined, true),
+    tick: () => persist("running"),
   });
 
   try {
