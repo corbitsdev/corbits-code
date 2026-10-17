@@ -740,6 +740,37 @@ describe("assembleChatAgent", () => {
     );
   });
 
+  test("a same-session rebuild keeps the task list; a new session starts empty", async () => {
+    let workdir = "/session-a";
+    let sessionId = "session-a";
+    const directorHolder: { instance?: ChatDirector } = {};
+    const tasks = [
+      { id: "1", title: "wire the reload", status: "doing" as const },
+      { id: "2", title: "write the test", status: "todo" as const },
+    ];
+
+    await withAssembledDirector(
+      {
+        getRecords: () => [],
+        directorHolder,
+        wiring: {
+          getWorkdir: () => workdir,
+          getSessionId: () => sessionId,
+        },
+      },
+      async (buildAgent) => {
+        await buildAgent();
+        directorHolder.instance?.restoreTasks(tasks);
+        await buildAgent();
+        expect(directorHolder.instance?.getTasks()).toEqual(tasks);
+        workdir = "/session-b";
+        sessionId = "session-b";
+        await buildAgent();
+        expect(directorHolder.instance?.getTasks()).toEqual([]);
+      },
+    );
+  });
+
   test("failed /clear rebuild then retry on a new identity does not inherit extraInstructions", async () => {
     let records: ManifestRecord[] = [
       pruningExtrasRecord("keep the auth discussion"),

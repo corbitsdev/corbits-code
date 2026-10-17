@@ -641,6 +641,12 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
       const fromPrev = inheritFromPrev
         ? directorHolder.instance?.getCompactInstructions()
         : undefined;
+      // Reload and interrupt rebuild the director mid-session; the task list
+      // lives only in director memory, so it would otherwise read empty until
+      // the model calls manage_tasks again.
+      const tasksFromPrev = inheritFromPrev
+        ? directorHolder.instance?.getTasks()
+        : undefined;
       const d = createChatDirector(
         agentCtx.systemPrompt,
         wiring.computeAdvertised([...agentCtx.toolDefinitions]),
@@ -653,6 +659,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
       );
       d.restoreCompactInstructions(stickyFromStore);
       d.restoreCompactInstructions(fromPrev);
+      if (tasksFromPrev !== undefined) d.restoreTasks(tasksFromPrev);
       if (wiring.clearDenials !== undefined)
         d.setClearDenials(wiring.clearDenials);
       directorHolder.instance = d;
