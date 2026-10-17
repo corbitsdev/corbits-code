@@ -148,7 +148,9 @@ class HungToolsTransport implements Transport {
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
 
-  async start(): Promise<void> {}
+  async start(): Promise<void> {
+    return undefined;
+  }
 
   async close(): Promise<void> {
     this.onclose?.();
