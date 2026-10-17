@@ -35,6 +35,7 @@ import type {
 import { type } from "arktype";
 
 import { createAgentWithLiveToolDispatch } from "../src/agent/live-tool-dispatch.js";
+import { denyLateTools } from "../src/agent/late-tool-authorize.js";
 import {
   createChatDirector,
   type ChatDirector,
@@ -97,6 +98,11 @@ export interface IntegrationSession {
   /** The live chat director — credential-recovery arming lives on it. */
   chatDirector: ChatDirector;
   updateToolDefinitions: (definitions: ToolDefinition[]) => void;
+  /**
+   * Close the agent and build a fresh one over the same store and toolset,
+   * as the TUI does when the MCP tool set changes.
+   */
+  rebuild: () => Promise<void>;
 }
 
 export interface OpenIntegrationSessionOpts {
@@ -114,6 +120,8 @@ export interface OpenIntegrationSessionOpts {
   contextTransforms?: ContextTransform[];
   /** Override to pin the published createAgent snapshot (characterization). */
   createAgentFn?: typeof createAgent;
+  /** Pin the tool set at each build, as the TUI does (see assembleChatAgent). */
+  pinToolSetAtBuild?: boolean;
   /**
    * Tail-budget override for the production compactor; compaction tests pin
    * a tiny budget so calibrated growth volumes still fold.
@@ -239,7 +247,11 @@ export async function openIntegrationSession(
   const toolsFactory = defineTool({
     id: `${ID_PREFIX}/integration-tools`,
     definitions: [],
-    factory: () => toolset.dynamicRunner,
+    factory: () => {
+      if (opts.pinToolSetAtBuild === true)
+        toolset.dynamicRunner.pinAgentToolSet();
+      return toolset.dynamicRunner;
+    },
   });
 
   const def = defineAgent({
@@ -308,54 +320,64 @@ export async function openIntegrationSession(
     };
     authorize = wrapAuthorizeWithEvidenceArchive(baseAuthorize, () => archive);
   }
-  const innerAgent = await startAgent(def, {
-    sources,
-    defaultSource,
-    storage: storageForAgent,
-    workdir,
-    readCurrentMaterial: readSourceCredentialMaterial,
-    deps: {
-      ...harness.deps,
-      ...(opts.contextTransforms !== undefined
-        ? { contextTransforms: opts.contextTransforms }
-        : {}),
-      ...(opts.depsOverrides ?? {}),
-    },
-    audit: noopAuditStore(),
-    authorize,
-    directors: createDirectorRegistry({
-      factories: [chatDirectorDef.factory],
-      defaultId: `${ID_PREFIX}/chat`,
-    }),
-    ...(opts.compactionCompletion !== undefined && primaryArchive !== undefined
-      ? {
-          compactors: {
-            "pruning-compactor": createSessionPruningCompactor({
-              // Absent compactionShape falls back to the shared production
-              // default inside createSessionPruningCompactor.
-              ...(opts.compactionShape !== undefined
-                ? { compactionShape: opts.compactionShape }
-                : {}),
-              summarize: createModelSummarizer({
-                getSource: () => INTEGRATION_SOURCE,
-                deps: harness.deps,
-                complete: opts.compactionCompletion,
-                getArchive: () => evidenceArchiveHolder.current,
+  if (opts.pinToolSetAtBuild === true) {
+    authorize = denyLateTools(authorize, (name) =>
+      toolset.dynamicRunner.isLateTool(name),
+    );
+  }
+  const buildAgent = async (): Promise<Agent> => {
+    const innerAgent = await startAgent(def, {
+      sources,
+      defaultSource,
+      storage: storageForAgent,
+      workdir,
+      readCurrentMaterial: readSourceCredentialMaterial,
+      deps: {
+        ...harness.deps,
+        ...(opts.contextTransforms !== undefined
+          ? { contextTransforms: opts.contextTransforms }
+          : {}),
+        ...(opts.depsOverrides ?? {}),
+      },
+      audit: noopAuditStore(),
+      authorize,
+      directors: createDirectorRegistry({
+        factories: [chatDirectorDef.factory],
+        defaultId: `${ID_PREFIX}/chat`,
+      }),
+      ...(opts.compactionCompletion !== undefined &&
+      primaryArchive !== undefined
+        ? {
+            compactors: {
+              "pruning-compactor": createSessionPruningCompactor({
+                // Absent compactionShape falls back to the shared production
+                // default inside createSessionPruningCompactor.
+                ...(opts.compactionShape !== undefined
+                  ? { compactionShape: opts.compactionShape }
+                  : {}),
+                summarize: createModelSummarizer({
+                  getSource: () => INTEGRATION_SOURCE,
+                  deps: harness.deps,
+                  complete: opts.compactionCompletion,
+                  getArchive: () => evidenceArchiveHolder.current,
+                }),
+                readPriorHandoff: () =>
+                  tryReadPriorHandoffFile((key) =>
+                    storageForAgent.readBlob(key),
+                  ),
+                wrapPruning: (pruning) =>
+                  wrapCompactorWithCompletenessGate(pruning, primaryArchive),
               }),
-              readPriorHandoff: () =>
-                tryReadPriorHandoffFile((key) => storageForAgent.readBlob(key)),
-              wrapPruning: (pruning) =>
-                wrapCompactorWithCompletenessGate(pruning, primaryArchive),
-            }),
-          },
-        }
-      : {}),
-    closeTimeoutMs: 0,
-  });
-  const agent =
-    primaryArchive === undefined
+            },
+          }
+        : {}),
+      closeTimeoutMs: 0,
+    });
+    return primaryArchive === undefined
       ? innerAgent
       : createPrimaryDeliveryAdmission(innerAgent, primaryArchive);
+  };
+  const agent = await buildAgent();
 
   const updateToolDefinitions = (definitions: ToolDefinition[]): void => {
     const director = directorHolder.current;
@@ -368,7 +390,7 @@ export async function openIntegrationSession(
     throw new Error("chat director was not built during agent construction");
   }
 
-  return {
+  const session: IntegrationSession = {
     harness,
     cwd,
     workdir,
@@ -377,7 +399,17 @@ export async function openIntegrationSession(
     storage: storageForAgent,
     chatDirector,
     updateToolDefinitions,
+    rebuild: async () => {
+      await session.agent.close();
+      session.agent = await buildAgent();
+      const rebuilt = directorHolder.current;
+      if (rebuilt === undefined) {
+        throw new Error("chat director was not built during agent rebuild");
+      }
+      session.chatDirector = rebuilt;
+    },
   };
+  return session;
 }
 
 export async function closeIntegrationSession(
