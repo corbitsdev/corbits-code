@@ -253,6 +253,125 @@ describe("scrubSecretShapedValue key handling", () => {
   });
 });
 
+describe("bare-KEY names in JSON paths", () => {
+  test("redacts bare-KEY names in JSON objects", () => {
+    const out = scrubSecretShapedValue({
+      OPENAI_KEY: "sk-live-abc123",
+      nested: { MY_API_KEY: "stripe-live-xyz" },
+    });
+    expect(out).toEqual({
+      OPENAI_KEY: CREDENTIAL_REDACTION,
+      nested: { MY_API_KEY: CREDENTIAL_REDACTION },
+    });
+  });
+
+  test("redacts bare-KEY names in JSON text", () => {
+    const pretty = scrubSecretShapedContent('{"OPENAI_KEY": "sk-live-abc123"}');
+    expect(pretty).toBe(`{"OPENAI_KEY": "${CREDENTIAL_REDACTION}"}`);
+    const compact = scrubSecretShapedContent('{"OPENAI_KEY":"sk-live-abc123"}');
+    expect(compact).toBe(`{"OPENAI_KEY":"${CREDENTIAL_REDACTION}"}`);
+    expect(compact).not.toContain("sk-live-abc123");
+  });
+
+  test("leaves MONKEY-style words and ordinary key fields alone", () => {
+    const value = scrubSecretShapedValue({
+      MONKEY: "banana",
+      monkey: "banana",
+      key: "ctrl+s",
+      hotkey: "ctrl+s",
+    });
+    expect(value).toEqual({
+      MONKEY: "banana",
+      monkey: "banana",
+      key: "ctrl+s",
+      hotkey: "ctrl+s",
+    });
+    const text = '{"MONKEY": "banana", "key": "ctrl+s"}';
+    expect(scrubSecretShapedContent(text)).toBe(text);
+  });
+});
+
+describe("query secrets keep characters after quotes", () => {
+  test("does not leave a tail after a quote in password, api_key, or token", () => {
+    for (const name of ["password", "api_key", "token"] as const) {
+      for (const quote of ["'", '"'] as const) {
+        const text = `GET https://provider.invalid/v1?${name}=p${quote}LEAKTAIL&format=json`;
+        const out = scrubSecretShapedContent(text);
+        expect(out).toBe(
+          `GET https://provider.invalid/v1?${name}=${CREDENTIAL_REDACTION}&format=json`,
+        );
+        expect(out).not.toContain("LEAKTAIL");
+      }
+    }
+  });
+});
+
+describe("storage key names stay readable", () => {
+  test("keeps partition, sort, primary, cache, and prompt_cache keys", () => {
+    const value = {
+      partition_key: "tenant",
+      sort_key: 2,
+      primary_key: ["id"],
+      cache_key: [1, 2],
+      prompt_cache_key: 9,
+      OPENAI_KEY: "sk-live-abc123",
+      api_key: ["still-secret"],
+    };
+    expect(scrubSecretShapedValue(value)).toEqual({
+      partition_key: "tenant",
+      sort_key: 2,
+      primary_key: ["id"],
+      cache_key: [1, 2],
+      prompt_cache_key: 9,
+      OPENAI_KEY: CREDENTIAL_REDACTION,
+      api_key: CREDENTIAL_REDACTION,
+    });
+
+    const text =
+      '{"partition_key":"tenant","sort_key":2,"primary_key":["id"],"cache_key":[1],"prompt_cache_key":"sess","OPENAI_KEY":"sk-live-abc123","api_key":"still-secret"}';
+    const scrubbed = scrubSecretShapedContent(text);
+    expect(scrubbed).toContain('"partition_key":"tenant"');
+    expect(scrubbed).toContain('"sort_key":2');
+    expect(scrubbed).toContain('"primary_key":["id"]');
+    expect(scrubbed).toContain('"cache_key":[1]');
+    expect(scrubbed).toContain('"prompt_cache_key":"sess"');
+    expect(scrubbed).not.toContain("sk-live-abc123");
+    expect(scrubbed).not.toContain("still-secret");
+
+    const query =
+      "GET https://provider.invalid/v1?sort_key=created_at&partition_key=tenant&format=json";
+    expect(scrubSecretShapedContent(query)).toBe(query);
+  });
+});
+
+describe("bare-KEY names in query parameters", () => {
+  test("redacts ?OPENAI_KEY= among benign params, adjacent params survive", () => {
+    const text =
+      "GET https://provider.invalid/v1?model=test&OPENAI_KEY=live-value&format=json";
+    const out = scrubSecretShapedContent(text);
+    expect(out).toBe(
+      `GET https://provider.invalid/v1?model=test&OPENAI_KEY=${CREDENTIAL_REDACTION}&format=json`,
+    );
+    expect(out).not.toContain("live-value");
+  });
+
+  test("redacts bare-KEY query params case-insensitively with quote bounds", () => {
+    const out = scrubSecretShapedContent(
+      '{"url": "https://provider.invalid/v1?openai_key=live-value&model=test"}',
+    );
+    expect(out).toBe(
+      `{"url": "https://provider.invalid/v1?openai_key=${CREDENTIAL_REDACTION}&model=test"}`,
+    );
+    expect(out).not.toContain("live-value");
+  });
+
+  test("leaves MONKEY-style and ordinary query params alone", () => {
+    const text =
+      "GET https://provider.invalid/v1?MONKEY=banana&model=test&format=json";
+    expect(scrubSecretShapedContent(text)).toBe(text);
+  });
+});
+
 describe("toolResultSecretScrubPlugin", () => {
   const next =
     (content: ToolResult["content"], isError = false) =>

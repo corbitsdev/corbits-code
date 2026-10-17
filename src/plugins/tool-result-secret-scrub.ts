@@ -18,11 +18,24 @@ const API_KEY_PATTERNS: RegExp[] = [
   /\bBasic\s+[a-zA-Z0-9+/]{8,}={0,2}/g,
 ];
 
-const SECRET_QUERY_PARAMETER =
-  /([?&](?:api[_-]?key|access[_-]?token|token|password|secret|credential)=)(?!\[redacted: looks like a credential\])[^&#\s]+/gi;
+// A *_key name is a credential only when a secret marker is its own
+// underscore-separated segment (api_key, MY_API_KEY, private_key, OPENAI_KEY).
+// Storage roles such as partition_key, sort_key, primary_key, cache_key, and
+// prompt_cache_key have no such segment, so they stay. Marker-free vendor keys
+// are left alone on purpose: missing a rare key beats wiping database keys.
+const CREDENTIAL_KEY_MARKER =
+  "api|secret|private|access|auth|token|password|credential|openai";
+const MARKER_KEY_SUFFIX = `(?:[a-z0-9]+_)*(?:${CREDENTIAL_KEY_MARKER})_key`;
 
-const JSON_CREDENTIAL_FIELD =
-  /("(?:api[_-]?key|access[_-]?token|token|password|secret|credential|authorization)"\s*:\s*")([^"\r\n]+)(")/gi;
+const SECRET_QUERY_PARAMETER = new RegExp(
+  `([?&](?:api[_-]?key|access[_-]?token|token|password|secret|credential|${MARKER_KEY_SUFFIX})=)(?!\\[redacted: looks like a credential\\])[^&#\\s]+`,
+  "gi",
+);
+
+const JSON_CREDENTIAL_FIELD = new RegExp(
+  `("(?:api[_-]?key|access[_-]?token|token|password|secret|credential|authorization|${MARKER_KEY_SUFFIX})"\\s*:\\s*")([^"\\r\\n]+)(")`,
+  "gi",
+);
 
 // Grep/shell lines often look like path:line:KEY=value
 const ENV_ASSIGNMENT = /(?:^|:)([A-Z][A-Z0-9_]+)=([^\n]+)/gm;
@@ -113,8 +126,13 @@ export function scrubSecretShapedContent(text: string): string {
 }
 
 const JSON_SAFE_ERROR = "Tool result is not JSON-safe";
-const CREDENTIAL_FIELD =
-  /^(?:api[_ -]?key|access[_ -]?token|token|password|secret|credential|authorization|auth)$/i;
+// Bare-KEY class (OPENAI_KEY, MY_API_KEY). The marker segment keeps storage
+// roles (partition_key, sort_key, cache_key) readable, and requiring _key
+// keeps MONKEY and a field named exactly "key" readable.
+const CREDENTIAL_FIELD = new RegExp(
+  `^(?:api[_ -]?key|access[_ -]?token|token|password|secret|credential|authorization|auth|${MARKER_KEY_SUFFIX})$`,
+  "i",
+);
 
 /**
  * Returns a detached JSON-safe value without invoking input accessors or custom
