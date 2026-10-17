@@ -502,6 +502,12 @@ export async function createRunLifecycle(
     if (!state.pendingReload || agentBusy()) return;
     state.pendingReload = false;
     void enqueueOp(async () => {
+      // When the reactor dequeues a message it closes the previous run and
+      // opens the next without leaving the microtask queue, and the stream
+      // hands buffered events to the sink through resolved promises. Waiting
+      // one macrotask lets the sink apply a successor's message.run.started
+      // that is already on its way, so the check below sees it.
+      await new Promise<void>((resolve) => setImmediate(resolve));
       // A delivery queued ahead of this op may have started a run since the
       // check above; re-defer to that run's end instead of killing it.
       if (agentBusy()) {

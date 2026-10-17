@@ -987,6 +987,29 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     expect(state.fatalBuildError).toBeNull();
   });
 
+  test("a run that ends into an immediately following run rebuilds only after the successor ends", async () => {
+    const { state, services, push, builds } = await lifecycleWithOpenRun();
+    state.pendingReload = true;
+    defined(state.reloadIfIdle, "reloadIfIdle")();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(1);
+    // An uncorrelated deliver dequeued while run-1 is still open: the
+    // reactor closes run-1 and opens run-2 with no await between them, so
+    // both land in the stream in one burst.
+    push(runEnded("run-1"));
+    push(runStarted("run-2"));
+    await drainStream();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(1);
+    expect(state.pendingReload).toBe(true);
+    push(runEnded("run-2"));
+    await drainStream();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(2);
+    expect(state.pendingReload).toBe(false);
+    expect(state.fatalBuildError).toBeNull();
+  });
+
   test("an interrupt that kills an open run does not strand a later reload", async () => {
     const { state, services, builds } = await lifecycleWithOpenRun();
     defined(state.interrupt, "interrupt")();
