@@ -119,6 +119,10 @@ export interface Harness {
   readonly flush: TestRendererSetup["flush"];
   readonly waitFor: TestRendererSetup["waitFor"];
   readonly waitForFrame: TestRendererSetup["waitForFrame"];
+  readonly waitForVisualIdle: TestRendererSetup["waitForVisualIdle"];
+  /** Recorded external stdout commits from the test renderer. */
+  readonly externalOutput: TestRendererSetup["externalOutput"];
+  readonly getNativeStats: TestRendererSetup["getNativeStats"];
   readonly captureCharFrame: () => string;
   readonly captureSpans: TestRendererSetup["captureSpans"];
   readonly resize: (width: number, height: number) => void;
@@ -196,6 +200,9 @@ export async function createHarness(
     flush: setup.flush,
     waitFor: setup.waitFor,
     waitForFrame: setup.waitForFrame,
+    waitForVisualIdle: setup.waitForVisualIdle,
+    externalOutput: setup.externalOutput,
+    getNativeStats: setup.getNativeStats,
     captureCharFrame: setup.captureCharFrame,
     captureSpans: setup.captureSpans,
     resize: setup.resize,
