@@ -719,9 +719,8 @@ export function createPermissionGate(
     if (cachedDenial !== undefined)
       return { kind: "deny", reason: cachedDenial };
 
-    // Path-escape will hard-reject these at execution; deny here rather than
-    // showing Accept for a call that cannot succeed. Workers sandbox against
-    // their own cwd's roots, not the session listing.
+    // Hard-deny workspace escapes here, before allow and before ask.
+    // Workers sandbox against their own cwd's roots, not the session listing.
     const escapeRoots =
       effectiveCwd === resolvedCwd
         ? rootsProvider
