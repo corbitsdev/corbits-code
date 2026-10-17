@@ -161,6 +161,23 @@ async function loadFor(
   return config;
 }
 
+// loadFor with `--cwd` leading instead of trailing, the shape a launcher
+// script produces (`corbits --cwd "$dir" "$@"`). Trailing `--cwd` would land
+// after a `--` end-of-flags marker and become prompt text.
+async function loadWithLeadingCwd(
+  cwd: string,
+  argv: readonly string[],
+  extras?: Pick<LoadConfigOptions, "home">,
+): Promise<Config> {
+  const globalPath = await writeGlobalSettings(cwd);
+  const config = await loadConfig(["--cwd", cwd, ...argv], {
+    globalSettingsPath: globalPath,
+    ...extras,
+  });
+  assertConfigured(config);
+  return config;
+}
+
 // A cwd with no per-repo settings file, so local resolution is inert.
 async function emptyCwd(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "ic-config-"));
@@ -849,6 +866,222 @@ describe("loadConfig", () => {
         globalSettingsPath: globalPath,
       }),
     ).rejects.toThrow(/not a session id/);
+  });
+
+  describe("subcommand after leading flags", () => {
+    const model = "accounts/fireworks/routers/kimi-k2p6-turbo";
+
+    test.each([
+      { argv: ["resume"] },
+      { argv: ["continue"] },
+      { argv: ["--auto", "resume", "--list"] },
+      { argv: ["--model", model, "continue"] },
+      { argv: ["--provider", "fireworks", "--no-auto", "resume"] },
+    ] as const)("--cwd <dir> $argv opens the picker", async ({ argv }) => {
+      const cwd = await emptyCwd();
+      const config = await loadWithLeadingCwd(cwd, argv, {
+        home: await tempHome(),
+      });
+      expect(config.command).toBe("tui");
+      expect(config.resumeMode).toBe("pick");
+      expect(config.resumePicker).toBe(true);
+      expect(config.skipInitialTask).toBe(true);
+      expect(config.task).toBe("");
+    });
+
+    test.each([["resume"], ["continue"]] as const)(
+      "--cwd <dir> --model <id> %s <session-id> reopens that session",
+      async (verb) => {
+        const cwd = await emptyCwd();
+        const home = await tempHome();
+        const sessionId = generateSessionId();
+        await initSessionDir(cwd, sessionId, home);
+        await saveState(
+          cwd,
+          sessionId,
+          {
+            status: "done",
+            turnsUsed: 1,
+            task: "earlier work",
+            startedAt: Date.now() - 1_000,
+            finishedAt: Date.now(),
+          },
+          home,
+        );
+        const config = await loadWithLeadingCwd(
+          cwd,
+          ["--model", model, verb, sessionId],
+          { home },
+        );
+        expect(config.command).toBe("tui");
+        expect(config.resumeMode).toBe("id");
+        expect(config.sessionId).toBe(sessionId);
+        expect(config.skipInitialTask).toBe(true);
+        expect(config.task).toBe("earlier work");
+      },
+    );
+
+    test.each([
+      { argv: ["exec", "ship it"] },
+      { argv: ["run", "ship", "it"] },
+      { argv: ["--provider", "fireworks", "exec", "ship it"] },
+      { argv: ["--auto", "--model", model, "run", "ship it"] },
+    ] as const)("--cwd <dir> $argv runs exec", async ({ argv }) => {
+      const cwd = await emptyCwd();
+      const config = await loadWithLeadingCwd(cwd, argv);
+      expect(config.command).toBe("exec");
+      expect(config.task).toBe("ship it");
+    });
+
+    test("--director before exec sees exec mode", async () => {
+      const cwd = await emptyCwd();
+      const config = await loadWithLeadingCwd(cwd, [
+        "--director",
+        "dispatch",
+        "exec",
+        "ship it",
+      ]);
+      expect(config.command).toBe("exec");
+      expect(config.director).toBe("dispatch");
+      expect(config.task).toBe("ship it");
+    });
+
+    // A value flag's argument is never the subcommand, even when it spells one.
+    test.each([["resume"], ["exec"]] as const)(
+      "--provider %s keeps the next token as the subcommand or prompt",
+      async (name) => {
+        const cwd = await emptyCwd();
+        const globalPath = await writeGlobalSettings(cwd, {
+          defaultProvider: "fireworks",
+          providers: {
+            fireworks: {
+              baseURL: "https://api.fireworks.ai/inference",
+              apiKey: "test-key",
+              models: [model],
+            },
+            [name]: {
+              baseURL: "https://example.test/v1",
+              apiKey: "other-key",
+              models: ["other-model"],
+            },
+          },
+        });
+        const asPrompt = await loadConfig(
+          ["--cwd", cwd, "--provider", name, "hello"],
+          { globalSettingsPath: globalPath },
+        );
+        assertConfigured(asPrompt);
+        expect(asPrompt.command).toBe("tui");
+        expect(asPrompt.providerName).toBe(name);
+        expect(asPrompt.resumeMode).toBeUndefined();
+        expect(asPrompt.task).toBe("hello");
+
+        const asExec = await loadConfig(
+          ["--cwd", cwd, "--provider", name, "exec", "hello"],
+          { globalSettingsPath: globalPath },
+        );
+        assertConfigured(asExec);
+        expect(asExec.command).toBe("exec");
+        expect(asExec.providerName).toBe(name);
+        expect(asExec.task).toBe("hello");
+      },
+    );
+
+    test("--resume consumes its argument before subcommand detection", async () => {
+      const cwd = await emptyCwd();
+      const globalPath = await writeGlobalSettings(cwd);
+      await expect(
+        loadConfig(["--cwd", cwd, "--resume", "exec", "hello"], {
+          globalSettingsPath: globalPath,
+        }),
+      ).rejects.toThrow("'exec' is not a session id");
+    });
+
+    test.each([
+      { argv: ["fix", "the", "resume", "bug"], task: "fix the resume bug" },
+      {
+        argv: ["--auto", "explain", "exec", "mode"],
+        task: "explain exec mode",
+      },
+    ] as const)(
+      "--cwd <dir> $argv stays a TUI prompt",
+      async ({ argv, task }) => {
+        const cwd = await emptyCwd();
+        const config = await loadWithLeadingCwd(cwd, argv);
+        expect(config.command).toBe("tui");
+        expect(config.resumeMode).toBeUndefined();
+        expect(config.task).toBe(task);
+      },
+    );
+
+    test("--cwd <dir> resume <non-uuid> still rejects the token", async () => {
+      const cwd = await emptyCwd();
+      const globalPath = await writeGlobalSettings(cwd);
+      await expect(
+        loadConfig(["--cwd", cwd, "resume", "not-a-uuid"], {
+          globalSettingsPath: globalPath,
+        }),
+      ).rejects.toThrow(/not a session id/);
+    });
+
+    test.each([
+      { argv: ["resume", "-p", "hello"] },
+      { argv: ["-p", "continue"] },
+    ] as const)(
+      "--cwd <dir> $argv rejects resume with -p",
+      async ({ argv }) => {
+        const cwd = await emptyCwd();
+        const globalPath = await writeGlobalSettings(cwd);
+        await expect(
+          loadConfig(["--cwd", cwd, ...argv], {
+            globalSettingsPath: globalPath,
+          }),
+        ).rejects.toThrow("cannot combine resume with -p");
+      },
+    );
+
+    test.each([
+      [["--cwd", ".", "resume", "--help"]],
+      [["--cwd", ".", "exec", "-h"]],
+      [["--cwd", ".", "--", "--help"]],
+    ])("%j still shows help", async (argv) => {
+      await expectCliHelp(argv);
+    });
+
+    test.each([
+      [["--cwd", ".", "resume", "--version"]],
+      [["--cwd", ".", "--", "-V"]],
+    ])("%j still shows the version", async (argv) => {
+      await expectCliVersion(argv);
+    });
+  });
+
+  describe("-- ends flag parsing", () => {
+    test.each([
+      { argv: ["--", "resume"], command: "tui", task: "resume" },
+      {
+        argv: ["--", "continue", "please"],
+        command: "tui",
+        task: "continue please",
+      },
+      { argv: ["--auto", "--", "exec"], command: "tui", task: "exec" },
+      { argv: ["exec", "--", "resume"], command: "exec", task: "resume" },
+      { argv: ["-p", "--", "run"], command: "exec", task: "run" },
+      { argv: ["--", "--model", "-p"], command: "tui", task: "--model -p" },
+    ] as const)(
+      "--cwd <dir> $argv sends the rest as the prompt",
+      async ({ argv, command, task }) => {
+        const cwd = await emptyCwd();
+        const config = await loadWithLeadingCwd(cwd, argv);
+        expect(config.command).toBe(command);
+        expect(config.resumeMode).toBeUndefined();
+        expect(config.task).toBe(task);
+      },
+    );
+
+    test("CLI_HELP_TEXT documents the -- prompt escape", () => {
+      expect(CLI_HELP_TEXT).toMatch(/^ {2}--\s+\S/m);
+    });
   });
 
   test("plain corbits always creates fresh state even when a previous session exists", async () => {
