@@ -87,9 +87,11 @@ export interface MCPConnectOptions {
    */
   onAuthorized?: (serverName: string) => void;
   signal?: AbortSignal;
-  // Wired to transport.onclose after connect so the owner learns the
-  // transport died under a live client; close() disarms it before
-  // intentional teardown.
+  // Wired to transport.onclose after connect, plus HTTP SSE-resume
+  // exhaustion via transport.onerror, so the owner learns the transport
+  // died under a live client. close() marks the live handle disarmed
+  // before intentional teardown; it must not replace onclose, or
+  // Protocol._onclose never rejects in-flight calls.
   onDisconnect?: () => void;
   // Session OS-sandbox handle: a model-reachable stdio server spawn runs
   // wrapped; an unwrappable command fails the connect (fail closed). Omitted
@@ -406,6 +408,62 @@ export const MCP_HTTP_RECONNECTION_OPTIONS = {
   maxRetries: 1_000,
 } as const;
 
+/** Live HTTP transport handle shared with finishClient so intentional
+ * teardown can suppress the owner death signal without replacing
+ * `onclose` (Protocol._onclose rejects in-flight calls from that hook). */
+export interface LiveHttpTransport {
+  current?: {
+    onclose?: () => void;
+    onerror?: (error: Error) => void;
+  };
+  /** Intentional teardown. Owner hooks must consult this and stay quiet. */
+  disarmed?: boolean;
+}
+
+/**
+ * SDK SSE resume reports a dead stream on `transport.onerror`, never
+ * `onclose`: once the reconnection cap trips it emits
+ * `Maximum reconnection attempts (N) exceeded.` and stops. Without a hook
+ * the row would stay on the connected row forever, so exactly that terminal
+ * error routes to the owner's disconnect hook. The copy is pinned to the
+ * ^1.32.1 SDK range in package.json.
+ */
+const RESUME_EXHAUSTED_PATTERN =
+  /^Maximum reconnection attempts \(\d+\) exceeded\.$/;
+
+export function isStreamableResumeExhausted(error: unknown): boolean {
+  return error instanceof Error && RESUME_EXHAUSTED_PATTERN.test(error.message);
+}
+
+/**
+ * Chain SSE-resume exhaustion onto the owner's disconnect hook so the row
+ * flips to reconnecting and the owner loop redials with a fresh dial.
+ * Stale transports (superseded by a recovery redial) stay silent; every
+ * other transport error passes through to the prior handler untouched.
+ */
+export function armResumeExhaustionSignal(
+  transport: Pick<StreamableHTTPClientTransport, "onerror">,
+  isLive: () => boolean,
+  onDisconnect?: () => void,
+): void {
+  if (onDisconnect === undefined) return;
+  const prior = transport.onerror;
+  transport.onerror = (error: Error) => {
+    prior?.(error);
+    if (isLive() && isStreamableResumeExhausted(error)) onDisconnect();
+  };
+}
+
+/** Suppress the owner death signal for intentional teardown.
+ * Do not replace `onclose`: Protocol.close only calls transport.close(),
+ * and the SDK rejects in-flight requests from the onclose wrapper
+ * installed at connect (`_onclose`, MCP -32000 Connection closed). A noop
+ * there leaves the HTTP RPC pending until the request timeout.
+ */
+export function disarmTransportDeathSignal(live: LiveHttpTransport): void {
+  live.disarmed = true;
+}
+
 export function streamableHTTPTransportOptions(
   authProvider: CorbitsOAuthProvider | undefined,
   signal: AbortSignal | undefined,
@@ -647,7 +705,7 @@ async function finishClient(
   authContext?: HTTPAuthContext,
   signal?: AbortSignal,
   closeLifecycle?: () => void,
-  live?: { current?: { onclose?: () => void } },
+  live?: LiveHttpTransport,
 ): Promise<MCPClient> {
   const result = await withHTTPAuthorizationRecovery(authContext, () =>
     signal === undefined
@@ -696,7 +754,7 @@ async function finishClient(
     },
     async close() {
       // Disarm first: the owner's hook reports unintentional death only.
-      if (live?.current !== undefined) live.current.onclose = () => undefined;
+      if (live !== undefined) disarmTransportDeathSignal(live);
       closeLifecycle?.();
       authContext?.callback.close();
       await closeQuietly(() => client.close());
@@ -749,21 +807,23 @@ async function connectStdio(
   const client = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
   try {
     const transport = new StdioClientTransport(transportOptions);
+    const live: LiveHttpTransport = { current: transport };
     await client.connect(
       transport,
       options.signal === undefined ? undefined : { signal: options.signal },
     );
     // Child exit is the only death the owner redials. Chain the protocol
     // handler so in-flight requests still reject; HTTP SSE resume stays
-    // inside the SDK and must not start a second dial.
+    // inside the SDK and must not start a second dial. Disarm skips the
+    // owner hook only — prior() is Protocol._onclose and must still run.
     if (options.onDisconnect !== undefined) {
       const prior = transport.onclose;
       transport.onclose = () => {
         prior?.();
+        if (live.disarmed === true) return;
         options.onDisconnect?.();
       };
     }
-    const live = { current: transport };
     return {
       ok: true,
       client: await finishClient(
@@ -810,7 +870,7 @@ async function connectHttp(
     const normalizedURL = normalizeMCPServerURL(config.url);
     const url = new URL(normalizedURL);
     let authContext: HTTPAuthContext | undefined;
-    const live: { current?: { onclose?: () => void } } = {};
+    const live: LiveHttpTransport = {};
     const connectedClient = new Client({
       name: MCP_CLIENT_NAME,
       version: "1.0.0",
@@ -822,6 +882,11 @@ async function connectHttp(
         const transport = new StreamableHTTPClientTransport(
           url,
           streamableHTTPTransportOptions(undefined, options.signal),
+        );
+        armResumeExhaustionSignal(
+          transport,
+          () => live.current === transport && live.disarmed !== true,
+          options.onDisconnect,
         );
         live.current = transport;
         return transport as unknown as Transport;
@@ -843,6 +908,11 @@ async function connectHttp(
         const transport = new StreamableHTTPClientTransport(
           url,
           streamableHTTPTransportOptions(authProvider, lifecycle.signal),
+        );
+        armResumeExhaustionSignal(
+          transport,
+          () => live.current === transport && live.disarmed !== true,
+          options.onDisconnect,
         );
         coordinator.transport = transport;
         live.current = transport;
