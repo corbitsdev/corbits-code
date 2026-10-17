@@ -50,7 +50,11 @@ import {
   createCompactionLifecycle,
 } from "../../session/compaction-lifecycle.js";
 import { COMPACTION_CONTINUATION_EVENT } from "../../agent/compaction.js";
-import type { RunnerServices, RunnerState } from "./state.js";
+import {
+  runWhileAgentBusy,
+  type RunnerServices,
+  type RunnerState,
+} from "./state.js";
 import type { InboundMessage } from "@intx/types/runtime";
 import { createCredentialRecoveryState } from "./credential-recovery.js";
 import { createReconnectRecoveryState } from "./reconnect-recovery.js";
@@ -870,6 +874,130 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     } finally {
       for (const spy of dirs) spy.mockRestore();
     }
+  });
+});
+
+describe("reload-if-idle waits for the reactor's message run", () => {
+  /**
+   * An agent whose stream the test feeds one event at a time; close() ends
+   * the stream so a rebuild's drain settles.
+   */
+  function pushableStreamAgent(): {
+    agent: Agent;
+    push: (event: unknown) => void;
+  } {
+    const queued: unknown[] = [];
+    let wake: (() => void) | undefined;
+    let closed = false;
+    const signal = (): void => {
+      const resolve = wake;
+      wake = undefined;
+      resolve?.();
+    };
+    const agent: Agent = {
+      ...recordingAgent([]),
+      stream: async function* stream() {
+        while (!closed) {
+          const next = queued.shift();
+          if (next !== undefined) {
+            yield next as never;
+            continue;
+          }
+          await new Promise<void>((resolve) => {
+            wake = resolve;
+          });
+        }
+      },
+      close: async () => {
+        closed = true;
+        signal();
+      },
+    };
+    return {
+      agent,
+      push: (event) => {
+        queued.push(event);
+        signal();
+      },
+    };
+  }
+
+  const runStarted = (messageRunId: string) => ({
+    type: "message.run.started",
+    seq: 1,
+    data: { messageRunId, receivedAt: 0 },
+  });
+  const runEnded = (messageRunId: string) => ({
+    type: "message.run.ended",
+    seq: 2,
+    data: { messageRunId, status: "completed" },
+  });
+
+  const drainStream = (): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, 0));
+
+  async function lifecycleWithOpenRun() {
+    const directorHolder: RunnerServices["directorHolder"] = {};
+    const live = pushableStreamAgent();
+    const { state, services } = stubSendLifecycle(live.agent);
+    wireRebuildServices(services, directorHolder, live.agent);
+    Object.assign(services, {
+      providerFailureAttempts: {
+        current: () => undefined,
+        advanceToNextMessage: () => undefined,
+        consumeTerminal: () => undefined,
+        reset: () => undefined,
+      },
+    });
+    let builds = 0;
+    services.buildAgent = (async () => {
+      builds += 1;
+      directorHolder.instance = createChatDirector("base", [], {
+        allowIdleWithFleet: true,
+      });
+      return builds === 1 ? live.agent : recordingAgent([]);
+    }) as unknown as RunnerServices["buildAgent"];
+    await createRunLifecycle(state, services);
+    // The operator's send opens the reactor's message run; an ask-tier call
+    // then parks it on the approval gate without closing it.
+    live.push(runStarted("run-1"));
+    await drainStream();
+    return { state, services, push: live.push, builds: () => builds };
+  }
+
+  test("an approval-resumed run with a pending reload rebuilds only after the run ends", async () => {
+    const { state, services, push, builds } = await lifecycleWithOpenRun();
+    expect(builds()).toBe(1);
+    // The submit path wraps send() and approvalResume.handle(); handle
+    // resolves once the decision is handed over, while the resumed run is
+    // still executing. MCP connect lands while the prompt is up.
+    await runWhileAgentBusy(state, async () => {
+      state.pendingReload = true;
+      defined(state.reloadIfIdle, "reloadIfIdle")();
+    });
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(1);
+    expect(state.pendingReload).toBe(true);
+    // The resumed run reaches its terminal: the deferred reload runs now.
+    push(runEnded("run-1"));
+    await drainStream();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(2);
+    expect(state.pendingReload).toBe(false);
+    expect(state.fatalBuildError).toBeNull();
+  });
+
+  test("an interrupt that kills an open run does not strand a later reload", async () => {
+    const { state, services, builds } = await lifecycleWithOpenRun();
+    defined(state.interrupt, "interrupt")();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(2);
+    // The interrupted run never emits message.run.ended; the rebuilt agent
+    // is idle, so a reload requested now is not held behind it.
+    state.pendingReload = true;
+    defined(state.reloadIfIdle, "reloadIfIdle")();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(3);
   });
 });
 
