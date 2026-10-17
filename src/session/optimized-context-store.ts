@@ -1272,8 +1272,16 @@ export async function createSessionStores(
   // writer sees a new one as a prefix extension, and a closed one keeps its
   // line: dropping it would turn every later append into a rewrite.
   const approvalRecords = new Map<string, PendingApprovalRecord>();
-  // Approvals the log on disk holds; any other parked op rides metadata.json.
+  // Approvals a canonical turns.jsonl flush has already written. A versioned
+  // base is not this set: load() never reads it, and the approval is not
+  // copied onto metadata.json to compensate.
   const loggedApprovalIds = new Set<string>();
+  // Append writeTurns holds turns here until one flush. The commit cycle
+  // flushes from writeMetadata, once the parked approval exists to attach.
+  // commit only git-adds that flush. A tool-result append flushes here,
+  // because that cycle never calls writeMetadata and the result is what
+  // closes the record.
+  let stagedAppend: readonly ConversationTurn[] | null = null;
 
   function adoptLoggedApprovals(ops: readonly PendingOperation[]): void {
     for (const op of ops) {
@@ -1282,6 +1290,28 @@ export async function createSessionStores(
       }
       loggedApprovalIds.add(op.correlationId);
     }
+  }
+
+  function hasUnloggedApproval(): boolean {
+    for (const id of approvalRecords.keys()) {
+      if (!loggedApprovalIds.has(id)) return true;
+    }
+    return false;
+  }
+
+  function newTurnsHaveToolResult(
+    prev: readonly ConversationTurn[],
+    next: readonly ConversationTurn[],
+  ): boolean {
+    const start = refPrefixLength(prev, next);
+    for (let index = start; index < next.length; index++) {
+      const turn = next[index];
+      if (turn === undefined) continue;
+      for (const block of turn.content) {
+        if (block.type === "tool_result") return true;
+      }
+    }
+    return false;
   }
 
   // Located by call id, not turn identity, so a record follows an excerpted
@@ -1325,11 +1355,81 @@ export async function createSessionStores(
   ): Promise<void> {
     const { lines, included } = withApprovalRecords(turns);
     await writeSegmented(writeTurnsSegmented, lines);
-    // Diversion writes a versioned base load() never reads. Counting that as
-    // logged would drop the approval from metadata.json while the unanswered
-    // call is still only in the canonical log.
+    // Diversion writes a versioned base load() never reads. That flush is not
+    // the canonical log, and the approval is not written to metadata.json.
     if (turnsBaseName !== TURNS_FILE) return;
     for (const id of included) loggedApprovalIds.add(id);
+  }
+
+  async function flushStagedAppend(): Promise<void> {
+    if (stagedAppend === null) return;
+    const turns = stagedAppend;
+    stagedAppend = null;
+    await writeTurnLog(turns);
+    liveTurnRefs = [...turns];
+    invalidateTurnsCache();
+  }
+
+  // One canonical flush of the staged append, or of the already-flushed turns
+  // when a legacy approval still has to be inserted. A staged rewrite stays
+  // unpublished until commit, which is the flush for that path.
+  async function flushCanonicalApprovals(): Promise<void> {
+    if (turnsBaseName !== TURNS_FILE || unpublishedRewrite !== null) return;
+    if (stagedAppend !== null) {
+      await flushStagedAppend();
+      return;
+    }
+    if (!hasUnloggedApproval()) return;
+    const turns = liveTurnRefs ?? (await readLiveTurns());
+    if (turns.length === 0) return;
+    await writeTurnLog(turns);
+    liveTurnRefs = [...turns];
+    invalidateTurnsCache();
+  }
+
+  async function noteAppend(turns: readonly ConversationTurn[]): Promise<void> {
+    const previous = liveTurnRefs;
+    stagedAppend = [...turns];
+    if (previous !== null && newTurnsHaveToolResult(previous, turns)) {
+      await flushStagedAppend();
+      return;
+    }
+    // A fresh store has no in-memory baseline. A tool-result suffix on top of
+    // the log already on disk still has to flush here: that cycle does not
+    // call writeMetadata. The first publish of a history (empty log) stays
+    // staged so writeMetadata can attach a parked approval and flush once.
+    if (previous === null && (await diskSuffixHasToolResult(turns))) {
+      await flushStagedAppend();
+    }
+  }
+
+  async function diskSuffixHasToolResult(
+    turns: readonly ConversationTurn[],
+  ): Promise<boolean> {
+    const live = await readLiveTurns();
+    if (live.length === 0 || turns.length <= live.length) return false;
+    if (contentPrefixLength(live, turns) < live.length) return false;
+    for (let index = live.length; index < turns.length; index++) {
+      const turn = turns[index];
+      if (turn === undefined) continue;
+      for (const block of turn.content) {
+        if (block.type === "tool_result") return true;
+      }
+    }
+    return false;
+  }
+
+  function retainedLegacyApprovals(raw: string | null): PendingOperation[] {
+    if (raw === null || raw.length === 0) return [];
+    try {
+      return readMetadataDocument(raw).pendingOperations.filter(
+        (op) =>
+          op.suspendedCall !== undefined &&
+          !loggedApprovalIds.has(op.correlationId),
+      );
+    } catch {
+      return [];
+    }
   }
 
   async function writeMetadataLive(metadata: {
@@ -1339,8 +1439,7 @@ export async function createSessionStores(
     await appendUsageSidecar(metadata.tokenUsage);
     // Approval snapshot args would persist in the clear; scrub them at this
     // app-owned write (suspendedCall stays raw for the approved call's
-    // re-dispatch).
-    let added = false;
+    // re-dispatch). Parked approvals never go into metadata.json.
     for (const op of scrubPersistedPendingOperations(
       metadata.pendingOperations.filter(
         (pending) =>
@@ -1349,26 +1448,24 @@ export async function createSessionStores(
       ),
     )) {
       approvalRecords.set(op.correlationId, pendingApprovalRecord(op));
-      added = true;
     }
     // The reactor writes the parked call's turn just before this in the same
-    // commit cycle, so the record lands in the same commit as its call.
-    if (added && unpublishedRewrite === null && liveTurnRefs !== null) {
-      await writeTurnLog(liveTurnRefs);
-      invalidateTurnsCache();
-    }
-    // Only what the log does not hold yet stays here: async markers, and an
-    // approval waiting on a staged rewrite or this process's first turn
-    // write. Legacy files are still read, so dropping a logged op is safe.
-    const sideOps = metadata.pendingOperations.filter(
-      (pending) =>
-        pending.suspendedCall === undefined ||
-        !loggedApprovalIds.has(pending.correlationId),
-    );
+    // commit cycle. Attaching the record here is the cycle's one segment flush.
+    await flushCanonicalApprovals();
     if (!metadataJsonSeeded) {
       writtenMetadataJson = await readTextOrNull(path.join(dir, METADATA_FILE));
       metadataJsonSeeded = true;
     }
+    // Async markers (no suspendedCall) and connectorState stay in this file.
+    // A legacy parked approval already on disk stays until the canonical log
+    // has it; this write does not put it back, and does not add a new one.
+    const retained = retainedLegacyApprovals(writtenMetadataJson);
+    const sideOps = [
+      ...metadata.pendingOperations.filter(
+        (pending) => pending.suspendedCall === undefined,
+      ),
+      ...retained,
+    ];
     if (sideOps.length === 0 && connectorStateBuffer === null) {
       if (writtenMetadataJson !== null) {
         await fs.promises.rm(path.join(dir, METADATA_FILE), { force: true });
@@ -1376,6 +1473,28 @@ export async function createSessionStores(
         writtenMetadataJson = null;
       }
       return;
+    }
+    if (retained.length > 0 && writtenMetadataJson !== null) {
+      try {
+        const onDisk = readMetadataDocument(writtenMetadataJson);
+        const asyncOnDisk = onDisk.pendingOperations.filter(
+          (op) => op.suspendedCall === undefined,
+        );
+        const asyncFromCall = metadata.pendingOperations.filter(
+          (pending) => pending.suspendedCall === undefined,
+        );
+        const connectorSame =
+          JSON.stringify(onDisk.connectorState ?? null) ===
+          JSON.stringify(connectorStateBuffer);
+        if (
+          connectorSame &&
+          JSON.stringify(asyncOnDisk) === JSON.stringify(asyncFromCall)
+        ) {
+          return;
+        }
+      } catch {
+        // Unreadable legacy document: fall through and publish the side ops.
+      }
     }
     const desired = JSON.stringify(
       {
@@ -1616,14 +1735,17 @@ export async function createSessionStores(
       unpublishedRewrite = [...turns];
       return;
     }
-    if (liveTurnRefs !== null) {
-      if (refPrefixLength(liveTurnRefs, turns) < liveTurnRefs.length) {
+    if (liveTurnRefs !== null || stagedAppend !== null) {
+      const baseline = stagedAppend ?? liveTurnRefs;
+      if (
+        baseline !== null &&
+        refPrefixLength(baseline, turns) < baseline.length
+      ) {
+        stagedAppend = null;
         unpublishedRewrite = [...turns];
         return;
       }
-      await writeTurnLog(turns);
-      liveTurnRefs = [...turns];
-      invalidateTurnsCache();
+      await noteAppend(turns);
       return;
     }
     await withResolvedDirLock(dir, async () => {
@@ -1631,14 +1753,17 @@ export async function createSessionStores(
         unpublishedRewrite = [...turns];
         return;
       }
-      if (liveTurnRefs !== null) {
-        if (refPrefixLength(liveTurnRefs, turns) < liveTurnRefs.length) {
+      if (liveTurnRefs !== null || stagedAppend !== null) {
+        const baseline = stagedAppend ?? liveTurnRefs;
+        if (
+          baseline !== null &&
+          refPrefixLength(baseline, turns) < baseline.length
+        ) {
+          stagedAppend = null;
           unpublishedRewrite = [...turns];
           return;
         }
-        await writeTurnLog(turns);
-        liveTurnRefs = [...turns];
-        invalidateTurnsCache();
+        await noteAppend(turns);
         return;
       }
       const decision = await resolveFirstWrite(turns);
@@ -1651,9 +1776,7 @@ export async function createSessionStores(
         unpublishedRewrite = [...turns];
         return;
       }
-      await writeTurnLog(turns);
-      liveTurnRefs = [...turns];
-      invalidateTurnsCache();
+      await noteAppend(turns);
     });
   }
 
@@ -1722,6 +1845,31 @@ export async function createSessionStores(
           { cause: cause instanceof Error ? cause.message : String(cause) },
         );
         metadata = emptyMetadata();
+      }
+      // A still-open legacy approval is remembered so the next canonical
+      // flush moves it into the log. It is not marked logged, and it is not
+      // written back.
+      for (const op of scrubPersistedPendingOperations(
+        openPendingOperations(liveLog.turns, metadata.pendingOperations).filter(
+          (pending) =>
+            pending.suspendedCall !== undefined &&
+            !approvalRecords.has(pending.correlationId),
+        ),
+      )) {
+        approvalRecords.set(op.correlationId, pendingApprovalRecord(op));
+      }
+      if (stagedAppend !== null && unpublishedRewrite === null) {
+        await flushStagedAppend();
+        try {
+          liveLog = await readLiveLogCached();
+        } catch (cause) {
+          throw new Error(
+            `failed to load ${TURNS_FILE}: ${
+              cause instanceof Error ? cause.message : String(cause)
+            }`,
+            { cause },
+          );
+        }
       }
       const { turns } = liveLog;
       return {
@@ -1835,6 +1983,13 @@ export async function createSessionStores(
     async commit(options, signal) {
       return withResolvedDirLock(dir, async () => {
         const stagedRewrite = unpublishedRewrite;
+        // An append the commit cycle did not flush (no writeMetadata) still
+        // has to land before git add. A rewrite stays staged until the
+        // snapshot below, then one flush — commit does not flush again after
+        // writeMetadata already did.
+        if (stagedAppend !== null && stagedRewrite === null) {
+          await flushStagedAppend();
+        }
         // The staged rewrite lands on the working-tree segments before the git
         // operations below; snapshot them so a failed commit can restore the
         // published generation. The rewrite stays staged so a retry can still
@@ -2007,8 +2162,8 @@ export async function createSessionStores(
               } catch {
                 // A partial restore must not mask the real commit error.
               }
-              // Records only the rewrite carried are gone again; those
-              // approvals stay on metadata.json until a rewrite lands.
+              // Records only the rewrite carried are not canonical until a
+              // rewrite lands. Approvals already on the published log stay.
               loggedApprovalIds.clear();
               for (const id of loggedBefore) loggedApprovalIds.add(id);
             }

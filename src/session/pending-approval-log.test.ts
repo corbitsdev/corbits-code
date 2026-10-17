@@ -277,6 +277,22 @@ describe("approval records in the turn log", () => {
 });
 
 describe("a parked approval in the turn log", () => {
+  test("writeTurns stages the parked call and writeMetadata flushes it once", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeTurns([user, assistant]);
+    expect(fs.existsSync(path.join(dir, "turns.jsonl"))).toBe(false);
+
+    await store.writeMetadata({ pendingOperations: [op], tokenUsage: USAGE });
+    expect(lineKinds(dir)).toEqual(["turn", "turn", "record"]);
+    expect(fs.existsSync(metadataPath(dir))).toBe(false);
+    const flushed = fs.readFileSync(path.join(dir, "turns.jsonl"));
+
+    await store.commit({ message: "suspend" });
+    expect(fs.readFileSync(path.join(dir, "turns.jsonl"))).toEqual(flushed);
+    expect(await openOps(dir)).toEqual([op.correlationId]);
+  });
+
   test("the suspend commit writes it right after its call, snapshot scrubbed, and no metadata.json", async () => {
     const dir = tempDir();
     await parkCall(dir, [user, assistant], [op]);
@@ -467,23 +483,20 @@ describe("a parked approval across a compaction", () => {
 
     await store.writeTurns(folded);
     await store.writeMetadata({ pendingOperations: [op], tokenUsage: USAGE });
-    // The live log is still the published one, so the approval waits on
-    // metadata.json until the rewrite lands.
+    // The rewrite is still unpublished. The approval is not on metadata.json;
+    // it rides the staged rewrite and lands when that commit flushes.
     expect(recordedApprovals(dir)).toEqual([]);
-    expect(fs.existsSync(metadataPath(dir))).toBe(true);
+    expect(fs.existsSync(metadataPath(dir))).toBe(false);
     await failingCommit(dir, () => store.commit({ message: "compact" }));
 
     expect(recordedApprovals(dir)).toEqual([]);
-    expect(await openOps(dir)).toEqual([op.correlationId]);
+    expect(await openOps(dir)).toEqual([]);
 
     await store.commit({ message: "retry compact" });
     expect(recordFollowsCall(dir, "call-1")).toBe(true);
     expect(await openOps(dir)).toEqual([op.correlationId]);
-    await store.writeMetadata({ pendingOperations: [op], tokenUsage: USAGE });
-    await store.commit({ message: "settle metadata" });
     expect(fs.existsSync(metadataPath(dir))).toBe(false);
     expect(await headPaths(dir)).not.toContain("metadata.json");
-    expect(await openOps(dir)).toEqual([op.correlationId]);
   });
 });
 

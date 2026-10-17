@@ -724,9 +724,10 @@ describe("createOptimizedContextStore checkpoint", () => {
       await store.writeTurns([...turns]);
     }
     const extraTurns = segmentFileName(TURNS_FILE, 1);
-    expect(fs.existsSync(path.join(dir, extraTurns))).toBe(true);
-
+    // The append stays staged until commit flushes it. That flush is what
+    // the empty-checkpoint skip must not miss.
     const second = await store.commit({ message: "pending extra" });
+    expect(fs.existsSync(path.join(dir, extraTurns))).toBe(true);
     expect(second.hash).not.toBe(first.hash);
     expect(await gitLsTree(dir)).toContain(extraTurns);
   });
@@ -945,7 +946,7 @@ describe("concurrent sessions write disjoint transcripts", () => {
     ).toEqual(turnTexts(turnsB));
   });
 
-  test("a diverted write does not drop an approval load() still has to return", async () => {
+  test("a diverted write is not the log load() re-arms", async () => {
     const dir = tempDir();
     const parked: ConversationTurn = {
       role: "assistant",
@@ -1001,9 +1002,20 @@ describe("concurrent sessions write disjoint transcripts", () => {
         ),
       ),
     ).toBe(true);
-    expect(
-      loaded.pendingOperations.map((pending) => pending.correlationId),
-    ).toEqual(["corr-call-1"]);
+    // The approval landed on the versioned base. load() reads turns.jsonl
+    // only, and the approval is not copied into metadata.json.
+    expect(loaded.pendingOperations).toEqual([]);
+    expect(fs.existsSync(path.join(dir, "metadata.json"))).toBe(false);
+    const versioned = versionedTurnsFiles(dir);
+    expect(versioned).toHaveLength(1);
+    const diverted = fs.readFileSync(
+      path.join(dir, defined(versioned[0])),
+      "utf8",
+    );
+    expect(diverted).toContain("corr-call-1");
+    expect(fs.readFileSync(path.join(dir, TURNS_FILE), "utf8")).not.toContain(
+      "corr-call-1",
+    );
   });
 
   test("a same-owner approval is logged in turns.jsonl and dropped from metadata.json", async () => {
@@ -1390,6 +1402,7 @@ describe("concurrent sessions write disjoint transcripts", () => {
       ownerId: "session-A",
     });
     await sessionA.writeTurns([turn("seed")]);
+    await sessionA.writeMetadata(EMPTY_CHECKPOINT_METADATA);
     fs.unlinkSync(path.join(dir, TURNS_FILE));
 
     const sessionB = await createOptimizedContextStore(dir, {
