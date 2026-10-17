@@ -6797,6 +6797,199 @@ describe("createReactor — message.run bracket emission", () => {
   });
 });
 
+describe("createReactor — message.run bracket for a resumed parked call", () => {
+  function askExtension() {
+    return createAuthzExtension({
+      authorize: async () => ({
+        effect: "ask" as const,
+        matchingGrants: [],
+        resolvedBy: null,
+      }),
+      approvalTimeoutMs: 60_000,
+    });
+  }
+
+  // What a restarted reactor loads after the original run parked on the ask
+  // gate: the call is in history, its pending operation is on disk, and no
+  // run from the parking process survives.
+  function parkedStore(correlationId: string): PersistedCell {
+    return {
+      turns: [suspendToolCallTurn],
+      pendingOperations: [
+        {
+          correlationId,
+          kind: "approval",
+          registeredAt: Date.now(),
+          gateId: `pending-${correlationId}`,
+          timeoutAt: Date.now() + 60_000,
+          suspendedCall: { id: "call-ask", name: "charge_card", arguments: {} },
+        },
+      ],
+      tokenUsage: emptyUsage(),
+    };
+  }
+
+  function resumeDirector(): ReactorDirector {
+    return directorFromTable(
+      {
+        "resume.execute_tools": (e, _s, caps) =>
+          caps.executeTools(e.calls, false, true),
+        "resume.tool_result": (_e, _s, caps) => caps.infer(),
+        "tool.done": (_e, _s, caps) => caps.infer(),
+        "inference.done": (_e, _s, caps) => caps.reply("resumed"),
+      },
+      "wait",
+    );
+  }
+
+  function runEvents(events: ReactorEmittedEvent[]) {
+    const started = events.filter((e) => e.type === "message.run.started");
+    const ended = events.filter((e) => e.type === "message.run.ended");
+    return { started, ended };
+  }
+
+  test("an approval for a rehydrated call opens a run around the re-dispatch and its continuation", async () => {
+    const correlationId = "rehydrated-run-approved";
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(parkedStore(correlationId)),
+      director: resumeDirector(),
+      inferenceRunner: makeInferenceRunner({
+        type: "done",
+        turn: makeAssistantTurn("resumed"),
+        usage: emptyUsage(),
+      }),
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "charged",
+      })),
+      beforeToolExtensions: [askExtension()],
+    });
+    reactor.start();
+    await waitFor("reactor.start");
+
+    const approval = makeApprovalMessage(correlationId);
+    reactor.deliver(approval);
+    await waitFor("connector.reply");
+
+    const { started, ended } = runEvents(events);
+    expect(started).toHaveLength(1);
+    expect(ended).toHaveLength(1);
+    const run = getEvent(events, "message.run.started");
+    const end = getEvent(events, "message.run.ended");
+    expect(run.data.messageId).toBe(approval.headers.messageId);
+    expect(end.data.messageRunId).toBe(run.data.messageRunId);
+    expect(end.data.status).toBe("completed");
+
+    const types = events.map((e) => e.type);
+    expect(types.indexOf("message.run.started")).toBeLessThan(
+      types.indexOf("tool.start"),
+    );
+    expect(types.indexOf("message.run.ended")).toBeGreaterThan(
+      types.indexOf("connector.reply"),
+    );
+
+    reactor.abort("admin_kill");
+    await waitFor("reactor.done");
+  });
+
+  test("a rejection for a rehydrated call opens a run around its continuation", async () => {
+    const correlationId = "rehydrated-run-rejected";
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(parkedStore(correlationId)),
+      director: resumeDirector(),
+      inferenceRunner: makeInferenceRunner({
+        type: "done",
+        turn: makeAssistantTurn("resumed"),
+        usage: emptyUsage(),
+      }),
+      beforeToolExtensions: [askExtension()],
+    });
+    reactor.start();
+    await waitFor("reactor.start");
+
+    reactor.deliver(makeApprovalMessage(correlationId, "rejected"));
+    await waitFor("connector.reply");
+
+    const { started, ended } = runEvents(events);
+    expect(started).toHaveLength(1);
+    expect(ended).toHaveLength(1);
+    const types = events.map((e) => e.type);
+    expect(types.indexOf("message.run.started")).toBeLessThan(
+      types.indexOf("inference.done"),
+    );
+    expect(types.indexOf("message.run.ended")).toBeGreaterThan(
+      types.indexOf("connector.reply"),
+    );
+
+    reactor.abort("admin_kill");
+    await waitFor("reactor.done");
+  });
+
+  test("an approval for a call parked by the open run opens no second run", async () => {
+    let inferences = 0;
+    const inferenceRunner = async function* (
+      opts: InferenceHarnessOptions,
+    ): AsyncGenerator<InferenceEvent> {
+      inferences += 1;
+      yield {
+        type: "inference.done",
+        seq: opts.nextSeq(),
+        data: {
+          turn: inferences === 1 ? suspendToolCallTurn : makeAssistantTurn("ok"),
+          usage: emptyUsage(),
+          source: TEST_SOURCE,
+        },
+      };
+    };
+    const { reactor, events, waitFor } = createTestReactor({
+      director: directorFromTable(
+        {
+          "message.received": (_e, _s, caps) => caps.infer(),
+          "inference.done": (_e, _s, caps) =>
+            inferences === 1
+              ? caps.executeTools([
+                  { id: "call-ask", name: "charge_card", arguments: {} },
+                ])
+              : caps.reply("done"),
+          "resume.execute_tools": (e, _s, caps) =>
+            caps.executeTools(e.calls, false, true),
+          "tool.done": (_e, _s, caps) => caps.infer(),
+        },
+        "wait",
+      ),
+      inferenceRunner,
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "charged",
+      })),
+      beforeToolExtensions: [askExtension()],
+    });
+    reactor.start();
+    const inbound = makeInboundMessage();
+    reactor.deliver(inbound);
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+
+    reactor.deliver(makeApprovalMessage(correlationId));
+    await waitFor("message.run.ended");
+
+    const { started, ended } = runEvents(events);
+    expect(started).toHaveLength(1);
+    expect(ended).toHaveLength(1);
+    const run = getEvent(events, "message.run.started");
+    expect(run.data.messageId).toBe(inbound.headers.messageId);
+    const types = events.map((e) => e.type);
+    expect(types.indexOf("message.run.ended")).toBeGreaterThan(
+      types.indexOf("connector.reply"),
+    );
+
+    reactor.abort("admin_kill");
+    await waitFor("reactor.done");
+  });
+});
+
 describe("createReactor — source failover", () => {
   // Simulates a priority-ordered source list the reactor fails over through.
   // `resultFor(id, attemptOnThisSource)` decides what the inference runner
