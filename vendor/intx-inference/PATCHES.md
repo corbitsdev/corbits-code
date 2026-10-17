@@ -498,6 +498,38 @@ batch committed); the turns still reach disk segments, so only the cycle's
 manifest records and metadata staging stay uncommitted. Intentionally not
 committed; re-verify after upstream doom-loop accounting changes.
 
+## reactor-ts-resume-opens-message-run
+
+`reactor.ts` — A correlated approval that resumes a parked call opens a
+message run when none is open. `tryCorrelate`, after the `redispatch` or
+`error_result` dispatch has consumed the pending operation and enqueued the
+continuation (and before `message.correlated`), calls `openMessageRun` keyed
+on the approval message's `messageId`. The re-dispatched call and its
+continuation then run inside a normal `message.run.started` /
+`message.run.ended` bracket, closed by the usual reply/wait/done terminal or
+a failure. When a run is already open (the live case, where the run that
+parked the call is still open) nothing changes: the resume continues that
+run and no second bracket opens. The `gate-cleared` mode (an async-marker
+operation with no suspended call) is untouched.
+
+Upstream opens a run only when the loop dequeues `message.received`, and a
+correlated approval never becomes one. A pending operation rehydrated by a
+new reactor (restart, `corbits resume`, an agent rebuild) has no run from
+the parking process, so its approval drove tool execution and inference
+with no run open. Consumers that treat "no open run" as idle (the TUI defers
+agent reloads to `message.run.ended`) then saw the session as idle mid-call
+and could rebuild the agent under the running continuation. The
+`message.run.started` doc comment in `@intx/types` still describes the
+dequeue-only trigger; it is left verbatim.
+
+**Disposition:** Promotion candidate. Upstream's run bracket has no owner
+for a resume that outlives the run that parked it.
+**Removal path:** Upstream PR opening a message run for a correlated resume
+when none is open.
+**Re-carry:** new at this patch; sits between the `tryCorrelate` dispatch
+switch and the `message.correlated` emit, inside
+#reactor-ts-atomic-approval-acceptance's claim. Re-verify after upstream
+changes to correlation dispatch or the run-bracket helpers.
 ## reactor-ts-skip-unchanged-history
 
 `reactor.ts` — Skip re-serializing unchanged history on checkpoint.
@@ -728,6 +760,7 @@ revisit point is the next vendored sync (see `docs/VENDORING.md`).
 | harness-ts-inactivity-on-semantic-progress | Gate the inactivity watchdog's re-arm on parsed events, not raw SSE bytes | Alexander Guy <alexander.guy@pm.me> | This ledger (#harness-ts-inactivity-on-semantic-progress) | Next vendored sync |
 | reactor-ts-correlating-ids-leak | Wrap `tryCorrelate` in try/finally so `correlatingIds` clears on success dispatch paths | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-correlating-ids-leak) | Next vendored sync |
 | reactor-ts-tool-cycle-turns-only (supersedes reactor-ts-checkpoint-after-tool-cycle) | `executeTools` writes turns to store segments only and defers the cycle commit to terminals; metadata rides along only when a resolved approval dropped a pending operation | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-tool-cycle-turns-only) | Next vendored sync |
+| reactor-ts-resume-opens-message-run | Open a message run when a correlated approval resumes a parked call and no run is open | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-resume-opens-message-run) | Next vendored sync |
 | reactor-ts-skip-unchanged-history (+ reactor-ts-last-written-turns-revision) | Skip `contextStore.writeTurns` when `getTurnsRevision()` is unchanged | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-skip-unchanged-history) | Next vendored sync |
 | reactor-ts-compact-publish-then-memory | Persist compact blobs, stage `writeTurns`, commit, then `replaceTurns` so memory stays on the old generation until publication | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-compact-publish-then-memory) | Next vendored sync |
 | reactor-ts-after-checkpoint-director-only | Gate `afterCheckpoint` on `hasOverride` so auto-commits do not emit it | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-after-checkpoint-director-only) | Next vendored sync |
