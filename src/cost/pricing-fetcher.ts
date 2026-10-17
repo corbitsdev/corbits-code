@@ -2,8 +2,9 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { getLogger } from "@intx/log";
 import { type } from "arktype";
-import { SETTINGS_DIR_NAME } from "../branding.js";
+import { LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
 
 export interface ModelPricing {
   inputPricePerToken: number;
@@ -46,6 +47,8 @@ export function defaultPricingCachePath(home: string = homedir()): string {
 const DEFAULT_ENDPOINT = "https://models.dev/api.json";
 const DEFAULT_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_FETCH_TIMEOUT_MS = 5000;
+
+const log = getLogger([LOG_NAMESPACE_ROOT, "cost", "pricing"]);
 
 const modelPricingValidator = type({
   inputPricePerToken: "number",
@@ -288,7 +291,11 @@ export async function loadPricing(
     const pricing = await fetchPricing(options);
     await writePricingCache(pricing, cachePath);
     return pricing;
-  } catch {
+  } catch (err) {
+    // One debug line keeps a failed refresh observable while stale cache carries on.
+    log.debug("pricing refresh failed, keeping cached pricing: {error}", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return readPricingCache(cachePath);
   }
 }
