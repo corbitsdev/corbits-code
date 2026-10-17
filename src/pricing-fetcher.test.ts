@@ -1,6 +1,7 @@
 import { defined } from "../testkit/defined.js";
 import { describe, test, expect } from "bun:test";
 import { isAbsolute, join } from "node:path";
+import { configureSync, getConfig, resetSync } from "@intx/log";
 import {
   parseModelsDevContextWindows,
   parseModelsDevPricing,
@@ -258,6 +259,43 @@ describe("loadPricing", () => {
     });
 
     expect(result).toBeNull();
+  });
+
+  test("emits a single debug line when refresh fails", async () => {
+    const records: { level: string; text: string }[] = [];
+    const previous = getConfig();
+    configureSync({
+      reset: true,
+      sinks: {
+        test: (record) => {
+          records.push({
+            level: record.level,
+            text: record.message.map(String).join(""),
+          });
+        },
+      },
+      loggers: [{ category: [], lowestLevel: "debug", sinks: ["test"] }],
+    });
+    try {
+      const failingFetch = (async (): Promise<Response> => {
+        throw new Error("network error");
+      }) as unknown as typeof fetch;
+      const result = await loadPricing({
+        fetchImpl: failingFetch,
+        cachePath: "/tmp/nonexistent-pricing-cache-debug.json",
+      });
+      expect(result).toBeNull();
+      const hits = records.filter(
+        (record) =>
+          record.level === "debug" &&
+          record.text.includes("pricing refresh failed"),
+      );
+      expect(hits).toHaveLength(1);
+      expect(hits[0]?.text).toContain("network error");
+    } finally {
+      if (previous === null) resetSync();
+      else configureSync({ ...previous, reset: true });
+    }
   });
 });
 

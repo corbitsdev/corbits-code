@@ -5,7 +5,7 @@
     "src/tui/smoke.ts",
     "scripts/*.ts",
     "e2e/*.test.ts",
-    "evals/*.ts"
+    "evals/**/*.ts"
   ],
   "project": [
     "src/**/*.ts",
