@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import git, { type CommitObject } from "isomorphic-git";
-import type { ConversationTurn } from "@intx/types/runtime";
+import type { ConversationTurn, PendingOperation } from "@intx/types/runtime";
 import {
   createOptimizedContextStore,
   createSessionStores,
@@ -34,8 +34,11 @@ const EMPTY_CHECKPOINT_METADATA = {
   tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
 };
 
-async function commitEmptyCheckpoint(dir: string): Promise<void> {
+// A turn gives the checkpoint content: with no pending operations there is
+// no metadata.json, and a checkpoint with nothing changed commits nothing.
+async function commitTurnCheckpoint(dir: string): Promise<void> {
   const store = await createOptimizedContextStore(dir);
+  await store.writeTurns([turn("checkpoint")]);
   await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
   await store.commit({ message: "checkpoint: tool-execution" });
 }
@@ -75,12 +78,17 @@ describe("createOptimizedContextStore writeMetadata approval snapshot scrubbing"
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
     const secretArg = { api_key: "sk-test-0123456789abcdefghij" };
+    const suspendedCall = {
+      id: "call-1",
+      name: "run_shell",
+      arguments: secretArg,
+    };
     const op = {
       correlationId: "corr-1",
       kind: "approval" as const,
       registeredAt: 1_700_000_000_000,
       gateId: "gate-1",
-      suspendedCall: { id: "call-1", name: "run_shell", arguments: secretArg },
+      suspendedCall,
       approvalSnapshot: {
         name: "run_shell",
         description: "runs a shell command",
@@ -88,6 +96,14 @@ describe("createOptimizedContextStore writeMetadata approval snapshot scrubbing"
         arguments: secretArg,
       },
     };
+    // The parked call is in history before its approval is written.
+    await store.writeTurns([
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", ...suspendedCall }],
+        timestamp: 1,
+      },
+    ]);
     await store.writeMetadata({
       pendingOperations: [op],
       tokenUsage: {
@@ -100,11 +116,14 @@ describe("createOptimizedContextStore writeMetadata approval snapshot scrubbing"
     });
     await store.commit({ message: "checkpoint: pending" });
 
-    const persisted = JSON.parse(
-      fs.readFileSync(path.join(dir, "metadata.json"), "utf8"),
-    ) as { pendingOperations: { approvalSnapshot: { arguments: object } }[] };
+    const [, recordLine] = fs
+      .readFileSync(path.join(dir, TURNS_FILE), "utf8")
+      .split("\n");
+    const persisted = JSON.parse(defined(recordLine)) as {
+      pendingApproval: { approvalSnapshot: { arguments: object } };
+    };
     const persistedSubset = JSON.stringify(
-      persisted.pendingOperations[0]?.approvalSnapshot?.arguments,
+      persisted.pendingApproval.approvalSnapshot.arguments,
     );
     // The approver-facing snapshot is redacted at rest ...
     expect(persistedSubset).not.toContain("sk-test-0123456789abcdefghij");
@@ -616,7 +635,7 @@ describe("createOptimizedContextStore checkpoint", () => {
 
   test("signs checkpoints as the interchange harness author", async () => {
     const dir = tempDir();
-    await commitEmptyCheckpoint(dir);
+    await commitTurnCheckpoint(dir);
     const commit = await headCommit(dir);
     expect(commit.gpgsig).toContain("BEGIN SSH SIGNATURE");
   });
@@ -641,7 +660,7 @@ describe("createOptimizedContextStore checkpoint", () => {
       );
     }) as typeof Bun.spawn;
     try {
-      await commitEmptyCheckpoint(dir);
+      await commitTurnCheckpoint(dir);
     } finally {
       Bun.spawn = original;
     }
@@ -924,6 +943,125 @@ describe("concurrent sessions write disjoint transcripts", () => {
     expect(
       turnTexts(readTurnsFromFile(path.join(dir, defined(versioned[0])))),
     ).toEqual(turnTexts(turnsB));
+  });
+
+  test("a diverted write is not the log load() re-arms", async () => {
+    const dir = tempDir();
+    const parked: ConversationTurn = {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_call",
+          id: "call-1",
+          name: "run_shell",
+          arguments: { cmd: "true" },
+        },
+      ],
+      timestamp: 2,
+    };
+    const turns = [turn("probe"), parked];
+    const approval: PendingOperation = {
+      correlationId: "corr-call-1",
+      kind: "approval",
+      registeredAt: 1,
+      gateId: "pending-corr-call-1",
+      suspendedCall: {
+        id: "call-1",
+        name: "run_shell",
+        arguments: { cmd: "true" },
+      },
+    };
+    const sessionA = await createOptimizedContextStore(dir, {
+      ownerId: "session-A",
+    });
+    await sessionA.writeTurns(turns);
+    await sessionA.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await sessionA.commit({ message: "session A" });
+
+    const sessionB = await createOptimizedContextStore(dir, {
+      ownerId: "session-B",
+    });
+    await sessionB.writeTurns(turns);
+    await sessionB.writeMetadata({
+      pendingOperations: [approval],
+      tokenUsage: EMPTY_CHECKPOINT_METADATA.tokenUsage,
+    });
+    await sessionB.commit({ message: "divert" });
+    await sessionB.writeMetadata({
+      pendingOperations: [approval],
+      tokenUsage: EMPTY_CHECKPOINT_METADATA.tokenUsage,
+    });
+    await sessionB.commit({ message: "divert again" });
+
+    const loaded = await (await createOptimizedContextStore(dir)).load();
+    expect(
+      loaded.turns.some((candidate) =>
+        candidate.content.some(
+          (block) => block.type === "tool_call" && block.id === "call-1",
+        ),
+      ),
+    ).toBe(true);
+    // The approval landed on the versioned base. load() reads turns.jsonl
+    // only, and the approval is not copied into metadata.json.
+    expect(loaded.pendingOperations).toEqual([]);
+    expect(fs.existsSync(path.join(dir, "metadata.json"))).toBe(false);
+    const versioned = versionedTurnsFiles(dir);
+    expect(versioned).toHaveLength(1);
+    const diverted = fs.readFileSync(
+      path.join(dir, defined(versioned[0])),
+      "utf8",
+    );
+    expect(diverted).toContain("corr-call-1");
+    expect(fs.readFileSync(path.join(dir, TURNS_FILE), "utf8")).not.toContain(
+      "corr-call-1",
+    );
+  });
+
+  test("a same-owner approval is logged in turns.jsonl and dropped from metadata.json", async () => {
+    const dir = tempDir();
+    const parked: ConversationTurn = {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_call",
+          id: "call-1",
+          name: "run_shell",
+          arguments: { cmd: "true" },
+        },
+      ],
+      timestamp: 2,
+    };
+    const approval: PendingOperation = {
+      correlationId: "corr-call-1",
+      kind: "approval",
+      registeredAt: 1,
+      gateId: "pending-corr-call-1",
+      suspendedCall: {
+        id: "call-1",
+        name: "run_shell",
+        arguments: { cmd: "true" },
+      },
+    };
+    const owner = await createOptimizedContextStore(dir, {
+      ownerId: "session-A",
+    });
+    await owner.writeTurns([turn("probe"), parked]);
+    await owner.writeMetadata({
+      pendingOperations: [approval],
+      tokenUsage: EMPTY_CHECKPOINT_METADATA.tokenUsage,
+    });
+    await owner.commit({ message: "park" });
+
+    expect(fs.existsSync(path.join(dir, "metadata.json"))).toBe(false);
+    const lines = fs
+      .readFileSync(path.join(dir, TURNS_FILE), "utf8")
+      .split("\n")
+      .filter((line) => line.length > 0);
+    expect(lines.some((line) => line.includes("corr-call-1"))).toBe(true);
+    const loaded = await (await createOptimizedContextStore(dir)).load();
+    expect(
+      loaded.pendingOperations.map((pending) => pending.correlationId),
+    ).toEqual(["corr-call-1"]);
   });
 
   test("markerless resume can still extend the shared log", async () => {

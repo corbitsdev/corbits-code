@@ -157,6 +157,8 @@ export interface OpenIntegrationSessionOpts {
   retryPolicy?: RetryPolicy;
   /** Fields merged over harness.deps, e.g. a real scheduler when retry delays must elapse. */
   depsOverrides?: Partial<Dependencies>;
+  /** Reuse an existing session cwd, so the agent loads that session's store. */
+  cwd?: string;
 }
 
 export async function openIntegrationSession(
@@ -178,7 +180,8 @@ export async function openIntegrationSession(
     throw new Error("openIntegrationSession requires at least one source");
   }
   const defaultSource = opts.defaultSourceId ?? primarySource.id;
-  const cwd = mkdtempSync(join(tmpdir(), "corbits-integration-cwd-"));
+  const cwd =
+    opts.cwd ?? mkdtempSync(join(tmpdir(), "corbits-integration-cwd-"));
   const workdir = join(cwd, ".agent-state", "integration-session");
   const evidenceArchiveHolder: { current: CompactionArchive | undefined } = {
     current: undefined,
@@ -412,7 +415,7 @@ export async function openIntegrationSession(
   return session;
 }
 
-export async function closeIntegrationSession(
+async function releaseIntegrationAgent(
   session: IntegrationSession,
 ): Promise<void> {
   try {
@@ -420,8 +423,29 @@ export async function closeIntegrationSession(
   } finally {
     await session.toolset.dispose();
     session.harness.dispose();
+  }
+}
+
+export async function closeIntegrationSession(
+  session: IntegrationSession,
+): Promise<void> {
+  try {
+    await releaseIntegrationAgent(session);
+  } finally {
     rmSync(session.cwd, { recursive: true, force: true });
   }
+}
+
+/**
+ * The TUI reload path: close the agent without a final commit, then build a
+ * fresh one on the same session store. The new session owns the cwd.
+ */
+export async function rebuildIntegrationSession(
+  session: IntegrationSession,
+  opts: OpenIntegrationSessionOpts,
+): Promise<IntegrationSession> {
+  await releaseIntegrationAgent(session);
+  return openIntegrationSession({ ...opts, cwd: session.cwd });
 }
 
 export interface TurnResult {

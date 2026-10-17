@@ -91,6 +91,21 @@ describe("scrubPersistedPendingOperations", () => {
         arguments: args,
       },
     };
+    // The parked call is in history before its approval is written.
+    await store.writeTurns([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "call-9",
+            name: "run_shell",
+            arguments: args,
+          },
+        ],
+        timestamp: 1,
+      },
+    ]);
     await store.writeMetadata({
       pendingOperations: [op],
       tokenUsage: {
@@ -103,15 +118,16 @@ describe("scrubPersistedPendingOperations", () => {
     });
     await store.commit({ message: "checkpoint: pending" });
 
-    // Redacted at rest ...
+    // Redacted at rest in the turn log record next to the call ...
+    const [, recordLine] = fs
+      .readFileSync(path.join(dir, "turns.jsonl"), "utf8")
+      .split("\n");
     const persistedArgs = JSON.stringify(
       (
-        JSON.parse(
-          fs.readFileSync(path.join(dir, "metadata.json"), "utf8"),
-        ) as {
-          pendingOperations: { approvalSnapshot: { arguments: object } }[];
+        JSON.parse(recordLine ?? "null") as {
+          pendingApproval: { approvalSnapshot: { arguments: object } };
         }
-      ).pendingOperations[0]?.approvalSnapshot?.arguments,
+      ).pendingApproval.approvalSnapshot.arguments,
     );
     expect(persistedArgs).not.toContain(SECRET);
 

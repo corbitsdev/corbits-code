@@ -17,6 +17,7 @@ import { readdir, realpath } from "node:fs/promises";
 import path, { join } from "node:path";
 
 import { listSegmentFiles } from "../session/incremental-jsonl.js";
+import { parsePendingApprovalRecord } from "../session/pending-approval-record.js";
 
 const TURNS_FILE = "turns.jsonl";
 
@@ -187,7 +188,7 @@ function parseTurnsTolerant(text: string): {
     try {
       const raw: unknown = JSON.parse(line);
       if (isRawTurn(raw)) turns.push(raw);
-      else warnings += 1;
+      else if (parsePendingApprovalRecord(raw) === null) warnings += 1;
     } catch {
       warnings += 1;
     }

@@ -7,14 +7,12 @@ import {
   type CommitSigner,
 } from "@intx/storage-isogit/node";
 import {
-  ApprovalSnapshot,
   ContentBlock,
   ConnectorThreadState,
   type AuditStore,
   TokenUsage,
   type ConversationTurn,
   type PendingOperation,
-  ToolCall,
 } from "@intx/types/runtime";
 import { getLogger } from "@intx/log";
 import {
@@ -28,6 +26,12 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { loadOrCreateCommitSigner } from "./commit-signer.js";
 import { withResolvedDirLock } from "./session-dir-lock.js";
 import { scrubPersistedPendingOperations } from "./pending-snapshot-scrub.js";
+import {
+  parsePendingApprovalRecord,
+  pendingApprovalRecord,
+  type PendingApprovalRecord,
+  StoredPendingOperationSchema,
+} from "./pending-approval-record.js";
 
 const TURNS_FILE = "turns.jsonl";
 const PROMPT_FILE = "prompt.jsonl";
@@ -180,6 +184,7 @@ function parseSegmentTurns(
   tolerateTornTail: boolean,
   fileName = "turns segment",
   skipMalformed = false,
+  approvals?: PendingOperation[],
 ): ConversationTurn[] {
   if (text.length === 0) return [];
   // POSIX truncate past EOF pads with `\0`. Strip them so the rest of the JSONL
@@ -217,6 +222,12 @@ function parseSegmentTurns(
       throw new Error(`${fileName} has malformed JSON at line ${i + 1}`, {
         cause,
       });
+    }
+    // Approval records share the log but are never history.
+    const approval = parsePendingApprovalRecord(raw);
+    if (approval !== null) {
+      approvals?.push(approval);
+      continue;
     }
     const result = ConversationTurnSchema(raw);
     if (result instanceof type.errors) {
@@ -264,17 +275,6 @@ function emptyMetadata(): SessionMetadata {
  * Legacy files still carry tokenUsage (the old vendor shape) and read as the
  * fallback when the sidecar holds nothing.
  */
-const StoredPendingOperationSchema = type({
-  correlationId: "string",
-  kind: "'approval'",
-  "expectedFrom?": "string",
-  registeredAt: "number",
-  gateId: "string",
-  "timeoutAt?": "number",
-  "suspendedCall?": ToolCall,
-  "approvalSnapshot?": ApprovalSnapshot,
-});
-
 const StoredMetadataSchema = type({
   pendingOperations: StoredPendingOperationSchema.array(),
   "tokenUsage?": TokenUsage,
@@ -509,15 +509,22 @@ export async function loadRecentTurns(
   return { turns, truncated };
 }
 
+interface ParsedLogSegment {
+  turns: ConversationTurn[];
+  approvals: PendingOperation[];
+}
+
 /**
  * Resilient parse of `turns.jsonl` alone (extras merged by the caller), so a
  * torn or poisoned base cannot block the healing write.
  */
-async function readBaseTurnsFromDisk(dir: string): Promise<ConversationTurn[]> {
+async function readBaseLogFromDisk(dir: string): Promise<ParsedLogSegment> {
   const basePath = path.join(dir, TURNS_FILE);
-  if (!(await pathExists(basePath))) return [];
+  if (!(await pathExists(basePath))) return { turns: [], approvals: [] };
   const text = await fs.promises.readFile(basePath, "utf-8");
-  return parseSegmentTurns(text, true, TURNS_FILE, true);
+  const approvals: PendingOperation[] = [];
+  const turns = parseSegmentTurns(text, true, TURNS_FILE, true, approvals);
+  return { turns, approvals };
 }
 
 async function readOwnerMarker(
@@ -1119,6 +1126,53 @@ async function managedPathsDiffer(
   return matrix.some(([, head, workdir]) => head !== workdir);
 }
 
+/**
+ * A parked call's approval is open while its call is in history, unanswered,
+ * and the same call (id, name, and arguments). An op with no parked call is
+ * an async marker and always passes. The first op actually accepted as open
+ * wins for its correlationId: a closed record must not tombstone a later open
+ * one, because load() lists the log before legacy metadata.json.
+ */
+function openPendingOperations(
+  turns: readonly ConversationTurn[],
+  candidates: readonly PendingOperation[],
+): PendingOperation[] {
+  const called = new Map<string, { name: string; arguments: unknown }>();
+  const answered = new Set<string>();
+  for (const turn of turns) {
+    for (const block of turn.content) {
+      if (block.type === "tool_call") {
+        if (!called.has(block.id)) {
+          called.set(block.id, {
+            name: block.name,
+            arguments: block.arguments,
+          });
+        }
+      } else if (block.type === "tool_result") answered.add(block.callId);
+    }
+  }
+  const seen = new Set<string>();
+  const open: PendingOperation[] = [];
+  for (const op of candidates) {
+    if (seen.has(op.correlationId)) continue;
+    const call = op.suspendedCall;
+    if (call !== undefined) {
+      const historical = called.get(call.id);
+      if (
+        historical === undefined ||
+        answered.has(call.id) ||
+        historical.name !== call.name ||
+        JSON.stringify(historical.arguments) !== JSON.stringify(call.arguments)
+      ) {
+        continue;
+      }
+    }
+    seen.add(op.correlationId);
+    open.push(op);
+  }
+  return open;
+}
+
 export interface SessionStores {
   storage: ContextStore;
   audit: AuditStore;
@@ -1211,28 +1265,216 @@ export async function createSessionStores(
     sidecarUsage = { ...tokenUsage };
   }
 
+  // A parked call's approval lives in the turn log, on a record line right
+  // after the turn holding the call; the call's tool_result closes it, so an
+  // approved call needs no second write to stop it re-arming. Keyed by
+  // correlationId in log order. Record objects stay stable so the segmented
+  // writer sees a new one as a prefix extension, and a closed one keeps its
+  // line: dropping it would turn every later append into a rewrite.
+  const approvalRecords = new Map<string, PendingApprovalRecord>();
+  // Approvals a canonical turns.jsonl flush has already written. A versioned
+  // base is not this set: load() never reads it, and the approval is not
+  // copied onto metadata.json to compensate.
+  const loggedApprovalIds = new Set<string>();
+  // Line objects last passed to the canonical segmented writer, same refs, so
+  // a later record can extend that prefix by one append instead of rewriting
+  // the turns.
+  let canonicalLines: readonly unknown[] | null = null;
+
+  function adoptLoggedApprovals(ops: readonly PendingOperation[]): void {
+    for (const op of ops) {
+      if (!approvalRecords.has(op.correlationId)) {
+        approvalRecords.set(op.correlationId, pendingApprovalRecord(op));
+      }
+      loggedApprovalIds.add(op.correlationId);
+    }
+  }
+
+  function hasUnloggedApproval(): boolean {
+    for (const id of approvalRecords.keys()) {
+      if (!loggedApprovalIds.has(id)) return true;
+    }
+    return false;
+  }
+
+  // Located by call id, not turn identity, so a record follows an excerpted
+  // copy of its turn through a compaction and is dropped with its call.
+  function withApprovalRecords(turns: readonly ConversationTurn[]): {
+    lines: readonly unknown[];
+    included: string[];
+  } {
+    if (approvalRecords.size === 0) return { lines: turns, included: [] };
+    const byCallId = new Map<string, string[]>();
+    for (const [correlationId, record] of approvalRecords) {
+      const callId = record.pendingApproval.suspendedCall?.id;
+      if (callId === undefined) continue;
+      const ids = byCallId.get(callId);
+      if (ids === undefined) byCallId.set(callId, [correlationId]);
+      else ids.push(correlationId);
+    }
+    const lines: unknown[] = [];
+    const included: string[] = [];
+    for (const turn of turns) {
+      lines.push(turn);
+      for (const block of turn.content) {
+        if (block.type !== "tool_call") continue;
+        const ids = byCallId.get(block.id);
+        if (ids === undefined) continue;
+        // A call id seen twice is malformed history; record it once.
+        byCallId.delete(block.id);
+        for (const id of ids) {
+          const record = approvalRecords.get(id);
+          if (record === undefined) continue;
+          lines.push(record);
+          included.push(id);
+        }
+      }
+    }
+    return { lines, included };
+  }
+
+  async function writeTurnLog(
+    turns: readonly ConversationTurn[],
+  ): Promise<void> {
+    const { lines, included } = withApprovalRecords(turns);
+    await writeSegmented(writeTurnsSegmented, lines);
+    // Diversion writes a versioned base load() never reads. That flush is not
+    // the canonical log, and the approval is not written to metadata.json.
+    if (turnsBaseName !== TURNS_FILE) return;
+    for (const id of included) loggedApprovalIds.add(id);
+    canonicalLines = lines;
+  }
+
+  // The turns are already on disk. Extend the canonical log by the new record
+  // lines only. A prefix extension appends; it does not rewrite the turns. A
+  // writer with no memory of those bytes appends the line to the active
+  // segment instead of rebuilding it.
+  async function appendParkedRecords(
+    published: readonly ConversationTurn[],
+  ): Promise<void> {
+    if (turnsBaseName !== TURNS_FILE) return;
+    const callIds = new Set<string>();
+    for (const turn of published) {
+      for (const block of turn.content) {
+        if (block.type === "tool_call") callIds.add(block.id);
+      }
+    }
+    const pending: PendingApprovalRecord[] = [];
+    for (const [id, record] of approvalRecords) {
+      if (loggedApprovalIds.has(id)) continue;
+      const callId = record.pendingApproval.suspendedCall?.id;
+      if (callId === undefined || !callIds.has(callId)) continue;
+      pending.push(record);
+    }
+    if (pending.length === 0) return;
+    if (canonicalLines !== null) {
+      const lines = [...canonicalLines, ...pending];
+      await writeSegmented(writeTurnsSegmented, lines);
+      canonicalLines = lines;
+    } else {
+      const names = await listSegmentFiles(dir, TURNS_FILE);
+      const target = names.at(-1) ?? TURNS_FILE;
+      const text = pending
+        .map((record) => `${JSON.stringify(record)}\n`)
+        .join("");
+      await fs.promises.appendFile(path.join(dir, target), text);
+      pendingSegmentPaths.add(target);
+    }
+    for (const record of pending) {
+      loggedApprovalIds.add(record.pendingApproval.correlationId);
+    }
+    invalidateTurnsCache();
+  }
+
+  function retainedLegacyApprovals(raw: string | null): PendingOperation[] {
+    if (raw === null || raw.length === 0) return [];
+    try {
+      return readMetadataDocument(raw).pendingOperations.filter(
+        (op) =>
+          op.suspendedCall !== undefined &&
+          !loggedApprovalIds.has(op.correlationId),
+      );
+    } catch {
+      return [];
+    }
+  }
+
   async function writeMetadataLive(metadata: {
     pendingOperations: PendingOperation[];
     tokenUsage: TokenUsage;
   }): Promise<void> {
     await appendUsageSidecar(metadata.tokenUsage);
-    // Approval snapshot args persist into metadata.json in the clear; scrub
-    // them at this app-owned write (suspendedCall stays raw for the approved
-    // call's re-dispatch).
+    // Approval snapshot args would persist in the clear; scrub them at this
+    // app-owned write (suspendedCall stays raw for the approved call's
+    // re-dispatch). Parked approvals never go into metadata.json.
+    for (const op of scrubPersistedPendingOperations(
+      metadata.pendingOperations.filter(
+        (pending) =>
+          pending.suspendedCall !== undefined &&
+          !approvalRecords.has(pending.correlationId),
+      ),
+    )) {
+      approvalRecords.set(op.correlationId, pendingApprovalRecord(op));
+    }
+    // Turns are already on disk. A parked approval appends its record line
+    // once, including while a rewrite is still unpublished, so load() of the
+    // published log sees it before commit. No parked approval adds no write.
+    if (hasUnloggedApproval()) {
+      const published = liveTurnRefs ?? (await readLiveTurns());
+      await appendParkedRecords(published);
+    }
+    if (!metadataJsonSeeded) {
+      writtenMetadataJson = await readTextOrNull(path.join(dir, METADATA_FILE));
+      metadataJsonSeeded = true;
+    }
+    // Async markers (no suspendedCall) and connectorState stay in this file.
+    // A legacy parked approval already on disk stays until the canonical log
+    // has it; this write does not put it back, and does not add a new one.
+    const retained = retainedLegacyApprovals(writtenMetadataJson);
+    const sideOps = [
+      ...metadata.pendingOperations.filter(
+        (pending) => pending.suspendedCall === undefined,
+      ),
+      ...retained,
+    ];
+    if (sideOps.length === 0 && connectorStateBuffer === null) {
+      if (writtenMetadataJson !== null) {
+        await fs.promises.rm(path.join(dir, METADATA_FILE), { force: true });
+        pendingSegmentPaths.add(METADATA_FILE);
+        writtenMetadataJson = null;
+      }
+      return;
+    }
+    if (retained.length > 0 && writtenMetadataJson !== null) {
+      try {
+        const onDisk = readMetadataDocument(writtenMetadataJson);
+        const asyncOnDisk = onDisk.pendingOperations.filter(
+          (op) => op.suspendedCall === undefined,
+        );
+        const asyncFromCall = metadata.pendingOperations.filter(
+          (pending) => pending.suspendedCall === undefined,
+        );
+        const connectorSame =
+          JSON.stringify(onDisk.connectorState ?? null) ===
+          JSON.stringify(connectorStateBuffer);
+        if (
+          connectorSame &&
+          JSON.stringify(asyncOnDisk) === JSON.stringify(asyncFromCall)
+        ) {
+          return;
+        }
+      } catch {
+        // Unreadable legacy document: fall through and publish the side ops.
+      }
+    }
     const desired = JSON.stringify(
       {
-        pendingOperations: scrubPersistedPendingOperations(
-          metadata.pendingOperations,
-        ),
+        pendingOperations: scrubPersistedPendingOperations(sideOps),
         connectorState: connectorStateBuffer,
       },
       null,
       2,
     );
-    if (!metadataJsonSeeded) {
-      writtenMetadataJson = await readTextOrNull(path.join(dir, METADATA_FILE));
-      metadataJsonSeeded = true;
-    }
     if (writtenMetadataJson !== desired) {
       await publishMetadataDocument(dir, desired);
       writtenMetadataJson = desired;
@@ -1279,9 +1521,9 @@ export async function createSessionStores(
 
   async function writeSegmented(
     writer: ReturnType<typeof createSegmentedJSONLWriter>,
-    turns: readonly ConversationTurn[],
+    lines: readonly unknown[],
   ): Promise<void> {
-    const { modifiedPaths } = await writer(turns);
+    const { modifiedPaths } = await writer(lines);
     for (const filepath of modifiedPaths) pendingSegmentPaths.add(filepath);
   }
 
@@ -1304,9 +1546,9 @@ export async function createSessionStores(
 
   type TurnsGenerationCache = {
     segments: SegmentFingerprint[];
-    baseTurns: ConversationTurn[];
-    parsedExtras: ConversationTurn[][];
-    merged: ConversationTurn[];
+    base: ParsedLogSegment;
+    parsedExtras: ParsedLogSegment[];
+    merged: ParsedLogSegment;
   };
 
   let turnsCache: TurnsGenerationCache | null = null;
@@ -1357,13 +1599,14 @@ export async function createSessionStores(
     return count;
   }
 
-  async function readLiveTurnsCached(): Promise<ConversationTurn[]> {
+  async function readLiveLogCached(): Promise<ParsedLogSegment> {
     const segments = await turnSegmentStats();
     if (
       turnsCache !== null &&
       turnsCache.segments.length === segments.length &&
       sharedSegmentPrefix(turnsCache.segments, segments) === segments.length
     ) {
+      adoptLoggedApprovals(turnsCache.merged.approvals);
       return turnsCache.merged;
     }
     const reused =
@@ -1376,11 +1619,11 @@ export async function createSessionStores(
     // load(): that also validates metadata.json against the vendor shape,
     // which this store no longer writes (tokenUsage lives on the sidecar).
     // Metadata is read separately by readSessionMetadata.
-    const baseTurns =
+    const baseLog =
       reused >= 1 && turnsCache !== null
-        ? turnsCache.baseTurns
-        : await readBaseTurnsFromDisk(dir);
-    const parsedExtras: ConversationTurn[][] = [];
+        ? turnsCache.base
+        : await readBaseLogFromDisk(dir);
+    const parsedExtras: ParsedLogSegment[] = [];
     for (let index = 1; index < segments.length; index++) {
       const cached =
         index < reused && turnsCache !== null
@@ -1396,22 +1639,24 @@ export async function createSessionStores(
         path.join(dir, segment.name),
         "utf-8",
       );
-      parsedExtras.push(
-        parseSegmentTurns(
-          text,
-          index === segments.length - 1,
-          segment.name,
-          true,
-        ),
+      const approvals: PendingOperation[] = [];
+      const turns = parseSegmentTurns(
+        text,
+        index === segments.length - 1,
+        segment.name,
+        true,
+        approvals,
       );
+      parsedExtras.push({ turns, approvals });
     }
-    const merged = await mergedLiveTurns(baseTurns, parsedExtras);
-    turnsCache = { segments, baseTurns, parsedExtras, merged };
+    const merged = await mergedLiveLog(baseLog, parsedExtras);
+    turnsCache = { segments, base: baseLog, parsedExtras, merged };
+    adoptLoggedApprovals(merged.approvals);
     return merged;
   }
 
   async function readLiveTurns(): Promise<ConversationTurn[]> {
-    return readLiveTurnsCached();
+    return (await readLiveLogCached()).turns;
   }
 
   async function resolveFirstWrite(
@@ -1466,7 +1711,7 @@ export async function createSessionStores(
         unpublishedRewrite = [...turns];
         return;
       }
-      await writeSegmented(writeTurnsSegmented, turns);
+      await writeTurnLog(turns);
       liveTurnRefs = [...turns];
       invalidateTurnsCache();
       return;
@@ -1481,7 +1726,7 @@ export async function createSessionStores(
           unpublishedRewrite = [...turns];
           return;
         }
-        await writeSegmented(writeTurnsSegmented, turns);
+        await writeTurnLog(turns);
         liveTurnRefs = [...turns];
         invalidateTurnsCache();
         return;
@@ -1496,7 +1741,7 @@ export async function createSessionStores(
         unpublishedRewrite = [...turns];
         return;
       }
-      await writeSegmented(writeTurnsSegmented, turns);
+      await writeTurnLog(turns);
       liveTurnRefs = [...turns];
       invalidateTurnsCache();
     });
@@ -1504,13 +1749,16 @@ export async function createSessionStores(
 
   // Prefer the longest loadable prefix of base + extras; orphan tails from a
   // fresh-writer compaction rewrite are dropped and unlinked so the next load
-  // does not re-poison the session.
-  async function mergedLiveTurns(
-    baseTurns: ConversationTurn[],
-    parsedExtras: ConversationTurn[][],
-  ): Promise<ConversationTurn[]> {
-    if (parsedExtras.length === 0) return baseTurns;
-    const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
+  // does not re-poison the session. A dropped segment's records go with it.
+  async function mergedLiveLog(
+    baseLog: ParsedLogSegment,
+    parsedExtras: ParsedLogSegment[],
+  ): Promise<ParsedLogSegment> {
+    if (parsedExtras.length === 0) return baseLog;
+    const keepExtras = longestWellFormedExtraCount(
+      baseLog.turns,
+      parsedExtras.map((extra) => extra.turns),
+    );
 
     if (keepExtras < parsedExtras.length) {
       // Segment file index for the first extra is 1.
@@ -1526,8 +1774,11 @@ export async function createSessionStores(
       invalidateTurnsCache();
     }
 
-    if (keepExtras === 0) return baseTurns;
-    return [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
+    const kept = [baseLog, ...parsedExtras.slice(0, keepExtras)];
+    return {
+      turns: kept.flatMap((segment) => segment.turns),
+      approvals: kept.flatMap((segment) => segment.approvals),
+    };
   }
 
   const store: ContextStore & AuditStore = {
@@ -1538,9 +1789,9 @@ export async function createSessionStores(
     // Metadata stays a fresh read: corrupt metadata.json soft-defaults so
     // resume does not die or wipe pending ops.
     async load() {
-      let turns: ConversationTurn[];
+      let liveLog: ParsedLogSegment;
       try {
-        turns = await readLiveTurnsCached();
+        liveLog = await readLiveLogCached();
       } catch (cause) {
         // Unrecoverable history: rethrow with the file name in the message.
         throw new Error(
@@ -1562,7 +1813,29 @@ export async function createSessionStores(
         );
         metadata = emptyMetadata();
       }
-      return { turns, ...metadata };
+      // A still-open legacy approval is remembered so the next canonical
+      // flush moves it into the log. It is not marked logged, and it is not
+      // written back.
+      for (const op of scrubPersistedPendingOperations(
+        openPendingOperations(liveLog.turns, metadata.pendingOperations).filter(
+          (pending) =>
+            pending.suspendedCall !== undefined &&
+            !approvalRecords.has(pending.correlationId),
+        ),
+      )) {
+        approvalRecords.set(op.correlationId, pendingApprovalRecord(op));
+      }
+      const { turns } = liveLog;
+      return {
+        turns,
+        ...metadata,
+        // Legacy sessions park approvals on metadata.json only; the next
+        // commit moves a still-open one into the log next to its call.
+        pendingOperations: openPendingOperations(turns, [
+          ...liveLog.approvals,
+          ...metadata.pendingOperations,
+        ]),
+      };
     },
     // Buffer is carried only by this store: base.writeMetadata is never
     // called through the wrapper, so base's pendingConnectorState would
@@ -1572,8 +1845,17 @@ export async function createSessionStores(
     },
     branch: (name, signal) => base.branch(name, signal),
     log: (limit, signal) => base.log(limit, signal),
-    async readAt(hash, signal) {
-      const baseTurns = await base.readAt(hash, signal);
+    async readAt(hash) {
+      // The base store's strict parser knows turns only; the log also holds
+      // approval records.
+      let baseText: string | null = null;
+      try {
+        baseText = await blobTextAtCommit(dir, hash, TURNS_FILE);
+      } catch (cause) {
+        if (!isNotFoundError(cause)) throw cause;
+      }
+      const baseTurns =
+        baseText === null ? [] : parseSegmentTurns(baseText, false, TURNS_FILE);
       const extraNames = await turnSegmentNamesAtCommit(dir, hash);
       if (extraNames.length === 0) return baseTurns;
 
@@ -1671,11 +1953,12 @@ export async function createSessionStores(
           return headWithinLock;
         };
         const headBefore = stagedRewrite === null ? null : await lockedHead();
+        const loggedBefore = new Set(loggedApprovalIds);
         let extraPaths: string[] = [];
 
         try {
           if (stagedRewrite !== null) {
-            await writeSegmented(writeTurnsSegmented, stagedRewrite);
+            await writeTurnLog(stagedRewrite);
             invalidateTurnsCache();
           }
           const listing = await surveyWorktree(dir);
@@ -1826,6 +2109,10 @@ export async function createSessionStores(
               } catch {
                 // A partial restore must not mask the real commit error.
               }
+              // Records only the rewrite carried are not canonical until a
+              // rewrite lands. Approvals already on the published log stay.
+              loggedApprovalIds.clear();
+              for (const id of loggedBefore) loggedApprovalIds.add(id);
             }
             // Drop the writer's stale in-memory state so a retry rewrites from
             // scratch.
@@ -1834,6 +2121,7 @@ export async function createSessionStores(
               turnsBaseName,
             );
             liveTurnRefs = null;
+            canonicalLines = null;
             // The restore rewrote the published generation; the cached
             // live-turns parse predates it in general, so rebuild from disk.
             invalidateTurnsCache();
