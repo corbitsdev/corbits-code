@@ -1467,6 +1467,25 @@ describe("buildOpenAISource", () => {
     });
   });
 
+  test("flows temperature and top_p together when both are present (CL-10760)", () => {
+    // The temperature/topP exclusion lives in the settings schema (load
+    // rejects both); buildOpenAISource itself merges whatever it is given, so
+    // provider-mandated pairs (e.g. DeepSeek V4 model-card defaults) still
+    // reach the wire.
+    const source = buildOpenAISource({
+      id: "fp",
+      baseURL: "https://fp/v1",
+      apiKey: "k",
+      model: "m",
+      temperature: 0.7,
+      topP: 0.9,
+    });
+    expect(source.defaults).toEqual({
+      maxTokens: SOURCE_MAX_TOKENS,
+      providerOptions: { temperature: 0.7, top_p: 0.9 },
+    });
+  });
+
   test("coexists temperature with reasoning_effort in one providerOptions", () => {
     const source = buildOpenAISource({
       id: "fp",

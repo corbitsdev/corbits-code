@@ -43,7 +43,10 @@ export interface ProviderSettings {
   // Per-call output cap, overriding SOURCE_MAX_TOKENS when set.
   maxTokens?: number;
   // Sampling temperature (0..2, OpenAI-compatible); mutually exclusive with
-  // topP — never send both on the wire.
+  // topP in provider settings — load rejects both (see
+  // ProviderInferenceOptionsSchema). The wire may still carry both when a
+  // provider adapter mandates it (DeepSeek V4 backfills absent fields from
+  // its model-card defaults).
   temperature?: number;
   // Sampling top-p (0..1, OpenAI-compatible); mutually exclusive with
   // temperature.
