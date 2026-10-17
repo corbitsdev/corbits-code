@@ -1,13 +1,14 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { type } from "arktype";
+import { getLogger } from "@intx/log";
 
 import type { Approval } from "./types.js";
 import { sessionDir } from "../session/index.js";
-import { SETTINGS_DIR_NAME } from "../branding.js";
+import { LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
 import {
   isProjectGrantTrusted,
   reconcileProjectGrants,
@@ -300,6 +301,24 @@ export async function loadProviderModelApprovals(
 // unreadable, and invalid files must fail closed: the persisted-store readers
 // treat ENOENT as an empty list and drop bad entries, which would silently
 // change the caller's grant set.
+const grantsFileLog = getLogger([
+  LOG_NAMESPACE_ROOT,
+  "permission",
+  "grants-file",
+]);
+
+// The canonical grant-file target for logs: a symlinked --permissions path
+// and its target must not read as two different grant sources. Falls back to
+// the given path when the file is missing or unreadable — the load below
+// still fails closed with its own error.
+export async function canonicalGrantFilePath(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return path;
+  }
+}
+
 export async function loadPermissionsFile(path: string): Promise<Approval[]> {
   let raw: string;
   try {
@@ -322,8 +341,16 @@ export async function loadPermissionsFile(path: string): Promise<Approval[]> {
     throw new Error(`--permissions file must be a JSON object: ${path}`);
   }
   const approvals = (parsed as Record<string, unknown>).approvals;
-  if (approvals === undefined) return [];
-  return parseApprovalList(approvals, path);
+  // Startup, seed, and every /permissions reseed funnel through here, so one
+  // log line names the active grant source for the whole process lifetime.
+  const canonicalPath = await canonicalGrantFilePath(path);
+  const list =
+    approvals === undefined ? [] : parseApprovalList(approvals, path);
+  grantsFileLog.info("Grant file loaded: {path} ({count} approvals)", {
+    path: canonicalPath,
+    count: list.length,
+  });
+  return list;
 }
 
 // The process grant list is either the --permissions file or the user stores.

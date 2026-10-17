@@ -622,7 +622,8 @@ export interface Config {
   /**
    * Absolute path from `--permissions`. When set, that file's approvals
    * replace the user-global and provider-model grant lists for this process
-   * only. Not a settings key.
+   * only. Session and project layers still apply, and project-file entries
+   * still need trust confirmation. Not a settings key.
    */
   permissionsPath?: string;
   globalDefaultProvider?: string;
@@ -733,7 +734,9 @@ Continue verbs (project-keyed to this checkout's git toplevel):
 Flags:
   --cwd <dir>                 working directory (default: process.cwd())
   --config <path>             settings file (default: ~/.corbits/settings.json)
-  --permissions <path>        grant file replacing ~/.corbits/permissions.json for this process
+  --permissions <path>        grant file replacing global + provider-model grants
+                               for this process only (session + project layers still
+                               apply; project entries still need trust confirmation)
   --provider <name>           configured provider name
   --model <id>                model for the active provider
   --profile <name>            settings profile
