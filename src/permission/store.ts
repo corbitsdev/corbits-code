@@ -341,8 +341,9 @@ export async function loadPermissionsFile(path: string): Promise<Approval[]> {
     throw new Error(`--permissions file must be a JSON object: ${path}`);
   }
   const approvals = (parsed as Record<string, unknown>).approvals;
-  // Startup, seed, and every /permissions reseed funnel through here, so one
-  // log line names the active grant source for the whole process lifetime.
+  // loadConfig, seed, and /permissions list and reseed each call this loader
+  // on their own, so every load logs. A single process-lifetime line would
+  // hide a later read.
   const canonicalPath = await canonicalGrantFilePath(path);
   const list =
     approvals === undefined ? [] : parseApprovalList(approvals, path);
