@@ -484,8 +484,7 @@ second `tool_result` for the same call id, failing the well-formedness
 tripwire. Tool cycles that leave pending operations untouched still write
 turns only, so the coalescing savings hold. A crash between the turns write
 and the metadata write can still leave a stale op for an answered call;
-that narrower window is #reactor-ts-skip-answered-parked-call's concern, not
-this patch's.
+that narrower window is the rehydration guard's concern, not this patch's.
 
 **Disposition:** Promotion candidate. Performance coalescing — collapses K
 git commits per agentic turn to one deferred commit while preserving
@@ -498,38 +497,6 @@ a doom-loop abort skips the deferred terminal (previously the in-flight
 batch committed); the turns still reach disk segments, so only the cycle's
 manifest records and metadata staging stay uncommitted. Intentionally not
 committed; re-verify after upstream doom-loop accounting changes.
-
-## reactor-ts-skip-answered-parked-call
-
-`reactor.ts` — A parked call that history already answers is never answered
-again. `start()` drops every loaded pending operation whose
-`suspendedCall.id` already has a `tool_result` in the loaded turns: the
-state manager never holds it, `rehydrateGates` never re-arms it, and the
-removal is written to metadata before `reactor.start`. `onGateCleared`'s
-timeout path still removes the op but, when the parked call already has a
-result, enqueues no synthetic "approval timed out" result (and no
-`reactor.gate.cleared`) and logs a warning instead. Both checks scan the
-turns through the module-level `answeredCallIds` helper.
-
-Defense in depth behind the pending-operation durability contract in
-#reactor-ts-tool-cycle-turns-only: that patch writes the result turn and then
-metadata in two awaits, so a crash between them leaves a stale op for an
-answered call. Re-armed, it fired at the original deadline, appended a second
-`tool_result` for the same call id, and the next inference failed the
-well-formedness tripwire (`Malformed tool sequence: duplicate tool_result`),
-killing the session. The timeout guard leaves `pendingOperationsChanged` set
-rather than writing metadata from the timer callback; the next turns-only
-write or terminal persists the removal, and a crash before then is caught by
-the startup check.
-
-**Disposition:** Promotion candidate. Upstream's rehydration and timeout
-paths trust persisted pending operations without consulting history.
-**Removal path:** Upstream PR making rehydration and the approval timeout
-skip calls that already have a result.
-**Re-carry:** new at this patch; sits in `start()` around
-`createStateManager`/`rehydrateGates` and inside the `onGateCleared` timeout
-branch. Re-verify after upstream changes to rehydration or to the ask-rail
-timeout result.
 
 ## reactor-ts-skip-unchanged-history
 
@@ -761,7 +728,6 @@ revisit point is the next vendored sync (see `docs/VENDORING.md`).
 | harness-ts-inactivity-on-semantic-progress | Gate the inactivity watchdog's re-arm on parsed events, not raw SSE bytes | Alexander Guy <alexander.guy@pm.me> | This ledger (#harness-ts-inactivity-on-semantic-progress) | Next vendored sync |
 | reactor-ts-correlating-ids-leak | Wrap `tryCorrelate` in try/finally so `correlatingIds` clears on success dispatch paths | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-correlating-ids-leak) | Next vendored sync |
 | reactor-ts-tool-cycle-turns-only (supersedes reactor-ts-checkpoint-after-tool-cycle) | `executeTools` writes turns to store segments only and defers the cycle commit to terminals; metadata rides along only when a resolved approval dropped a pending operation | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-tool-cycle-turns-only) | Next vendored sync |
-| reactor-ts-skip-answered-parked-call | Drop pending operations whose parked call already has a result at rehydration, and inject no approval-timeout result for such a call | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-skip-answered-parked-call) | Next vendored sync |
 | reactor-ts-skip-unchanged-history (+ reactor-ts-last-written-turns-revision) | Skip `contextStore.writeTurns` when `getTurnsRevision()` is unchanged | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-skip-unchanged-history) | Next vendored sync |
 | reactor-ts-compact-publish-then-memory | Persist compact blobs, stage `writeTurns`, commit, then `replaceTurns` so memory stays on the old generation until publication | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-compact-publish-then-memory) | Next vendored sync |
 | reactor-ts-after-checkpoint-director-only | Gate `afterCheckpoint` on `hasOverride` so auto-commits do not emit it | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-after-checkpoint-director-only) | Next vendored sync |

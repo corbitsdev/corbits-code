@@ -329,17 +329,6 @@ function isTrivialNoopShellCommand(command: unknown): boolean {
   return TRIVIAL_NOOP_SHELL_PROGRAMS.has(unquoted);
 }
 
-// Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-skip-answered-parked-call
-function answeredCallIds(turns: readonly ConversationTurn[]): Set<string> {
-  const answered = new Set<string>();
-  for (const turn of turns) {
-    for (const block of turn.content) {
-      if (block.type === "tool_result") answered.add(block.callId);
-    }
-  }
-  return answered;
-}
-
 /**
  * Creates a reactor instance bound to the given configuration.
  * Call `start()` to begin the event loop.
@@ -1473,17 +1462,6 @@ export function createReactor(config: ReactorConfig): Reactor {
           // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
           pendingOperationsChanged = true;
         }
-        // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-skip-answered-parked-call
-        // A call that already has a result was resumed some other way; a
-        // second result for the same id is a malformed tool sequence that
-        // fails the next inference, so the timeout drives no continuation.
-        if (
-          stateManager !== null &&
-          answeredCallIds(stateManager.getTurns()).has(op.suspendedCall.id)
-        ) {
-          logger.warn`Skipped approval timeout result for ${op.suspendedCall.id}: the parked call already has a result`;
-          return;
-        }
         enqueue({
           type: "resume.tool_result",
           result: {
@@ -1986,25 +1964,10 @@ export function createReactor(config: ReactorConfig): Reactor {
         return;
       }
 
-      // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-skip-answered-parked-call
-      // A crash between the result-turn write and the metadata write leaves a
-      // pending operation for a call history already answers. Re-arming it
-      // would answer the call again at its deadline, so it is dropped here
-      // and its removal persisted before the reactor starts.
-      const answered = answeredCallIds(initialTurns);
-      const answeredOps = initialOps.filter(
-        (op) =>
-          op.suspendedCall !== undefined && answered.has(op.suspendedCall.id),
-      );
-      for (const op of answeredOps) {
-        logger.warn`Dropped pending operation ${op.correlationId}: its parked call ${op.suspendedCall?.id ?? ""} already has a result`;
-      }
-      const liveOps = initialOps.filter((op) => !answeredOps.includes(op));
-
       stateManager = createStateManager(
         sessionId,
         initialTurns,
-        liveOps,
+        initialOps,
         initialUsage,
       );
 
@@ -2023,14 +1986,9 @@ export function createReactor(config: ReactorConfig): Reactor {
         // correlationId or gateId. A throw must surface as reactor.error plus
         // reactor.done (matching the load-failure path), not brick the reactor
         // as a silent unhandled rejection.
-        rehydrateGates(liveOps);
+        rehydrateGates(initialOps);
 
         stateManager.setGatesSnapshot(gates.snapshot());
-
-        // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-skip-answered-parked-call
-        if (answeredOps.length > 0) {
-          await writeMetadata();
-        }
 
         emit({ type: "reactor.start", seq: nextSeq(), data: {} });
 
