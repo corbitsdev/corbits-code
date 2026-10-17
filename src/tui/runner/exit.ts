@@ -56,6 +56,7 @@ import {
   liveAgent,
   recordRunError,
   runWhileAgentBusy,
+  sanitizeRunnerDiagnostic,
   type RunnerServices,
   type RunnerState,
   type SnapshotExtra,
@@ -251,7 +252,24 @@ export function createRunPersistence(
     kind: Exclude<SnapshotKind, "run-end"> = "progress",
   ): Promise<void> => {
     if (services.crashGuard.isFinalized()) return;
-    await writeRunSnapshot(status, extra, kind);
+    try {
+      await writeRunSnapshot(status, extra, kind);
+    } catch (err: unknown) {
+      // Turn boundaries and other progress sites fire this with `void`. A
+      // rejecting saveState must not surface as unhandledRejection — the
+      // process crash handler treats that as fatal.
+      tuiLogger.warn(
+        "saveState failed for session {sessionId} status={status}: {error}",
+        {
+          sessionId: state.sessionId,
+          status,
+          error: sanitizeRunnerDiagnostic(
+            state,
+            err instanceof Error ? err.message : String(err),
+          ),
+        },
+      );
+    }
   };
 
   // Heartbeat refreshes run.json mtime so a quiet live turn is not aged to

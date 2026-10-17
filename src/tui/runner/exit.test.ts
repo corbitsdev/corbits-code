@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { AgentContextLockError, type Agent } from "@intx/agent";
+import { getLogger } from "@intx/log";
 import type { InferenceSource } from "@intx/types/runtime";
 
 import * as codexSession from "../../auth/codex/session.js";
@@ -17,6 +18,7 @@ import {
 } from "../../subagent/session-store.js";
 import type { ReactorInboundEvent } from "@intx/types/runtime";
 import { defined } from "../../../testkit/defined.js";
+import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 import {
   stubReactorCapabilities,
   stubReactorState,
@@ -31,10 +33,12 @@ import {
   createDeliveryGeneration,
   createSessionOperationQueue,
 } from "../delivery-queue.js";
+import * as sessionState from "../../session/state.js";
 import {
   agentRebuildFailure,
   closeAgentForRebuild,
   createRunLifecycle,
+  createRunPersistence,
   finalizeTUIRun,
   observeRecoveryAttempts,
   resetSessionForRotation,
@@ -974,6 +978,62 @@ describe("rebuild close helpers", () => {
     expect(
       defined<Error>(fatalBuildError, "fatal build error").message,
     ).toMatch(/restart/i);
+  });
+
+  test("a rejecting saveState on the turn-boundary snapshot does not emit unhandledRejection", async () => {
+    const save = spyOn(sessionState, "saveState").mockRejectedValue(
+      new Error("disk full"),
+    );
+    const warn = spyOn(getLogger([LOG_NAMESPACE_ROOT, "tui"]), "warn");
+    const state = {
+      runTaskTitle: "t",
+      liveSource: { id: "p", model: "m", credentialId: "cred" },
+      startedAt: 1,
+      connectedMcpServers: [],
+      config: { cwd: "/tmp" },
+      sessionId: "sess-boundary",
+    } as unknown as RunnerState;
+    const services = {
+      runSink: { getTurnCount: () => 2 },
+      activatedToolNames: { list: () => [] },
+      activeRunHandle: {
+        sessionId: "sess-boundary",
+        cwd: "/tmp",
+        task: "t",
+        startedAt: 1,
+        turnsUsed: 0,
+      },
+      crashGuard: { isFinalized: () => false },
+    } as unknown as RunnerServices;
+    state.persistRunSnapshot = createRunPersistence(
+      state,
+      services,
+    ).persistRunSnapshot;
+
+    let unhandled: unknown = null;
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandled = reason;
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+    try {
+      // session.ts onTurnBoundarySnapshot: fire-and-forget running snapshot.
+      void state.persistRunSnapshot?.("running");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toBeNull();
+      expect(save).toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        "saveState failed for session {sessionId} status={status}: {error}",
+        {
+          sessionId: "sess-boundary",
+          status: "running",
+          error: "disk full",
+        },
+      );
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+      save.mockRestore();
+      warn.mockRestore();
+    }
   });
 
   // Overlay accept/decline tests stub bump() inside resolveSuspended, so
