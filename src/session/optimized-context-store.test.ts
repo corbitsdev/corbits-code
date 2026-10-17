@@ -1,4 +1,5 @@
 import { defined } from "../../testkit/defined.js";
+import { withFileLogSink } from "../../testkit/file-log-sink.js";
 import { describe, test, expect } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -13,6 +14,7 @@ import {
 } from "./optimized-context-store.js";
 import { segmentFileName, listSegmentFiles } from "./incremental-jsonl.js";
 import { createPruningCompactor } from "./compactor.js";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 const TURNS_FILE = "turns.jsonl";
 
@@ -418,6 +420,81 @@ describe("createOptimizedContextStore load", () => {
     const loaded = await store.load();
     expect(loaded.turns).toHaveLength(2);
     expect(await listSegmentFiles(dir, TURNS_FILE)).toEqual([TURNS_FILE]);
+  });
+});
+
+describe("createOptimizedContextStore load warnings", () => {
+  function contextStoreWarnings(logged: string): string[] {
+    return logged
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter(
+        (record) =>
+          record.level === "warning" &&
+          record.category === `${LOG_NAMESPACE_ROOT}.session.context-store`,
+      )
+      .map((record) => JSON.stringify(record));
+  }
+
+  const pendingOp = {
+    correlationId: "corr-1",
+    kind: "approval" as const,
+    registeredAt: 1_700_000_000_000,
+    gateId: "gate-1",
+  };
+  const usage = {
+    input: 7,
+    output: 3,
+    cacheRead: 0,
+    cacheWrite: 0,
+    thinking: 0,
+  };
+
+  test("a cold load of a store written the current way logs no warning", async () => {
+    const dir = tempDir();
+    const writer = await createOptimizedContextStore(dir);
+    await writer.writeTurns([turn("a"), turn("b")]);
+    await writer.writeMetadata({
+      pendingOperations: [pendingOp],
+      tokenUsage: usage,
+    });
+    await writer.commit({ message: "checkpoint: tool-execution" });
+
+    let loaded: Awaited<ReturnType<typeof writer.load>> | undefined;
+    const logged = await withFileLogSink(async () => {
+      const resumed = await createOptimizedContextStore(dir);
+      loaded = await resumed.load();
+    });
+
+    expect(contextStoreWarnings(logged)).toEqual([]);
+    expect(turnTexts(defined(loaded).turns)).toEqual(["a", "b"]);
+    expect(defined(loaded).pendingOperations).toEqual([pendingOp]);
+    expect(defined(loaded).tokenUsage).toEqual(usage);
+  });
+
+  test("a malformed metadata.json still warns on load", async () => {
+    const dir = tempDir();
+    const writer = await createOptimizedContextStore(dir);
+    await writer.writeTurns([turn("a")]);
+    await writer.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await writer.commit({ message: "checkpoint: tool-execution" });
+    fs.writeFileSync(
+      path.join(dir, "metadata.json"),
+      JSON.stringify({ pendingOperations: 42 }),
+    );
+
+    let loaded: Awaited<ReturnType<typeof writer.load>> | undefined;
+    const logged = await withFileLogSink(async () => {
+      const resumed = await createOptimizedContextStore(dir);
+      loaded = await resumed.load();
+    });
+
+    const warnings = contextStoreWarnings(logged);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("metadata.json has unexpected structure");
+    expect(turnTexts(defined(loaded).turns)).toEqual(["a"]);
+    expect(defined(loaded).pendingOperations).toEqual([]);
   });
 });
 
