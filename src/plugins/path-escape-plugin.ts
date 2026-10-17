@@ -80,9 +80,9 @@ function escapeArgs(
   toolName: string,
   trustedPluginRoots?: RootsProvider,
 ): Record<string, unknown> {
-  // One fused walk: sanitizePath throws the same deny strings
-  // pathEscapeBlockReason computes, so a surviving call is exactly one the
-  // block-reason leg would have passed.
+  // Virtual-ref denials still throw. Workspace escapes pass through unchanged
+  // when allowOutside is false; the permission gate denies them via
+  // pathEscapeBlockReason before allow and before ask.
   const roots = rootsForEscape(toolName, rootsProvider, trustedPluginRoots);
   return walkPathArgs(args, undefined, (value) =>
     sanitizePath(value, cwd, roots, allowOutside, toolName),
@@ -200,9 +200,9 @@ export function virtualRefVerdict(
   return undefined;
 }
 
-// Same sandbox pathEscapePlugin enforces at execution. The permission gate
-// consults this at authorize time so it can deny instead of asking for a call
-// the plugin will reject after Accept.
+// The permission gate consults this before allow and before ask so an
+// out-of-workspace path is denied instead of prompted. sanitizePath does not
+// throw a second copy of that denial.
 export function pathEscapeBlockReason(
   args: Record<string, unknown>,
   cwd: string,
@@ -297,5 +297,7 @@ function sanitizePath(
     // so later plugins see a stable path, not a relative escape fragment.
     return resolve(cwd, value);
   }
-  throw new Error(`Path escapes working directory: ${value}`);
+  // The gate already hard-denies this escape. Leave the original path so a
+  // later permission check sees the same value the operator sent.
+  return value;
 }

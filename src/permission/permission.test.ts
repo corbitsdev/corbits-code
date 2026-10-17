@@ -44,7 +44,10 @@ import {
 import type { Approval, ApprovalOutcome, PermissionRequest } from "./types.js";
 import { initTemporaryGitRepo } from "../../testkit/temporary-git-repo.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
-import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
+import {
+  pathEscapePlugin,
+  pathEscapeBlockReason,
+} from "../plugins/path-escape-plugin.js";
 
 const shellCall = (command: string): ToolCall =>
   toolCall("run_shell", { command });
@@ -2668,7 +2671,7 @@ describe("listWorktreeRoots", () => {
     expect(result.isError).not.toBe(true);
   });
 
-  test("pathEscapePlugin still rejects a relative path into a genuinely unrelated directory", async () => {
+  test("the gate denies a relative path into a genuinely unrelated directory", async () => {
     const { repo } = createRepoWithWorktree();
     const roots = await listWorktreeRoots(repo);
     const outside = mkdtempSync(join(tmpdir(), "intercode-unrelated-plugin-"));
@@ -2681,8 +2684,15 @@ describe("listWorktreeRoots", () => {
       toolCall("read_file", { path: relativeToOutside }),
       new AbortController().signal,
     );
-    expect(result.isError).toBe(true);
-    expect(result.content).toMatch(/escapes working directory/);
+    expect(result.isError).not.toBe(true);
+    expect(
+      pathEscapeBlockReason(
+        { path: relativeToOutside },
+        repo,
+        () => roots,
+        "read_file",
+      ),
+    ).toMatch(/escapes working directory/);
   });
 });
 

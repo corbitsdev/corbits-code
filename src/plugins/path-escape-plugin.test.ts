@@ -44,26 +44,31 @@ describe("pathEscapePlugin", () => {
     ["source", "copy", "/etc/passwd"],
     ["filename", "write_file", "../secret.txt"],
   ] as const) {
-    test(`blocks escape via ${key} key (${tool})`, async () => {
+    test(`leaves an outside ${key} unchanged; the gate denies ${tool}`, async () => {
       const plugin = pathEscapePlugin("/project");
-      const handler = pluginHandler(plugin, okHandler);
+      const handler = pluginHandler(plugin, echoArgsHandler);
       const result = await handler(
         makeToolCall(tool, { [key]: value }),
         neverAbort(),
       );
-      expect(result.isError).toBe(true);
+      expect(result.isError).not.toBe(true);
+      const args = JSON.parse(String(result.content)) as Record<string, string>;
+      expect(args[key]).toBe(value);
+      expect(
+        pathEscapeBlockReason({ [key]: value }, "/project", () => [], tool),
+      ).toMatch(/escapes working directory/);
     });
   }
 
-  test("the block message tells the operator the path escapes the working directory", async () => {
-    const plugin = pathEscapePlugin("/project");
-    const handler = pluginHandler(plugin, okHandler);
-    const result = await handler(
-      makeToolCall("read_file", { path: "../secret.txt" }),
-      neverAbort(),
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toMatch(/escapes working directory/);
+  test("the gate denial tells the operator the path escapes the working directory", () => {
+    expect(
+      pathEscapeBlockReason(
+        { path: "../secret.txt" },
+        "/project",
+        () => [],
+        "read_file",
+      ),
+    ).toMatch(/escapes working directory/);
   });
 
   test("allows cwd path itself", async () => {
@@ -114,8 +119,17 @@ describe("pathEscapePlugin", () => {
       makeToolCall("read_file", { path: "../other-repo/README.md" }),
       neverAbort(),
     );
-    expect(blocked.isError).toBe(true);
-    expect(blocked.content).toMatch(/escapes working directory/);
+    expect(blocked.isError).not.toBe(true);
+    const blockedArgs = JSON.parse(String(blocked.content)) as { path: string };
+    expect(blockedArgs.path).toBe("../other-repo/README.md");
+    expect(
+      pathEscapeBlockReason(
+        { path: "../other-repo/README.md" },
+        "/project",
+        () => [],
+        "read_file",
+      ),
+    ).toMatch(/escapes working directory/);
 
     allow = true;
     const allowed = await handler(
@@ -204,15 +218,20 @@ describe("pathEscapePlugin", () => {
       return { next, seen: () => seen };
     };
 
-    test("blocks escape in a nested object under a path-like key", async () => {
+    test("passes a nested escape through; the gate denies it", async () => {
+      const args = { options: { path: "../secret.txt" } };
       const plugin = pathEscapePlugin("/project");
-      const handler = pluginHandler(plugin, okHandler);
+      const { next, seen } = captureNext();
+      const handler = pluginHandler(plugin, next);
       const result = await handler(
-        makeToolCall("read_file", { options: { path: "../secret.txt" } }),
+        makeToolCall("read_file", args),
         neverAbort(),
       );
-      expect(result.isError).toBe(true);
-      expect(result.content).toMatch(/escapes working directory/);
+      expect(result.isError).not.toBe(true);
+      expect(seen()).toEqual(args);
+      expect(
+        pathEscapeBlockReason(args, "/project", () => [], "read_file"),
+      ).toMatch(/escapes working directory/);
     });
 
     test("resolves nested in-bounds paths instead of passing them through", async () => {
@@ -229,28 +248,38 @@ describe("pathEscapePlugin", () => {
       });
     });
 
-    test("blocks escape via the filepath spelling", async () => {
+    test("passes an escape via the filepath spelling; the gate denies it", async () => {
+      const args = { filepath: "../secret.txt" };
       const plugin = pathEscapePlugin("/project");
-      const handler = pluginHandler(plugin, okHandler);
+      const { next, seen } = captureNext();
+      const handler = pluginHandler(plugin, next);
       const result = await handler(
-        makeToolCall("read_file", { filepath: "../secret.txt" }),
+        makeToolCall("read_file", args),
         neverAbort(),
       );
-      expect(result.isError).toBe(true);
-      expect(result.content).toMatch(/escapes working directory/);
+      expect(result.isError).not.toBe(true);
+      expect(seen()).toEqual(args);
+      expect(
+        pathEscapeBlockReason(args, "/project", () => [], "read_file"),
+      ).toMatch(/escapes working directory/);
     });
 
-    test("blocks escape in a string array under a path-like key", async () => {
+    test("passes an escape in a string array; the gate denies it", async () => {
+      const args = { paths: ["src/index.ts", "../secret.txt"] };
       const plugin = pathEscapePlugin("/project");
-      const handler = pluginHandler(plugin, okHandler);
+      const { next, seen } = captureNext();
+      const handler = pluginHandler(plugin, next);
       const result = await handler(
-        makeToolCall("read_file", {
-          paths: ["src/index.ts", "../secret.txt"],
-        }),
+        makeToolCall("read_file", args),
         neverAbort(),
       );
-      expect(result.isError).toBe(true);
-      expect(result.content).toMatch(/escapes working directory/);
+      expect(result.isError).not.toBe(true);
+      expect(seen()).toEqual({
+        paths: ["/project/src/index.ts", "../secret.txt"],
+      });
+      expect(
+        pathEscapeBlockReason(args, "/project", () => [], "read_file"),
+      ).toMatch(/escapes working directory/);
     });
 
     test("pathEscapeBlockReason agrees with execution time on nested escapes", async () => {
@@ -302,14 +331,15 @@ describe("pathEscapePlugin", () => {
 
     test("FILE_PATH and file-path match case- and separator-insensitively", async () => {
       const plugin = pathEscapePlugin("/project");
-      const handler = pluginHandler(plugin, okHandler);
+      const { next, seen } = captureNext();
+      const handler = pluginHandler(plugin, next);
       for (const key of ["FILE_PATH", "file-path"]) {
         const result = await handler(
           makeToolCall("read_file", { [key]: "../secret.txt" }),
           neverAbort(),
         );
-        expect(result.isError).toBe(true);
-        expect(result.content).toMatch(/escapes working directory/);
+        expect(result.isError).not.toBe(true);
+        expect(seen()).toEqual({ [key]: "../secret.txt" });
         expect(
           pathEscapeBlockReason(
             { [key]: "../secret.txt" },
@@ -529,13 +559,14 @@ describe("pathEscapePlugin", () => {
       const plugin = pathEscapePlugin(cwd, () => [], {
         trustedPluginRoots: () => [pluginDir],
       });
-      const handler = pluginHandler(plugin, okHandler);
+      const handler = pluginHandler(plugin, echoArgsHandler);
       const result = await handler(
         makeToolCall("write_file", { path: target, content: "x" }),
         neverAbort(),
       );
-      expect(result.isError).toBe(true);
-      expect(result.content).toMatch(/escapes working directory/);
+      expect(result.isError).not.toBe(true);
+      const args = JSON.parse(String(result.content)) as { path: string };
+      expect(args.path).toBe(target);
       expect(
         pathEscapeBlockReason(
           { path: target, content: "x" },
