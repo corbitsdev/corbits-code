@@ -294,7 +294,8 @@ BLINDERS ON: measure what the brief's success_criteria ask for, on the harness b
   over \`evals/capability\`) — the product non-TUI path (\`loadConfig\` +
   \`runExec\`) against fixture copies with \`verify.sh\` graders.
 - Latency spans: the PerfTrace harness under \`src/perf\` — \`rollup.ts\`
-  (TTFT vs stream split) and \`attribution-report.ts\` (per-turn attribution).
+  (TTFT vs stream split), \`assert-spans.ts\` (span assertions), and
+  \`attribution-report.ts\` (per-turn attribution).
 - Read how they invoke before running; extend neither. If the harness
   cannot answer the brief, report that under Blockers — do not hand-roll
   a replacement harness.
