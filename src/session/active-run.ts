@@ -84,6 +84,14 @@ export function isCrashed(): boolean {
   return crashed;
 }
 
+// Test-only seam: the crashed flag is process-global and sticky by design, so
+// a test that flips it must restore the not-crashed state — otherwise every
+// later saveState chain in the test process would no-op. Follows the
+// setTestWriteGate precedent below.
+export function resetCrashedForTests(): void {
+  crashed = false;
+}
+
 // Test-only seam: lets an integration test hold a chained write open past
 // markCrashed(), so it can deterministically prove a write still queued in
 // the chain sees isCrashed() before it fires — rather than hoping filesystem
