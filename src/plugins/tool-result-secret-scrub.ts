@@ -36,24 +36,36 @@ function isConnectionStringEnvKey(key: string): boolean {
   );
 }
 
-// True when a connection-string value actually carries credentials: a URI with
-// userinfo (scheme://user:pass@host/...) or embedded password material.
+// True when a connection-string value actually carries credentials: URI
+// userinfo of the form scheme://user:pass@host (a colon in the authority
+// before @, and before the next / or ?), or embedded password= material.
+// ADO-style DSNs carry Password= without a scheme, so the password check
+// does not require ://. An @ in the path or query (npm scopes, profile
+// URLs, email query params) is not userinfo.
 function carriesConnectionCredentials(value: string): boolean {
-  if (!value.includes("://")) return false;
-  return (
-    value.slice(value.indexOf("://") + 3).includes("@") ||
-    /password=/i.test(value)
-  );
+  return /password=/i.test(value) || hasCredentialUserinfo(value);
+}
+
+function hasCredentialUserinfo(value: string): boolean {
+  const schemeSep = value.indexOf("://");
+  if (schemeSep < 0) return false;
+  const rest = value.slice(schemeSep + 3);
+  const path = rest.indexOf("/");
+  const query = rest.indexOf("?");
+  let authorityEnd = rest.length;
+  if (path >= 0) authorityEnd = Math.min(authorityEnd, path);
+  if (query >= 0) authorityEnd = Math.min(authorityEnd, query);
+  const authority = rest.slice(0, authorityEnd);
+  const at = authority.indexOf("@");
+  if (at < 0) return false;
+  return authority.slice(0, at).includes(":");
 }
 
 function isSecretEnvKey(key: string, value: string): boolean {
-  if (
-    key === "API_KEY" ||
-    /(?:SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIAL|AUTH)/.test(key)
-  ) {
+  if (/(?:SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIAL|AUTH)/.test(key)) {
     return true;
   }
-  // Bare-KEY class (OPENAI_KEY, STRIPE_KEY, *_API_KEY): ENV-assignment scope
+  // Bare-KEY class (OPENAI_KEY, STRIPE_KEY, API_KEY): ENV-assignment scope
   // only. The (^|_) boundary keeps plain words ending in KEY (MONKEY) out.
   if (/(?:^|_)KEY$/.test(key)) return true;
   if (isConnectionStringEnvKey(key)) return carriesConnectionCredentials(value);
@@ -91,8 +103,8 @@ export function scrubSecretShapedContent(text: string): string {
     ENV_ASSIGNMENT,
     (match, key: string, value: string) => {
       if (!isSecretEnvKey(key, value)) return match;
-      const prefixEnd = match.lastIndexOf(key);
-      const prefix = match.slice(0, prefixEnd);
+      const assignment = `${key}=${value}`;
+      const prefix = match.slice(0, match.length - assignment.length);
       return `${prefix}${key}=${CREDENTIAL_REDACTION}`;
     },
   );

@@ -66,6 +66,39 @@ MIIEpAIBAAKCAQEA7
       "DATABASE_URL=sqlite:///local.db",
     );
   });
+
+  test("leaves scoped npm URLs and email-query URLs readable", () => {
+    const registry = "REGISTRY_URL=https://registry.npmjs.org/@scope/pkg";
+    const docs = "DOCS_URL=https://medium.com/@octocat/hello";
+    const support =
+      "SUPPORT_URL=https://example.com/help?email=dev@example.com";
+    expect(scrubSecretShapedContent(registry)).toBe(registry);
+    expect(scrubSecretShapedContent(docs)).toBe(docs);
+    expect(scrubSecretShapedContent(support)).toBe(support);
+  });
+
+  test("redacts user:pass@host connection URLs", () => {
+    const text = "DATABASE_URL=postgres://admin:foo@db.internal:5432/appdb";
+    const out = scrubSecretShapedContent(text);
+    expect(out).toBe(`DATABASE_URL=${CREDENTIAL_REDACTION}`);
+    expect(out).not.toContain("admin:foo");
+  });
+
+  test("redacts the whole env value when it contains its own key", () => {
+    const text = "OPENAI_KEY=proj-OPENAI_KEY-live-value-9z";
+    const out = scrubSecretShapedContent(text);
+    expect(out).toBe(`OPENAI_KEY=${CREDENTIAL_REDACTION}`);
+    expect(out).not.toContain("proj-");
+    expect(out).not.toContain("live-value-9z");
+  });
+
+  test("redacts Password= DSNs that lack a scheme", () => {
+    const text =
+      "DATABASE_URL=Server=db.internal;Database=appdb;User Id=admin;Password=s3cret-pw;";
+    const out = scrubSecretShapedContent(text);
+    expect(out).toBe(`DATABASE_URL=${CREDENTIAL_REDACTION}`);
+    expect(out).not.toContain("s3cret-pw");
+  });
 });
 
 describe("scrubSecretShapedValue", () => {
