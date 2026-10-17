@@ -42,6 +42,63 @@ MIIEpAIBAAKCAQEA7
       "See docs/authentication.md for how API keys are issued and rotated. No secrets in this paragraph.";
     expect(scrubSecretShapedContent(text)).toBe(text);
   });
+
+  test("redacts bare-KEY env assignments (CL-10756)", () => {
+    for (const key of ["OPENAI_KEY", "STRIPE_KEY", "GITHUB_KEY"]) {
+      const text = `./app/.env:7:${key}=proj-live-value-9z`;
+      const out = scrubSecretShapedContent(text);
+      expect(out).toContain(`${key}=${CREDENTIAL_REDACTION}`);
+      expect(out).not.toContain("proj-live-value-9z");
+    }
+  });
+
+  test("redacts credential-bearing DATABASE_URL connection strings (CL-10756)", () => {
+    const text =
+      "./app/.env:2:DATABASE_URL=postgres://admin:s3cret-pw@db.internal:5432/appdb";
+    const out = scrubSecretShapedContent(text);
+    expect(out).toContain(`DATABASE_URL=${CREDENTIAL_REDACTION}`);
+    expect(out).not.toContain("s3cret-pw");
+  });
+
+  test("leaves non-secret KEY words and credential-less URLs alone (CL-10756)", () => {
+    expect(scrubSecretShapedContent("MONKEY=banana")).toBe("MONKEY=banana");
+    expect(scrubSecretShapedContent("DATABASE_URL=sqlite:///local.db")).toBe(
+      "DATABASE_URL=sqlite:///local.db",
+    );
+  });
+
+  test("leaves scoped npm URLs and email-query URLs readable", () => {
+    const registry = "REGISTRY_URL=https://registry.npmjs.org/@scope/pkg";
+    const docs = "DOCS_URL=https://medium.com/@octocat/hello";
+    const support =
+      "SUPPORT_URL=https://example.com/help?email=dev@example.com";
+    expect(scrubSecretShapedContent(registry)).toBe(registry);
+    expect(scrubSecretShapedContent(docs)).toBe(docs);
+    expect(scrubSecretShapedContent(support)).toBe(support);
+  });
+
+  test("redacts user:pass@host connection URLs", () => {
+    const text = "DATABASE_URL=postgres://admin:foo@db.internal:5432/appdb";
+    const out = scrubSecretShapedContent(text);
+    expect(out).toBe(`DATABASE_URL=${CREDENTIAL_REDACTION}`);
+    expect(out).not.toContain("admin:foo");
+  });
+
+  test("redacts the whole env value when it contains its own key", () => {
+    const text = "OPENAI_KEY=proj-OPENAI_KEY-live-value-9z";
+    const out = scrubSecretShapedContent(text);
+    expect(out).toBe(`OPENAI_KEY=${CREDENTIAL_REDACTION}`);
+    expect(out).not.toContain("proj-");
+    expect(out).not.toContain("live-value-9z");
+  });
+
+  test("redacts Password= DSNs that lack a scheme", () => {
+    const text =
+      "DATABASE_URL=Server=db.internal;Database=appdb;User Id=admin;Password=s3cret-pw;";
+    const out = scrubSecretShapedContent(text);
+    expect(out).toBe(`DATABASE_URL=${CREDENTIAL_REDACTION}`);
+    expect(out).not.toContain("s3cret-pw");
+  });
 });
 
 describe("scrubSecretShapedValue", () => {
@@ -218,6 +275,24 @@ describe("toolResultSecretScrubPlugin", () => {
     );
     expect(result.content).toContain(CREDENTIAL_REDACTION);
     expect(result.content).not.toContain("supersecretvalue");
+  });
+  test("scrubs bare-KEY and DATABASE_URL through the shared middleware path (CL-10756)", async () => {
+    const plugin = toolResultSecretScrubPlugin();
+    if (plugin.middleware === undefined)
+      throw new Error("expected middleware plugin");
+    const handler = plugin.middleware(
+      next(
+        "secrets/.env:7:OPENAI_KEY=proj-live-value-9z\nsecrets/.env:2:DATABASE_URL=postgres://admin:s3cret-pw@db.internal:5432/appdb",
+      ),
+    );
+    const result = await handler(
+      { id: "c2", name: "read_file", arguments: { path: "secrets/.env" } },
+      new AbortController().signal,
+    );
+    expect(result.content).toContain(`OPENAI_KEY=${CREDENTIAL_REDACTION}`);
+    expect(result.content).toContain(`DATABASE_URL=${CREDENTIAL_REDACTION}`);
+    expect(result.content).not.toContain("proj-live-value-9z");
+    expect(result.content).not.toContain("s3cret-pw");
   });
   test("scrubs error results without stringifying object content", async () => {
     const plugin = toolResultSecretScrubPlugin();

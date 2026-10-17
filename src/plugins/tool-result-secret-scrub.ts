@@ -27,15 +27,49 @@ const JSON_CREDENTIAL_FIELD =
 // Grep/shell lines often look like path:line:KEY=value
 const ENV_ASSIGNMENT = /(?:^|:)([A-Z][A-Z0-9_]+)=([^\n]+)/gm;
 
-// Connection-string keys (DATABASE_URL and friends) are deliberately NOT
-// matched here. Widening this shape-classifier would redact every benign
-// connection string in tool output — a false-positive blast radius on a scrub
-// path, not a prompt path. The gap stays documented, not silently fixed.
-function isSecretEnvKey(key: string): boolean {
+// Connection-string env names (DATABASE_URL and friends). Redaction additionally
+// requires a credential-bearing value (see carriesConnectionCredentials), so
+// benign sqlite paths and bare hostnames in tool output stay readable.
+function isConnectionStringEnvKey(key: string): boolean {
   return (
-    key === "API_KEY" ||
-    /(?:SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIAL|AUTH)/.test(key)
+    /(?:_|^)(?:URL|URI|DSN)$/.test(key) || key.includes("CONNECTION_STRING")
   );
+}
+
+// True when a connection-string value actually carries credentials: URI
+// userinfo of the form scheme://user:pass@host (a colon in the authority
+// before @, and before the next / or ?), or embedded password= material.
+// ADO-style DSNs carry Password= without a scheme, so the password check
+// does not require ://. An @ in the path or query (npm scopes, profile
+// URLs, email query params) is not userinfo.
+function carriesConnectionCredentials(value: string): boolean {
+  return /password=/i.test(value) || hasCredentialUserinfo(value);
+}
+
+function hasCredentialUserinfo(value: string): boolean {
+  const schemeSep = value.indexOf("://");
+  if (schemeSep < 0) return false;
+  const rest = value.slice(schemeSep + 3);
+  const path = rest.indexOf("/");
+  const query = rest.indexOf("?");
+  let authorityEnd = rest.length;
+  if (path >= 0) authorityEnd = Math.min(authorityEnd, path);
+  if (query >= 0) authorityEnd = Math.min(authorityEnd, query);
+  const authority = rest.slice(0, authorityEnd);
+  const at = authority.indexOf("@");
+  if (at < 0) return false;
+  return authority.slice(0, at).includes(":");
+}
+
+function isSecretEnvKey(key: string, value: string): boolean {
+  if (/(?:SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIAL|AUTH)/.test(key)) {
+    return true;
+  }
+  // Bare-KEY class (OPENAI_KEY, STRIPE_KEY, API_KEY): ENV-assignment scope
+  // only. The (^|_) boundary keeps plain words ending in KEY (MONKEY) out.
+  if (/(?:^|_)KEY$/.test(key)) return true;
+  if (isConnectionStringEnvKey(key)) return carriesConnectionCredentials(value);
+  return false;
 }
 
 function replaceAll(
@@ -65,12 +99,15 @@ export function scrubSecretShapedContent(text: string): string {
       `${prefix}${CREDENTIAL_REDACTION}${suffix}`,
   );
 
-  result = result.replace(ENV_ASSIGNMENT, (match, key: string) => {
-    if (!isSecretEnvKey(key)) return match;
-    const prefixEnd = match.lastIndexOf(key);
-    const prefix = match.slice(0, prefixEnd);
-    return `${prefix}${key}=${CREDENTIAL_REDACTION}`;
-  });
+  result = result.replace(
+    ENV_ASSIGNMENT,
+    (match, key: string, value: string) => {
+      if (!isSecretEnvKey(key, value)) return match;
+      const assignment = `${key}=${value}`;
+      const prefix = match.slice(0, match.length - assignment.length);
+      return `${prefix}${key}=${CREDENTIAL_REDACTION}`;
+    },
+  );
 
   return result;
 }
