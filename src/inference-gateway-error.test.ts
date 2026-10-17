@@ -325,6 +325,43 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalized.retryAfterMs).toBe(7_000);
   });
 
+  test.each([{ resets_in_seconds: 0 }, { resets_in_seconds: -5 }])(
+    "Codex 429 with a zero/negative body reset window keeps the header retry-after (CL-10758)",
+    (window) => {
+      const normalized = normalizeInferenceErrorForRetry({
+        ...BARE_429,
+        providerId: "codex/acme-labs",
+        raw: {
+          error: {
+            code: "rate_limit_exceeded",
+            message: "Too Many Requests",
+            ...window,
+          },
+        },
+      });
+      expect(normalized.category).toBe("retryable");
+      expect(normalized.retryAfterMs).toBe(45_000);
+    },
+  );
+
+  test("Codex 429 with a zero retry_after body key keeps the header retry-after (CL-10758)", () => {
+    // retry_after is not a Codex body signal (only resets_in_seconds et al.);
+    // a zero there must never clobber the header floor either.
+    const normalized = normalizeInferenceErrorForRetry({
+      ...BARE_429,
+      providerId: "codex/acme-labs",
+      raw: {
+        error: {
+          code: "rate_limit_exceeded",
+          message: "Too Many Requests",
+          retry_after: 0,
+        },
+      },
+    });
+    expect(normalized.category).toBe("retryable");
+    expect(normalized.retryAfterMs).toBe(45_000);
+  });
+
   test("non-Codex 429s keep the header retry-after; a body reset is not read (CL-10664)", () => {
     const normalized = normalizeInferenceErrorForRetry({
       ...BARE_429,
