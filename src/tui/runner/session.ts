@@ -176,8 +176,7 @@ export async function assembleTUISession(
             start.activeRunHandle.cacheWriteModel = `${event.data.source.provider}:${event.data.source.model}`;
           }
         }
-        // CL-10667: debounced — the write recomputes state when it fires.
-        state.scheduleRunSnapshot?.();
+        void state.persistRunSnapshot?.("running");
       },
       hookEnabled: initialHookEnabled,
       onHookEvent: (event) => emitter.emit("hook", event),

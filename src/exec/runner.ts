@@ -102,7 +102,6 @@ import {
   clearActiveDisposeHost,
 } from "../session/active-host.js";
 import {
-  createRunSnapshotDebouncer,
   finalizeRunState,
   loadState,
   saveState,
@@ -536,10 +535,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
       : {}),
   };
   let stopHeartbeat: (() => void) | undefined;
-  // CL-10667: debounced per-turn boundary snapshots; terminal exposes flush.
-  let runSnapshotDebouncer:
-    | ReturnType<typeof createRunSnapshotDebouncer>
-    | undefined;
 
   const persist = async (
     status: "running" | "done" | "failed" | "cancelled",
@@ -547,7 +542,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
   ): Promise<void> => {
     if (finalized && status === "running") return;
     if (status !== "running") {
-      await runSnapshotDebouncer?.flush();
       finalized = true;
       stopHeartbeat?.();
       stopHeartbeat = undefined;
@@ -601,9 +595,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
   };
 
   await persist("running");
-  runSnapshotDebouncer = createRunSnapshotDebouncer({
-    write: () => persist("running"),
-  });
   stopHeartbeat = startRunHeartbeat({
     shouldTick: () => !finalized,
     tick: () => persist("running"),
@@ -1057,8 +1048,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
             activeRunHandle.cacheWriteModel = `${event.data.source.provider}:${event.data.source.model}`;
           }
         }
-        // CL-10667: debounced — the write recomputes state when it fires.
-        runSnapshotDebouncer?.schedule();
+        void persist("running");
       },
       resolveContextDir: () => workdir,
     });

@@ -24,7 +24,6 @@ import { setAgentSourceUnlessClosed } from "../agent-source-sync.js";
 import { billingIdentityFromSource } from "../../cost/session-cost.js";
 import { createRunSummary, type RunSummary } from "../../session/hooks.js";
 import {
-  createRunSnapshotDebouncer,
   finalizeRunState,
   saveState,
   type RunState,
@@ -262,20 +261,10 @@ export function createRunPersistence(
     await writeRunSnapshot("running");
   };
 
-  // CL-10667: per-turn boundary snapshots coalesce behind the debounce
-  // window (lazy payoff — the deferred write recomputes state at fire time,
-  // so nothing scheduled goes stale).
-  // Observable exposes flush before they observe or supersede run.json.
-  const runSnapshotDebouncer = createRunSnapshotDebouncer({
-    write: () => persistRunSnapshot("running"),
-  });
-
   return {
     writeRunSnapshot,
     persistRunSnapshot,
     heartbeatRunSnapshot,
-    scheduleRunSnapshot: runSnapshotDebouncer.schedule,
-    flushRunSnapshot: runSnapshotDebouncer.flush,
   };
 }
 
@@ -322,18 +311,11 @@ export async function createRunLifecycle(
   newSession: () => void;
   agentProxy: Agent;
 }> {
-  const {
-    persistRunSnapshot,
-    heartbeatRunSnapshot,
-    scheduleRunSnapshot,
-    flushRunSnapshot,
-  } = createRunPersistence(state, services);
+  const { persistRunSnapshot, heartbeatRunSnapshot } = createRunPersistence(
+    state,
+    services,
+  );
   state.persistRunSnapshot = persistRunSnapshot;
-  // CL-10667: per-turn boundary snapshots schedule behind the debounce
-  // window; observable exposes (interrupt rebuild, rotation, finalize) flush
-  // the pending write before they observe or supersede run.json.
-  state.scheduleRunSnapshot = scheduleRunSnapshot;
-  state.flushRunSnapshot = flushRunSnapshot;
   const activateAndCommitWire = (names: string[]): void => {
     if (!services.activatedToolNames.activate(names)) return;
     if (services.flushPromotions()) {
@@ -618,10 +600,6 @@ export async function createRunLifecycle(
       enqueue: enqueueOp,
       rebuild: async () => {
         try {
-          // CL-10667: run.json is observable the moment the rebuild starts
-          // reading store state, so the pending debounced snapshot flushes
-          // first.
-          await state.flushRunSnapshot?.();
           // close() tears down stream consumers before the aborted cycle's
           // inference.error is delivered, so the recorder never sees a
           // terminal event. Dispose before that teardown salvages the buffer
@@ -702,10 +680,6 @@ export async function createRunLifecycle(
             "stream drain during session-rotation teardown failed",
           ),
         );
-        // CL-10667: the rotation terminal write supersets the pending
-        // snapshot for the outgoing session; flush so the debounced write
-        // cannot straddle the id repoint below.
-        await state.flushRunSnapshot?.();
         await persistRunSnapshot(
           "done",
           { finishedAt: Date.now() },
@@ -789,9 +763,6 @@ export async function finalizeTUIRun(
   await hostOf(state).waitUntilExit();
   state.stopRunHeartbeat?.();
   delete state.stopRunHeartbeat;
-  // CL-10667: pending debounced snapshots flush ahead of the terminal write
-  // so a failed or dropped terminal write cannot leave run.json stale.
-  await state.flushRunSnapshot?.();
   // Stop workers before awaiting the session-op tail so a hung enqueue cannot
   // delay abort/reap; persistence, hooks, and telemetry stay after stop.
   // Toolset dispose lives inside shutdownRuntime so quit, crash, and signals
