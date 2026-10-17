@@ -192,22 +192,15 @@ export function clearsActiveRun(kind: SnapshotKind): boolean {
 /**
  * The run.json snapshot writers. Pure over (state, services), so the
  * lifecycle and the finalize tail can each build their own instance.
- * Exported for tests building the minimal (state, services) stub.
  */
 export function createRunPersistence(
   state: RunnerState,
   services: RunnerServices,
 ) {
-  // Identical-payload skip (CL-10667): the last written snapshot is the
-  // compare baseline; an unchanged progress snapshot skips the atomicWrite
-  // (terminal kinds always write — the skipped path never clears the active
-  // run handle, which finalizeRunState does).
-  let lastProgressJson: string | null = null;
   const writeRunSnapshot = async (
     status: SnapshotStatus,
     extra?: SnapshotExtra,
     kind: SnapshotKind = "progress",
-    force = false,
   ): Promise<void> => {
     const task =
       state.runTaskTitle.trim().length > 0
@@ -238,20 +231,11 @@ export function createRunPersistence(
         : {}),
       ...extra,
     };
-    const payloadJson = JSON.stringify(persisted, null, 2);
-    // force = heartbeat tick: mtime freshness is the write's job even when
-    // the payload is byte-identical to the baseline.
-    if (!force && kind === "progress" && payloadJson === lastProgressJson) {
-      return;
-    }
     if (clearsActiveRun(kind)) {
       await finalizeRunState(state.config.cwd, state.sessionId, persisted);
     } else {
       await saveState(state.config.cwd, state.sessionId, persisted);
     }
-    // Baseline only what landed: a failed save must not suppress the next
-    // attempt at the same payload.
-    lastProgressJson = payloadJson;
   };
 
   // Progress snapshots fire unsequenced (model switch, MCP connect, turn
@@ -271,18 +255,16 @@ export function createRunPersistence(
     await writeRunSnapshot(status, extra, kind);
   };
 
-  // The run-liveness heartbeat must bypass the identical-payload skip: its
-  // payload is often byte-identical (a long quiet turn), but run.json's
-  // mtime is what `ageStaleRunningState` reads cross-process — a skipped
-  // heartbeat would age a live run to "interrupted" after two missed beats.
+  // Heartbeat refreshes run.json mtime so a quiet live turn is not aged to
+  // "interrupted" by ageStaleRunningState.
   const heartbeatRunSnapshot = async (): Promise<void> => {
     if (services.crashGuard.isFinalized()) return;
-    await writeRunSnapshot("running", undefined, "progress", true);
+    await writeRunSnapshot("running");
   };
 
   // CL-10667: per-turn boundary snapshots coalesce behind the debounce
-  // window plus the identical-payload skip above (lazy payoff — the deferred
-  // write recomputes state at fire time, so nothing scheduled goes stale).
+  // window (lazy payoff — the deferred write recomputes state at fire time,
+  // so nothing scheduled goes stale).
   // Observable exposes flush before they observe or supersede run.json.
   const runSnapshotDebouncer = createRunSnapshotDebouncer({
     write: () => persistRunSnapshot("running"),
@@ -365,8 +347,6 @@ export async function createRunLifecycle(
   };
   const stopHeartbeat = startRunHeartbeat({
     shouldTick: () => !services.crashGuard.isFinalized(),
-    // The heartbeat's job is mtime freshness, not payload change: force the
-    // write past the identical-payload skip (see heartbeatRunSnapshot).
     tick: () => heartbeatRunSnapshot(),
   });
   state.stopRunHeartbeat = stopHeartbeat;
