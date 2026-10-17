@@ -434,14 +434,16 @@ export function isCodexShortRateLimitInferenceError(
 /**
  * Codex sends its reset window in the 429 body, not a header; when a bare
  * rate-limit body carries one, retry on that window instead of the policy
- * default. Exact usage-limit codes never reach here (the skeleton vetoes).
+ * default. A zero/negative window is not a real ETA — returning 0 would win
+ * over the header via `??` in the skeleton and retry immediately — so it
+ * falls through to the header/default floor. Exact usage-limit codes never
+ * reach here (the skeleton vetoes).
  */
 function codexRetryFromBody(error: InferenceErrorLike): number | undefined {
   const node = readErrorNode(coerceBody(error.raw));
   if (node === undefined) return undefined;
   const seconds = resetSecondsFromNode(node);
-  if (seconds === undefined) return undefined;
-  if (seconds <= 0) return 0;
+  if (seconds === undefined || seconds <= 0) return undefined;
   return seconds * 1000;
 }
 
