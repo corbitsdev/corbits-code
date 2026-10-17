@@ -469,6 +469,23 @@ segments in the working tree, and `load()` (the path an interrupt-rebuild
 takes) reads them, so the tool exchange survives a rebuild exactly as the
 old per-batch commit did.
 
+Pending-operation durability contract: a resolved approval's pending
+operation leaves `metadata.json` together with the turn that answers the
+parked call, never later. `tryCorrelate`'s redispatch and `error_result`
+paths and `onGateCleared`'s timeout path set `pendingOperationsChanged`
+when they drop the op from memory; the shared turns-only write
+(`writeCycleTurns`, called from the `executeTools` tail and from the loop's
+`resume.tool_result` branch right after the synthetic error result is
+appended) writes metadata after the turns whenever that flag is set, and
+`writeMetadata` clears it. Without this, a teardown between the redispatch
+and the next terminal left the op on disk; a reactor rebuilt from that store
+re-armed the answered call's gate at its original deadline and injected a
+second `tool_result` for the same call id, failing the well-formedness
+tripwire. Tool cycles that leave pending operations untouched still write
+turns only, so the coalescing savings hold. A crash between the turns write
+and the metadata write can still leave a stale op for an answered call;
+that narrower window is the rehydration guard's concern, not this patch's.
+
 **Disposition:** Promotion candidate. Performance coalescing — collapses K
 git commits per agentic turn to one deferred commit while preserving
 rebuild-from-disk durability.
@@ -710,7 +727,7 @@ revisit point is the next vendored sync (see `docs/VENDORING.md`).
 | errors-ts-classify-abort-reason | Add optional `reason` param to `classifyAbortError`, carried as `raw: { origin }` | Alexander Guy <alexander.guy@pm.me> | This ledger (#errors-ts-classify-abort-reason) | Next vendored sync |
 | harness-ts-inactivity-on-semantic-progress | Gate the inactivity watchdog's re-arm on parsed events, not raw SSE bytes | Alexander Guy <alexander.guy@pm.me> | This ledger (#harness-ts-inactivity-on-semantic-progress) | Next vendored sync |
 | reactor-ts-correlating-ids-leak | Wrap `tryCorrelate` in try/finally so `correlatingIds` clears on success dispatch paths | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-correlating-ids-leak) | Next vendored sync |
-| reactor-ts-tool-cycle-turns-only (supersedes reactor-ts-checkpoint-after-tool-cycle) | `executeTools` writes turns to store segments only and defers the cycle commit to terminals | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-tool-cycle-turns-only) | Next vendored sync |
+| reactor-ts-tool-cycle-turns-only (supersedes reactor-ts-checkpoint-after-tool-cycle) | `executeTools` writes turns to store segments only and defers the cycle commit to terminals; metadata rides along only when a resolved approval dropped a pending operation | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-tool-cycle-turns-only) | Next vendored sync |
 | reactor-ts-skip-unchanged-history (+ reactor-ts-last-written-turns-revision) | Skip `contextStore.writeTurns` when `getTurnsRevision()` is unchanged | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-skip-unchanged-history) | Next vendored sync |
 | reactor-ts-compact-publish-then-memory | Persist compact blobs, stage `writeTurns`, commit, then `replaceTurns` so memory stays on the old generation until publication | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-compact-publish-then-memory) | Next vendored sync |
 | reactor-ts-after-checkpoint-director-only | Gate `afterCheckpoint` on `hasOverride` so auto-commits do not emit it | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-after-checkpoint-director-only) | Next vendored sync |
