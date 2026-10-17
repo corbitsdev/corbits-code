@@ -277,19 +277,28 @@ describe("approval records in the turn log", () => {
 });
 
 describe("a parked approval in the turn log", () => {
-  test("writeTurns stages the parked call and writeMetadata flushes it once", async () => {
+  test("writeTurns is on disk before writeMetadata, which only appends the record", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
     await store.writeTurns([user, assistant]);
-    expect(fs.existsSync(path.join(dir, "turns.jsonl"))).toBe(false);
+    const afterTurns = fs.readFileSync(path.join(dir, "turns.jsonl"));
+    expect(lineKinds(dir)).toEqual(["turn", "turn"]);
+    const early = await (await createOptimizedContextStore(dir)).load();
+    expect(early.turns).toEqual([user, assistant]);
+    expect(early.pendingOperations).toEqual([]);
 
     await store.writeMetadata({ pendingOperations: [op], tokenUsage: USAGE });
+    const afterRecord = fs.readFileSync(path.join(dir, "turns.jsonl"));
+    expect(afterRecord.subarray(0, afterTurns.length)).toEqual(afterTurns);
     expect(lineKinds(dir)).toEqual(["turn", "turn", "record"]);
     expect(fs.existsSync(metadataPath(dir))).toBe(false);
-    const flushed = fs.readFileSync(path.join(dir, "turns.jsonl"));
+
+    // No parked approval: the segment is left alone.
+    await store.writeMetadata({ pendingOperations: [], tokenUsage: USAGE });
+    expect(fs.readFileSync(path.join(dir, "turns.jsonl"))).toEqual(afterRecord);
 
     await store.commit({ message: "suspend" });
-    expect(fs.readFileSync(path.join(dir, "turns.jsonl"))).toEqual(flushed);
+    expect(fs.readFileSync(path.join(dir, "turns.jsonl"))).toEqual(afterRecord);
     expect(await openOps(dir)).toEqual([op.correlationId]);
   });
 
@@ -483,17 +492,19 @@ describe("a parked approval across a compaction", () => {
 
     await store.writeTurns(folded);
     await store.writeMetadata({ pendingOperations: [op], tokenUsage: USAGE });
-    // The rewrite is still unpublished. The approval is not on metadata.json;
-    // it rides the staged rewrite and lands when that commit flushes.
-    expect(recordedApprovals(dir)).toEqual([]);
+    // The published log still has the call, so the record is on it before
+    // commit. A failed rewrite must not drop it, and must not use metadata.json.
+    expect(recordedApprovals(dir)).toHaveLength(1);
     expect(fs.existsSync(metadataPath(dir))).toBe(false);
+    expect(await openOps(dir)).toEqual([op.correlationId]);
     await failingCommit(dir, () => store.commit({ message: "compact" }));
 
-    expect(recordedApprovals(dir)).toEqual([]);
-    expect(await openOps(dir)).toEqual([]);
+    expect(recordedApprovals(dir)).toHaveLength(1);
+    expect(await openOps(dir)).toEqual([op.correlationId]);
 
     await store.commit({ message: "retry compact" });
     expect(recordFollowsCall(dir, "call-1")).toBe(true);
+    expect(recordedApprovals(dir)).toHaveLength(1);
     expect(await openOps(dir)).toEqual([op.correlationId]);
     expect(fs.existsSync(metadataPath(dir))).toBe(false);
     expect(await headPaths(dir)).not.toContain("metadata.json");

@@ -1276,12 +1276,10 @@ export async function createSessionStores(
   // base is not this set: load() never reads it, and the approval is not
   // copied onto metadata.json to compensate.
   const loggedApprovalIds = new Set<string>();
-  // Append writeTurns holds turns here until one flush. The commit cycle
-  // flushes from writeMetadata, once the parked approval exists to attach.
-  // commit only git-adds that flush. A tool-result append flushes here,
-  // because that cycle never calls writeMetadata and the result is what
-  // closes the record.
-  let stagedAppend: readonly ConversationTurn[] | null = null;
+  // Line objects last passed to the canonical segmented writer, same refs, so
+  // a later record can extend that prefix by one append instead of rewriting
+  // the turns.
+  let canonicalLines: readonly unknown[] | null = null;
 
   function adoptLoggedApprovals(ops: readonly PendingOperation[]): void {
     for (const op of ops) {
@@ -1295,21 +1293,6 @@ export async function createSessionStores(
   function hasUnloggedApproval(): boolean {
     for (const id of approvalRecords.keys()) {
       if (!loggedApprovalIds.has(id)) return true;
-    }
-    return false;
-  }
-
-  function newTurnsHaveToolResult(
-    prev: readonly ConversationTurn[],
-    next: readonly ConversationTurn[],
-  ): boolean {
-    const start = refPrefixLength(prev, next);
-    for (let index = start; index < next.length; index++) {
-      const turn = next[index];
-      if (turn === undefined) continue;
-      for (const block of turn.content) {
-        if (block.type === "tool_result") return true;
-      }
     }
     return false;
   }
@@ -1359,64 +1342,48 @@ export async function createSessionStores(
     // the canonical log, and the approval is not written to metadata.json.
     if (turnsBaseName !== TURNS_FILE) return;
     for (const id of included) loggedApprovalIds.add(id);
+    canonicalLines = lines;
   }
 
-  async function flushStagedAppend(): Promise<void> {
-    if (stagedAppend === null) return;
-    const turns = stagedAppend;
-    stagedAppend = null;
-    await writeTurnLog(turns);
-    liveTurnRefs = [...turns];
-    invalidateTurnsCache();
-  }
-
-  // One canonical flush of the staged append, or of the already-flushed turns
-  // when a legacy approval still has to be inserted. A staged rewrite stays
-  // unpublished until commit, which is the flush for that path.
-  async function flushCanonicalApprovals(): Promise<void> {
-    if (turnsBaseName !== TURNS_FILE || unpublishedRewrite !== null) return;
-    if (stagedAppend !== null) {
-      await flushStagedAppend();
-      return;
-    }
-    if (!hasUnloggedApproval()) return;
-    const turns = liveTurnRefs ?? (await readLiveTurns());
-    if (turns.length === 0) return;
-    await writeTurnLog(turns);
-    liveTurnRefs = [...turns];
-    invalidateTurnsCache();
-  }
-
-  async function noteAppend(turns: readonly ConversationTurn[]): Promise<void> {
-    const previous = liveTurnRefs;
-    stagedAppend = [...turns];
-    if (previous !== null && newTurnsHaveToolResult(previous, turns)) {
-      await flushStagedAppend();
-      return;
-    }
-    // A fresh store has no in-memory baseline. A tool-result suffix on top of
-    // the log already on disk still has to flush here: that cycle does not
-    // call writeMetadata. The first publish of a history (empty log) stays
-    // staged so writeMetadata can attach a parked approval and flush once.
-    if (previous === null && (await diskSuffixHasToolResult(turns))) {
-      await flushStagedAppend();
-    }
-  }
-
-  async function diskSuffixHasToolResult(
-    turns: readonly ConversationTurn[],
-  ): Promise<boolean> {
-    const live = await readLiveTurns();
-    if (live.length === 0 || turns.length <= live.length) return false;
-    if (contentPrefixLength(live, turns) < live.length) return false;
-    for (let index = live.length; index < turns.length; index++) {
-      const turn = turns[index];
-      if (turn === undefined) continue;
+  // The turns are already on disk. Extend the canonical log by the new record
+  // lines only. A prefix extension appends; it does not rewrite the turns. A
+  // writer with no memory of those bytes appends the line to the active
+  // segment instead of rebuilding it.
+  async function appendParkedRecords(
+    published: readonly ConversationTurn[],
+  ): Promise<void> {
+    if (turnsBaseName !== TURNS_FILE) return;
+    const callIds = new Set<string>();
+    for (const turn of published) {
       for (const block of turn.content) {
-        if (block.type === "tool_result") return true;
+        if (block.type === "tool_call") callIds.add(block.id);
       }
     }
-    return false;
+    const pending: PendingApprovalRecord[] = [];
+    for (const [id, record] of approvalRecords) {
+      if (loggedApprovalIds.has(id)) continue;
+      const callId = record.pendingApproval.suspendedCall?.id;
+      if (callId === undefined || !callIds.has(callId)) continue;
+      pending.push(record);
+    }
+    if (pending.length === 0) return;
+    if (canonicalLines !== null) {
+      const lines = [...canonicalLines, ...pending];
+      await writeSegmented(writeTurnsSegmented, lines);
+      canonicalLines = lines;
+    } else {
+      const names = await listSegmentFiles(dir, TURNS_FILE);
+      const target = names.at(-1) ?? TURNS_FILE;
+      const text = pending
+        .map((record) => `${JSON.stringify(record)}\n`)
+        .join("");
+      await fs.promises.appendFile(path.join(dir, target), text);
+      pendingSegmentPaths.add(target);
+    }
+    for (const record of pending) {
+      loggedApprovalIds.add(record.pendingApproval.correlationId);
+    }
+    invalidateTurnsCache();
   }
 
   function retainedLegacyApprovals(raw: string | null): PendingOperation[] {
@@ -1449,9 +1416,13 @@ export async function createSessionStores(
     )) {
       approvalRecords.set(op.correlationId, pendingApprovalRecord(op));
     }
-    // The reactor writes the parked call's turn just before this in the same
-    // commit cycle. Attaching the record here is the cycle's one segment flush.
-    await flushCanonicalApprovals();
+    // Turns are already on disk. A parked approval appends its record line
+    // once, including while a rewrite is still unpublished, so load() of the
+    // published log sees it before commit. No parked approval adds no write.
+    if (hasUnloggedApproval()) {
+      const published = liveTurnRefs ?? (await readLiveTurns());
+      await appendParkedRecords(published);
+    }
     if (!metadataJsonSeeded) {
       writtenMetadataJson = await readTextOrNull(path.join(dir, METADATA_FILE));
       metadataJsonSeeded = true;
@@ -1735,17 +1706,14 @@ export async function createSessionStores(
       unpublishedRewrite = [...turns];
       return;
     }
-    if (liveTurnRefs !== null || stagedAppend !== null) {
-      const baseline = stagedAppend ?? liveTurnRefs;
-      if (
-        baseline !== null &&
-        refPrefixLength(baseline, turns) < baseline.length
-      ) {
-        stagedAppend = null;
+    if (liveTurnRefs !== null) {
+      if (refPrefixLength(liveTurnRefs, turns) < liveTurnRefs.length) {
         unpublishedRewrite = [...turns];
         return;
       }
-      await noteAppend(turns);
+      await writeTurnLog(turns);
+      liveTurnRefs = [...turns];
+      invalidateTurnsCache();
       return;
     }
     await withResolvedDirLock(dir, async () => {
@@ -1753,17 +1721,14 @@ export async function createSessionStores(
         unpublishedRewrite = [...turns];
         return;
       }
-      if (liveTurnRefs !== null || stagedAppend !== null) {
-        const baseline = stagedAppend ?? liveTurnRefs;
-        if (
-          baseline !== null &&
-          refPrefixLength(baseline, turns) < baseline.length
-        ) {
-          stagedAppend = null;
+      if (liveTurnRefs !== null) {
+        if (refPrefixLength(liveTurnRefs, turns) < liveTurnRefs.length) {
           unpublishedRewrite = [...turns];
           return;
         }
-        await noteAppend(turns);
+        await writeTurnLog(turns);
+        liveTurnRefs = [...turns];
+        invalidateTurnsCache();
         return;
       }
       const decision = await resolveFirstWrite(turns);
@@ -1776,7 +1741,9 @@ export async function createSessionStores(
         unpublishedRewrite = [...turns];
         return;
       }
-      await noteAppend(turns);
+      await writeTurnLog(turns);
+      liveTurnRefs = [...turns];
+      invalidateTurnsCache();
     });
   }
 
@@ -1857,19 +1824,6 @@ export async function createSessionStores(
         ),
       )) {
         approvalRecords.set(op.correlationId, pendingApprovalRecord(op));
-      }
-      if (stagedAppend !== null && unpublishedRewrite === null) {
-        await flushStagedAppend();
-        try {
-          liveLog = await readLiveLogCached();
-        } catch (cause) {
-          throw new Error(
-            `failed to load ${TURNS_FILE}: ${
-              cause instanceof Error ? cause.message : String(cause)
-            }`,
-            { cause },
-          );
-        }
       }
       const { turns } = liveLog;
       return {
@@ -1983,13 +1937,6 @@ export async function createSessionStores(
     async commit(options, signal) {
       return withResolvedDirLock(dir, async () => {
         const stagedRewrite = unpublishedRewrite;
-        // An append the commit cycle did not flush (no writeMetadata) still
-        // has to land before git add. A rewrite stays staged until the
-        // snapshot below, then one flush — commit does not flush again after
-        // writeMetadata already did.
-        if (stagedAppend !== null && stagedRewrite === null) {
-          await flushStagedAppend();
-        }
         // The staged rewrite lands on the working-tree segments before the git
         // operations below; snapshot them so a failed commit can restore the
         // published generation. The rewrite stays staged so a retry can still
@@ -2174,6 +2121,7 @@ export async function createSessionStores(
               turnsBaseName,
             );
             liveTurnRefs = null;
+            canonicalLines = null;
             // The restore rewrote the published generation; the cached
             // live-turns parse predates it in general, so rebuild from disk.
             invalidateTurnsCache();

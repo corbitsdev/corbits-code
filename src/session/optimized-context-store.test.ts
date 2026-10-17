@@ -724,10 +724,9 @@ describe("createOptimizedContextStore checkpoint", () => {
       await store.writeTurns([...turns]);
     }
     const extraTurns = segmentFileName(TURNS_FILE, 1);
-    // The append stays staged until commit flushes it. That flush is what
-    // the empty-checkpoint skip must not miss.
-    const second = await store.commit({ message: "pending extra" });
     expect(fs.existsSync(path.join(dir, extraTurns))).toBe(true);
+
+    const second = await store.commit({ message: "pending extra" });
     expect(second.hash).not.toBe(first.hash);
     expect(await gitLsTree(dir)).toContain(extraTurns);
   });
@@ -1402,7 +1401,6 @@ describe("concurrent sessions write disjoint transcripts", () => {
       ownerId: "session-A",
     });
     await sessionA.writeTurns([turn("seed")]);
-    await sessionA.writeMetadata(EMPTY_CHECKPOINT_METADATA);
     fs.unlinkSync(path.join(dir, TURNS_FILE));
 
     const sessionB = await createOptimizedContextStore(dir, {
