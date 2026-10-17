@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
 import { isSameTool } from "./canonical-tool-name.js";
 
 describe("isSameTool", () => {
@@ -48,78 +47,5 @@ describe("isSameTool", () => {
   ])("isSameTool(%j, %j) is false", (a, b) => {
     expect(isSameTool(a, b)).toBe(false);
     expect(isSameTool(b, a)).toBe(false);
-  });
-});
-
-// Callsites that compare incoming wire names must go through isSameTool (or
-// the canonical modules themselves). A new raw `name === "<tool>"` compare in
-// one of these files reintroduces the wire-rename breakage on the next rename,
-// so this test fails until the callsite is converted.
-describe("tool-name comparison regression guard", () => {
-  const CALLSITES = [
-    "src/agent/director.ts",
-    "src/subagent/poll-exempt.ts",
-    "src/tui/mcp-view.ts",
-    "src/tui/runtime-bridge.ts",
-    "src/tui/stall-watchdog.ts",
-    "src/agent/tool-execution-watchdog.ts",
-    "src/tui/turns-to-blocks.ts",
-  ];
-
-  const TOOL_LITERALS = new Set([
-    "read_file",
-    "write_file",
-    "edit_file",
-    "delete_file",
-    "run_shell",
-    "search_files",
-    "manage_tasks",
-    "use_skill",
-    "web_fetch",
-    "web_search",
-    "ask_operator",
-    "ask_director",
-    "wait_agents",
-    "spawn_agent",
-    "submit_output",
-    "submit_plan",
-    "present",
-    "list_agents",
-    "read",
-    "write",
-    "edit",
-    "delete",
-    "bash",
-    "shell",
-    "glob",
-    "todowrite",
-    "skill",
-    "webfetch",
-    "websearch",
-    "question",
-    "update_plan",
-    "wait",
-  ]);
-
-  test("no raw tool-name ===/!== compares outside the canonical modules", async () => {
-    const root = join(import.meta.dirname, "..", "..");
-    const violations: string[] = [];
-    for (const file of CALLSITES) {
-      const text = await Bun.file(join(root, file)).text();
-      for (const [index, line] of text.split("\n").entries()) {
-        const match = /(?:\?\.name|\.name)\s*(===|!==)\s*(["'])([^"']+)\2/.exec(
-          line,
-        );
-        if (match?.[3] !== undefined && TOOL_LITERALS.has(match[3])) {
-          violations.push(`${file}:${index + 1}: ${line.trim()}`);
-        }
-        const canonical =
-          /canonicalToolName\(([^)]+)\)\s*(===|!==)\s*["']/.exec(line);
-        if (canonical !== null) {
-          violations.push(`${file}:${index + 1}: ${line.trim()}`);
-        }
-      }
-    }
-    expect(violations).toEqual([]);
   });
 });

@@ -6,11 +6,7 @@ import {
   packageToCapabilities,
 } from "./directors/registry.js";
 import { formatDirectorSystemPrompt } from "./directors/identity.js";
-import {
-  DIRECTOR_IDS,
-  type DirectorId,
-  type DirectorPackage,
-} from "./directors/types.js";
+import { type DirectorId, type DirectorPackage } from "./directors/types.js";
 import { buildSubAgentSystemPrompt } from "./prompts.js";
 import { resolveModelFamilyPolicy } from "./model-family-policy.js";
 import { shouldApplyGrokAntiThrash } from "../subagent/provider-family.js";
@@ -177,41 +173,4 @@ export function assembleDirectorPrompt(
     policy.toolDisciplineRules.length > 0
     ? `${prompt}\n\n${policy.toolDisciplineRules}`
     : prompt;
-}
-
-export interface DirectorPromptSize {
-  directorId: DirectorId;
-  family: PromptSizeFamily;
-  chars: number;
-  bytes: number;
-}
-
-export function measureDirectorPrompt(
-  directorId: DirectorId,
-  family: PromptSizeFamily,
-): DirectorPromptSize {
-  const prompt = assembleDirectorPrompt(directorId, family);
-  return {
-    directorId,
-    family,
-    chars: prompt.length,
-    bytes: Buffer.byteLength(prompt, "utf8"),
-  };
-}
-
-/** Full per-director x per-family size table. */
-export function directorPromptSizeTable(): DirectorPromptSize[] {
-  const rows: DirectorPromptSize[] = [];
-  for (const directorId of DIRECTOR_IDS) {
-    for (const family of [
-      "default",
-      "muse",
-      "grok",
-      "claude",
-      "gpt",
-    ] as const) {
-      rows.push(measureDirectorPrompt(directorId, family));
-    }
-  }
-  return rows;
 }
