@@ -35,6 +35,7 @@
         "isomorphic-git": "catalog:",
       },
       "devDependencies": {
+        "@corbits/evals": "^0.1.1",
         "@intx/inference-testing": "0.3.0",
         "@types/bun": "1.4.3",
         "knip": "^6.41.0",
@@ -306,6 +307,8 @@
 
     "@corbits/codex-provider": ["@corbits/codex-provider@0.1.2", "", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.2.0", "@corbits/openai-responses": "^0.2.0", "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-jIKDuydaAOF1xLC6iZgtSEAIcuaXtGGxsvFUm4ZBH30wDDVZDGIAokPHtROZGlbImQ9ElaoTShDfHSY2iP5kdQ=="],
 
+    "@corbits/evals": ["@corbits/evals@0.1.1", "", { "dependencies": { "@corbits/system-one": "^0.3.0" }, "peerDependencies": { "@intx/workflow": "^0.4.0" }, "optionalPeers": ["@intx/workflow"] }, "sha512-JjBbLVZn/xtrdQiOr/yglsBfiaa8fAksCaZ+kiu+bRK0MQAhUjUKRmp1G06JouHagAUsAlqhcbagI91gsoEASQ=="],
+
     "@corbits/first-class-providers": ["@corbits/first-class-providers@workspace:packages/first-class-providers"],
 
     "@corbits/oauth-core": ["@corbits/oauth-core@0.3.0", "", { "dependencies": { "@intx/db": "^0.4.0", "@intx/hub-api": "^0.4.0", "@intx/hub-common": "^0.4.0", "@intx/types": "^0.4.0", "arktype": "^2.2.3", "drizzle-orm": "^0.45.2", "hono": "^4.11.9" } }, "sha512-Al6l7FXCSDVboMCujr8piMmudQ6W+7wVRZKsZZ8Elpy5BbW4+gRGjrXSdplGILiEl/YedoWi66hGF/DpLUjVoA=="],
@@ -319,6 +322,8 @@
     "@corbits/provider-opencode-go": ["@corbits/provider-opencode-go@workspace:packages/opencode-go"],
 
     "@corbits/provider-zen": ["@corbits/provider-zen@workspace:packages/zen"],
+
+    "@corbits/system-one": ["@corbits/system-one@0.3.1", "", { "dependencies": { "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-YvYaP6CY5VGM7MPJW6JPU4d5uPESMCX1xspddch0NGCBNB4Nz4yAR1JOFz6gYyVy0JyYHqtNYArXwFB5kUetug=="],
 
     "@corbits/xai-provider": ["@corbits/xai-provider@0.1.2", "", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.2.0", "@corbits/openai-responses": "^0.2.0", "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-4gCSLehuE922UG5DeAQLMA3iaq5MzSEgKNuq2Lb4aJqEYsQ85t8rTmu0DXs+T6mHNq2cbCI9eCF4aXuyv420iA=="],
 
