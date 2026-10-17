@@ -205,9 +205,11 @@ export async function finalizeRunState(
 }
 
 // Crash-time terminal write that bypasses writeChains: awaiting a hung queued
-// write would block the crash handler's process.exit. Callers must call
-// markCrashed() (src/session/active-run.ts) first so queued snapshot writes
-// step aside instead of racing this rename().
+// write would block the crash handler's process.exit. The crash fence is
+// enforced here, not left to caller discipline: both production callers
+// (process-handlers.ts handleFatal and the signal handlers) flip it via
+// markCrashed() before finalizing, and any other caller fails closed instead
+// of landing a terminal record queued snapshot writes may then clobber.
 //
 // Second terminal path, separate on purpose: only index.ts's process-level
 // uncaughtException/unhandledRejection and signal handlers reach it (a crash
@@ -219,6 +221,11 @@ export async function saveCrashState(
   state: RunState,
   home?: string,
 ): Promise<void> {
+  if (!isCrashed()) {
+    throw new Error(
+      `saveCrashState refused for session ${sessionId}: not in crashed state (call markCrashed() first)`,
+    );
+  }
   const path = statePath(cwd, sessionId, home);
   await atomicWrite(path, JSON.stringify(state, null, 2));
 }

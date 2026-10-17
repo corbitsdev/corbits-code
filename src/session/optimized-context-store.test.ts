@@ -2268,3 +2268,64 @@ describe("createOptimizedContextStore metadata ownership (CL-10667)", () => {
     expect((await resumed.load()).tokenUsage).toEqual(USAGE_TWO);
   });
 });
+
+describe("live-turns generation cache staleness (CL-10757)", () => {
+  test("in-process append invalidates the cache: load serves fresh turns", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    // The reactor extends its live turns array in place, so the store detects
+    // the append by reference: keep the first turn object stable.
+    const first = turn("one");
+    await store.writeTurns([first]);
+    // Populates the generation cache.
+    expect(turnTexts((await store.load()).turns)).toEqual(["one"]);
+
+    await store.writeTurns([first, turn("two")]);
+    expect(turnTexts((await store.load()).turns)).toEqual(["one", "two"]);
+  });
+
+  test("a committed rewrite is never served stale from the cache", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeTurns([turn("keep-a"), turn("drop-me")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "published original" });
+    // Populates the generation cache.
+    expect(turnTexts((await store.load()).turns)).toEqual([
+      "keep-a",
+      "drop-me",
+    ]);
+
+    // A rewrite stages off the live generation until commit, then the commit
+    // lands it on disk: the post-commit load must serve it, not the cache.
+    await store.writeTurns([turn("[Compacted prior context]"), turn("keep-b")]);
+    await store.commit({ message: "publish compact" });
+    expect(turnTexts((await store.load()).turns)).toEqual([
+      "[Compacted prior context]",
+      "keep-b",
+    ]);
+  });
+
+  test("a foreign write between loads is never served stale from the cache", async () => {
+    const dir = tempDir();
+    const first = await createOptimizedContextStore(dir);
+    await first.writeTurns([turn("one")]);
+    // Populates the first generation's cache.
+    expect(turnTexts((await first.load()).turns)).toEqual(["one"]);
+
+    // A second live generation on the same dir (longer body so the segment
+    // stat changes even at coarse mtime granularity).
+    const second = await createOptimizedContextStore(dir);
+    await second.writeTurns([turn("one"), turn("two-with-a-longer-body")]);
+    expect(turnTexts((await second.load()).turns)).toEqual([
+      "one",
+      "two-with-a-longer-body",
+    ]);
+
+    // The first generation's cached parse must not shadow the foreign write.
+    expect(turnTexts((await first.load()).turns)).toEqual([
+      "one",
+      "two-with-a-longer-body",
+    ]);
+  });
+});

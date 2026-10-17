@@ -21,8 +21,10 @@ await withMockedModule(
   }),
 );
 
-const { finalizeRunState, loadState, saveState } = await import("./state.js");
-const { getActiveRun, setActiveRun } = await import("./active-run.js");
+const { finalizeRunState, loadState, saveCrashState, saveState } =
+  await import("./state.js");
+const { getActiveRun, markCrashed, resetCrashedForTests, setActiveRun } =
+  await import("./active-run.js");
 type RunState = import("./state.js").RunState;
 
 let cwd = "";
@@ -104,4 +106,35 @@ test("saveState calls for different sessions do not block each other", async () 
   const b = await loadState(cwd, "session-b", home);
   expect(a).toMatchObject({ kind: "ok", state: { task: "a" } });
   expect(b).toMatchObject({ kind: "ok", state: { task: "b" } });
+});
+
+test("saveCrashState fails closed without the crash fence and lands nothing", async () => {
+  const sessionId = "sess-gated";
+  await expect(
+    saveCrashState(cwd, sessionId, state({ status: "crashed" }), home),
+  ).rejects.toThrow("not in crashed state");
+  expect(await loadState(cwd, sessionId, home)).toMatchObject({
+    kind: "missing",
+  });
+});
+
+test("saveCrashState lands the terminal record once crashed", async () => {
+  const sessionId = "sess-crash-lands";
+  markCrashed();
+  try {
+    await saveCrashState(
+      cwd,
+      sessionId,
+      state({ status: "crashed", finishedAt: 7, error: "boom" }),
+      home,
+    );
+  } finally {
+    // The flag is process-global and sticky: restore it so later tests in
+    // this process keep their saveState chains live.
+    resetCrashedForTests();
+  }
+  expect(await loadState(cwd, sessionId, home)).toMatchObject({
+    kind: "ok",
+    state: { status: "crashed", finishedAt: 7, error: "boom" },
+  });
 });
