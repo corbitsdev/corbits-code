@@ -146,7 +146,11 @@ export async function closeAgentForRebuild(
   }
 }
 
-type AgentBuildReason = "initial" | "reload" | "interrupt" | "session-rotation";
+type AgentBuildReason =
+  | "initial"
+  | "mcp-tools-changed"
+  | "interrupt"
+  | "session-rotation";
 
 // Directors seed allowIdleWithFleet=true because fleet lanes may appear
 // mid-session. Rebuilds re-sync from the live count: the publisher only
@@ -543,7 +547,7 @@ export async function createRunLifecycle(
         if (!closedCleanly) {
           throw new AgentContextLockError(state.workdir);
         }
-        await buildLiveAgent("reload");
+        await buildLiveAgent("mcp-tools-changed");
         resyncIdleWithFleetFlag(services);
         state.streamPromise = consumeStream(
           liveAgent(state).stream(),
@@ -562,6 +566,10 @@ export async function createRunLifecycle(
     });
   };
   state.reloadIfIdle = reloadIfIdle;
+  state.requestToolSetRebuild = (): void => {
+    state.pendingReload = true;
+    reloadIfIdle();
+  };
 
   // Search loads top hits onto the next infer's tail; promote-on-execute
   // still declares a called name outside that prefix, at the cost of cache

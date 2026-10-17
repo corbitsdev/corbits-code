@@ -190,7 +190,6 @@ export interface RunnerServices {
   providerFailureAttempts: ReturnType<
     typeof import("../provider/failure-attempt.js").createProviderFailureAttemptTracker
   >;
-  baseToolCount: number;
   mcpStates: Map<string, import("../../agent/tools.js").MCPServerState>;
   mcpConnectController: AbortController;
 }
@@ -231,6 +230,8 @@ export interface RunnerState {
   // failed build poisons every later send instead of dispatching to a
   // closed agent.
   inFlight: number;
+  // Set when the connected MCP tool set changed: the agent fixes its tool set
+  // at build, so the change reaches it only through a rebuild once idle.
   pendingReload: boolean;
   fatalBuildError: Error | null;
   // Tracked live so compaction always summarizes with the current model
@@ -293,6 +294,7 @@ export interface RunnerState {
   // because tests build partial states without session assembly.
   compactionLifecycle?: CompactionLifecycle;
   reloadIfIdle?: () => void;
+  requestToolSetRebuild?: () => void;
   systemNotice?: (text: string) => void;
   currentAttemptIdentity?: () => InferenceAttemptIdentity;
   handleSendFailure?: (

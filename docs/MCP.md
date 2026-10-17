@@ -128,6 +128,13 @@ file for that HTTP endpoint. Built-in Exa is disable-only — Alt+R notifies and
 does not open the confirm. While a local `.corbits/settings.json` `mcpServers`
 list is in effect, these actions edit that local file; add remains blocked.
 
+The agent fixes the tool set it can authorize when it is built, so every
+change to the connected tool set (startup connect, add, retry, enable,
+disable, remove) rebuilds the TUI agent once no turn is running. A turn in
+progress, including an approval being resumed, finishes on the agent that
+started it; the rebuild follows, and the log records it as
+`mcp-tools-changed`.
+
 ## Dropped Transports Reconnect in the Background
 
 Stdio and HTTP do not share a redial. A stdio child that exits is respawned

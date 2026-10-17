@@ -57,6 +57,8 @@ import {
 } from "./state.js";
 import type { InboundMessage } from "@intx/types/runtime";
 import { createCredentialRecoveryState } from "./credential-recovery.js";
+import { wireMcp } from "./mcp.js";
+import type { MCPConnectCallbacks } from "../../agent/tools.js";
 import { createReconnectRecoveryState } from "./reconnect-recovery.js";
 import type { ProviderFailureAttempt } from "../provider/failure-attempt.js";
 
@@ -1045,6 +1047,73 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     expect(builds()).toBe(2);
     expect(state.pendingReload).toBe(false);
     expect(state.fatalBuildError).toBeNull();
+  });
+
+  /** Late MCP connects that mount tools and report the change. */
+  function wireLateMcp(
+    state: RunnerState,
+    services: RunnerServices,
+  ): ReturnType<typeof wireMcp> {
+    const connected = async (
+      server: { name: string },
+      callbacks: MCPConnectCallbacks,
+    ): Promise<void> => {
+      callbacks.onStatus({
+        name: server.name,
+        state: "connected",
+        tools: ["list_issues"],
+      });
+      callbacks.onToolsChanged([]);
+    };
+    Object.assign(services, {
+      mcpStates: new Map(),
+      mcpConnectController: new AbortController(),
+      computeAdvertised: () => [],
+      toolset: {
+        ...services.toolset,
+        connectMCPServer: connected,
+        retryMCPServer: connected,
+      },
+    });
+    state.configuredMcpEntries = [];
+    return wireMcp(state, services);
+  }
+
+  const buildReasons = (info: ReturnType<typeof spyOn>): unknown[] =>
+    (info.mock.calls as unknown[][])
+      .filter(([message]) => message === "building agent: {reason}")
+      .map(([, fields]) => (fields as { reason: unknown }).reason);
+
+  test("an MCP server connected mid-run rebuilds once after the run ends, logging why", async () => {
+    const info = spyOn(getLogger([LOG_NAMESPACE_ROOT, "tui"]), "info");
+    try {
+      const { state, services, push, builds } = await lifecycleWithOpenRun();
+      const mcp = wireLateMcp(state, services);
+      mcp.connectLateMCPServer({ name: "linear", url: "https://l.test/mcp" });
+      await drainStream();
+      await services.sessionOps.awaitTail();
+      expect(builds()).toBe(1);
+      push(runEnded("run-1"));
+      await drainStream();
+      await services.sessionOps.awaitTail();
+      expect(builds()).toBe(2);
+      expect(buildReasons(info)).toEqual(["initial", "mcp-tools-changed"]);
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  test("an MCP retry while idle rebuilds the agent", async () => {
+    const { state, services, builds } = await idleLifecycle();
+    const mcp = wireLateMcp(state, services);
+    state.config = {
+      ...state.config,
+      mcpServers: [{ name: "linear", url: "https://l.test/mcp" }],
+    };
+    await mcp.surface.retryServer("linear");
+    await drainStream();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(2);
   });
 
   test("an interrupt that kills an open run does not strand a later reload", async () => {
