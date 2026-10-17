@@ -777,13 +777,25 @@ export async function createAgentToolset(
     }),
   ];
 
-  // tool_search ranks over the live runner (set below). Top hits load onto the
-  // next infer via the session promoter; remaining cards stay
-  // name+description until call.
+  // tool_search ranks over the tools the live agent can authorize (set
+  // below). Top hits load onto the next infer via the session promoter;
+  // remaining cards stay name+description until call. Tools mounted after
+  // the agent was built only surface as a "next turn" notice.
   const runnerHolder: { current?: DynamicToolRunner } = {};
   const promoterHolder: { current?: (names: string[]) => void } = {};
   const toolIndex = createToolIndex(
-    () => runnerHolder.current?.currentDefinitions() ?? [],
+    () => runnerHolder.current?.agentDefinitions() ?? [],
+    advertisedBuiltIns,
+    args.toolSearchAllow,
+  );
+  const lateToolIndex = createToolIndex(
+    () => {
+      const runner = runnerHolder.current;
+      if (runner === undefined) return [];
+      return runner
+        .currentDefinitions()
+        .filter((definition) => runner.isLateTool(definition.name));
+    },
     advertisedBuiltIns,
     args.toolSearchAllow,
   );
@@ -796,11 +808,10 @@ export async function createAgentToolset(
     baseTools.push(
       createToolSearchTool({
         search: (query, limit) => toolIndex.search(query, limit),
+        searchLate: (query, limit) => lateToolIndex.search(query, limit),
         searchSkills: (query) => searchSkillCatalog(skills, query),
         lookup: (name) =>
-          runnerHolder.current
-            ?.currentDefinitions()
-            .find((d) => d.name === name),
+          runnerHolder.current?.agentDefinitions().find((d) => d.name === name),
         promote: (names) => promoterHolder.current?.(names),
         // Misses wait briefly for in-flight MCP handshakes (bounded, so hung
         // OAuth cannot hang the call) and re-search before answering.

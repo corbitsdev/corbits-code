@@ -57,6 +57,8 @@ import {
 } from "./state.js";
 import type { InboundMessage } from "@intx/types/runtime";
 import { createCredentialRecoveryState } from "./credential-recovery.js";
+import { wireMcp } from "./mcp.js";
+import type { MCPConnectCallbacks } from "../../agent/tools.js";
 import { createReconnectRecoveryState } from "./reconnect-recovery.js";
 import type { ProviderFailureAttempt } from "../provider/failure-attempt.js";
 
@@ -316,7 +318,18 @@ function stubSendLifecycle(agent: Agent): {
     emitter: new EventEmitter(),
     sessionOps: createSessionOperationQueue(),
     deliveryGeneration: createDeliveryGeneration(),
-    toolset: { setToolPromoter: () => undefined },
+    toolset: {
+      setToolPromoter: () => undefined,
+      // A pending reload exists because MCP mounted something new.
+      dynamicRunner: {
+        agentDefinitions: () => [],
+        agentToolSetDrift: () => ({
+          added: ["mcp__linear__save_issue"],
+          removed: [],
+          changed: [],
+        }),
+      },
+    },
     directorHolder: {},
     subAgentSessions: { cancelAll: async () => [], list: () => [] },
     activeRunHandle: { task: "", startedAt: 0, model: "" },
@@ -937,6 +950,15 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     new Promise((resolve) => setTimeout(resolve, 0));
 
   async function lifecycleWithOpenRun() {
+    const lifecycle = await idleLifecycle();
+    // The operator's send opens the reactor's message run; an ask-tier call
+    // then parks it on the approval gate without closing it.
+    lifecycle.push(runStarted("run-1"));
+    await drainStream();
+    return lifecycle;
+  }
+
+  async function idleLifecycle() {
     const directorHolder: RunnerServices["directorHolder"] = {};
     const live = pushableStreamAgent();
     const { state, services } = stubSendLifecycle(live.agent);
@@ -946,6 +968,7 @@ describe("reload-if-idle waits for the reactor's message run", () => {
         current: () => undefined,
         advanceToNextMessage: () => undefined,
         consumeTerminal: () => undefined,
+        consumeConnectorReply: () => undefined,
         reset: () => undefined,
       },
     });
@@ -958,10 +981,6 @@ describe("reload-if-idle waits for the reactor's message run", () => {
       return builds === 1 ? live.agent : recordingAgent([]);
     }) as unknown as RunnerServices["buildAgent"];
     await createRunLifecycle(state, services);
-    // The operator's send opens the reactor's message run; an ask-tier call
-    // then parks it on the approval gate without closing it.
-    live.push(runStarted("run-1"));
-    await drainStream();
     return { state, services, push: live.push, builds: () => builds };
   }
 
@@ -1008,6 +1027,118 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     expect(builds()).toBe(2);
     expect(state.pendingReload).toBe(false);
     expect(state.fatalBuildError).toBeNull();
+  });
+
+  test("an approval resumed with no open run defers the reload until its reply", async () => {
+    // A reactor that rehydrated a parked approval from disk resumes it on the
+    // correlated decision without opening a message run, so no run bracket
+    // covers the re-dispatched tool or the inference that follows it.
+    const { state, services, push, builds } = await idleLifecycle();
+    push({
+      type: "message.correlated",
+      seq: 3,
+      data: { message: {}, correlationId: "corr-1" },
+    });
+    await drainStream();
+    state.pendingReload = true;
+    defined(state.reloadIfIdle, "reloadIfIdle")();
+    await services.sessionOps.awaitTail();
+    push({
+      type: "tool.done",
+      seq: 4,
+      data: { call: { id: "c1", name: "mcp__x__y", arguments: {} } },
+    });
+    await drainStream();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(1);
+    expect(state.pendingReload).toBe(true);
+    push({ type: "connector.reply", seq: 5, data: { content: "done" } });
+    await drainStream();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(2);
+    expect(state.pendingReload).toBe(false);
+    expect(state.fatalBuildError).toBeNull();
+  });
+
+  /** Late MCP connects that mount tools and report the change. */
+  function wireLateMcp(
+    state: RunnerState,
+    services: RunnerServices,
+  ): ReturnType<typeof wireMcp> {
+    const connected = async (
+      server: { name: string },
+      callbacks: MCPConnectCallbacks,
+    ): Promise<void> => {
+      callbacks.onStatus({
+        name: server.name,
+        state: "connected",
+        tools: ["list_issues"],
+      });
+      callbacks.onToolsChanged([]);
+    };
+    Object.assign(services, {
+      mcpStates: new Map(),
+      mcpConnectController: new AbortController(),
+      computeAdvertised: () => [],
+      toolset: {
+        ...services.toolset,
+        connectMCPServer: connected,
+        retryMCPServer: connected,
+      },
+    });
+    state.configuredMcpEntries = [];
+    return wireMcp(state, services);
+  }
+
+  const buildReasons = (info: ReturnType<typeof spyOn>): unknown[] =>
+    (info.mock.calls as unknown[][])
+      .filter(([message]) => message === "building agent: {reason}")
+      .map(([, fields]) => (fields as { reason: unknown }).reason);
+
+  test("an MCP server connected mid-run rebuilds once after the run ends, logging why", async () => {
+    const info = spyOn(getLogger([LOG_NAMESPACE_ROOT, "tui"]), "info");
+    try {
+      const { state, services, push, builds } = await lifecycleWithOpenRun();
+      const mcp = wireLateMcp(state, services);
+      mcp.connectLateMCPServer({ name: "linear", url: "https://l.test/mcp" });
+      await drainStream();
+      await services.sessionOps.awaitTail();
+      expect(builds()).toBe(1);
+      push(runEnded("run-1"));
+      await drainStream();
+      await services.sessionOps.awaitTail();
+      expect(builds()).toBe(2);
+      expect(buildReasons(info)).toEqual(["initial", "mcp-tools-changed"]);
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  test("a rebuild request the previous build already absorbed is skipped", async () => {
+    const { state, services, builds } = await idleLifecycle();
+    Object.assign(services.toolset, {
+      dynamicRunner: {
+        agentDefinitions: () => [],
+        agentToolSetDrift: () => ({ added: [], removed: [], changed: [] }),
+      },
+    });
+    defined(state.requestToolSetRebuild, "requestToolSetRebuild")();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(1);
+    expect(state.pendingReload).toBe(false);
+  });
+
+  test("an MCP retry while idle rebuilds the agent", async () => {
+    const { state, services, builds } = await idleLifecycle();
+    const mcp = wireLateMcp(state, services);
+    state.config = {
+      ...state.config,
+      mcpServers: [{ name: "linear", url: "https://l.test/mcp" }],
+    };
+    await mcp.surface.retryServer("linear");
+    await drainStream();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(2);
   });
 
   test("an interrupt that kills an open run does not strand a later reload", async () => {

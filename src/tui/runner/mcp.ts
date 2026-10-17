@@ -59,11 +59,10 @@ export function wireMcp(
         void state.persistRunSnapshot?.("running");
       }
     },
-    // MCP tools register for dispatch but stay blind until tool_search promotes them.
-    onToolsChanged: (definitions) =>
-      services.directorHolder.instance?.updateToolDefinitions(
-        services.computeAdvertised(definitions),
-      ),
+    // Connect, add, retry, enable, disable, and remove all land here. The
+    // reactor authorizes against the tool set the agent was built with, so a
+    // change reaches it only through a rebuild, never by editing the live one.
+    onToolsChanged: () => state.requestToolSetRebuild?.(),
   };
 
   const connectLateMCPServer = (server: MCPServerConfig): void => {

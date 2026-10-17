@@ -577,19 +577,12 @@ export function wirePostStartup(
     });
 
   // Connect MCP after the TUI is up so auth surfaces as a copyable link, not
-  // a browser pop; tools land on the live runner and stay unadvertised until
-  // tool_search promotes them. On settle, reload-if-idle so construction-time
-  // maps match, then resume any persisted workflow. Aborted on exit.
+  // a browser pop; each server that mounts tools requests an agent rebuild
+  // through its callbacks. On settle, resume any persisted workflow. Aborted
+  // on exit.
   void services.toolset
     .connectMCP(mcpConnectCallbacks, services.mcpConnectController.signal)
     .then(async () => {
-      if (
-        services.toolset.dynamicRunner.currentDefinitions().length >
-        services.baseToolCount
-      ) {
-        state.pendingReload = true;
-        state.reloadIfIdle?.();
-      }
       // Capability map reflects connected servers; restore any persisted workflow.
       await services.workflowHost.resume();
     })

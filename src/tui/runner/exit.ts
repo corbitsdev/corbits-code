@@ -146,7 +146,11 @@ export async function closeAgentForRebuild(
   }
 }
 
-type AgentBuildReason = "initial" | "reload" | "interrupt" | "session-rotation";
+type AgentBuildReason =
+  | "initial"
+  | "mcp-tools-changed"
+  | "interrupt"
+  | "session-rotation";
 
 // Directors seed allowIdleWithFleet=true because fleet lanes may appear
 // mid-session. Rebuilds re-sync from the live count: the publisher only
@@ -341,7 +345,7 @@ export async function createRunLifecycle(
     if (services.flushPromotions()) {
       services.directorHolder.instance?.updateToolDefinitions(
         services.computeAdvertised(
-          services.toolset.dynamicRunner.currentDefinitions(),
+          services.toolset.dynamicRunner.agentDefinitions(),
         ),
       );
     }
@@ -369,12 +373,22 @@ export async function createRunLifecycle(
   // next inference execute inside it. Only reply/wait/done (or a fatal
   // abandon) close it.
   const openMessageRuns = new Set<string>();
+  // A reactor that rehydrated a parked approval from disk resumes it on the
+  // correlated decision without opening a message run, so no bracket covers
+  // the re-dispatched tool or the inference after it. Hold rebuilds from
+  // that correlation until the reactor reaches a terminal it announces: a
+  // reply, a run end, a fatal error, or shutdown. A bare `wait` terminal
+  // emits nothing, so the hold then lasts until the next run ends.
+  let resumingOutsideRun = false;
   const streamSink = (
     event: Parameters<typeof services.runSink.sink>[0],
   ): void => {
     let eventForSink = event;
     if (event.type === "message.run.started") {
       openMessageRuns.add(event.data.messageRunId);
+    }
+    if (event.type === "message.correlated" && openMessageRuns.size === 0) {
+      resumingOutsideRun = true;
     }
     if (event.type === "message.received") {
       providerFailureAttempts.advanceToNextMessage();
@@ -461,8 +475,17 @@ export async function createRunLifecycle(
         billingIdentityFromSource(event.data.source),
       );
     }
+    if (
+      event.type === "connector.reply" ||
+      event.type === "reactor.done" ||
+      (event.type === "reactor.error" && event.data.fatal)
+    ) {
+      resumingOutsideRun = false;
+      state.reloadIfIdle?.();
+    }
     if (event.type === "message.run.ended") {
       openMessageRuns.delete(event.data.messageRunId);
+      resumingOutsideRun = false;
       state.reloadIfIdle?.();
     }
   };
@@ -475,6 +498,7 @@ export async function createRunLifecycle(
     // The outgoing agent's stream has drained; a run it left open (closed
     // mid-run by interrupt or rotation) can never emit its end.
     openMessageRuns.clear();
+    resumingOutsideRun = false;
     // Those rebuilds already construct the agent a deferred reload was
     // waiting on. Clear before the await so a connect that lands during
     // buildAgent can still mark tools this build did not see. Initial and
@@ -485,7 +509,7 @@ export async function createRunLifecycle(
     state.currentAgent = await services.buildAgent();
   };
   const agentBusy = (): boolean =>
-    state.inFlight > 0 || openMessageRuns.size > 0;
+    state.inFlight > 0 || openMessageRuns.size > 0 || resumingOutsideRun;
 
   await buildLiveAgent("initial");
   resyncIdleWithFleetFlag(services);
@@ -521,6 +545,20 @@ export async function createRunLifecycle(
         state.pendingReload = true;
         return;
       }
+      // Several connects can queue rebuilds before the first one runs; the
+      // first build pins them all, so the rest find nothing new.
+      const drift = services.toolset.dynamicRunner.agentToolSetDrift();
+      if (
+        drift.added.length === 0 &&
+        drift.removed.length === 0 &&
+        drift.changed.length === 0
+      ) {
+        return;
+      }
+      tuiLogger.info(
+        "MCP tool set changed: added {added}, removed {removed}, changed {changed}",
+        { ...drift, sessionId: state.sessionId },
+      );
       try {
         const old = liveAgent(state);
         const closedCleanly = await closeAgentForRebuild(old, "reload");
@@ -530,7 +568,7 @@ export async function createRunLifecycle(
         if (!closedCleanly) {
           throw new AgentContextLockError(state.workdir);
         }
-        await buildLiveAgent("reload");
+        await buildLiveAgent("mcp-tools-changed");
         resyncIdleWithFleetFlag(services);
         state.streamPromise = consumeStream(
           liveAgent(state).stream(),
@@ -549,6 +587,10 @@ export async function createRunLifecycle(
     });
   };
   state.reloadIfIdle = reloadIfIdle;
+  state.requestToolSetRebuild = (): void => {
+    state.pendingReload = true;
+    reloadIfIdle();
+  };
 
   // Search loads top hits onto the next infer's tail; promote-on-execute
   // still declares a called name outside that prefix, at the cost of cache

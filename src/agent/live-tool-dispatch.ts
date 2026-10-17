@@ -8,11 +8,13 @@ import {
 import { createApprovalProvenanceGate } from "../session/approval-provenance.js";
 
 // @intx/agent resolveTools snapshots `byName` from each bundle's definitions
-// at createAgent and never consults a live getter. MCP tools arrive later via
-// DynamicToolRunner.addTools (servers connect after the TUI is up; one
-// OAuth-blocked server can also stall the post-connect reload that would
-// rebuild the snapshot). A miss then returns `unknown tool` even though
-// tool_search already listed the name from the live runner.
+// at createAgent and never consults a live getter, so a miss returns
+// `unknown tool` for a name only DynamicToolRunner can resolve. Two callers
+// still depend on reaching it: exec builds once and mounts MCP tools after
+// (it never rebuilds), and harness-namespaced spellings (`default.mcp__*`)
+// resolve only through the runner's own name lookup. The TUI no longer does
+// for late MCP tools: it pins the tool set per build and rebuilds when it
+// changes (see pinToolSetAtBuild in session/assemble-runtime.ts).
 //
 // resolveTools is not exported. During its synchronous walk it does
 // `new Map()` for that snapshot; we install a Map whose get() falls back to

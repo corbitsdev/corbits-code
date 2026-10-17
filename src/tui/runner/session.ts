@@ -709,6 +709,9 @@ export async function assembleTUISession(
     agentId: `${ID_PREFIX}/tui-agent`,
     systemPrompt,
     getDynamicRunner: () => toolset.dynamicRunner,
+    // MCP tool-set changes rebuild the agent (exit.ts reloadIfIdle), so each
+    // build pins what it can authorize.
+    pinToolSetAtBuild: true,
     computeAdvertised,
     inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
     totalTimeoutMs: config.totalTimeoutMs,
@@ -765,7 +768,7 @@ export async function assembleTUISession(
               pruneIdlePromotions,
               refreshAdvertised: () => {
                 directorHolder.instance?.updateToolDefinitions(
-                  computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
+                  computeAdvertised(toolset.dynamicRunner.agentDefinitions()),
                 );
               },
               persist: () => {
@@ -809,9 +812,6 @@ export async function assembleTUISession(
   // recorder keeps the in-flight cycle's text so an errored or interrupted
   // turn leaves its partial output in partial.jsonl instead of vanishing.
   const providerFailureAttempts = createProviderFailureAttemptTracker();
-  // Tool count before any MCP server connects; a reload is only worthwhile if
-  // connecting actually added tools.
-  const baseToolCount = toolset.dynamicRunner.currentDefinitions().length;
 
   return {
     emitter,
@@ -852,7 +852,6 @@ export async function assembleTUISession(
     correlationAcceptance,
     buildSessionSources,
     providerFailureAttempts,
-    baseToolCount,
     mcpStates,
     mcpConnectController,
   };

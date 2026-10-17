@@ -90,9 +90,11 @@ present. The built-in Exa default is still injected beside local MCP unless a
 global or local `exa` entry disables or overrides it as described above.
 
 Tools from connected servers are not advertised to the model up front; they are
-registered for dispatch as soon as the server connects (including later in the
-same turn) and surfaced on demand through dynamic tool discovery
-(`tool_search`). A match is a ranked handful of names plus capped
+surfaced on demand through dynamic tool discovery (`tool_search`). In the TUI a
+server that connects mid-turn joins at the agent rebuild after that turn: until
+then `tool_search` reports its matching tools as callable next turn, and a call
+to one is denied with the same hint rather than reaching a prompt that cannot
+show it. A match is a ranked handful of names plus capped
 descriptions. The top five cards also include a compact input schema and
 are loaded onto the next inference's advertised tail (Codex/Pi deferred)
 and into `run.json`. Remaining hits stay name + description until called
@@ -127,6 +129,13 @@ for confirmation, then deletes the settings row and any `~/.corbits/mcp-auth/…
 file for that HTTP endpoint. Built-in Exa is disable-only — Alt+R notifies and
 does not open the confirm. While a local `.corbits/settings.json` `mcpServers`
 list is in effect, these actions edit that local file; add remains blocked.
+
+The agent fixes the tool set it can authorize when it is built, so every
+change to the connected tool set (startup connect, add, retry, enable,
+disable, remove) rebuilds the TUI agent once no turn is running. A turn in
+progress, including an approval being resumed, finishes on the agent that
+started it; the rebuild follows, and the log records it as
+`mcp-tools-changed`.
 
 ## Dropped Transports Reconnect in the Background
 

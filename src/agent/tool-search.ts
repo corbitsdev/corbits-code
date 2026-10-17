@@ -362,6 +362,9 @@ export interface ToolSearchDeps {
   // handler re-races this so a stuck dependency (hung OAuth) cannot hang the
   // call. Omitted callers have none.
   awaitPendingConnections?: (timeoutMs?: number) => Promise<number>;
+  // Registered tools the live agent was built without; they become callable
+  // after the turn ends, so a hit here is a "next turn" notice, not a card.
+  searchLate?: (query: string, limit: number) => string[];
   // True when a reconnecting MCP server holds tools that could match
   // `query`, justifying one short extra wait for the redial to remount them.
   // Only transport-death reconnects qualify; needs-auth settles
@@ -524,7 +527,11 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
           );
           names = deps.search(query, limit);
         }
-        if (names.length === 0 && (stillPending ?? 1) > 0) {
+        if (
+          names.length === 0 &&
+          (stillPending ?? 1) > 0 &&
+          (deps.searchLate?.(query, limit) ?? []).length === 0
+        ) {
           const detail =
             stillPending === undefined
               ? "a connector may still be starting up"
@@ -533,6 +540,15 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
                 : `${stillPending} connectors are still connecting`;
           return `No tools matched "${query}" yet — ${detail}. Retry this search shortly.${skillBlock}`;
         }
+      }
+      const late =
+        names.length === 0 ? (deps.searchLate?.(query, limit) ?? []) : [];
+      if (late.length > 0) {
+        return (
+          `Tools matching "${query}" connected during this turn and become ` +
+          `callable once it ends: ${late.join(", ")}. Finish this turn ` +
+          `without them.${skillBlock}`
+        );
       }
       if (names.length === 0 && skillLines.length > 0) {
         return `No tools matched "${query}".${skillBlock}`;

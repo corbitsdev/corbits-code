@@ -374,6 +374,21 @@ async function advanceAndFlush(ms: number): Promise<void> {
 }
 
 describe("createToolSearchTool", () => {
+  test("a hit only among late tools names them for the next turn without promoting", async () => {
+    const promoted: string[][] = [];
+    const tool = createToolSearchTool({
+      search: () => [],
+      searchLate: () => ["mcp__linear__save_issue"],
+      lookup: () => undefined,
+      promote: (names) => promoted.push(names),
+    });
+    const out = await call(tool, { query: "linear issue" });
+    expect(out).toContain("mcp__linear__save_issue");
+    expect(out).toContain("callable once it ends");
+    expect(listedToolNames(out)).toEqual([]);
+    expect(promoted).toEqual([]);
+  });
+
   test("lists matching cards and does not promote", async () => {
     const tool = createToolSearchTool({
       search: (q) => index.search(q),

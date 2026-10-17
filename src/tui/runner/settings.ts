@@ -457,7 +457,7 @@ export async function wireSettings(
         refreshAdvertisedSchemas: () => {
           services.directorHolder.instance?.updateToolDefinitions(
             services.computeAdvertised(
-              services.toolset.dynamicRunner.currentDefinitions(),
+              services.toolset.dynamicRunner.agentDefinitions(),
             ),
           );
         },
