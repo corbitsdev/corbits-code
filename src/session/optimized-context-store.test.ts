@@ -2268,3 +2268,222 @@ describe("createOptimizedContextStore metadata ownership (CL-10667)", () => {
     expect((await resumed.load()).tokenUsage).toEqual(USAGE_TWO);
   });
 });
+
+describe("createOptimizedContextStore load drops pending operations for answered calls", () => {
+  function callTurn(callId: string, timestamp: number): ConversationTurn {
+    return {
+      role: "assistant",
+      content: [
+        { type: "tool_call", id: callId, name: "run_shell", arguments: {} },
+      ],
+      timestamp,
+    };
+  }
+
+  function resultTurn(
+    callId: string,
+    text: string,
+    timestamp: number,
+  ): ConversationTurn {
+    return {
+      role: "user",
+      content: [
+        { type: "tool_result", callId, content: [{ type: "text", text }] },
+      ],
+      timestamp,
+    };
+  }
+
+  function approvalOp(correlationId: string, callId: string) {
+    return {
+      correlationId,
+      kind: "approval" as const,
+      registeredAt: 1_700_000_000_000,
+      gateId: `pending-${correlationId}`,
+      timeoutAt: Date.now() + 60_000,
+      suspendedCall: { id: callId, name: "run_shell", arguments: {} },
+    };
+  }
+
+  function markerOp(correlationId: string) {
+    return {
+      correlationId,
+      kind: "approval" as const,
+      registeredAt: 1_700_000_000_000,
+      gateId: `pending-${correlationId}`,
+    };
+  }
+
+  function placeCrashState(
+    dir: string,
+    turns: ConversationTurn[],
+    pendingOperations: unknown[],
+  ): void {
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl(turns));
+    fs.writeFileSync(
+      path.join(dir, "metadata.json"),
+      JSON.stringify({ pendingOperations, connectorState: null }, null, 2),
+    );
+  }
+
+  // The crash window between the result-turn write and the metadata op-removal
+  // write leaves turns answering a parked call while metadata.json still lists
+  // its pending operation. load() is the only path into the rebuilt
+  // reactor's rehydrateGates, so the stale operation must die here.
+  test("drops an answered operation while keeping unanswered and marker operations", async () => {
+    const dir = tempDir();
+    placeCrashState(
+      dir,
+      [callTurn("call-answered", 1), resultTurn("call-answered", "ok", 2)],
+      [
+        approvalOp("stale-corr", "call-answered"),
+        approvalOp("live-corr", "call-live"),
+        markerOp("marker-corr"),
+      ],
+    );
+
+    const store = await createOptimizedContextStore(dir);
+    const loaded = await store.load();
+    expect(
+      loaded.pendingOperations.map((op) => op.correlationId).sort(),
+    ).toEqual(["live-corr", "marker-corr"]);
+  });
+
+  test("repeated loads are stable and emit no metadata write", async () => {
+    const dir = tempDir();
+    placeCrashState(
+      dir,
+      [callTurn("call-answered", 1), resultTurn("call-answered", "ok", 2)],
+      [approvalOp("stale-corr", "call-answered"), markerOp("marker-corr")],
+    );
+
+    const store = await createOptimizedContextStore(dir);
+    const before = fs.readFileSync(path.join(dir, "metadata.json"), "utf8");
+    const first = await store.load();
+    const second = await store.load();
+    expect(second.pendingOperations).toEqual(first.pendingOperations);
+    expect(first.pendingOperations.map((op) => op.correlationId)).toEqual([
+      "marker-corr",
+    ]);
+    expect(fs.readFileSync(path.join(dir, "metadata.json"), "utf8")).toBe(
+      before,
+    );
+  });
+
+  test("the next metadata write persists the removal", async () => {
+    const dir = tempDir();
+    placeCrashState(
+      dir,
+      [callTurn("call-answered", 1), resultTurn("call-answered", "ok", 2)],
+      [
+        approvalOp("stale-corr", "call-answered"),
+        approvalOp("live-corr", "call-live"),
+      ],
+    );
+
+    const store = await createOptimizedContextStore(dir);
+    const loaded = await store.load();
+    await store.writeMetadata({
+      pendingOperations: loaded.pendingOperations,
+      tokenUsage: loaded.tokenUsage,
+    });
+
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(dir, "metadata.json"), "utf8"),
+    ) as { pendingOperations: { correlationId: string }[] };
+    expect(persisted.pendingOperations.map((op) => op.correlationId)).toEqual([
+      "live-corr",
+    ]);
+
+    const resumed = await createOptimizedContextStore(dir);
+    expect(
+      (await resumed.load()).pendingOperations.map((op) => op.correlationId),
+    ).toEqual(["live-corr"]);
+  });
+
+  test("crash-window replay across segments yields no re-armable gate", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(
+      path.join(dir, TURNS_FILE),
+      jsonl([callTurn("call-answered", 1)]),
+    );
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl([resultTurn("call-answered", "ok", 2)]),
+    );
+    fs.writeFileSync(
+      path.join(dir, "metadata.json"),
+      JSON.stringify({
+        pendingOperations: [
+          approvalOp("stale-corr", "call-answered"),
+          approvalOp("live-corr", "call-live"),
+          markerOp("marker-corr"),
+        ],
+        connectorState: null,
+      }),
+    );
+
+    const store = await createOptimizedContextStore(dir);
+    const loaded = await store.load();
+    const answered = new Set(
+      loaded.turns.flatMap((turn) =>
+        turn.content.flatMap((block) =>
+          block.type === "tool_result" ? [block.callId] : [],
+        ),
+      ),
+    );
+    // Every operation load() hands the rebuilt reactor is safe to rehydrate:
+    // none parks a call the turns already answer.
+    for (const op of loaded.pendingOperations) {
+      if (op.suspendedCall !== undefined) {
+        expect(answered.has(op.suspendedCall.id)).toBe(false);
+      }
+    }
+    expect(
+      loaded.pendingOperations.map((op) => op.correlationId).sort(),
+    ).toEqual(["live-corr", "marker-corr"]);
+  });
+
+  test("matches a scrubbed on-disk operation by call id", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const secret = { api_key: "hunter2" };
+    await store.writeMetadata({
+      pendingOperations: [
+        {
+          ...approvalOp("scrubbed-corr", "call-scrubbed"),
+          suspendedCall: {
+            id: "call-scrubbed",
+            name: "run_shell",
+            arguments: secret,
+          },
+          approvalSnapshot: {
+            name: "run_shell",
+            description: "runs a shell command",
+            inputSchema: {},
+            arguments: secret,
+          },
+        },
+      ],
+      tokenUsage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        thinking: 0,
+      },
+    });
+    // The on-disk approval snapshot is redacted while suspendedCall keeps
+    // the raw call; matching must work by call id alone.
+    const raw = fs.readFileSync(path.join(dir, "metadata.json"), "utf8");
+    expect(raw).toContain("[redacted");
+    expect(raw).toContain("call-scrubbed");
+    await store.writeTurns([
+      callTurn("call-scrubbed", 1),
+      resultTurn("call-scrubbed", "ok", 2),
+    ]);
+
+    const resumed = await createOptimizedContextStore(dir);
+    expect((await resumed.load()).pendingOperations).toEqual([]);
+  });
+});
