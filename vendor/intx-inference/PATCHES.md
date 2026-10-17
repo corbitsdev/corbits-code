@@ -780,3 +780,29 @@ retry entirely into `harness.ts`'s `runInference` wrapper, which now emits
 `inference.retry` itself before the commitment boundary — see
 harness-ts-commitment-boundary-streaming; a reactor-level emission would
 double the event).
+
+## providers-ts-openai-null-delta-tolerance
+
+**Promotion candidate.** `providers/openai.ts` tolerates explicit `null` for
+`role` and `tool_calls` on Chat Completions streamed deltas and the
+non-streaming message (CL-3010: vLLM serializers behind OpenAI-compatible
+relays — NEAR AI, Qwen3.8-Flash-Next on vast.ai 2xH200 — emit `"role": null`
+on every delta and `"tool_calls": null` on non-tool chunks; the strict schema
+rejected each frame, so `protocol_mismatch` aborted the turn). `null` now
+means absent, mirroring how sibling(`content`/`refusal`/`reasoning*`) and
+nested tool-call (`id`/`function.name`/`function.arguments`) fields already
+treat it: `role` widens to `string | null`, `tool_calls` widens to
+array-or-null with the streaming parser coalescing null → undefined before
+iteration. Wrong-type values stay rejected (`role: 42` still fails schema
+validation → `ProtocolMismatchError`, keeping the `protocol_mismatch` abort
+path and its rework in `src/agent/retry-policy.test.ts` intact). No consumer
+reads `delta.role`; `tool_calls: []` on every chunk (vLLM) was already
+tolerated and keeps its semantics.
+
+**Re-carry:** spans `OpenAIToolCallDelta`/`OpenAIChunkDelta`, the streaming
+`tool_calls` null-coalesce in `parseResponse`, and the mirrored
+`NonStreamingMessage` widening; regression coverage lives in
+`src/provider/chat-completions-null-delta.test.ts` (Corbits-side — vendored
+OpenAI adapter has no co-located test file at this pin and vendor tests are
+outside the repo gate). Drop when upstream opens `delta.role` /
+`delta.tool_calls` (and the message schema) to null.

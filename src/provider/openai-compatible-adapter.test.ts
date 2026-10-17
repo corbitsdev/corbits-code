@@ -109,12 +109,41 @@ describe("openai-compatible adapter SSE parse count", () => {
 });
 
 describe("openai-compatible adapter null delta fields", () => {
-  test.each(["role", "tool_calls"])("rejects null %s", (field) => {
+  test.each(["role", "tool_calls"])(
+    "treats null %s the same as absent",
+    (field) => {
+      const adapter = createOpenAICompatibleAdapter(source);
+      expect(
+        adapter.parseResponse(
+          JSON.stringify({
+            choices: [{ index: 0, delta: { content: "hello", [field]: null } }],
+          }),
+        ),
+      ).toEqual(
+        adapter.parseResponse(
+          JSON.stringify({
+            choices: [{ index: 0, delta: { content: "hello" } }],
+          }),
+        ),
+      );
+    },
+  );
+
+  test("still rejects wrong-type role", () => {
+    const adapter = createOpenAICompatibleAdapter(source);
+    expect(() =>
+      adapter.parseResponse(
+        JSON.stringify({ choices: [{ index: 0, delta: { role: 42 } }] }),
+      ),
+    ).toThrow(ProtocolMismatchError);
+  });
+
+  test("still rejects wrong-type tool_calls", () => {
     const adapter = createOpenAICompatibleAdapter(source);
     expect(() =>
       adapter.parseResponse(
         JSON.stringify({
-          choices: [{ index: 0, delta: { content: "hello", [field]: null } }],
+          choices: [{ index: 0, delta: { tool_calls: "nope" } }],
         }),
       ),
     ).toThrow(ProtocolMismatchError);

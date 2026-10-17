@@ -507,6 +507,12 @@ const EMPTY_PARTIAL: PartialMessage = { text: "" };
 // drop the whole chunk silently — taking the argument fragments with
 // it. Accept `string | null` here and treat null the same as the field
 // being absent at the consumer site.
+// Locally patched — see vendor/intx-inference/PATCHES.md#providers-ts-openai-null-delta-tolerance.
+// vLLM serializers behind OpenAI-compatible relays emit `role: null` on
+// streamed deltas and `tool_calls: null` on non-tool chunks. The strict
+// schema rejected each frame, so `protocol_mismatch` aborted the turn.
+// `null` means absent here, mirroring the sibling and nested-tool-call
+// fields below; wrong-type values stay rejected.
 const OpenAIToolCallDelta = type({
   "index?": "number",
   "id?": "string | null",
@@ -517,7 +523,7 @@ const OpenAIToolCallDelta = type({
 });
 
 const OpenAIChunkDelta = type({
-  "role?": "string",
+  "role?": "string | null",
   "content?": "string | null",
   "reasoning_content?": "string | null",
   "reasoning?": "string | null",
@@ -527,7 +533,7 @@ const OpenAIChunkDelta = type({
   // OpenAI-compatible relays strip it before forwarding; the parser
   // emits refusal events only when the field is present.
   "refusal?": "string | null",
-  "tool_calls?": OpenAIToolCallDelta.array(),
+  "tool_calls?": OpenAIToolCallDelta.array().or("null"),
 });
 
 const PromptTokensDetails = type({ "cached_tokens?": "number" }).or("null");
@@ -758,7 +764,10 @@ function parseResponse(
     });
   }
 
-  const { tool_calls: toolCallDeltas } = delta;
+  // Normalize null → undefined (same idiom as below for function fields):
+  // the schema tolerates `tool_calls: null`, but a bare widened schema
+  // would hand the null to `for...of` and crash with a TypeError.
+  const toolCallDeltas = delta.tool_calls ?? undefined;
 
   if (toolCallDeltas !== undefined) {
     for (const tcDelta of toolCallDeltas) {
@@ -881,12 +890,12 @@ const NonStreamingToolCall = type({
 });
 
 const NonStreamingMessage = type({
-  "role?": "string",
+  "role?": "string | null",
   "content?": "string | null",
   "reasoning_content?": "string | null",
   "reasoning?": "string | null",
   "refusal?": "string | null",
-  "tool_calls?": NonStreamingToolCall.array(),
+  "tool_calls?": NonStreamingToolCall.array().or("null"),
 });
 
 const NonStreamingCompletion = type({
