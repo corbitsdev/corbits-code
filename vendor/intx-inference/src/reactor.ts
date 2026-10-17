@@ -785,6 +785,8 @@ export function createReactor(config: ReactorConfig): Reactor {
           correlations.remove(correlationId);
           if (stateManager !== null) {
             stateManager.removePendingOperation(correlationId);
+            // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
+            pendingOperationsChanged = true;
           }
           // The grant is already recorded (synchronously, in
           // resumePendingOperation) with no await since; enqueue the re-dispatch
@@ -808,6 +810,8 @@ export function createReactor(config: ReactorConfig): Reactor {
           correlations.remove(correlationId);
           if (stateManager !== null) {
             stateManager.removePendingOperation(correlationId);
+            // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
+            pendingOperationsChanged = true;
           }
           enqueue({ type: "resume.tool_result", result: dispatch.result });
           break;
@@ -1224,16 +1228,26 @@ export function createReactor(config: ReactorConfig): Reactor {
     // agentic turn to one deferred commit.
     //
     // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
-    if (addToHistory && pendingCompactOutput === null) {
-      const revision = stateManager?.getTurnsRevision();
-      if (
-        stateManager !== null &&
-        revision !== undefined &&
-        revision !== lastWrittenTurnsRevision
-      ) {
-        await contextStore.writeTurns(stateManager.getTurns());
-        lastWrittenTurnsRevision = revision;
-      }
+    if (addToHistory) {
+      await writeCycleTurns();
+    }
+  }
+
+  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
+  // The turns-only write between terminals. When the turn just appended
+  // answers a parked call, the pending operation it resolved is gone from
+  // memory too; metadata goes out with the turns so a rebuild from disk never
+  // re-arms that call's gate and answers it a second time at the deadline.
+  // Cycles that leave pending operations untouched still skip metadata.
+  async function writeCycleTurns(): Promise<void> {
+    if (stateManager === null || pendingCompactOutput !== null) return;
+    const revision = stateManager.getTurnsRevision();
+    if (revision !== lastWrittenTurnsRevision) {
+      await contextStore.writeTurns(stateManager.getTurns());
+      lastWrittenTurnsRevision = revision;
+    }
+    if (pendingOperationsChanged) {
+      await writeMetadata();
     }
   }
 
@@ -1379,6 +1393,8 @@ export function createReactor(config: ReactorConfig): Reactor {
       pendingOperations: stateManager.getPendingOperations(),
       tokenUsage: stateManager.getTokenUsage(),
     });
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
+    pendingOperationsChanged = false;
   }
 
   // -------------------------------------------------------------------------
@@ -1443,6 +1459,8 @@ export function createReactor(config: ReactorConfig): Reactor {
         correlations.remove(op.correlationId);
         if (stateManager !== null) {
           stateManager.removePendingOperation(op.correlationId);
+          // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
+          pendingOperationsChanged = true;
         }
         enqueue({
           type: "resume.tool_result",
@@ -1650,6 +1668,8 @@ export function createReactor(config: ReactorConfig): Reactor {
         if (stateManager !== null) {
           stateManager.appendTurn(createToolResultTurn([event.result]));
         }
+        // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
+        await writeCycleTurns();
       }
 
       let actions;
@@ -1868,6 +1888,13 @@ export function createReactor(config: ReactorConfig): Reactor {
   //
   // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-last-written-turns-revision
   let lastWrittenTurnsRevision = 0;
+
+  // Set when a resolved approval drops its pending operation from memory;
+  // cleared by the next metadata write. Lets the turns-only write persist
+  // metadata only for the cycles that need it.
+  //
+  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
+  let pendingOperationsChanged = false;
 
   async function initiateShutdown(): Promise<void> {
     if (shutdownStarted) return;

@@ -2443,6 +2443,7 @@ describe("createReactor — tool runner failures", () => {
     // the behavior a regressed per-batch commit would break.
     let commits = 0;
     let turnWrites = 0;
+    let metadataWrites = 0;
     const countingStore: ContextStore = {
       async load() {
         return {
@@ -2487,7 +2488,7 @@ describe("createReactor — tool runner failures", () => {
         turnWrites += 1;
       },
       async writeMetadata() {
-        /* noop */
+        metadataWrites += 1;
       },
       async readManifestHistory() {
         throw new Error("not implemented");
@@ -2518,8 +2519,10 @@ describe("createReactor — tool runner failures", () => {
     await waitFor("reactor.done");
 
     // One segment write per tool batch; exactly one commit, at the terminal.
+    // No pending operation changed, so metadata waits for that commit too.
     expect(turnWrites).toBe(2);
     expect(commits).toBe(1);
+    expect(metadataWrites).toBe(1);
   });
 });
 
@@ -5373,6 +5376,181 @@ describe("createReactor — approval resume error result", () => {
     expect(gateCleared.data.reason).toBe("timeout");
     await waitFor("reactor.done");
     expect(cleared).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A resolved approval's pending-operation removal reaches disk with the turn
+// that answers the parked call, not at the next terminal commit
+// ---------------------------------------------------------------------------
+
+describe("createReactor — resolved approval persists pending-operation removal", () => {
+  // The first inference parks on the ask gate. The continuation after the
+  // parked call is answered never finishes on its own: it holds until the
+  // reactor aborts it, standing in for a teardown that lands mid re-inference
+  // (before the next terminal commit).
+  function parkedContinuationRunner(continuationStarted: () => void) {
+    let call = 0;
+    return async function* (
+      opts: InferenceHarnessOptions,
+    ): AsyncGenerator<InferenceEvent> {
+      call += 1;
+      if (call === 1) {
+        yield {
+          type: "inference.done",
+          seq: opts.nextSeq(),
+          data: {
+            turn: suspendToolCallTurn,
+            usage: emptyUsage(),
+            source: TEST_SOURCE,
+          },
+        };
+        return;
+      }
+      continuationStarted();
+      await new Promise<void>((resolve) => {
+        const signal = opts.signal;
+        if (signal === undefined || signal.aborted) {
+          resolve();
+          return;
+        }
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    };
+  }
+
+  function askExtension(approvalTimeoutMs: number) {
+    return createAuthzExtension({
+      authorize: async () => ({
+        effect: "ask" as const,
+        matchingGrants: [],
+        resolvedBy: null,
+      }),
+      approvalTimeoutMs,
+    });
+  }
+
+  // Suspend on the ask gate, deliver `decision`, and abort once the
+  // continuation inference starts. Returns the parked op's original deadline.
+  async function resolveThenAbortMidContinuation(
+    cell: PersistedCell,
+    decision: (correlationId: string) => InboundMessage,
+    approvalTimeoutMs: number,
+  ): Promise<number> {
+    const continuation = Promise.withResolvers<void>();
+    const first = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: parkedContinuationRunner(() => continuation.resolve()),
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "charged",
+      })),
+      beforeToolExtensions: [askExtension(approvalTimeoutMs)],
+    });
+
+    first.reactor.start();
+    first.reactor.deliver(makeInboundMessage());
+
+    const blocked = await first.waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+    const deadline = cell.pendingOperations[0]?.timeoutAt;
+    if (deadline === undefined) throw new Error("expected a persisted deadline");
+
+    first.reactor.deliver(decision(correlationId));
+    await continuation.promise;
+
+    first.reactor.abort("admin_kill");
+    await first.waitFor("reactor.done");
+    return deadline;
+  }
+
+  test("an approved re-dispatch leaves no stale pending operation, and a restart survives the original deadline", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+
+    const deadline = await resolveThenAbortMidContinuation(
+      cell,
+      (correlationId) => makeApprovalMessage(correlationId),
+      500,
+    );
+
+    // The re-dispatched call's result and the parked op's removal are both on
+    // disk even though the run never reached a terminal commit.
+    expect(cell.pendingOperations).toEqual([]);
+    expect(
+      cell.turns.some((t) =>
+        t.content.some(
+          (b) => b.type === "tool_result" && b.callId === "call-ask",
+        ),
+      ),
+    ).toBe(true);
+    expect(() => assertWellFormedToolSequence(cell.turns)).not.toThrow();
+
+    // A reactor rebuilt from that store must not re-arm the answered call's
+    // gate: at the original deadline a stale op would inject a second
+    // "approval timed out" result for the same call id and the next inference
+    // would fail the well-formedness tripwire.
+    const second = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: makeInferenceRunner({
+        type: "done",
+        turn: makeAssistantTurn("resumed"),
+        usage: emptyUsage(),
+      }),
+      beforeToolExtensions: [askExtension(500)],
+    });
+    second.reactor.start();
+    await second.waitFor("reactor.start");
+
+    // The margin lets a stale gate that fired at the deadline run its
+    // continuation to completion before the probe message below.
+    await waitUntil(() => Date.now() > deadline + 50);
+    second.reactor.deliver(makeInboundMessage());
+    const settled = await waitForEvent(
+      second.events,
+      (e) => e.type === "connector.reply" || e.type === "reactor.done",
+    );
+
+    expect(second.events.filter((e) => e.type === "reactor.error")).toEqual([]);
+    expect(settled.type).toBe("connector.reply");
+    expect(() => assertWellFormedToolSequence(cell.turns)).not.toThrow();
+
+    second.reactor.abort("admin_kill");
+    await second.waitFor("reactor.done");
+  });
+
+  test("a rejected call's error result and pending-operation removal reach disk before the next terminal", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+
+    await resolveThenAbortMidContinuation(
+      cell,
+      (correlationId) => makeApprovalMessage(correlationId, "rejected"),
+      60_000,
+    );
+
+    expect(cell.pendingOperations).toEqual([]);
+    expect(
+      cell.turns.some((t) =>
+        t.content.some(
+          (b) =>
+            b.type === "tool_result" &&
+            b.callId === "call-ask" &&
+            b.isError === true,
+        ),
+      ),
+    ).toBe(true);
+    expect(() => assertWellFormedToolSequence(cell.turns)).not.toThrow();
   });
 });
 
