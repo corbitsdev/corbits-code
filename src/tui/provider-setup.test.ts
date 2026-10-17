@@ -1099,6 +1099,23 @@ describe("runProviderSetup sign-in", () => {
     expect(await done).toBe(false);
   });
 
+  test("a suggested Meta name skips an existing API-key slug", async () => {
+    const { start } = stagedLoginStarter();
+    const { done, harness } = await mountConfig({
+      startLogin: start,
+      listOAuthProfiles: async () => [],
+      existingProviderNames: ["meta-api/default"],
+    });
+    await pickRow(harness, PROVIDER_IDS, "meta");
+    await flush(harness);
+    const frame = harness.captureCharFrame();
+    expect(frame).toContain("step 2 of 4");
+    expect(frame).toContain("default-2");
+    expect(frame.replaceAll("default-2", "")).not.toContain("default");
+    harness.pressKey("Ctrl+C");
+    expect(await done).toBe(false);
+  });
+
   test("reusing a connected account's name asks to confirm before re-authorizing it", async () => {
     const seenProfiles: string[] = [];
     const { start } = stagedLoginStarter({
