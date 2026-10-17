@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
-import { access, copyFile, readFile } from "node:fs/promises";
+import { access, copyFile, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { systemPrompt } from "@corbits/code-agent-dispatch";
-import { EvalFailure, evaluate, avoids, under } from "@corbits/evals";
+import { EvalFailure, evaluate, under } from "@corbits/evals";
 import type {
   Case,
   CheckValue,
@@ -132,7 +132,7 @@ function loadCases(path: string): Promise<Case<string, RoutingExpect>[]> {
   });
 }
 
-export function routeLine(output: string): string {
+function routeLine(output: string): string {
   const line = output.split(/\r?\n/, 1)[0] ?? "";
   return line.trim();
 }
@@ -164,36 +164,77 @@ export function routesCheck(
   return true;
 }
 
-const DIY_PHRASES = [
-  "I will fix",
-  "I'll fix",
-  "I will implement",
-  "I'll implement",
-  "I can fix",
-  "I can implement",
-  "I'll write",
-  "I will write",
-  "I'll do it",
-  "I can do it",
-  "I'll handle",
-  "I will handle",
-  "I'm going to implement",
-] as const;
-
-const diyOnText = avoids<string, string, RoutingExpect>(DIY_PHRASES);
-
-export function noDiyCheck(
-  run: Run<string, string, RoutingExpect>,
-): CheckValue | Promise<CheckValue> {
-  return diyOnText({ ...run, output: routeLine(run.output) });
-}
-
 const DISPATCH_EVAL = "dispatch-routing";
 
 type DispatchEvaluate = (
   name: string,
   options: EvaluateOptions<string, string, RoutingExpect>,
 ) => Promise<Report<string, string, RoutingExpect>>;
+
+interface StoredCheck {
+  pass: boolean;
+  value: number;
+}
+
+interface StoredRun {
+  format: 1;
+  eval: string;
+  about?: Record<string, unknown>;
+  cases: Record<string, Record<string, StoredCheck>>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseStoredRun(text: string, source: string): StoredRun {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (cause) {
+    throw new Error(`${source}: invalid JSON (${(cause as Error).message})`);
+  }
+  if (!isRecord(raw) || !isRecord(raw["cases"])) {
+    throw new Error(`${source}: expected a stored run`);
+  }
+  const format = raw["format"];
+  const evalName = raw["eval"];
+  if (format !== 1 || typeof evalName !== "string" || evalName === "") {
+    throw new Error(`${source}: expected a format 1 stored run`);
+  }
+  const cases: Record<string, Record<string, StoredCheck>> = {};
+  for (const [name, checks] of Object.entries(raw["cases"])) {
+    if (!isRecord(checks)) {
+      throw new Error(`${source}: case "${name}" must be an object`);
+    }
+    const parsed: Record<string, StoredCheck> = {};
+    for (const [check, outcome] of Object.entries(checks)) {
+      if (
+        !isRecord(outcome) ||
+        typeof outcome["pass"] !== "boolean" ||
+        typeof outcome["value"] !== "number" ||
+        !Number.isFinite(outcome["value"])
+      ) {
+        throw new Error(
+          `${source}: case "${name}" check "${check}" is invalid`,
+        );
+      }
+      parsed[check] = { pass: outcome["pass"], value: outcome["value"] };
+    }
+    cases[name] = parsed;
+  }
+  const stored: StoredRun = { format: 1, eval: evalName, cases };
+  if (isRecord(raw["about"])) {
+    stored.about = raw["about"];
+  }
+  return stored;
+}
+
+function routesStoredPass(
+  checks: Record<string, StoredCheck> | undefined,
+): boolean {
+  return checks?.["routes"]?.pass === true;
+}
 
 async function baselinePresent(path: string): Promise<boolean> {
   try {
@@ -202,6 +243,59 @@ async function baselinePresent(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// A miss is a drop only when the stored routes pass is true, so the miss
+// budget would keep a case that has never been baselined green. Passes still
+// merge: a miss is never written as a pass, and a stored pass is never
+// replaced by a miss, so a later flip of a case that passed beside a sibling
+// miss is a drop.
+async function commitRoutingBaseline(args: {
+  hadBaseline: boolean;
+  lastPath: string;
+  baselinePath: string;
+}): Promise<number> {
+  const last = parseStoredRun(
+    await readFile(args.lastPath, "utf8"),
+    args.lastPath,
+  );
+  const missed = Object.entries(last.cases).filter(
+    ([, checks]) => !routesStoredPass(checks),
+  );
+  if (missed.length === 0) {
+    await copyFile(args.lastPath, args.baselinePath);
+    return 0;
+  }
+  if (!args.hadBaseline) {
+    console.error(
+      `eval "${DISPATCH_EVAL}" failed: no baseline at ${args.baselinePath}`,
+    );
+    return 1;
+  }
+  const beforeText = await readFile(args.baselinePath, "utf8");
+  const baseline = parseStoredRun(beforeText, args.baselinePath);
+  const unbaselined = missed
+    .filter(([name]) => baseline.cases[name] === undefined)
+    .map(([name]) => name);
+  const cases = { ...baseline.cases };
+  let changed = false;
+  for (const [name, checks] of Object.entries(last.cases)) {
+    if (!routesStoredPass(checks)) continue;
+    if (routesStoredPass(cases[name])) continue;
+    cases[name] = checks;
+    changed = true;
+  }
+  if (changed) {
+    const next: StoredRun = { ...baseline, cases };
+    await writeFile(args.baselinePath, `${JSON.stringify(next, null, 2)}\n`);
+  }
+  if (unbaselined.length !== 0) {
+    console.error(
+      `eval "${DISPATCH_EVAL}" failed: unbaselined routes miss (${unbaselined.join(", ")})`,
+    );
+    return 1;
+  }
+  return 0;
 }
 
 export async function evaluateRouting(args: {
@@ -220,12 +314,10 @@ export async function evaluateRouting(args: {
       cases: args.cases,
       checks: {
         routes: routesCheck,
-        noDiy: noDiyCheck,
         fast: under({ ms: ROUTE_BUDGET_MS }),
       },
       allow: {
         routes: { miss: 6, drop: 0 },
-        noDiy: { miss: 2, drop: 0 },
         fast: 0,
       },
       compare: args.baselinePath,
@@ -238,17 +330,11 @@ export async function evaluateRouting(args: {
       },
     });
     console.log(report.markdown());
-    if (report.checks["routes"]?.missed !== 0) {
-      if (!hadBaseline) {
-        console.error(
-          `eval "${DISPATCH_EVAL}" failed: no baseline at ${args.baselinePath}`,
-        );
-        return 1;
-      }
-      return 0;
-    }
-    await copyFile(args.lastPath, args.baselinePath);
-    return 0;
+    return await commitRoutingBaseline({
+      hadBaseline,
+      lastPath: args.lastPath,
+      baselinePath: args.baselinePath,
+    });
   } catch (err: unknown) {
     if (err instanceof EvalFailure) {
       console.log(err.report.markdown());

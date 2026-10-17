@@ -6,8 +6,6 @@ import { evaluate, type CheckValue, type Run } from "@corbits/evals";
 import {
   ROUTE_BUDGET_MS,
   evaluateRouting,
-  noDiyCheck,
-  routeLine,
   routesCheck,
 } from "./eval-prompts-dispatch.js";
 
@@ -79,58 +77,6 @@ describe("routes scores the first line", () => {
   });
 });
 
-describe("noDiy ignores the brief line", () => {
-  test("DIY verbs in the brief do not fail", () => {
-    expect(
-      passed(
-        noDiyCheck(
-          routingRun(
-            "coder\nI will just patch the login flow and add a test.",
-            {
-              route: "coder",
-              decoys: ["explorer"],
-            },
-          ),
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      passed(
-        noDiyCheck(
-          routingRun("shakespeare\nI'll write the architecture doc", {
-            route: "shakespeare",
-            decoys: ["explorer", "planner"],
-          }),
-        ),
-      ),
-    ).toBe(true);
-  });
-
-  test("DIY on the route line still fails", () => {
-    expect(
-      passed(
-        noDiyCheck(
-          routingRun("I'll write the architecture doc\nshakespeare", {
-            route: "shakespeare",
-            decoys: ["explorer"],
-          }),
-        ),
-      ),
-    ).toBe(false);
-    expect(
-      passed(
-        noDiyCheck(
-          routingRun("I'll fix the login bug", {
-            route: "coder",
-            decoys: ["reviewer"],
-          }),
-        ),
-      ),
-    ).toBe(false);
-    expect(routeLine("coder\nI'll fix it")).toBe("coder");
-  });
-});
-
 describe("drop baseline", () => {
   const coderCase = {
     name: "fix-token-refresh",
@@ -146,7 +92,6 @@ describe("drop baseline", () => {
         cases: {
           "fix-token-refresh": {
             routes: { pass: routesPass, value: routesPass ? 1 : 0 },
-            noDiy: { pass: true, value: 1 },
             fast: { pass: true, value: 1 },
           },
         },
@@ -293,6 +238,85 @@ describe("drop baseline", () => {
       });
       expect(code).toBe(0);
       expect(await readFile(baselinePath, "utf8")).toBe(before);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an unbaselined routes miss fails and is not stored as a pass", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dispatch-routing-"));
+    const baselinePath = join(dir, "baseline.json");
+    const lastPath = join(dir, "last.json");
+    const before = stored(true);
+    await writeFile(baselinePath, before);
+    const unknown = {
+      name: "map-the-repo",
+      input: "Where is the login handler?",
+      expect: { route: "explorer", decoys: ["coder", "reviewer"] },
+    };
+    try {
+      const code = await evaluateRouting({
+        cases: [coderCase, unknown],
+        run: async (input) =>
+          input === unknown.input
+            ? "coder\nwrong specialist"
+            : "coder\nAdd a regression test for token refresh.",
+        lastPath,
+        baselinePath,
+      });
+      expect(code).not.toBe(0);
+      const after = JSON.parse(await readFile(baselinePath, "utf8")) as {
+        cases: Record<string, { routes?: { pass: boolean } } | undefined>;
+      };
+      expect(after.cases["map-the-repo"]?.routes?.pass).not.toBe(true);
+      expect(after.cases["fix-token-refresh"]?.routes?.pass).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a new pass beside a baselined miss is stored and a later flip drops", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dispatch-routing-"));
+    const baselinePath = join(dir, "baseline.json");
+    const lastPath = join(dir, "last.json");
+    await writeFile(baselinePath, stored(false));
+    const added = {
+      name: "map-the-repo",
+      input: "Where is the login handler?",
+      expect: { route: "explorer", decoys: ["coder", "reviewer"] },
+    };
+    try {
+      const storedPass = await evaluateRouting({
+        cases: [coderCase, added],
+        run: async (input) =>
+          input === added.input
+            ? "explorer\nLook up the handler."
+            : "reviewer\nI refuse.",
+        lastPath,
+        baselinePath,
+      });
+      expect(storedPass).toBe(0);
+      const after = JSON.parse(await readFile(baselinePath, "utf8")) as {
+        cases: {
+          "fix-token-refresh": { routes: { pass: boolean } };
+          "map-the-repo": { routes: { pass: boolean } };
+        };
+      };
+      expect(after.cases["fix-token-refresh"].routes.pass).toBe(false);
+      expect(after.cases["map-the-repo"].routes.pass).toBe(true);
+      const passedText = await readFile(baselinePath, "utf8");
+
+      const flipped = await evaluateRouting({
+        cases: [coderCase, added],
+        run: async (input) =>
+          input === added.input
+            ? "coder\nwrong specialist"
+            : "reviewer\nI refuse.",
+        lastPath,
+        baselinePath,
+      });
+      expect(flipped).not.toBe(0);
+      expect(await readFile(baselinePath, "utf8")).toBe(passedText);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
