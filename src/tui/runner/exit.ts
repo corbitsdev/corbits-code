@@ -146,6 +146,8 @@ export async function closeAgentForRebuild(
   }
 }
 
+type AgentBuildReason = "initial" | "reload" | "interrupt" | "session-rotation";
+
 // Directors seed allowIdleWithFleet=true because fleet lanes may appear
 // mid-session. Rebuilds re-sync from the live count: the publisher only
 // fires on a count change, so a session that never sees 0→1→0 keeps the seed.
@@ -361,10 +363,19 @@ export async function createRunLifecycle(
   // Consume-once gate for the compaction continuation emit: a replayed
   // duplicate of an already-answered emission must not re-deliver.
   const continuationGate = createContinuationGate();
+  // The reactor's per-message run bracket is the idle signal for rebuilds:
+  // a suspended send settles, and approvalResume.handle resolves at decision
+  // hand-over, while the parked run is still open and the resumed tool and
+  // next inference execute inside it. Only reply/wait/done (or a fatal
+  // abandon) close it.
+  const openMessageRuns = new Set<string>();
   const streamSink = (
     event: Parameters<typeof services.runSink.sink>[0],
   ): void => {
     let eventForSink = event;
+    if (event.type === "message.run.started") {
+      openMessageRuns.add(event.data.messageRunId);
+    }
     if (event.type === "message.received") {
       providerFailureAttempts.advanceToNextMessage();
     }
@@ -450,9 +461,33 @@ export async function createRunLifecycle(
         billingIdentityFromSource(event.data.source),
       );
     }
+    if (event.type === "message.run.ended") {
+      openMessageRuns.delete(event.data.messageRunId);
+      state.reloadIfIdle?.();
+    }
   };
 
-  state.currentAgent = await services.buildAgent();
+  const buildLiveAgent = async (reason: AgentBuildReason): Promise<void> => {
+    tuiLogger.info("building agent: {reason}", {
+      reason,
+      sessionId: state.sessionId,
+    });
+    // The outgoing agent's stream has drained; a run it left open (closed
+    // mid-run by interrupt or rotation) can never emit its end.
+    openMessageRuns.clear();
+    // Those rebuilds already construct the agent a deferred reload was
+    // waiting on. Clear before the await so a connect that lands during
+    // buildAgent can still mark tools this build did not see. Initial and
+    // reload builds leave the flag to reloadIfIdle.
+    if (reason === "interrupt" || reason === "session-rotation") {
+      state.pendingReload = false;
+    }
+    state.currentAgent = await services.buildAgent();
+  };
+  const agentBusy = (): boolean =>
+    state.inFlight > 0 || openMessageRuns.size > 0;
+
+  await buildLiveAgent("initial");
   resyncIdleWithFleetFlag(services);
   await persistRunSnapshot("running");
   void resolveSessionLabel(
@@ -471,9 +506,21 @@ export async function createRunLifecycle(
   const enqueueOp = services.sessionOps.enqueue;
 
   const reloadIfIdle = (): void => {
-    if (!state.pendingReload || state.inFlight > 0) return;
+    if (!state.pendingReload || agentBusy()) return;
     state.pendingReload = false;
     void enqueueOp(async () => {
+      // When the reactor dequeues a message it closes the previous run and
+      // opens the next without leaving the microtask queue, and the stream
+      // hands buffered events to the sink through resolved promises. Waiting
+      // one macrotask lets the sink apply a successor's message.run.started
+      // that is already on its way, so the check below sees it.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      // A delivery queued ahead of this op may have started a run since the
+      // check above; re-defer to that run's end instead of killing it.
+      if (agentBusy()) {
+        state.pendingReload = true;
+        return;
+      }
       try {
         const old = liveAgent(state);
         const closedCleanly = await closeAgentForRebuild(old, "reload");
@@ -483,7 +530,7 @@ export async function createRunLifecycle(
         if (!closedCleanly) {
           throw new AgentContextLockError(state.workdir);
         }
-        state.currentAgent = await services.buildAgent();
+        await buildLiveAgent("reload");
         resyncIdleWithFleetFlag(services);
         state.streamPromise = consumeStream(
           liveAgent(state).stream(),
@@ -636,7 +683,7 @@ export async function createRunLifecycle(
           if (!closedCleanly) {
             throw new AgentContextLockError(state.workdir);
           }
-          state.currentAgent = await services.buildAgent();
+          await buildLiveAgent("interrupt");
           resyncIdleWithFleetFlag(services);
           services.cycleRecorder.reset();
           state.streamPromise = consumeStream(
@@ -742,7 +789,7 @@ export async function createRunLifecycle(
         // The rotated session's transcript never recorded the activations, so
         // its wire starts at the prefix and its run.json does not inherit them.
         services.activatedToolNames.clear();
-        state.currentAgent = await services.buildAgent();
+        await buildLiveAgent("session-rotation");
         resyncIdleWithFleetFlag(services);
         services.cycleRecorder.reset();
         state.streamPromise = consumeStream(
