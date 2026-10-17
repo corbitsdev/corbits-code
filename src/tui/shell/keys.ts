@@ -14,46 +14,27 @@ import { badgeCount, pause } from "../delivery-queue.js";
 import {
   type AppShell,
   type FlashOptions,
-  effortCycleHandlers,
-  isSlashPopupOpen,
-  type PrimaryOverlayKind,
   getShellStopAffordance,
   shellExitHandlers,
   shellInternals,
 } from "./internals.js";
 import {
   acceptOverlaySelection,
-  abortOverlayHostReservations,
-  closeInsetOverlay,
   confirmCopySelection,
   copyAllTargets,
-  exitOverlayAnswerMode,
   handleOverlayAnswerKey,
-  notifyOverlayClosed,
-  stopDecisionGate,
 } from "./overlay-host.js";
+import { applyLandingSuggestion, setStatusFlash } from "./chrome.js";
 import {
-  applyFocus,
-  applyLandingSuggestion,
-  setStatusFlash,
-  toggleShellFocus,
-  toggleTasksPanel,
-} from "./chrome.js";
-import {
-  applyPendingCancelSelected,
-  applyPendingDrop,
   applyPendingForcePush,
   applyPendingNav,
-  applyShellCancelLast,
   attachClipboardImage,
   clearPendingAttachments,
   clearPendingSelection,
   interruptShell,
   pendingSelectionActive,
-  submitPrompt,
 } from "./prompt.js";
 import {
-  closeSlashPopup,
   handleListFilterKey,
   handleMentionPopupKey,
   handlePaletteFilterKey,
@@ -71,10 +52,7 @@ import {
   toggleOverlayExpand,
 } from "./overlay-list.js";
 import { OVERLAY_EXPAND_KEY } from "./transcript.js";
-import { toggleCollapsedRow } from "./chrome.js";
-import { leaveSubagentObserve, observeActiveSubagent } from "./observe.js";
-import { enterCopyMode, toggleMouseCapture } from "./copy.js";
-import { canPopFocus, focusOwner, popFocus } from "../focus/index.js";
+import { focusOwner } from "../focus/index.js";
 import {
   beginYank,
   breakKillSequence,
@@ -91,7 +69,6 @@ import {
   stepSentHistoryDown,
   stepSentHistoryUp,
 } from "../sent-message-history.js";
-import { EXPAND_KEY } from "../stream.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -115,45 +92,6 @@ function isPrintableInsertKey(key: KeyEvent): boolean {
     typeof key.sequence === "string" &&
     key.sequence.length === 1 &&
     key.sequence >= " "
-  );
-}
-
-/**
- * The picker a re-pressed chord closes, or null when the chord must not
- * toggle: action openers (Ctrl+P, Ctrl+C, expand) have nothing to close,
- * decision surfaces must not read a re-press as an answer, and `@`/`/`
- * re-press as typed characters, not toggles.
- */
-function toggledSurfaceFor(key: KeyEvent): PrimaryOverlayKind | null {
-  if (
-    (key.meta || key.option) &&
-    !key.ctrl &&
-    (key.name === "c" || key.name === "C")
-  ) {
-    return "copy";
-  }
-  return null;
-}
-
-/**
- * Re-pressing a picker's opener closes it via the same path Esc uses, so
- * key claims and focus unwind identically.
- */
-function toggleCloseOpenSurface(shell: AppShell, key: KeyEvent): boolean {
-  if (shell.overlayList === null) return false;
-  const kind = toggledSurfaceFor(key);
-  if (kind === null || kind !== shell.overlayKind) return false;
-  // The `/` popup borrows the palette overlay; there the chord is still
-  // filter input.
-  if (kind === "palette" && isSlashPopupOpen(shell)) return false;
-  closeInsetOverlay(shell);
-  return true;
-}
-
-/** Permission and operator gates: the overlays that hold every key. */
-function isDecisionGate(shell: AppShell): boolean {
-  return (
-    shell.overlayKind === "permissions" || shell.overlayKind === "operator"
   );
 }
 
@@ -310,32 +248,53 @@ interface ShellKeyHandlers {
   onPaste: (event: { bytes: Uint8Array; preventDefault: () => void }) => void;
 }
 
-function killThenRecord(
-  shell: AppShell,
-  direction: "forward" | "backward",
-  remove: (prompt: AppShell["prompt"]) => void,
-): void {
-  const before = shell.prompt.value;
-  remove(shell.prompt);
-  const after = shell.prompt.value;
-  const measure = (prefix: string): number =>
-    shell.prompt.editBuffer.measureText(prefix);
-  const removal = removedByDelete(before, after, {
-    caret: shell.prompt.cursorOffset,
-    measure,
-  });
-  // A snapped wide cell leaves the caret off the grapheme it dropped. Yank
-  // inserts at the caret, so park it where the lost span splices back in.
-  // When the native caret already sits on that hole, this is a no-op and
-  // does not slide it onto the other copy of a repeated prefix.
-  if (removal.text.length > 0) {
-    shell.prompt.cursorOffset = measure(after.slice(0, removal.at));
-  }
-  shell.promptKillRing = recordKill(
-    shell.promptKillRing,
-    removal.text,
-    direction,
-  );
+/**
+ * Textarea already deletes on Ctrl+K/U/W and Alt+D (`Textarea.d.ts`
+ * `TextareaAction`, shipped `defaultTextareaKeyBindings`). Record the diff
+ * those methods remove so yank has a ring. Do not re-bind the chords.
+ */
+function capturePromptKills(shell: AppShell): void {
+  const prompt = shell.prompt;
+  const wrap = (
+    method:
+      | "deleteToLineEnd"
+      | "deleteToLineStart"
+      | "deleteWordBackward"
+      | "deleteWordForward",
+    direction: "forward" | "backward",
+  ): void => {
+    const original = prompt[method].bind(prompt) as () => boolean;
+    const wrapped = (): boolean => {
+      const before = prompt.value;
+      const result = original();
+      const after = prompt.value;
+      const measure = (prefix: string): number =>
+        prompt.editBuffer.measureText(prefix);
+      const removal = removedByDelete(before, after, {
+        caret: prompt.cursorOffset,
+        measure,
+      });
+      // A snapped wide cell leaves the caret off the grapheme it dropped. Yank
+      // inserts at the caret, so park it where the lost span splices back in.
+      // When the native caret already sits on that hole, this is a no-op and
+      // does not slide it onto the other copy of a repeated prefix.
+      if (removal.text.length > 0) {
+        prompt.cursorOffset = measure(after.slice(0, removal.at));
+      }
+      shell.promptKillRing = recordKill(
+        shell.promptKillRing,
+        removal.text,
+        direction,
+      );
+      return result;
+    };
+    (prompt as unknown as Record<typeof method, () => boolean>)[method] =
+      wrapped;
+  };
+  wrap("deleteToLineEnd", "forward");
+  wrap("deleteToLineStart", "backward");
+  wrap("deleteWordBackward", "backward");
+  wrap("deleteWordForward", "forward");
 }
 
 /**
@@ -346,6 +305,7 @@ export function createShellKeyHandlers(
   shell: AppShell,
   opts: { isDisposed: () => boolean },
 ): ShellKeyHandlers {
+  capturePromptKills(shell);
   // A real bracketed paste proves DEC 2004; the CRLF-submit fallback below
   // then disables itself for the session.
   let sawBracketedPaste = false;
@@ -371,54 +331,53 @@ export function createShellKeyHandlers(
     clearPendingSelection(shell);
   };
 
+  const token = (key: KeyEvent): string =>
+    typeof key.name === "string" ? key.name.toLowerCase() : "";
+
+  /**
+   * Un-bracketed paste replay. Returns true when this key was consumed
+   * (suppressed LF, or a burst Enter turned into a newline). Callers
+   * preventDefault.
+   */
+  const trackPasteBurst = (key: KeyEvent): boolean => {
+    if (sawBracketedPaste) return false;
+    const keyName = token(key);
+    const suppressLinefeed = suppressNextLinefeed;
+    suppressNextLinefeed = false;
+    if (
+      suppressLinefeed &&
+      keyName === "linefeed" &&
+      !key.ctrl &&
+      !key.meta &&
+      !key.option
+    ) {
+      return true;
+    }
+    const now = Date.now();
+    const sincePreviousKey = now - lastKeyAt;
+    const previousKeyWasPrintable = lastKeyWasPrintable;
+    lastKeyAt = now;
+    lastKeyWasPrintable = isPrintableInsertKey(key);
+    const isBareReturn =
+      !key.ctrl &&
+      !key.meta &&
+      !key.option &&
+      (keyName === "return" || keyName === "kpenter");
+    if (
+      isBareReturn &&
+      previousKeyWasPrintable &&
+      sincePreviousKey < PASTE_BURST_MS
+    ) {
+      shell.prompt.insertText("\n");
+      suppressNextLinefeed = true;
+      return true;
+    }
+    return false;
+  };
+
   const onKey = (key: KeyEvent): void => {
     if (opts.isDisposed()) return;
     if (shellInternals(shell)?.inputSuspended === true) return;
-
-    if (key.name === "escape") {
-      if (exitOverlayAnswerMode(shell)) {
-        key.preventDefault();
-        return;
-      }
-      if (shell.overlayList) {
-        key.preventDefault();
-        abortOverlayHostReservations(shell);
-        // A slash popup's close already closes the inset; closing again
-        // would idle-notify twice and kill a gate the first notify drains.
-        // Other overlays have no entry, so the shared close handles them.
-        const list = shell.overlayList;
-        closeSlashPopup(shell);
-        if (list !== null && shell.overlayList === list)
-          closeInsetOverlay(shell);
-        return;
-      }
-      if (shellInternals(shell)?.overlayHostReservations) {
-        abortOverlayHostReservations(shell);
-        key.preventDefault();
-        // Next tick so the same Esc cannot also dismiss a gate this abort drains.
-        queueMicrotask(() => notifyOverlayClosed(shell));
-        return;
-      }
-      if (shell.observe) {
-        key.preventDefault();
-        leaveSubagentObserve(shell);
-        return;
-      }
-      // The pending-column selection is the shallowest frame; back out of
-      // it before touching transcript focus.
-      if (clearPendingSelection(shell)) {
-        key.preventDefault();
-        return;
-      }
-      // Transcript browse (Tab) is the last poppable frame: Esc returns
-      // typing to the prompt.
-      if (canPopFocus(shell.focus)) {
-        key.preventDefault();
-        shell.focus = popFocus(shell.focus);
-        applyFocus(shell);
-        return;
-      }
-    }
 
     // Landing starters; only while the prompt is untouched, so the key is a
     // plain character once typing starts.
@@ -435,21 +394,6 @@ export function createShellKeyHandlers(
     }
 
     if (shell.overlayList) {
-      // A decision gate keeps every key until it is answered, and a run that
-      // keeps raising gates (each rejection re-infers into more calls) would
-      // then leave the stop key unreachable. Ctrl+C declines the open gate the
-      // way Esc does, then interrupts the turn, which drops queued gates too.
-      if (key.ctrl && key.name === "c" && isDecisionGate(shell)) {
-        key.preventDefault();
-        stopDecisionGate(shell);
-        return;
-      }
-      // Checked before the filter handlers: an opener pressed again closes,
-      // it is not a filter character.
-      if (toggleCloseOpenSurface(shell, key)) {
-        key.preventDefault();
-        return;
-      }
       // The `/` popup filters as you type, claiming printable keys ahead of
       // j/k navigation.
       if (handleSlashPopupKey(shell, key)) {
@@ -567,54 +511,13 @@ export function createShellKeyHandlers(
     // Ctrl+Y/Alt+Y need a place to yank it back from — the kill ring below.
     const keyName = typeof key.name === "string" ? key.name.toLowerCase() : "";
 
-    // The un-bracketed-paste fallback: a terminal that fired a real `paste`
-    // event never needs it again.
-    if (!sawBracketedPaste) {
-      // The LF of a CRLF pair the block below converted; without this,
-      // "line one\r\nline two" would insert two newlines.
-      const suppressLinefeed = suppressNextLinefeed;
-      suppressNextLinefeed = false;
-      if (
-        suppressLinefeed &&
-        keyName === "linefeed" &&
-        !key.ctrl &&
-        !key.meta &&
-        !key.option
-      ) {
-        key.preventDefault();
-        return;
-      }
-
-      // A bare CR is the same "return" that submits; pasting three lines
-      // would otherwise send three messages. The signal — printable char
-      // then Enter, both within one keystroke burst — is unique to a paste
-      // replay, and gating on both keeps Ctrl+J-then-Enter safe (Ctrl+J is
-      // not printable).
-      const now = Date.now();
-      const sincePreviousKey = now - lastKeyAt;
-      const previousKeyWasPrintable = lastKeyWasPrintable;
-      lastKeyAt = now;
-      lastKeyWasPrintable = isPrintableInsertKey(key);
-      const isBareReturn =
-        !key.ctrl &&
-        !key.meta &&
-        !key.option &&
-        (keyName === "return" || keyName === "kpenter");
-      if (
-        isBareReturn &&
-        previousKeyWasPrintable &&
-        sincePreviousKey < PASTE_BURST_MS
-      ) {
-        key.preventDefault();
-        shell.prompt.insertText("\n");
-        suppressNextLinefeed = true;
-        return;
-      }
+    if (trackPasteBurst(key)) {
+      key.preventDefault();
+      return;
     }
 
-    // A pending-column selection owns Enter (send now), ^X (drop) and ^G
-    // (back to editing); any other key ends the selection. ↑/↓ stay with
-    // the column (nav block below).
+    // A pending-column selection owns Enter (send now). Ctrl+X, Ctrl+G, and
+    // Esc are keymap commands and must still see the selection. ↑/↓ stay.
     if (pendingSelectionActive(shell)) {
       if (
         (keyName === "return" || keyName === "kpenter") &&
@@ -626,21 +529,19 @@ export function createShellKeyHandlers(
         applyPendingForcePush(shell);
         return;
       }
-      if (key.ctrl && !key.meta && !key.option && keyName === "x") {
-        key.preventDefault();
-        applyPendingDrop(shell);
-        return;
-      }
-      if (key.ctrl && !key.meta && !key.option && keyName === "g") {
-        key.preventDefault();
-        applyPendingCancelSelected(shell);
-        return;
-      }
-      if (keyName !== "up" && keyName !== "down") {
+      const keymapOwnsKey =
+        keyName === "escape" ||
+        (key.ctrl &&
+          !key.meta &&
+          !key.option &&
+          (keyName === "x" || keyName === "g"));
+      if (keyName !== "up" && keyName !== "down" && !keymapOwnsKey) {
         clearPendingSelection(shell);
       }
     }
 
+    // Ctrl+K/U/W and Alt+D are Textarea defaults (`defaultTextareaKeyBindings`).
+    // The wrapped delete methods record the kill. Only yank is still ours.
     const isCtrlKillYank =
       key.ctrl &&
       !key.meta &&
@@ -657,36 +558,31 @@ export function createShellKeyHandlers(
       shell.promptKillRing = breakKillSequence(shell.promptKillRing);
     }
 
-    if (key.ctrl && !key.meta && !key.option && keyName === "k") {
-      key.preventDefault();
-      killThenRecord(shell, "forward", (prompt) => {
-        prompt.deleteToLineEnd();
-      });
-      return;
-    }
-
-    if (key.ctrl && !key.meta && !key.option && keyName === "u") {
-      key.preventDefault();
-      killThenRecord(shell, "backward", (prompt) => {
-        prompt.deleteToLineStart();
-      });
-      return;
-    }
-
-    if (key.ctrl && !key.meta && !key.option && keyName === "w") {
-      key.preventDefault();
-      killThenRecord(shell, "backward", (prompt) => {
-        prompt.deleteWordBackward();
-      });
-      return;
-    }
-
-    if ((key.meta || key.option) && !key.ctrl && keyName === "d") {
-      key.preventDefault();
-      killThenRecord(shell, "forward", (prompt) => {
-        prompt.deleteWordForward();
-      });
-      return;
+    // Textarea defaults only run while the prompt is focused. After Tab the
+    // transcript holds focus, so call the same delete methods the default
+    // bindings use. capturePromptKills records the diff. Do not keymap-bind
+    // these: that would steal them from the focused textarea.
+    if (!shell.prompt.focused) {
+      if (key.ctrl && !key.meta && !key.option && keyName === "k") {
+        key.preventDefault();
+        shell.prompt.deleteToLineEnd();
+        return;
+      }
+      if (key.ctrl && !key.meta && !key.option && keyName === "u") {
+        key.preventDefault();
+        shell.prompt.deleteToLineStart();
+        return;
+      }
+      if (key.ctrl && !key.meta && !key.option && keyName === "w") {
+        key.preventDefault();
+        shell.prompt.deleteWordBackward();
+        return;
+      }
+      if ((key.meta || key.option) && !key.ctrl && keyName === "d") {
+        key.preventDefault();
+        shell.prompt.deleteWordForward();
+        return;
+      }
     }
 
     if (key.ctrl && !key.meta && !key.option && keyName === "y") {
@@ -796,109 +692,6 @@ export function createShellKeyHandlers(
       }
     } else if (!MOTION_KEYS.has(keyName)) {
       shell.sentHistory = sentHistoryOnEdit(shell.sentHistory);
-    }
-
-    if (
-      ((key.name === "tab" && key.shift) || key.name === "backtab") &&
-      !key.ctrl &&
-      !key.meta &&
-      !key.option
-    ) {
-      key.preventDefault();
-      effortCycleHandlers.get(shell)?.();
-      return;
-    }
-
-    if (
-      key.name === "tab" &&
-      !key.ctrl &&
-      !key.meta &&
-      !key.option &&
-      !key.shift
-    ) {
-      key.preventDefault();
-      toggleShellFocus(shell);
-      return;
-    }
-
-    // Alt+E, never bare: with the prompt focused a bare `e` would just type
-    // a letter instead of expanding a row.
-    if ((key.meta || key.option) && !key.ctrl && key.name === EXPAND_KEY) {
-      if (toggleCollapsedRow(shell)) {
-        key.preventDefault();
-        return;
-      }
-    }
-
-    if (
-      (key.meta || key.option) &&
-      (key.name === "c" || key.name === "C") &&
-      !key.ctrl
-    ) {
-      // Alt+C: keyboard copy path (no mouse drag-select).
-      key.preventDefault();
-      enterCopyMode(shell);
-      return;
-    }
-
-    if (
-      (key.meta || key.option) &&
-      (key.name === "m" || key.name === "M") &&
-      !key.ctrl
-    ) {
-      // Alt+M: release mouse reporting so the terminal can drag-select.
-      key.preventDefault();
-      toggleMouseCapture(shell);
-      return;
-    }
-
-    if (
-      (key.meta || key.option) &&
-      (key.name === "t" || key.name === "T") &&
-      !key.ctrl
-    ) {
-      // Alt+T: the task panel toggle (palette no longer owns it).
-      key.preventDefault();
-      toggleTasksPanel(shell);
-      return;
-    }
-
-    if (
-      (key.meta || key.option) &&
-      (key.name === "o" || key.name === "O") &&
-      !key.ctrl
-    ) {
-      // Alt+O: observe a live subagent, same rationale as Alt+T.
-      key.preventDefault();
-      observeActiveSubagent(shell);
-      return;
-    }
-
-    if (key.ctrl && key.name === "c") {
-      key.preventDefault();
-      handleCtrlC(shell);
-      return;
-    }
-
-    if (key.ctrl && key.name === "g") {
-      // Readline/Emacs "abort" chord, unclaimed elsewhere; muscle memory
-      // already reads it as "cancel the pending thing".
-      key.preventDefault();
-      applyShellCancelLast(shell);
-      return;
-    }
-
-    if (
-      (key.name === "return" || key.name === "enter") &&
-      (key.meta || key.option) &&
-      !key.ctrl
-    ) {
-      // Alt+Enter: enqueue a follow-up, delivered only when the run goes
-      // idle; does not interrupt or reinject. Idle/empty is a no-op.
-      key.preventDefault();
-      if (shell.session.run !== "busy") return;
-      submitPrompt(shell, "queue");
-      return;
     }
   };
   return { onKey, onPaste };

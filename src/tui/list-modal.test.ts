@@ -3,6 +3,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { defined } from "../../testkit/defined.js";
 import { createHarness, type Harness } from "./harness.js";
 import { runListModal, type ListModalConfig } from "./list-modal.js";
+import { createAppShell } from "./shell/index.js";
+import { pokeShellKeymapPress, shellKeymapListening } from "./shell/keymap.js";
 
 let harness: Harness | undefined;
 
@@ -30,6 +32,28 @@ async function mountModal(overrides: Partial<ListModalConfig> = {}): Promise<{
 }
 
 describe("runListModal", () => {
+  test("renderer destroy detaches the keymap before a later keypress", async () => {
+    const h = await createHarness({ width: 40, height: 12 });
+    try {
+      const shell = createAppShell(h.renderer, {
+        title: "keymap",
+        run: "idle",
+      });
+      expect(shellKeymapListening(h.renderer)).toBe(true);
+      const before = h.renderer.keyInput.listenerCount("keypress");
+      expect(before).toBeGreaterThan(0);
+      shell.dispose();
+      h.renderer.destroy();
+      expect(shellKeymapListening(h.renderer)).toBe(false);
+      expect(h.renderer.keyInput.listenerCount("keypress")).toBeLessThan(
+        before,
+      );
+      expect(() => pokeShellKeymapPress(h.renderer)).not.toThrow();
+    } finally {
+      h.destroy();
+    }
+  });
+
   test("resolves the id of the accepted row", async () => {
     const { choice, harness } = await mountModal();
     harness.pressKey("Enter");

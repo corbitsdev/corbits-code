@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defined } from "../../testkit/defined.js";
 import { withTestRenderer } from "./harness";
+import { shellFocusTranscript } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import {
   beginYank,
@@ -320,6 +321,23 @@ describe("prompt kill ring chords", () => {
       expect(shell.promptKillRing.entries[0]).toBe("你c");
       h.pressKey("y", { ctrl: true });
       expect(shell.prompt.value).toBe("ab你cd");
+    });
+  });
+
+  test("ctrl+k still kills prompt text while the transcript is focused", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      });
+      shell.prompt.value = "hello";
+      shell.prompt.cursorOffset = 0;
+      shellFocusTranscript(shell);
+      expect(shell.prompt.focused).toBe(false);
+      h.pressKey("k", { ctrl: true });
+      expect(shell.prompt.value).toBe("");
+      h.pressKey("y", { ctrl: true });
+      expect(shell.prompt.value).toBe("hello");
     });
   });
 });

@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { focusOwner } from "./focus/index.js";
 import { withTestRenderer } from "./harness.js";
-import { SHELL_SHORTCUTS } from "./keybindings.js";
+import { shellShortcuts } from "./keybindings.js";
 import {
   residualIdFromSelection,
   residualListFromCatalog,
@@ -86,7 +86,7 @@ describe("Wave 7: residual list surfaces", () => {
         try {
           openHelpOverlay(shell);
           expect(shell.overlayKind).toBe("help");
-          expect(shell.overlayItems).toHaveLength(SHELL_SHORTCUTS.length + 1);
+          expect(shell.overlayItems).toHaveLength(shellShortcuts().length + 1);
           expect(focusOwner(shell.focus)).toBe("overlay");
           closeInsetOverlay(shell);
           expect(shell.overlayList).toBeNull();

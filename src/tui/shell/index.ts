@@ -83,6 +83,7 @@ import {
   createShellKeyHandlers,
   routePromptWheelToTranscript,
 } from "./keys.js";
+import { attachShellKeymap } from "./keymap.js";
 
 const DEFAULT_TITLE = "corbits";
 
@@ -364,6 +365,7 @@ export function createAppShell(
   }
 
   let disposed = false;
+  let detachKeymap: (() => void) | undefined;
   let session = createSessionQueue(run);
   const seedPending = Math.max(0, Math.floor(options?.pendingQueue ?? 0));
   for (let i = 0; i < seedPending; i++) {
@@ -518,6 +520,8 @@ export function createAppShell(
       shell.disposed = true;
       // Quit paths that skip idle Ctrl+C still drop Corbits-created files.
       clearPendingAttachments(shell);
+      detachKeymap?.();
+      detachKeymap = undefined;
       if (wireKeys) {
         renderer.keyInput.off("keypress", onKey);
         renderer.keyInput.off("paste", onPaste);
@@ -632,7 +636,11 @@ export function createAppShell(
     isDisposed: () => disposed,
   });
   if (wireKeys) {
-    renderer.keyInput.on("keypress", onKey);
+    detachKeymap = attachShellKeymap(renderer as CliRenderer, shell);
+    // onKey runs before the keymap listener (prepended above) so paste-burst
+    // bookkeeping and the kill-ring break happen, then the keymap may
+    // stopPropagation. Textarea defaults run last.
+    renderer.keyInput.prependListener("keypress", onKey);
     renderer.keyInput.on("paste", onPaste);
     prompt.onSubmit = onEnter;
   }

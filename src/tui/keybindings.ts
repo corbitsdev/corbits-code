@@ -1,9 +1,8 @@
 /**
- * OpenTUI shell keybinding catalog (pure data) — the help overlay's source
- * of truth. Every row must be a chord that really works: a handler in
- * `src/tui/shell.ts`, or a default prompt binding from @opentui/core. Do
- * not hand-transcribe from docs; `keybindings.test.ts` drives every row's
- * chord through a live shell and asserts its effect.
+ * Help rows. Application lines come from the live `@opentui/keymap`
+ * registration (`bindAppHelp`). Widget-default rows are the Textarea chords
+ * `defaultTextareaKeyBindings` / `PROMPT_KEY_BINDINGS` already perform, plus
+ * the kill-ring yank chords the textarea does not implement.
  */
 
 export interface ShellShortcut {
@@ -11,68 +10,16 @@ export interface ShellShortcut {
   readonly description: string;
 }
 
-export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
+/**
+ * Prompt-local rows. Cursor, delete, word motion, and newline/submit are
+ * Textarea defaults (`renderables/Textarea.d.ts` `TextareaAction`). Yank is
+ * not a Textarea action; it stays listed because the kill ring records it.
+ */
+export const WIDGET_DEFAULT_SHORTCUTS: readonly ShellShortcut[] = [
   {
     keys: "Enter",
     description:
       "soft-steer at the next tool boundary while busy (held above the prompt); send straight through when idle",
-  },
-  {
-    keys: "Alt+Enter",
-    description:
-      "queue a follow-up delivered only when the run goes idle; does nothing unless a run is busy",
-  },
-  {
-    keys: "Up / Down / Enter / Ctrl+X",
-    description:
-      "on held items above the prompt: select, send now, drop (Esc backs out)",
-  },
-  {
-    keys: "Ctrl+C",
-    description:
-      "pause a busy run and hold the queue, or clear the prompt and attachments when idle; Ctrl+C again to exit — with live sub-agents, a 2nd press stops them, a 3rd quits",
-  },
-  {
-    keys: "Ctrl+G",
-    description:
-      "pop the most recently queued or steered message back into the prompt for editing",
-  },
-  {
-    keys: "Alt+C",
-    description:
-      "copy mode: pick a message, tool output, or diff; press again to close it",
-  },
-  {
-    keys: "Alt+M",
-    description:
-      "toggle DEC mouse capture (on by default: wheel scroll, click-to-expand, drag-to-copy); off restores native terminal drag-select",
-  },
-  {
-    keys: "Alt+E",
-    description:
-      "expand or collapse every collapsible row (tool call, diff, skill, reasoning)",
-  },
-  {
-    keys: "Alt+T",
-    description:
-      "show or hide the task list above the prompt (hidden by default)",
-  },
-  {
-    keys: "Alt+O",
-    description:
-      "observe a live subagent session; a system row says so when there is none",
-  },
-  {
-    keys: "Tab",
-    description: "move focus between the prompt and the transcript",
-  },
-  {
-    keys: "Shift+Tab",
-    description: "cycle reasoning effort for the current model",
-  },
-  {
-    keys: "Esc",
-    description: "close the open overlay, or leave subagent observe",
   },
   {
     keys: "Ctrl+B / Ctrl+F",
@@ -126,12 +73,37 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
     description:
       "insert a newline instead of sending (Shift+Enter also works on terminals that report the modifier)",
   },
-] as const;
+];
 
-/** Help rows from the shell's own catalog, so they cannot drift from it. */
+let appRows: readonly ShellShortcut[] = [];
+let readAppHelp: () => readonly string[] = () =>
+  appRows.map((row) => `${row.keys} — ${row.description}`);
+
+export function setAppShortcutRows(rows: readonly ShellShortcut[]): void {
+  appRows = rows;
+}
+
+export function bindAppHelp(read: () => readonly string[]): () => void {
+  const previous = readAppHelp;
+  readAppHelp = read;
+  return () => {
+    readAppHelp = previous;
+  };
+}
+
+export function shellShortcuts(): readonly ShellShortcut[] {
+  return [...appRows, ...WIDGET_DEFAULT_SHORTCUTS];
+}
+
+function formatShortcut(row: ShellShortcut): string {
+  return `${row.keys} — ${row.description}`;
+}
+
+/** Keymap command lines, then widget-default rows. */
 export function helpItems(): readonly string[] {
   return [
-    ...SHELL_SHORTCUTS.map((s) => `${s.keys} — ${s.description}`),
+    ...readAppHelp(),
+    ...WIDGET_DEFAULT_SHORTCUTS.map(formatShortcut),
     "Close help",
   ];
 }
