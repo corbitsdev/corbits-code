@@ -332,10 +332,6 @@ export interface RunnerState {
     extra?: SnapshotExtra,
     kind?: Exclude<SnapshotKind, "run-end">,
   ) => Promise<void>;
-  /** CL-10667: debounced per-turn boundary snapshot writer. */
-  scheduleRunSnapshot?: () => void;
-  /** CL-10667: flush any pending debounced snapshot before observing run.json. */
-  flushRunSnapshot?: () => Promise<void>;
   shutdownRuntime?: () => Promise<void>;
   stopFleetReporting?: () => void;
   stopRunHeartbeat?: () => void;
