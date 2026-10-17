@@ -334,7 +334,7 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 
 **Wait mailbox** (`src/subagent/agent-fleet.ts` `FleetMailbox`): per-install overlay over that session store. Wait JSON is a projection of stored lifecycle plus mailbox membership, pin, collected, and optional interrupt override — not a second terminal store. Mailbox `register` pins an uncollected result (honored by prune); past `MAX_FLEET_RECORDS` the oldest never-collected pin is compacted to a tombstone. Operator cancel projects wait status `interrupted`.
 
-**Observe (OpenTUI)**: `shell/observe.ts:enterSubagentObserve` swaps the transcript for a child's stream (live while running, historical when done) without stealing the parent reactor; child events are mapped to stream rows by `src/tui/observe-map.ts`. Esc leaves observe and restores the parent transcript. Parent Esc/stop and `/clear` still call `cancelAll` so live children close (`agent.close`) instead of continuing after the parent stops. The host-injection point that resolves a live session (`onObserveRequest` → `observeSessionFromSubAgents`, `src/tui/runner/host.ts`, picking the newest running child else the most recent session of any status) is triggered by Alt+O (`src/tui/shell/observe.ts:observeActiveSubagent`) — the command palette action that used to call it is gone along with `src/tui/shell/palette.ts` itself, but the chord replaces it rather than dropping the feature.
+**Observe (OpenTUI)**: `shell/observe.ts:enterSubagentObserve` swaps the transcript for a child's stream (live while running, historical when done) without stealing the parent reactor. Live Alt+O maps the child's transcript to stream rows with `rowsFromTranscript` in `src/tui/runner/host.ts`. Esc leaves observe and restores the parent transcript. Parent Esc/stop and `/clear` still call `cancelAll` so live children close (`agent.close`) instead of continuing after the parent stops. The host-injection point that resolves a live session (`onObserveRequest` → `observeSessionFromSubAgents`, `src/tui/runner/host.ts`, picking the newest running child else the most recent session of any status) is triggered by Alt+O (`src/tui/shell/observe.ts:observeActiveSubagent`) — the command palette action that used to call it is gone along with `src/tui/shell/palette.ts` itself, but the chord replaces it rather than dropping the feature.
 
 Data-only agent plugins (`src/plugins/data-only-agent.ts`) synthesize `agentPlugin.agents[]` from `agents/*.md` or flat `*.md` in the plugin directory, with optional co-located `skills/`. `loadPluginEntry` tries JS entrypoints first, then falls back to this layout (`/plugins` add-by-path supports filesystem completion via `listPathSuggestions`).
 
@@ -374,10 +374,6 @@ The primary director is **dispatch** (`buildChatRole` → `createDispatchSystemP
 
 - `pricing-fetcher` loads model pricing from models.dev, caches it, and refreshes in the background
 - `faremeter` converts `inference.usage` token counts into a formatted cost using that pricing
-
-### Renderer (`src/agent/renderer.ts`)
-
-- Headless event rendering: formats the event stream to stderr with live cost, seeded by start time, model, and pricing cache
 
 ### Plugins
 
