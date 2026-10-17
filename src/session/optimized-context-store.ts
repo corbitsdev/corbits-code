@@ -337,6 +337,22 @@ function readMetadataDocument(raw: string): Pick<
 }
 
 /**
+ * Calls the turn history already answers. A crash between the result-turn
+ * write and the metadata op-removal write leaves turns answering a parked
+ * call while metadata.json still lists its pending operation; matching is by
+ * call id, which survives the on-disk approval-snapshot scrub.
+ */
+function answeredCallIds(turns: readonly ConversationTurn[]): Set<string> {
+  const answered = new Set<string>();
+  for (const turn of turns) {
+    for (const block of turn.content) {
+      if (block.type === "tool_result") answered.add(block.callId);
+    }
+  }
+  return answered;
+}
+
+/**
  * metadata.json + sidecar merge. Sidecar wins over a legacy tokenUsage field,
  * which wins over empty. Parse failures stay inside this function: a torn
  * "{not-json" document soft-defaults pending ops and connector state, but the
@@ -1562,7 +1578,35 @@ export async function createSessionStores(
         );
         metadata = emptyMetadata();
       }
-      return { turns, ...metadata };
+      // Crash-window filter: load() is the only path into the rebuilt
+      // reactor's gate rehydration, so a pending operation whose parked call
+      // the turns already answer dies here instead of re-arming its gate.
+      // Marker operations carry no suspendedCall and pass through. Disk is
+      // untouched (no write-in-read): the removal converges on the next
+      // normal metadata write, which publishes because the filtered payload
+      // differs from the seeded disk bytes.
+      const answered = answeredCallIds(turns);
+      const stale = metadata.pendingOperations.filter(
+        (op) =>
+          op.suspendedCall !== undefined && answered.has(op.suspendedCall.id),
+      );
+      for (const op of stale) {
+        log.warn(
+          "dropped pending operation {correlationId}: its parked call {callId} already has a result",
+          {
+            correlationId: op.correlationId,
+            callId: op.suspendedCall?.id ?? "",
+          },
+        );
+      }
+      if (stale.length === 0) return { turns, ...metadata };
+      return {
+        turns,
+        ...metadata,
+        pendingOperations: metadata.pendingOperations.filter(
+          (op) => !stale.includes(op),
+        ),
+      };
     },
     // Buffer is carried only by this store: base.writeMetadata is never
     // called through the wrapper, so base's pendingConnectorState would
