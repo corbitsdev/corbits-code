@@ -720,8 +720,9 @@ export const CLI_HELP_TEXT = `corbits — coding agent CLI
 
 Usage:
   corbits [flags] [task...]
-  corbits exec|run|-p [flags] <prompt>
-  corbits resume|continue [session-id] [flags]
+  corbits [flags] exec|run|-p [flags] <prompt>
+  corbits [flags] resume|continue [session-id] [flags]
+  corbits [flags] [exec|run|-p] -- <prompt...>
 
 Continue verbs (project-keyed to this checkout's git toplevel):
   resume / continue           interactive session picker
@@ -751,6 +752,8 @@ Flags:
                                --config selects another source
   --auto / --no-auto          auto mode on/off
   --no-workflow               deprecated and ignored
+  --                          end of flags: the rest is prompt text, even a
+                               verb or flag (corbits -- resume)
   --help, -h                  show this help
   --version, -V               show version
 `;
@@ -817,6 +820,55 @@ function isFlagToken(arg: string): boolean {
   return arg.startsWith("--") || arg === "-h" || arg === "-p" || arg === "-V";
 }
 
+const END_OF_FLAGS = "--";
+
+// Single source for which flags bind the next token: the main parse loop
+// dispatches on it, and subcommand detection skips the bound value with it.
+const VALUE_FLAGS = [
+  "--cwd",
+  "--config",
+  "--permissions",
+  "--provider",
+  "--model",
+  "--profile",
+  "--director",
+] as const;
+type ValueFlag = (typeof VALUE_FLAGS)[number];
+
+function isValueFlag(arg: string): arg is ValueFlag {
+  return (VALUE_FLAGS as readonly string[]).includes(arg);
+}
+
+const SUBCOMMANDS = ["exec", "run", "resume", "continue"] as const;
+type Subcommand = (typeof SUBCOMMANDS)[number];
+
+function isSubcommand(arg: string): arg is Subcommand {
+  return (SUBCOMMANDS as readonly string[]).includes(arg);
+}
+
+// The subcommand is the first token that is neither a flag nor a flag's
+// value, so launchers can prepend global flags (`corbits --cwd X resume`).
+// Only that first token is checked: `corbits fix the resume bug` stays a
+// prompt, and `corbits -- resume` sends "resume" as the prompt.
+function findSubcommand(
+  args: readonly string[],
+): { name: Subcommand; index: number } | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === undefined || arg === END_OF_FLAGS) return undefined;
+    // `--resume` binds an optional session id the same way the parse loop
+    // does; a non-id there is rejected by the loop, never read as a verb.
+    if (isValueFlag(arg) || arg === "--resume") {
+      const next = args[i + 1];
+      if (next !== undefined && !isFlagToken(next)) i++;
+      continue;
+    }
+    if (isFlagToken(arg)) continue;
+    return isSubcommand(arg) ? { name: arg, index: i } : undefined;
+  }
+  return undefined;
+}
+
 export async function loadConfig(
   argv: readonly string[],
   options?: LoadConfigOptions & { allowUnconfigured?: false },
@@ -840,22 +892,25 @@ export async function loadConfig(
 
   const args = [...argv];
 
-  // Leading subcommand: `corbits exec "prompt"` (alias: `run`). Default is TUI.
+  // Subcommand: `corbits exec "prompt"` (alias: `run`). Default is TUI.
   // `corbits resume` / `continue` reopen a prior session for this project key
   // (this checkout's git toplevel — see docs/IMPLEMENTATION.md).
   let command: "tui" | "exec" = "tui";
   let resumeMode: "id" | "pick" | undefined;
   let resumeSessionId: string | undefined;
-  const leading = args[0];
-  if (leading === "exec" || leading === "run") {
+  const subcommand = findSubcommand(args);
+  const isResume =
+    subcommand?.name === "resume" || subcommand?.name === "continue";
+  if (subcommand !== undefined) {
+    args.splice(subcommand.index, 1);
+  }
+  if (subcommand?.name === "exec" || subcommand?.name === "run") {
     command = "exec";
-    args.shift();
-  } else if (leading === "resume" || leading === "continue") {
-    args.shift();
+  } else if (subcommand !== undefined && isResume) {
     // Bare resume opens the list; a session id is the only direct-resume path.
     // Invalid non-flag positionals error instead of falling through (a
     // free-form token would otherwise become task while skipInitialTask is set).
-    const next = args.slice()[0];
+    const next = args[subcommand.index];
     if (next !== undefined && !isFlagToken(next)) {
       if (!isSessionId(next)) {
         throw new Error(
@@ -864,17 +919,19 @@ export async function loadConfig(
       }
       resumeMode = "id";
       resumeSessionId = next;
-      args.shift();
+      args.splice(subcommand.index, 1);
     } else {
       resumeMode = "pick";
     }
   }
 
-  // `-p` is the exec one-shot path in any position (`-p --provider …`,
+  // `-p` is the exec one-shot path in any flag position (`-p --provider …`,
   // `--model … -p …`). Detect it before value flags so exec-only options
-  // that appear before `-p` still see exec mode.
-  if (args.includes("-p")) {
-    if (leading === "resume" || leading === "continue") {
+  // that appear before `-p` still see exec mode. After `--` it is prompt text.
+  const endOfFlags = args.indexOf(END_OF_FLAGS);
+  const flagArgs = endOfFlags === -1 ? args : args.slice(0, endOfFlags);
+  if (flagArgs.includes("-p")) {
+    if (isResume) {
       throw new Error(
         `cannot combine resume with -p; use \`${COMMAND_NAME} -p --resume <session-id>\` to continue a session headlessly`,
       );
@@ -911,41 +968,47 @@ export async function loadConfig(
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === undefined) continue;
-    if (arg === "--cwd") {
-      cwd = resolve(requireValue("--cwd", args[++i]));
-      continue;
+    if (arg === END_OF_FLAGS) {
+      positional.push(...args.slice(i + 1));
+      break;
     }
-    if (arg === "--config") {
-      configPath = resolve(requireValue("--config", args[++i]));
-      continue;
-    }
-    if (arg === "--permissions") {
-      permissionsPath = resolve(requireValue("--permissions", args[++i]));
-      continue;
-    }
-    if (arg === "--provider") {
-      provider = requireValue("--provider", args[++i]);
-      continue;
-    }
-    if (arg === "--model") {
-      model = requireValue("--model", args[++i]);
-      continue;
-    }
-    if (arg === "--profile") {
-      profileFlag = requireValue("--profile", args[++i]);
-      continue;
-    }
-    if (arg === "--director") {
-      const value = requireValue("--director", args[++i]);
-      if (command !== "exec") {
-        throw new Error("--director is only available in exec mode");
+    if (isValueFlag(arg)) {
+      const value = requireValue(arg, args[++i]);
+      switch (arg) {
+        case "--cwd":
+          cwd = resolve(value);
+          break;
+        case "--config":
+          configPath = resolve(value);
+          break;
+        case "--permissions":
+          permissionsPath = resolve(value);
+          break;
+        case "--provider":
+          provider = value;
+          break;
+        case "--model":
+          model = value;
+          break;
+        case "--profile":
+          profileFlag = value;
+          break;
+        case "--director":
+          if (command !== "exec") {
+            throw new Error("--director is only available in exec mode");
+          }
+          if (!isDirectorId(value)) {
+            throw new Error(
+              `Unknown director "${value}". Use one of: ${DIRECTOR_IDS.join(", ")}.`,
+            );
+          }
+          director = value;
+          break;
+        default: {
+          const unhandled: never = arg;
+          throw new Error(`unhandled value flag: ${String(unhandled)}`);
+        }
       }
-      if (!isDirectorId(value)) {
-        throw new Error(
-          `Unknown director "${value}". Use one of: ${DIRECTOR_IDS.join(", ")}.`,
-        );
-      }
-      director = value;
       continue;
     }
 
