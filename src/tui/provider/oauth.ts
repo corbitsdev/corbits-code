@@ -82,7 +82,8 @@ export function suggestOAuthProfileSlug(existing: readonly string[]): string {
   return `default-${String(n)}`;
 }
 
-/** First Meta sign-in slug that is free in both the auth store and API-key rows. */
+// `meta/<slug>` and `meta-api/<slug>` are one namespace: signing in under a
+// slug that already names an API-key row is rejected.
 export function suggestMetaOAuthProfileSlug(
   authProfiles: readonly string[],
   existingProviderNames: readonly string[],
@@ -90,6 +91,7 @@ export function suggestMetaOAuthProfileSlug(
   return suggestOAuthProfileSlug([
     ...authProfiles,
     ...instanceSlugsForKind("meta", existingProviderNames),
+    ...instanceSlugsForKind("meta-api", existingProviderNames),
   ]);
 }
 
@@ -396,10 +398,10 @@ export function createAccountNameFlow(
     surface.input.focus();
     if (state.choice === null || state.choice.custom) return;
     const attempt = (state.oauthNameAttempt += 1);
-    const applySuggestion = (names: readonly string[]): void => {
+    const applySuggestion = (slug: string): void => {
       if (state.settled || attempt !== state.oauthNameAttempt) return;
       if (state.values.oauthProfile.trim().length === 0) {
-        state.values.oauthProfile = suggestOAuthProfileSlug(names);
+        state.values.oauthProfile = slug;
         surface.input.value = state.values.oauthProfile;
         surface.paint();
       }
@@ -412,17 +414,16 @@ export function createAccountNameFlow(
           const kind = state.choice?.oauth;
           applySuggestion(
             kind === "meta"
-              ? [
-                  ...names,
-                  ...instanceSlugsForKind("meta", state.existingProviderNames),
-                ]
-              : names,
+              ? suggestMetaOAuthProfileSlug(names, state.existingProviderNames)
+              : suggestOAuthProfileSlug(names),
           );
         });
       return;
     }
     applySuggestion(
-      instanceSlugsForKind(state.choice.id, state.existingProviderNames),
+      suggestOAuthProfileSlug(
+        instanceSlugsForKind(state.choice.id, state.existingProviderNames),
+      ),
     );
   };
 

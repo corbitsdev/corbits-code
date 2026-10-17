@@ -344,6 +344,20 @@ describe("provider setup pure helpers", () => {
     expect(suggestMetaOAuthProfileSlug([], [])).toBe("default");
     expect(metaOAuthSlugBlockedByApiKey("work", ["meta/work"])).toBe(true);
     expect(metaOAuthSlugBlockedByApiKey("work", ["meta-api/work"])).toBe(true);
+    const authProfiles: readonly string[] = [];
+    const existingProviderNames = ["meta-api/default"];
+    const suggested = suggestMetaOAuthProfileSlug(
+      authProfiles,
+      existingProviderNames,
+    );
+    expect(suggested).not.toBe("default");
+    expect(
+      metaOAuthSlugBlockedByApiKey(
+        suggested,
+        existingProviderNames,
+        authProfiles,
+      ),
+    ).toBe(false);
   });
 
   test("an existing Meta OAuth profile is not treated as an API key", () => {
