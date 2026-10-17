@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { type } from "arktype";
+import { createPermissionGate } from "../src/permission/gate.js";
 
 import { createSubAgentSessionStore } from "../src/subagent/index.js";
 import { withMockedModuleDuring } from "../testkit/mock-module.js";
@@ -13,6 +15,7 @@ import {
   closeE2ESession,
   e2ePermissionGate,
   openE2ESession,
+  replyOnceAtRequest,
   runUntilDone,
 } from "./harness.js";
 import { DIRECTOR_RESOLVABLE_ESCALATION } from "../testkit/escalation.js";
@@ -21,9 +24,10 @@ const RequestURL = type({ url: "string" });
 
 async function openFleetSession(
   sessions: ReturnType<typeof createSubAgentSessionStore>,
+  permissionGate = e2ePermissionGate(),
 ) {
   return openE2ESession({
-    permissionGate: e2ePermissionGate(),
+    permissionGate,
     subAgent: {
       provider: WORKER_PROVIDER,
       sessions,
@@ -133,6 +137,160 @@ describe("e2e — fleet orchestration", () => {
           "edit src/foo.ts",
         );
         expect(reply).toContain("finished");
+      } finally {
+        await closeE2ESession(session);
+      }
+    },
+    60000,
+  );
+
+  test.serial(
+    "a real denied worker write is approved once with live correlation IDs and retried once",
+    async () => {
+      const fleetSessions = createSubAgentSessionStore();
+      const session = await openFleetSession(
+        fleetSessions,
+        createPermissionGate({
+          approvals: [
+            { tool: "spawn_agent", pattern: "*" },
+            { tool: "wait_agents", pattern: "*" },
+            { tool: "approve_worker_call", pattern: "*" },
+          ],
+          interactive: true,
+          skipPermissions: false,
+          reactorGated: true,
+          requestApproval: async () => ({ allow: true }),
+        }),
+      );
+      try {
+        const parent = fromHost("api.anthropic.com");
+        const worker = fromHost(WORKER_HOST);
+        const output = "approved.txt";
+        session.harness.scenario.replyOnce("anthropic", {
+          predicate: parent,
+          toolCalls: [
+            {
+              name: "spawn_agent",
+              args: {
+                description: "authorized write lane",
+                prompt: "Write approved.txt with approved, ask for authorization if denied, then report.",
+                intent: "implement",
+                success_criteria: ["approved.txt contains approved"],
+              },
+            },
+          ],
+        });
+        session.harness.scenario.replyOnce("openai", {
+          predicate: worker,
+          toolCalls: [
+            { name: "write_file", args: { path: output, content: "approved" } },
+          ],
+        });
+        replyOnceAtRequest(session, "openai", worker, ({ body }) => {
+          const grantRequestId = /grant request ([\w-]+)/.exec(body)?.[1];
+          if (grantRequestId === undefined) return undefined;
+          return {
+            toolCalls: [
+              {
+                name: "ask_director",
+                args: {
+                  question: "Please approve the denied write.",
+                  grant_request_id: grantRequestId,
+                  escalation: DIRECTOR_RESOLVABLE_ESCALATION,
+                },
+              },
+            ],
+          };
+        });
+        replyOnceAtRequest(session, "openai", worker, ({ body }) =>
+          body.includes("Parent approved the exact denied call")
+            ? {
+                toolCalls: [
+                  {
+                    name: "write_file",
+                    args: { path: output, content: "approved" },
+                  },
+                ],
+              }
+            : undefined,
+        );
+        replyOnceAtRequest(session, "openai", worker, ({ body }) =>
+          body.includes("File written")
+            ? {
+                text: "## Summary\nWrite completed.\n## Findings\nAuthorized retry succeeded.\n## Blockers\nNone.\n## Paths\napproved.txt",
+              }
+            : undefined,
+        );
+        session.harness.scenario.replyOnce("anthropic", {
+          predicate: parent,
+          toolCalls: [{ name: "wait_agents", args: { timeout_ms: 30_000 } }],
+        });
+        session.harness.scenario.replyOnce("anthropic", {
+          predicate: parent,
+          toolCalls: [{ name: "wait_agents", args: { timeout_ms: 30_000 } }],
+        });
+        replyOnceAtRequest(session, "anthropic", parent, () => {
+          const lane = fleetSessions.list()[0];
+          const ask = lane === undefined ? undefined : fleetSessions.peekAsk(lane.id);
+          const requestId = ask?.deniedCall?.requestId;
+          if (
+            lane === undefined ||
+            ask?.questionId === undefined ||
+            requestId === undefined
+          ) {
+            return undefined;
+          }
+          const args = {
+            target: lane.id,
+            question_id: ask.questionId,
+            request_id: requestId,
+          };
+          return {
+            toolCalls: [
+              { name: "approve_worker_call", args },
+              { name: "approve_worker_call", args },
+            ],
+          };
+        });
+        replyOnceAtRequest(session, "anthropic", parent, ({ body }) =>
+          body.includes("\"status\":\"authorized\"")
+            ? { toolCalls: [{ name: "wait_agents", args: { timeout_ms: 30_000 } }] }
+            : undefined,
+        );
+        replyOnceAtRequest(session, "anthropic", parent, ({ body }) =>
+          body.includes("Write completed")
+            ? { text: "The approved worker write completed." }
+            : undefined,
+        );
+
+        const result = await withMockedModuleDuring(
+          import.meta.resolve("../src/session/assemble-runtime.js"),
+          (real: typeof import("../src/session/assemble-runtime.js")) => ({
+            ...real,
+            assembleInferenceBase: async () => session.harness.deps,
+          }),
+          () => runUntilDone(session, "Run the authorized write"),
+        );
+
+        const [parked, settled] = waitAgentsResults(result.events);
+        const lane = parked?.results[0];
+        expect(lane?.status).toBe("awaiting_director");
+        expect(lane?.question_id).toBeString();
+        expect(lane?.grant_request_id).toBeString();
+        expect(settled?.results[0]?.status).toBe("done");
+        expect(await Bun.file(join(session.cwd, output)).text()).toBe("approved");
+        const approvals = result.events.filter(
+          (event) =>
+            event.type === "tool.done" &&
+            event.data.result.callId !== undefined &&
+            event.data.result.content.includes("\"status\":\"authorized\""),
+        );
+        expect(approvals).toHaveLength(1);
+        const workerRequests = session.harness.scenario
+          .matchedRequests()
+          .filter((request) => RequestURL.assert(request).url.includes(WORKER_HOST));
+        expect(workerRequests).toHaveLength(4);
+        expect(result.reply).toContain("completed");
       } finally {
         await closeE2ESession(session);
       }

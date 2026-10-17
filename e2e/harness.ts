@@ -14,6 +14,12 @@ import { dirname, join } from "node:path";
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { InboundMessage } from "@intx/types/runtime";
+import {
+  wire,
+  type HarnessRequest,
+  type Provider,
+  type RequestPredicate,
+} from "@intx/inference-testing";
 
 import { OPERATOR_ORIGINATED_FLAG } from "../src/agent/message-provenance.js";
 import {
@@ -152,6 +158,43 @@ export async function sendOperatorTurn(
 export interface ScriptedReply {
   text?: string;
   toolCalls?: { name: string; args: Record<string, unknown> }[];
+}
+
+export interface RuntimeReplyRequest {
+  body: string;
+  request: HarnessRequest;
+}
+
+/**
+ * Register one response whose payload is built when its matching request
+ * arrives. This keeps correlation values discovered during a scenario out of
+ * eagerly serialized `replyOnce` fixtures.
+ */
+export function replyOnceAtRequest(
+  session: E2ESession,
+  provider: Provider,
+  predicate: RequestPredicate,
+  reply: (request: RuntimeReplyRequest) => ScriptedReply | undefined,
+): void {
+  const stream = session.harness.scenario.createStream();
+  session.harness.scenario.whenRequestBodyMatches((body, request) => {
+    if (!predicate(request)) return false;
+    const response = reply({ body, request });
+    if (response === undefined) return false;
+    const chunks = wire.completeResponse(provider, {
+      text: response.text ?? "",
+      toolCalls: response.toolCalls?.map((call, index) => ({
+        callId: `runtime_call_${index}`,
+        name: call.name,
+        argsJSON: JSON.stringify(call.args),
+      })),
+    });
+    queueMicrotask(() => {
+      for (const chunk of chunks) stream.enqueue(chunk);
+      stream.closeAt(session.harness.clock.now() + 1);
+    });
+    return true;
+  }, stream);
 }
 
 /**

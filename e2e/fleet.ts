@@ -32,6 +32,7 @@ export const WaitAgentsResult = type({
     "error?": "string",
     "question?": "string",
     "question_id?": "string",
+    "grant_request_id?": "string",
     "report?": "string",
   }).array(),
   timed_out: "boolean",
