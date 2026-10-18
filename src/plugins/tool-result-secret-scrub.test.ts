@@ -1,8 +1,10 @@
 import { describe, test, expect } from "bun:test";
 import {
   CREDENTIAL_REDACTION,
+  countExpensiveSecretScrubPasses,
   scrubSecretShapedContent,
   scrubSecretShapedValue,
+  secretScrubPatternHits,
 } from "./tool-result-secret-scrub.js";
 import { toolResultSecretScrubPlugin } from "./tool-result-secret-scrub-plugin.js";
 import { resultTruncationPlugin } from "./result-truncation-plugin.js";
@@ -460,5 +462,170 @@ describe("toolResultSecretScrubPlugin", () => {
       `api_key=${CREDENTIAL_REDACTION}&model=test`,
     );
     expect(result.content.split(CREDENTIAL_REDACTION).length - 1).toBe(1);
+  });
+});
+
+const SENTINEL = "zzzsecretvalue";
+
+function expectEnteredAndRedacted(text: string): void {
+  expect(secretScrubPatternHits(text)).toBe(true);
+  const passes = countExpensiveSecretScrubPasses(() => {
+    const out = scrubSecretShapedContent(text);
+    expect(out).not.toContain(SENTINEL);
+    expect(out).toContain(CREDENTIAL_REDACTION);
+  });
+  expect(passes).toBe(1);
+}
+
+function expectEnteredUnchanged(text: string): void {
+  expect(secretScrubPatternHits(text)).toBe(true);
+  const passes = countExpensiveSecretScrubPasses(() => {
+    expect(scrubSecretShapedContent(text)).toBe(text);
+  });
+  expect(passes).toBe(1);
+}
+
+function expectSkipped(text: string): void {
+  const passes = countExpensiveSecretScrubPasses(() => {
+    expect(scrubSecretShapedContent(text)).toBe(text);
+  });
+  expect(passes).toBe(0);
+  expect(secretScrubPatternHits(text)).toBe(false);
+}
+
+describe("secret scrub prefilter", () => {
+  test("a large clean fixture does not enter the scrub passes", () => {
+    const clean = "The quick brown fox jumps over the lazy dog. ".repeat(5000);
+    expectSkipped(clean);
+    const secret = `sk-${"a".repeat(6)}${SENTINEL}`;
+    expectEnteredAndRedacted(`${clean}${secret}`);
+  });
+
+  test("prefilter state does not skip a later secret", () => {
+    const first = `sk-${"a".repeat(6)}${SENTINEL}`;
+    const second = `ghp_${"b".repeat(22)}${SENTINEL}`;
+    const passes = countExpensiveSecretScrubPasses(() => {
+      expect(scrubSecretShapedContent(first)).not.toContain(SENTINEL);
+      expect(scrubSecretShapedContent(second)).not.toContain(SENTINEL);
+    });
+    expect(passes).toBe(2);
+  });
+
+  test("every scrub pattern still redacts and enters the passes", () => {
+    const pem = (kind: string) => {
+      const label = kind.length === 0 ? "PRIVATE KEY" : `${kind} PRIVATE KEY`;
+      return `-----BEGIN ${label}-----\n${SENTINEL}\n-----END ${label}-----`;
+    };
+    for (const kind of ["", "RSA", "EC", "OPENSSH", "ENCRYPTED"]) {
+      expectEnteredAndRedacted(pem(kind));
+    }
+
+    expectEnteredAndRedacted(`prefix sk-${"a".repeat(6)}${SENTINEL} tail`);
+    expectEnteredAndRedacted(`ghp_${"a".repeat(22)}${SENTINEL}`);
+    expectEnteredAndRedacted(`gho_${"a".repeat(22)}${SENTINEL}`);
+    for (const flavor of ["b", "a", "p", "r", "s"]) {
+      expectEnteredAndRedacted(`xox${flavor}-${SENTINEL}`);
+    }
+    const akia = `AKIA${"A".repeat(16)}`;
+    expect(secretScrubPatternHits(akia)).toBe(true);
+    const akiaPasses = countExpensiveSecretScrubPasses(() => {
+      expect(scrubSecretShapedContent(akia)).not.toContain(akia);
+    });
+    expect(akiaPasses).toBe(1);
+    expectEnteredAndRedacted(`Bearer ${"a".repeat(6)}${SENTINEL}`);
+    expectEnteredAndRedacted(`Bearer\t${"a".repeat(6)}${SENTINEL}`);
+    expectEnteredAndRedacted(`Basic ${SENTINEL}`);
+    expectEnteredAndRedacted(`Basic\n${SENTINEL}==`);
+
+    const queryKeys = [
+      "apikey",
+      "api_key",
+      "api-key",
+      "ApiKey",
+      "accesstoken",
+      "access_token",
+      "access-token",
+      "AccessToken",
+      "token",
+      "TOKEN",
+      "password",
+      "secret",
+      "credential",
+    ];
+    const markers = [
+      "api",
+      "secret",
+      "private",
+      "access",
+      "auth",
+      "token",
+      "password",
+      "credential",
+      "openai",
+    ];
+    for (const prefix of ["", "my_", "a1_", "my_app_"]) {
+      for (const marker of markers) {
+        queryKeys.push(`${prefix}${marker}_key`);
+        queryKeys.push(`${prefix}${marker}_key`.toUpperCase());
+      }
+    }
+    for (const key of queryKeys) {
+      expectEnteredAndRedacted(
+        `GET https://provider.invalid/v1?${key}=${SENTINEL}&format=json`,
+      );
+      expectEnteredAndRedacted(`{"${key}":"${SENTINEL}"}`);
+      expectEnteredAndRedacted(`{ "${key}" : "${SENTINEL}" }`);
+    }
+    expectEnteredAndRedacted(`{"authorization":"${SENTINEL}"}`);
+    expectEnteredAndRedacted(`{ "Authorization" : "${SENTINEL}" }`);
+
+    expectEnteredAndRedacted(`API_KEY=${SENTINEL}`);
+    expectEnteredAndRedacted(`STRIPE_KEY=${SENTINEL}`);
+    expectEnteredAndRedacted(`GITHUB_KEY=${SENTINEL}`);
+    expectEnteredAndRedacted(`OPENAI_KEY=${SENTINEL}`);
+    expectEnteredAndRedacted(`./app/.env:3:TOKEN=${SENTINEL}`);
+    expectEnteredAndRedacted(`\nPASSWORD=${SENTINEL}`);
+    expectEnteredAndRedacted(`note:PRIVATE=${SENTINEL}`);
+    expectEnteredAndRedacted(`CREDENTIAL=${SENTINEL}`);
+    expectEnteredAndRedacted(`AUTH=${SENTINEL}`);
+    expectEnteredAndRedacted(`SECRET=${SENTINEL}`);
+    expectEnteredAndRedacted(`OPENAI_KEY=proj-OPENAI_KEY-${SENTINEL}`);
+    expectEnteredAndRedacted(
+      `DATABASE_URL=postgres://admin:${SENTINEL}@db.internal:5432/appdb`,
+    );
+    expectEnteredAndRedacted(
+      `DATABASE_URL=Server=db.internal;Password=${SENTINEL};`,
+    );
+    expectEnteredAndRedacted(
+      `FOO_URI=postgres://admin:${SENTINEL}@db.internal/app`,
+    );
+    expectEnteredAndRedacted(`FOO_DSN=Password=${SENTINEL}`);
+    expectEnteredAndRedacted(`FOO_CONNECTION_STRING=Password=${SENTINEL}`);
+  });
+
+  test("env matches that are not secrets still enter the passes", () => {
+    expectEnteredUnchanged("MONKEY=banana");
+    expectEnteredUnchanged("AB=cd");
+    expectEnteredUnchanged("DATABASE_URL=sqlite:///local.db");
+    expectEnteredUnchanged(
+      "REGISTRY_URL=https://registry.npmjs.org/@scope/pkg",
+    );
+    expectEnteredUnchanged("DOCS_URL=https://medium.com/@octocat/hello");
+    expectEnteredUnchanged(
+      "SUPPORT_URL=https://example.com/help?email=dev@example.com",
+    );
+  });
+
+  test("prose and storage keys do not enter the scrub passes", () => {
+    expectSkipped(
+      "See docs/authentication.md for how API keys are issued and rotated. No secrets in this paragraph.",
+    );
+    expectSkipped(
+      "GET https://provider.invalid/v1?sort_key=created_at&partition_key=tenant&format=json",
+    );
+    expectSkipped(
+      '{"partition_key":"tenant","sort_key":2,"primary_key":["id"],"cache_key":[1],"prompt_cache_key":"sess"}',
+    );
+    expectSkipped('{"MONKEY": "banana", "key": "ctrl+s"}');
   });
 });
