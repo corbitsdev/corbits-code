@@ -66,7 +66,7 @@ describe("resolvePerCallShellCwd", () => {
     ).toBe(parent);
   });
 
-  test("a second resolve of the same cwd does not realpath it again", async () => {
+  test("a second resolve of the same cwd realpaths it again", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-resolve-cwd-cache-"));
     const sub = join(root, "markerdir");
     await mkdir(sub);
@@ -86,7 +86,7 @@ describe("resolvePerCallShellCwd", () => {
         const afterFirst = walks;
         expect(afterFirst).toBeGreaterThan(0);
         expect(resolvePerCallShellCwd(root, "markerdir")).toBe(canonical);
-        expect(walks).toBe(afterFirst);
+        expect(walks).toBeGreaterThan(afterFirst);
       },
     );
   });

@@ -3,15 +3,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { realpathOrOriginal, type RootsProvider } from "./worktree-roots.js";
 import { projectSessionsRoot } from "../session/project-key.js";
-import {
-  cachedLinkReal,
-  cachedNodeReal,
-  enterPathResolution,
-  lstatMemoized,
-  readlinkMemoized,
-  rememberLink,
-  rememberNode,
-} from "./realpath-cache.js";
+import { enterPathResolution, lstatMemoized } from "./realpath-cache.js";
 
 // Paths the agent must not touch without explicit operator approval, even
 // though read tools are otherwise allow-tier and write/edit auto-allow in
@@ -41,7 +33,7 @@ const LEGACY_STATE_DIR = ".agent-state";
 export const UNRESOLVABLE = "\0unresolvable\0";
 
 // A single normal path segment. `.`, `..`, a trailing slash, or an empty tail
-// stay on realpathSync so the cached join cannot diverge from the kernel.
+// stay on realpathSync so the join cannot diverge from the kernel.
 function existingTail(path: string, parent: string): string | undefined {
   const tailStart = parent.endsWith(sep) ? parent.length : parent.length + 1;
   const tail = path.slice(tailStart);
@@ -56,14 +48,9 @@ function existingTail(path: string, parent: string): string | undefined {
   return tail;
 }
 
-function rememberRealpath(
-  path: string,
-  st: NonNullable<ReturnType<typeof lstatMemoized>>,
-): string {
+function realpathOrUnresolvable(path: string): string {
   try {
-    const real = realpathSync(path);
-    rememberNode(path, st, real);
-    return real;
+    return realpathSync(path);
   } catch {
     return UNRESOLVABLE;
   }
@@ -72,32 +59,17 @@ function rememberRealpath(
 function resolveNearest(path: string): string {
   const st = lstatMemoized(path);
   if (st !== undefined && !st.isSymbolicLink()) {
-    const hit = cachedNodeReal(path, st);
-    if (hit !== undefined) return hit;
     const parent = dirname(path);
-    if (parent === path) return rememberRealpath(path, st);
+    if (parent === path) return realpathOrUnresolvable(path);
     const tail = existingTail(path, parent);
-    if (tail === undefined) return rememberRealpath(path, st);
+    if (tail === undefined) return realpathOrUnresolvable(path);
     const parentReal = resolveNearest(parent);
     if (parentReal === UNRESOLVABLE) return UNRESOLVABLE;
-    const real = join(parentReal, tail);
-    rememberNode(path, st, real);
-    return real;
+    return join(parentReal, tail);
   }
 
   if (st !== undefined && st.isSymbolicLink()) {
-    const linkTarget = readlinkMemoized(path);
-    if (linkTarget !== undefined) {
-      const hit = cachedLinkReal(path, st, linkTarget);
-      if (hit !== undefined) return hit;
-    }
-    try {
-      const real = realpathSync(path);
-      if (linkTarget !== undefined) rememberLink(path, st, linkTarget, real);
-      return real;
-    } catch {
-      return UNRESOLVABLE;
-    }
+    return realpathOrUnresolvable(path);
   }
 
   const parent = dirname(path);
@@ -122,9 +94,8 @@ function resolveNearest(path: string): string {
 // distinguishes the two: it succeeds for an existing-but-broken symlink and
 // fails only when the component is genuinely absent.
 //
-// Already-resolved ancestors are memoized across calls only while each
-// ancestor keeps the dev/ino (and symlink text) stored with the entry. The
-// check stays synchronous.
+// lstat results are shared only for the duration of this synchronous check.
+// A resolved path is not reused on a later tool call.
 export function realpathNearestOr(path: string): string {
   return enterPathResolution(() => resolveNearest(path));
 }

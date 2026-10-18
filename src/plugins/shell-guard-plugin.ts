@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { ShellOutputFeedMap } from "../session/shell-output-feed.js";
@@ -29,10 +30,7 @@ import {
   shellCwdEscapesSessionMessage,
   wrapCommandWithPwdProbe,
 } from "../shell/persistent-shell-cwd.js";
-import {
-  cachedRealpathSync,
-  enterPathResolution,
-} from "../permission/realpath-cache.js";
+import { enterPathResolution } from "../permission/realpath-cache.js";
 import type { ShellSandbox } from "../shell/sandbox-config.js";
 import { wrapWithShellSandbox } from "../shell/sandbox-config.js";
 
@@ -559,7 +557,7 @@ export function shellGuardPlugin(
   const defaultMs = timeoutConfig?.defaultMs;
   const maxOutputBytes =
     timeoutConfig?.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
-  const sessionRoot = cachedRealpathSync(cwd);
+  const sessionRoot = realpathSync(cwd);
   let retainedShellCwd = sessionRoot;
   const liveChildren = new Set<ChildProcess>();
   let disposed = false;
