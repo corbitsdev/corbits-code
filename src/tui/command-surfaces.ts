@@ -843,6 +843,13 @@ function openCredentialsPane(
       onAction: (_id, key) => {
         if (state.editing === null) {
           if (key.ctrl || key.meta || key.option) return false;
+          // Bare claims fire only for a true bare key: a hybrid
+          // {name:"v", sequence:"√"} is the composed Option glyph arriving
+          // with no modifier bit — exactly the input altChordLetterForKey
+          // reads through `sequence` — and must not reach save/verify via
+          // the name table. The text sinks below key on `sequence`, which
+          // is why they need no such guard (I-4).
+          if (key.sequence !== key.name) return false;
           if (key.name === "s") {
             void Promise.resolve(
               plugins.saveCredentials(entry.id, state.values),

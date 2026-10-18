@@ -587,6 +587,34 @@ describe("plugins surface admin actions", () => {
     });
   });
 
+  test("hybrid glyph events never reach the pane's bare s/v claims (I-4)", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps({
+        credentialValues: { apiKey: "saved-key" },
+      });
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, altKey("c"))).toBe(true);
+      expect(shell.overlayKind).toBe("plugin_credentials");
+      // {name:"v", sequence:"√"} is the composed Option glyph arriving with
+      // no modifier bit — the input shape altChordLetterForKey reads via
+      // `sequence`. Read through `name` it used to fire save-and-verify.
+      expect(
+        runOverlayAction(shell, { ...charKey("√"), name: "v" } as KeyEvent),
+      ).toBe(false);
+      expect(
+        runOverlayAction(shell, { ...charKey("ß"), name: "s" } as KeyEvent),
+      ).toBe(false);
+      expect(calls.saveCredentials).toEqual([]);
+      expect(calls.verify).toEqual([]);
+      // A true bare key still claims: the guard is sequence-vs-name, not a
+      // ban on the letters themselves.
+      expect(runOverlayAction(shell, charKey("v"))).toBe(true);
+      await Promise.resolve();
+      expect(calls.saveCredentials.length).toBe(1);
+      expect(calls.verify.length).toBe(1);
+    });
+  });
+
   test("v verifies the currently saved credentials", async () => {
     await withShell(async (shell) => {
       const { deps, calls } = pluginActionDeps({
