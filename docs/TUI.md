@@ -738,49 +738,6 @@ for this checkout — completed, failed, crashed, and interrupted included. Rece
 the last write to `run.json`, not start time. Type to filter by name
 (printable keys claim the `>` row, same as the model picker).
 
-### Option-key chords on macOS
-
-macOS delivers `Option+<letter>` in one of two shapes: the **modifier** shape
-(Option configured as "Meta"/"Esc+", or the Kitty keyboard protocol — the
-terminal reports a modifier plus the ASCII letter) or the **composed** shape,
-which is the stock default in iTerm2, Terminal.app, Ghostty and the VS Code
-terminal — the layout's Option layer is applied and the terminal sends only
-the resulting glyph with no modifier bit (Option+D → `∂`, Option+A → `å`,
-Option+R → `®`). Any popup that advertises an `Alt+<letter>` chord honours
-both shapes. `src/tui/key-chords.ts` is the single owner of the glyph→letter
-table (the macOS built-in U.S./ABC Option layer, an explicit allowlist —
-never a Unicode fold), and each surface declares the letters it uses
-(`altChords` on its `openListOverlay` open); the footer hint, the
-type-to-filter yield and the chord dispatch all read that one declaration.
-The declared table, with the chord each letter runs: `a` `å`/`Å` add
-provider / add server / add-by-path · `c` `ç`/`Ç` credentials · `d` `∂` set
-default / disable · `r` `®` remove (confirm-guarded) · `t` `†` trust ·
-`v` `√` verify · `w` `∑` web provider · `x` `≈` remove plugin. `f` and
-the dead-key letters `e u i n g` are excluded, so `ƒ´¨ˆ˜` are never chords.
-
-The fallback rule, three clauses:
-
-1. **The modifier shape is always honoured**, on every layout and every
-   terminal. The composed-glyph table is a best-effort extra for the macOS
-   U.S./ABC layout only.
-2. **Unknown glyphs stay text.** On AZERTY/QWERTZ/Dvorak/COLEMAK the Option
-   press filters lists and reaches the prompt like ordinary typing — never
-   fuzzy-matched, never rewritten.
-3. **Every advertised chord has a non-chord route**, or it is marked
-   chord-only: `/plugins` `Alt+C/V/T/W` are chord-only (row copy is the
-   pointer), and the escape hatch on a layout whose Option layer differs is
-   a terminal that reports the modifier shape (Option-as-Meta, or Kitty).
-   A lost chord is a no-op, never a wrong action: in `/model`, `Alt+D`
-   persists the default without switching the live session, and an
-   unrecognised glyph simply stays filter text.
-
-Translation exists only on the popup branch of the key pipeline. The prompt
-owns every printable — prompt-surface `Alt+B/F/D/Y` and the app chords
-(`Alt+C/M/E/T/O`) keep requiring the modifier shape, because `Option+E`
-must keep typing `´` so accent entry works. `Alt+F` (favourite) is
-deliberately outside the chord table and advertised nowhere; on a stock
-macOS terminal `ƒ` therefore stays filter text in `/model`.
-
 ## The prompt box
 
 The prompt is a genuine multi-line composing area built on OpenTUI's

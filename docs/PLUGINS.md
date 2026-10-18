@@ -217,9 +217,7 @@ web `collectWebPlugins` call. One place to read, one place to extend.
 enable/disable, edit declared credentials (masked), verify (kind-specific:
 web = trial search; others = load/contract check), and the kind-selector toggle
 where relevant (web override). Add-by-path (Alt+A) and remove (Alt+X) persist
-immediately. On macOS these `Alt+<letter>` chords (and `Alt+C/V/T/W`) also
-fire from the composed Option glyph — see "Option-key chords on macOS" in
-`docs/TUI.md`. Owned user/project installs (and path-origin plugins whose
+immediately. Owned user/project installs (and path-origin plugins whose
 directory sits under those roots) confirm before deleting from disk;
 bundled Corbits plugins cannot be uninstalled (Alt+X writes `enabled: false`
 and they stay listed); Claude marketplace installs write `enabled: false`

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { type KeyEvent } from "@opentui/core";
 import {
-  ALT_CHORD_LETTERS,
   OPTION_CHORD_GLYPHS,
   type AltChordLetter,
   altChordLetterForKey,
@@ -31,6 +30,7 @@ function charKey(glyph: string): KeyEvent {
 // `ˇ` and `„`, while `‡` and `◊` are the shifted glyphs of Option+**7** and
 // Option+**V** — printables that belong to another key (I-4).
 const PICKER: readonly AltChordLetter[] = ["a", "d", "r"];
+const GLYPH_LETTERS = Object.keys(OPTION_CHORD_GLYPHS) as AltChordLetter[];
 
 describe("altChordLetterForKey", () => {
   test("shape A: modifier bit plus ASCII letter", () => {
@@ -81,17 +81,17 @@ describe("altChordLetterForKey", () => {
     expect(altChordLetterForKey(charKey("é"), PICKER)).toBeNull();
     // ƒ is Option+F — favorites is excluded from the union (§5), so the
     // glyph has no chord path on any surface, whatever is declared.
-    expect(altChordLetterForKey(charKey("ƒ"), ALT_CHORD_LETTERS)).toBeNull();
+    expect(altChordLetterForKey(charKey("ƒ"), GLYPH_LETTERS)).toBeNull();
     // Shifted-layer glyphs belong to other keys on macOS US: „ is
     // ⇧Option+W, ◊ is ⇧Option+V, ‰ is ⇧Option+R and ‡ is ⇧Option+**7** —
     // none of them is the glyph of its own letter, so none is a chord
     // wherever w, v, r or t is declared (I-4). ‡ in particular once
     // hijacked the /plugins trust chord: a printable keystroke granted
     // trust and enabled plugin code with no confirmation.
-    expect(altChordLetterForKey(charKey("„"), ALT_CHORD_LETTERS)).toBeNull();
-    expect(altChordLetterForKey(charKey("◊"), ALT_CHORD_LETTERS)).toBeNull();
-    expect(altChordLetterForKey(charKey("‰"), ALT_CHORD_LETTERS)).toBeNull();
-    expect(altChordLetterForKey(charKey("‡"), ALT_CHORD_LETTERS)).toBeNull();
+    expect(altChordLetterForKey(charKey("„"), GLYPH_LETTERS)).toBeNull();
+    expect(altChordLetterForKey(charKey("◊"), GLYPH_LETTERS)).toBeNull();
+    expect(altChordLetterForKey(charKey("‰"), GLYPH_LETTERS)).toBeNull();
+    expect(altChordLetterForKey(charKey("‡"), GLYPH_LETTERS)).toBeNull();
     expect(altChordLetterForKey(charKey("‡"), ["t"])).toBeNull();
   });
 
@@ -102,23 +102,17 @@ describe("altChordLetterForKey", () => {
   });
 });
 
-describe("ALT_CHORD_LETTERS / OPTION_CHORD_GLYPHS", () => {
+describe("OPTION_CHORD_GLYPHS", () => {
   test("never advertises f or the dead-key letters e u i n g", () => {
     for (const letter of ["f", "e", "u", "i", "n", "g"]) {
-      expect(ALT_CHORD_LETTERS.includes(letter as AltChordLetter)).toBe(false);
-    }
-  });
-
-  test("every glyph-table letter is a declared chord letter", () => {
-    for (const letter of Object.keys(OPTION_CHORD_GLYPHS)) {
-      expect(ALT_CHORD_LETTERS.includes(letter as AltChordLetter)).toBe(true);
+      expect(GLYPH_LETTERS.includes(letter as AltChordLetter)).toBe(false);
     }
   });
 
   test("every declared glyph maps back to its letter", () => {
-    for (const letter of Object.keys(OPTION_CHORD_GLYPHS) as AltChordLetter[]) {
+    for (const letter of GLYPH_LETTERS) {
       for (const glyph of OPTION_CHORD_GLYPHS[letter] ?? []) {
-        expect(altChordLetterForKey(charKey(glyph), ALT_CHORD_LETTERS)).toBe(
+        expect(altChordLetterForKey(charKey(glyph), GLYPH_LETTERS)).toBe(
           letter,
         );
       }
@@ -146,7 +140,7 @@ describe("ALT_CHORD_LETTERS / OPTION_CHORD_GLYPHS", () => {
   };
 
   test("every table entry is its own letter's macOS US/ABC Option glyph", () => {
-    for (const letter of ALT_CHORD_LETTERS) {
+    for (const letter of GLYPH_LETTERS) {
       const layoutGlyphs = MACOS_US_OPTION_LAYER[letter];
       expect(layoutGlyphs, `no layout provenance for ${letter}`).toBeDefined();
       for (const glyph of OPTION_CHORD_GLYPHS[letter] ?? []) {

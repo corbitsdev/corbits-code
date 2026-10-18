@@ -1106,9 +1106,6 @@ export function openPluginsSurface(
       title: "plugins",
       frameId: "overlay-plugins",
       deferIfBusy: true,
-      // Every chord this surface advertises (footer at
-      // overlay-view.ts PLUGIN hints, rows at pluginDescription) is
-      // declared once here (CL-8637, invariant I-1).
       altChords: ["a", "w", "c", "v", "t", "x"] as const,
       ...payload(rows),
       describe: (id) => {
@@ -1152,12 +1149,8 @@ export function openPluginsSurface(
         );
       },
       onAltChord: (id, letter) => {
-        // Chords arrive resolved to declared letters (CL-8637): never bare,
-        // and Alt+C is safe against the app copy-mode chord because this
-        // surface declared `c` and the popup branch claims the key before
-        // app chords are consulted (keys.ts, invariant I-5).
-        // Surface-level chords — advertised in the how-to even when focus is on
-        // Close, the empty-list row, or load warnings.
+        // Surface-level chords run even when focus is on Close, the empty
+        // list, or load warnings.
         if (letter === "a") {
           openAddPathPane(shell, deps, plugins);
           return true;
@@ -1526,9 +1519,7 @@ export function openMcpSurface(
       // The flash below reports the outcome; the echo would quote the row's
       // pre-authorization label back at the operator forever.
       echoChoice: false,
-      // One declaration drives footer hints, filter yield and dispatch
-      // (CL-8637). `a` joins only when adding is possible, mirroring the
-      // old mcpAddHint gate; d/r were always advertised via mcpManageHint.
+      // `a` joins only when adding is possible.
       altChords: canAdd ? (["a", "d", "r"] as const) : (["d", "r"] as const),
       ...payload(rows),
       describe: (id) => {
@@ -1609,8 +1600,6 @@ export function openMcpSurface(
         closeReplaceableOverlay(shell);
       },
       onAltChord: (id, letter) => {
-        // Letters arrive resolved (CL-8637): modifier or composed glyph,
-        // no modifier inspection here (I-2).
         if (letter === "a") {
           unsubscribe();
           openAddMcpNamePane(shell, deps, mcp);

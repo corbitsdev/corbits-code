@@ -129,8 +129,6 @@ for confirmation, then deletes the settings row and any `~/.corbits/mcp-auth/…
 file for that HTTP endpoint. Built-in Exa is disable-only — Alt+R notifies and
 does not open the confirm. While a local `.corbits/settings.json` `mcpServers`
 list is in effect, these actions edit that local file; add remains blocked.
-On macOS these `Alt+<letter>` chords also fire from the composed Option glyph
-(å/∂/®) — see "Option-key chords on macOS" in `docs/TUI.md`.
 
 The agent fixes the tool set it can authorize when it is built, so every
 change to the connected tool set (startup connect, add, retry, enable,

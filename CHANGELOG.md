@@ -20,18 +20,6 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
-## Unreleased
-
-### Fixed
-
-- TUI slash popups now run their advertised `Alt+<letter>` chords from the
-  composed macOS Option glyph (å/Å/∂/®/ç/†/√/∑/≈), not only from the
-  Option-as-Meta shape: on stock iTerm2/Terminal.app/Ghostty/VS Code,
-  Option+letter finally does what the footer promises in `/model`, `/mcp`
-  and `/plugins`, and the glyph no longer leaks into the hidden prompt
-  buffer on `/mcp` and `/plugins`. Undeclared glyphs stay ordinary text on
-  every surface and layout; the prompt keeps every printable (CL-8637).
-
 ## [0.3.40] - 2026-10-17
 
 ### What's Changed

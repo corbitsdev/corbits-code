@@ -380,12 +380,9 @@ export function cycleOverlaySelection(
 }
 
 /**
- * Run the open overlay's chord or bare-key claim, for overlays that opted in
- * via `altChords`/`onAltChord` or `onAction`. This is the one and only place
- * a popup asks "is this key my Alt+<letter> chord" (invariant I-2), and it
- * stays silent while a palette is stacked on top: typing there belongs to
- * the palette filter, not the borrowed primary bindings (invariant I-5).
- * No-op without a handler, so the key falls through unclaimed.
+ * Run the open overlay's chord or bare-key claim. Stays silent while a
+ * palette is stacked: typing there belongs to the palette filter, not the
+ * borrowed primary bindings. No-op without a handler.
  */
 export function runOverlayAction(shell: AppShell, key: KeyEvent): boolean {
   const list = shell.overlayList;

@@ -175,11 +175,7 @@ export function handleListFilterKey(shell: AppShell, key: KeyEvent): boolean {
   if (shell.overlayKind === "palette") return false;
   if (key.ctrl || key.meta || key.option) return false;
 
-  // A glyph the open surface declared as a chord yields the filter to
-  // runOverlayAction (CL-8637). Undeclared glyphs keep filtering: on other
-  // layouts the same Option press is ordinary text (invariant I-3). The
-  // picker's legacy per-letter escape clauses stood here; one declaration
-  // now covers every surface.
+  // Undeclared glyphs stay filter text: on other layouts the same Option press is ordinary typing.
   if (altChordLetterForKey(key, bag?.primaryBindings.altChords ?? []) !== null)
     return false;
 

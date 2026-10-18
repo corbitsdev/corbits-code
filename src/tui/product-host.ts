@@ -826,8 +826,7 @@ export async function mountProductHost(
       const items = annotateCurrent(currentModels, activeId);
       const focusIndex =
         focusId !== undefined ? items.findIndex((m) => m.id === focusId) : -1;
-      // One declaration drives footer hints, filter yield and dispatch
-      // (CL-8637); a letter joins only when its action is wired.
+      // A letter joins only when its action is wired.
       const altChords: AltChordLetter[] = [
         ...(openAddProvider !== undefined ? (["a"] as const) : []),
         ...(onSetDefault !== undefined ? (["d"] as const) : []),
@@ -866,9 +865,6 @@ export async function mountProductHost(
         onCancel: () => {
           disarmRemove();
         },
-        // Declared chords reach us already resolved to a letter by
-        // altChordLetterForKey (CL-8637): no modifier inspection here (I-2),
-        // and both the modifier and the composed-glyph shapes land the same.
         onAltChord: (itemId, letter) => {
           if (letter === "a") {
             // Never bare `a`: type-to-filter claims ordinary printables.
