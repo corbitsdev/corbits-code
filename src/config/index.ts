@@ -20,7 +20,9 @@ import {
 } from "../provider/reasoning-effort.js";
 import {
   buildProviderContextWindowOverrides,
+  buildReservedCompletionTokens,
   setProviderContextWindowOverrides,
+  setReservedCompletionTokens,
 } from "../provider/context-window.js";
 import { bootstrapPricingMetadata } from "../cost/pricing-metadata.js";
 import {
@@ -1490,17 +1492,27 @@ export function refreshProviderContextWindows(
         entry.codexProfile === undefined && entry.xaiProfile === undefined
           ? settings?.providers[entry.name]?.contextWindow
           : undefined;
+      const maxTokens = settings?.providers[entry.name]?.maxTokens;
       return [
         entry.name,
         {
           models: entry.models,
           ...(window !== undefined ? { contextWindow: window } : {}),
+          ...(maxTokens !== undefined ? { maxTokens } : {}),
         },
       ];
     }),
   );
   setProviderContextWindowOverrides(
     buildProviderContextWindowOverrides(providers, activeProvider, activeModel),
+  );
+  setReservedCompletionTokens(
+    buildReservedCompletionTokens(
+      providers,
+      activeProvider,
+      activeModel,
+      SOURCE_MAX_TOKENS,
+    ),
   );
 }
 
