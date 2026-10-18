@@ -47,6 +47,9 @@ export function wireMcp(
 ): McpWiring {
   const mcpConnectCallbacks: MCPConnectCallbacks = {
     interactiveAuth: true,
+    // Browser auth has its own wait. The startup dial cap must not fail that
+    // row or close the redirect once the auth URL is up.
+    browserAuthOutlivesDialAbort: true,
     onStatus: (status) => {
       services.mcpStates.set(status.name, status);
       services.emitter.emit("mcp.status", status);

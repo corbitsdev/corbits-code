@@ -579,8 +579,10 @@ export function wirePostStartup(
 
   // Connect MCP after the TUI is up so auth surfaces as a copyable link, not
   // a browser pop; each server that mounts tools requests an agent rebuild
-  // through its callbacks. A hung dial aborts on the same cap as headless and
-  // reports failed, so resume is not stuck behind a sibling that never settles.
+  // through its callbacks. A hung dial that never reaches browser auth aborts
+  // on the same cap as headless and reports failed. A dial already waiting on
+  // the browser keeps that wait, so resume is not stuck behind a sibling that
+  // never settles and auth is not failed by the cap.
   void runTuiMcpDial(
     (signal) => services.toolset.connectMCP(mcpConnectCallbacks, signal),
     services.mcpConnectController.signal,

@@ -6,10 +6,11 @@ import {
 
 /**
  * Bound one TUI MCP dial (or the startup batch) the same way headless does.
- * The timer aborts only while the handshake is still in flight: the toolset
+ * The timer aborts handshakes still in flight. A server that reaches
+ * interactive browser auth drops this abort and keeps the browser-auth
+ * budget; a dial that never gets that far still fails closed. The toolset
  * detaches each server's forward on settle, and this disarms the timer when
- * the dial fulfills, so a live sibling is not torn down. A hung dial fails
- * through that abort instead of leaving the batch pending forever.
+ * the dial fulfills, so a live sibling is not torn down.
  */
 export function runTuiMcpDial(
   dial: (signal: AbortSignal) => Promise<void>,

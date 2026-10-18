@@ -38,10 +38,21 @@ const lin = {
   type: "http" as const,
   url: "https://mcp.lin.test/mcp",
 };
+const stuck = {
+  name: "stuck",
+  type: "stdio" as const,
+  command: "stuck-mcp",
+};
 
-function callbacks(states: MCPServerState[]) {
+function callbacks(
+  states: MCPServerState[],
+  browserAuthOutlivesDialAbort = false,
+) {
   return {
     interactiveAuth: true,
+    ...(browserAuthOutlivesDialAbort
+      ? { browserAuthOutlivesDialAbort: true as const }
+      : {}),
     onStatus: (state: MCPServerState) => {
       states.push(state);
     },
@@ -96,6 +107,54 @@ describe("TUI MCP dial timeout", () => {
       ).toContain("mcp__acme__list");
     } finally {
       await toolset.dispose();
+    }
+  });
+
+  test("unfinished browser auth survives the handshake cap and the live sibling stays mounted", async () => {
+    mock.browserAuthNames.add("lin");
+    mock.hangNames.add("stuck");
+    const toolset = await createAgentToolset({
+      cwd: tempCwd(),
+      permissionGate: mcpTestPermissionGate(),
+      onOperatorGate: async () => ({ kind: "cancel" }),
+      mcpServers: [acme, lin, stuck],
+    });
+    const states: MCPServerState[] = [];
+    const exit = new AbortController();
+    let resumed = false;
+    const dial = runTuiMcpDial(
+      (signal) =>
+        toolset.connectMCP(callbacks(states, true), signal).then(async () => {
+          resumed = true;
+        }),
+      exit.signal,
+      40,
+    );
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(resumed).toBe(false);
+      expect(states.some((s) => s.name === "lin" && s.state === "failed")).toBe(
+        false,
+      );
+      expect(
+        states.some((s) => s.name === "lin" && s.state === "needs-auth"),
+      ).toBe(true);
+      expect(
+        states.some((s) => s.name === "stuck" && s.state === "failed"),
+      ).toBe(true);
+      expect(
+        states.some((s) => s.name === "acme" && s.state === "connected"),
+      ).toBe(true);
+      expect(toolset.hasMCPServer("acme")).toBe(true);
+      expect(toolset.hasMCPServer("stuck")).toBe(false);
+      expect(mock.closedClients).not.toContain("acme");
+      expect(
+        toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
+      ).toContain("mcp__acme__list");
+      expect(mock.authWaitAborts).toBe(0);
+    } finally {
+      await toolset.dispose();
+      await dial;
     }
   });
 });
