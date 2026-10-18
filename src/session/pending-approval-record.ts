@@ -3,7 +3,7 @@ import {
   ApprovalSnapshot,
   type PendingOperation,
   ToolCall,
-} from "@intx/types/runtime";
+} from "@intx/types/runtime-core";
 
 /**
  * A pending operation as it rests in session state (metadata.json, or a turn
