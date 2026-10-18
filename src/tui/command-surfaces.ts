@@ -843,6 +843,13 @@ function openCredentialsPane(
       onAction: (_id, key) => {
         if (state.editing === null) {
           if (key.ctrl || key.meta || key.option) return false;
+          // Bare claims fire only for a true bare key: a hybrid
+          // {name:"v", sequence:"√"} is the composed Option glyph arriving
+          // with no modifier bit — exactly the input altChordLetterForKey
+          // reads through `sequence` — and must not reach save/verify via
+          // the name table. The text sinks below key on `sequence`, which
+          // is why they need no such guard (I-4).
+          if (key.sequence !== key.name) return false;
           if (key.name === "s") {
             void Promise.resolve(
               plugins.saveCredentials(entry.id, state.values),
@@ -1099,6 +1106,7 @@ export function openPluginsSurface(
       title: "plugins",
       frameId: "overlay-plugins",
       deferIfBusy: true,
+      altChords: ["a", "w", "c", "v", "t", "x"] as const,
       ...payload(rows),
       describe: (id) => {
         if (id === PLUGIN_LOAD_WARNINGS_ID) {
@@ -1140,26 +1148,21 @@ export function openPluginsSurface(
             deps.notify(`Plugin update failed: ${errorText(err)}`),
         );
       },
-      onAction: (id, key) => {
-        // Alt+<key>, never bare — bare c/v/t/a/w/x would be swallowed by the
-        // filter list. Alt+C is safe here: this branch returns before
-        // shell.ts's top-level onKey reaches the global copy-mode chord.
-        if (key.ctrl || !(key.meta || key.option)) return false;
-        const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
-        // Surface-level chords — advertised in the how-to even when focus is on
-        // Close, the empty-list row, or load warnings.
-        if (name === "a") {
+      onAltChord: (id, letter) => {
+        // Surface-level chords run even when focus is on Close, the empty
+        // list, or load warnings.
+        if (letter === "a") {
           openAddPathPane(shell, deps, plugins);
           return true;
         }
-        if (name === "w") {
+        if (letter === "w") {
           openWebProviderChooser(shell, deps, plugins);
           return true;
         }
         if (id === PLUGIN_LOAD_WARNINGS_ID) return false;
         const target = byId.get(id);
         if (target === undefined) return false;
-        switch (name) {
+        switch (letter) {
           case "c":
             if (target.credentials.length === 0) return false;
             openCredentialsPane(shell, deps, plugins, target, {
@@ -1516,8 +1519,8 @@ export function openMcpSurface(
       // The flash below reports the outcome; the echo would quote the row's
       // pre-authorization label back at the operator forever.
       echoChoice: false,
-      mcpManageHint: true,
-      mcpAddHint: canAdd,
+      // `a` joins only when adding is possible.
+      altChords: canAdd ? (["a", "d", "r"] as const) : (["d", "r"] as const),
       ...payload(rows),
       describe: (id) => {
         const target = byName.get(id);
@@ -1596,17 +1599,14 @@ export function openMcpSurface(
         });
         closeReplaceableOverlay(shell);
       },
-      onAction: (id, key) => {
-        if (key.ctrl || !(key.meta || key.option)) return false;
-        const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
-        if (name === "a") {
-          if (!canAdd) return false;
+      onAltChord: (id, letter) => {
+        if (letter === "a") {
           unsubscribe();
           openAddMcpNamePane(shell, deps, mcp);
           return true;
         }
         if (isMcpChromeRow(id)) return false;
-        if (name === "d") {
+        if (letter === "d") {
           const setEnabled = mcp.setEnabled;
           if (setEnabled === undefined) return false;
           unsubscribe();
@@ -1619,7 +1619,7 @@ export function openMcpSurface(
           );
           return true;
         }
-        if (name === "r") {
+        if (letter === "r") {
           const target = byName.get(id);
           if (target?.builtin === true) {
             deps.notify(

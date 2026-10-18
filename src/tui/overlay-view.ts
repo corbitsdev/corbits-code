@@ -12,7 +12,7 @@ import {
 import type {
   OverlayList,
   ItemDescription,
-  OpenListOverlayOpts,
+  PrimaryOverlayBindings,
   PrimaryOverlayKind,
 } from "./shell/internals.js";
 import {
@@ -23,13 +23,15 @@ import {
 import { destroySubtree } from "./teardown.js";
 import { UI } from "./theme.js";
 
-export interface OverlayTitlePresentation extends Pick<
-  OpenListOverlayOpts,
-  | "addProviderHint"
-  | "setDefaultHint"
-  | "removeProviderHint"
-  | "mcpManageHint"
-  | "mcpAddHint"
+export interface OverlayTitlePresentation extends Partial<
+  Pick<
+    PrimaryOverlayBindings,
+    | "addProviderHint"
+    | "setDefaultHint"
+    | "removeProviderHint"
+    | "mcpManageHint"
+    | "mcpAddHint"
+  >
 > {
   readonly title: string;
   readonly kind: PrimaryOverlayKind | null;

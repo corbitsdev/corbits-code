@@ -14,6 +14,7 @@ import {
   reserveOverlayHost,
 } from "./shell/overlay-host.js";
 import type { KeyEvent } from "@opentui/core";
+import { type AltChordLetter } from "./key-chords.js";
 export type { OverlaySelection };
 
 export interface OpenPermissionsOpts {
@@ -128,6 +129,14 @@ export interface OpenModelPickerOpts {
   readonly describe?: (itemId: string) => ItemDescription | null;
   /** Bare-key claim on the focused row (e.g. Alt+F to toggle favorite). */
   readonly onAction?: (itemId: string, key: KeyEvent) => boolean;
+  /** Declares this open's `Alt+<letter>` chords (CL-8637). */
+  readonly altChords?: readonly AltChordLetter[];
+  /** Chord dispatch for a declared letter; no modifier inspection needed. */
+  readonly onAltChord?: (
+    itemId: string,
+    letter: AltChordLetter,
+    key: KeyEvent,
+  ) => boolean;
   /** Per-open Esc/dismiss. */
   readonly onCancel?: () => void;
   /**
@@ -135,12 +144,6 @@ export interface OpenModelPickerOpts {
    * as you type. Off by default so other list overlays keep j/k.
    */
   readonly typeToFilter?: boolean;
-  /** Advertise Alt+A /connect in the footer — only when the caller wired the handler. */
-  readonly addProviderHint?: boolean;
-  /** Advertise Alt+D in the footer — only when the caller wired the handler. */
-  readonly setDefaultHint?: boolean;
-  /** Advertise Alt+R remove in the footer — only when the caller wired the handler. */
-  readonly removeProviderHint?: boolean;
 }
 
 export function openModelPickerOverlay(
@@ -160,18 +163,13 @@ export function openModelPickerOverlay(
       ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
       ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
       ...(opts?.onAction !== undefined ? { onAction: opts.onAction } : {}),
+      ...(opts?.altChords !== undefined ? { altChords: opts.altChords } : {}),
+      ...(opts?.onAltChord !== undefined
+        ? { onAltChord: opts.onAltChord }
+        : {}),
       ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
       ...(opts?.typeToFilter !== undefined
         ? { typeToFilter: opts.typeToFilter }
-        : {}),
-      ...(opts?.addProviderHint !== undefined
-        ? { addProviderHint: opts.addProviderHint }
-        : {}),
-      ...(opts?.setDefaultHint !== undefined
-        ? { setDefaultHint: opts.setDefaultHint }
-        : {}),
-      ...(opts?.removeProviderHint !== undefined
-        ? { removeProviderHint: opts.removeProviderHint }
         : {}),
       deferIfBusy: true,
     });

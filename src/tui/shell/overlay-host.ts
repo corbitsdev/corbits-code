@@ -269,6 +269,7 @@ export function openListOverlay(
     bag.overlayGeneration += 1;
     // A stacked palette borrows the primary bindings until restoration.
     if (!isPalette || !bag.priorOverlay) {
+      const chords = opts?.altChords ?? [];
       bag.primaryBindings = {
         itemIds: opts?.itemIds ? [...opts.itemIds] : [],
         itemValues: opts?.itemValues ? [...opts.itemValues] : [],
@@ -277,15 +278,20 @@ export function openListOverlay(
         onCycle: opts?.onCycle ?? null,
         describe: opts?.describe ?? null,
         onAction: opts?.onAction ?? null,
+        altChords: chords,
+        onAltChord: opts?.onAltChord ?? null,
         onPaste: opts?.onPaste ?? null,
         onCancel: opts?.onCancel ?? null,
         onDispose: opts?.onDispose ?? null,
         isGate: opts?.isGate === true,
-        addProviderHint: opts?.addProviderHint ?? false,
-        setDefaultHint: opts?.setDefaultHint ?? false,
-        removeProviderHint: opts?.removeProviderHint ?? false,
-        mcpManageHint: opts?.mcpManageHint ?? false,
-        mcpAddHint: opts?.mcpAddHint ?? false,
+        // Advertising is declaration (invariant I-1): the footer flags are
+        // the output of this open's altChords, never caller-passed knobs.
+        addProviderHint: kind === "model_picker" && chords.includes("a"),
+        setDefaultHint: kind === "model_picker" && chords.includes("d"),
+        removeProviderHint: kind === "model_picker" && chords.includes("r"),
+        mcpManageHint:
+          kind === "mcp" && (chords.includes("d") || chords.includes("r")),
+        mcpAddHint: kind === "mcp" && chords.includes("a"),
       };
       bag.overlayEchoChoice = opts?.echoChoice ?? true;
       // Capture the full unfiltered set so typing can re-narrow in place.

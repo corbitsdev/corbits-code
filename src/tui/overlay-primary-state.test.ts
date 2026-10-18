@@ -2,20 +2,24 @@ import { describe, expect, test } from "bun:test";
 
 import { focusOwner } from "./focus";
 import { withTestRenderer } from "./harness";
+import type { KeyEvent } from "@opentui/core";
 import { createAppShell } from "./shell/index";
-import type { OverlaySelection } from "./shell/internals";
+import { type OverlaySelection } from "./shell/internals";
+import { overlayAnswerState } from "./shell/chrome";
 import {
   acceptOverlaySelection,
   closeInsetOverlay,
   closeReplaceableOverlay,
+  handleOverlayAnswerKey,
   openListOverlay,
   setOwnedOverlayItems,
 } from "./shell/overlay-host";
 import {
   cycleOverlaySelection,
+  runOverlayAction,
   toggleOverlayExpand,
 } from "./shell/overlay-list";
-import { openPalette } from "./shell/palette";
+import { handlePaletteFilterKey, openPalette } from "./shell/palette";
 
 const catalog = [{ id: "help", label: "/help", keywords: ["help"] }];
 
@@ -188,4 +192,83 @@ describe("overlay primary bindings across host transitions", () => {
       });
     });
   }
+});
+
+/** A composed Option glyph with no modifier bits (shape B, Option+D → ∂). */
+function glyphKey(glyph: string): KeyEvent {
+  return {
+    name: glyph,
+    sequence: glyph,
+    ctrl: false,
+    meta: false,
+    option: false,
+  } as KeyEvent;
+}
+
+describe("chord precedence while a higher claimant is active (CL-8637)", () => {
+  test("a palette stacked over a primary takes the glyph into its filter; chords stay silent", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, { run: "idle" });
+      const chords: string[] = [];
+      try {
+        openListOverlay(shell, {
+          kind: "model_picker",
+          items: ["alpha"],
+          itemIds: ["a"],
+          typeToFilter: true,
+          altChords: ["a", "d", "r"],
+          onAltChord: (itemId, letter) => {
+            chords.push(`${itemId}:${letter}`);
+            return true;
+          },
+        });
+        openPalette(shell, { catalog, typeToFilter: true });
+        expect(shell.overlayKind).toBe("palette");
+
+        const composed = glyphKey("∂");
+        // keys.ts claims the palette filter (line 416) ahead of any chord
+        // resolution (line 428); the primary's declarations must not steal
+        // typing from the stacked palette (invariant I-5).
+        expect(handlePaletteFilterKey(shell, composed)).toBe(true);
+        // runOverlayAction itself stays null while a palette is open, even
+        // though the borrowed primary bindings declare `d`.
+        expect(runOverlayAction(shell, composed)).toBe(false);
+        expect(chords).toEqual([]);
+      } finally {
+        shell.dispose();
+      }
+    });
+  });
+
+  test("a live answer field takes the glyph as text ahead of chord resolution", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, { run: "idle" });
+      const chords: string[] = [];
+      const answers: string[] = [];
+      try {
+        openListOverlay(shell, {
+          kind: "model_picker",
+          items: ["alpha"],
+          itemIds: ["a"],
+          onTextAnswer: (text) => {
+            answers.push(text);
+          },
+          textAnswerActive: true,
+          altChords: ["d"],
+          onAltChord: (itemId, letter) => {
+            chords.push(`${itemId}:${letter}`);
+            return true;
+          },
+        });
+
+        const composed = glyphKey("∂");
+        // keys.ts routes to the answer field (line 410) before chords (428).
+        expect(handleOverlayAnswerKey(shell, composed)).toBe(true);
+        expect(overlayAnswerState(shell)?.text).toBe("∂");
+        expect(chords).toEqual([]);
+      } finally {
+        shell.dispose();
+      }
+    });
+  });
 });
