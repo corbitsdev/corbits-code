@@ -876,6 +876,181 @@ describe("plugins surface admin actions", () => {
   });
 });
 
+/**
+ * CL-8637: on stock macOS terminals Option+<letter> arrives as the composed
+ * layout glyph with no modifier bit. On the two surfaces that advertise
+ * Alt+<letter> chords, that glyph must run the advertised action and must
+ * never leak into the prompt buffer.
+ */
+describe("composed option glyphs on /plugins and /mcp (CL-8637)", () => {
+  test("every advertised plugins glyph runs its chord with the prompt left alone", async () => {
+    const glyphs = ["å", "∑", "ç", "√", "†", "≈"] as const;
+    for (const glyph of glyphs) {
+      await withShell(async (shell) => {
+        const { deps } = pluginActionDeps({ needsTrust: true });
+        openCommandSurface(shell, "plugins", deps);
+        shell.prompt.value = "";
+        expect(runOverlayAction(shell, charKey(glyph))).toBe(true);
+        expect(shell.prompt.value).toBe("");
+      });
+    }
+  });
+
+  test("å add-by-path and ∑ web chooser keep working through the glyph", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps();
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, charKey("å"))).toBe(true);
+      typeOverlayText(shell, "/tmp/glyph-plugin");
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      expect(calls.addPath).toEqual(["/tmp/glyph-plugin"]);
+    });
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps();
+      openCommandSurface(
+        shell,
+        "plugins",
+        patchPlugins(deps, { list: () => [] }),
+      );
+      expect(runOverlayAction(shell, charKey("∑"))).toBe(true);
+      moveOverlaySelection(shell, 1);
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      expect(calls.setWebProvider).toEqual(["exa"]);
+    });
+  });
+
+  test("the trust glyph on a trusted plugin is still a no-op (I-7)", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps();
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, charKey("†"))).toBe(false);
+      expect(calls.setEnabled).toEqual([]);
+    });
+  });
+
+  test("mcp glyphs stay text on /plugins: this surface declares no d or r", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps();
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, charKey("∂"))).toBe(false);
+      expect(runOverlayAction(shell, charKey("®"))).toBe(false);
+      expect(calls.setEnabled).toEqual([]);
+      expect(calls.remove).toEqual([]);
+    });
+  });
+
+  test("å completes add-name → URL on /mcp with the prompt left alone", async () => {
+    await withShell(async (shell) => {
+      const added: { name: string; url: string }[] = [];
+      let liveEntries: readonly McpEntry[] = [
+        { name: "linear", state: "connected", toolCount: 12 },
+      ];
+      openMcp(shell, {
+        list: () => liveEntries,
+        openAuthURL: () => undefined,
+        addServer: async (name, url) => {
+          added.push({ name, url });
+          liveEntries = [...liveEntries, { name, state: "connecting" }];
+          return { ok: true, message: `Added ${name}.` };
+        },
+      });
+
+      expect(runOverlayAction(shell, charKey("å"))).toBe(true);
+      expect(shell.prompt.value).toBe("");
+      typeOverlayText(shell, "notion");
+      acceptOverlaySelection(shell);
+      typeOverlayText(shell, "https://mcp.notion.test/mcp");
+      acceptOverlaySelection(shell);
+      await flushSurface();
+
+      expect(added).toEqual([
+        { name: "notion", url: "https://mcp.notion.test/mcp" },
+      ]);
+      expect(shell.prompt.value).toBe("");
+    });
+  });
+
+  test("∂ disables the focused server on /mcp with the prompt left alone", async () => {
+    await withShell(async (shell) => {
+      const toggled: { name: string; enabled: boolean }[] = [];
+      const notes: string[] = [];
+      let liveEntries: readonly McpEntry[] = [
+        { name: "linear", state: "connected", toolCount: 12 },
+      ];
+      openMcp(
+        shell,
+        {
+          list: () => liveEntries,
+          openAuthURL: () => undefined,
+          setEnabled: async (name, enabled) => {
+            toggled.push({ name, enabled });
+            liveEntries = [
+              { name, state: enabled ? "connecting" : "disabled" },
+            ];
+            return { ok: true, message: `Disabled ${name}.` };
+          },
+        },
+        (note) => notes.push(note),
+      );
+      expect(shell.prompt.value).toBe("");
+      expect(runOverlayAction(shell, charKey("∂"))).toBe(true);
+      await flushSurface();
+      expect(toggled).toEqual([{ name: "linear", enabled: false }]);
+      expect(shell.prompt.value).toBe("");
+      expect(notes).toEqual(["Disabled linear."]);
+    });
+  });
+
+  test("® on /mcp opens the remove confirm and Enter completes it", async () => {
+    await withShell(async (shell) => {
+      let liveEntries: readonly McpEntry[] = [
+        { name: "linear", state: "connected", toolCount: 12 },
+        { name: "notion", state: "connected", toolCount: 3 },
+      ];
+      openMcp(shell, {
+        list: () => liveEntries,
+        openAuthURL: () => undefined,
+        removeServer: async (name) => {
+          liveEntries = liveEntries.filter((entry) => entry.name !== name);
+          return { ok: true, message: `Removed ${name}.` };
+        },
+      });
+      moveOverlaySelection(shell, 1);
+      expect(runOverlayAction(shell, charKey("®"))).toBe(true);
+      acceptOverlaySelection(shell);
+      await flushSurface();
+
+      expect(liveEntries.map((entry) => entry.name)).toEqual(["linear"]);
+      expect(shell.prompt.value).toBe("");
+    });
+  });
+
+  test("å is not a chord on /mcp while local settings shadow global (I-3)", async () => {
+    await withShell(async (shell) => {
+      openMcp(shell, {
+        list: () => [{ name: "linear", state: "connected", toolCount: 1 }],
+        openAuthURL: () => undefined,
+        mcpServersSource: "local",
+        addServer: async () => ({ ok: true, message: "should not run" }),
+      });
+      expect(runOverlayAction(shell, charKey("å"))).toBe(false);
+      expect(shell.prompt.value).toBe("");
+    });
+  });
+
+  test("ç is not a chord on /mcp: this surface declares no c", async () => {
+    await withShell(async (shell) => {
+      openMcp(shell, {
+        list: () => [{ name: "linear", state: "connected", toolCount: 1 }],
+        openAuthURL: () => undefined,
+      });
+      expect(runOverlayAction(shell, charKey("ç"))).toBe(false);
+    });
+  });
+});
+
 describe("hooks surface", () => {
   test("lists discovered hooks with enabled state and Enter toggles", async () => {
     await withShell(async (shell) => {

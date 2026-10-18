@@ -1099,6 +1099,10 @@ export function openPluginsSurface(
       title: "plugins",
       frameId: "overlay-plugins",
       deferIfBusy: true,
+      // Every chord this surface advertises (footer at
+      // overlay-view.ts PLUGIN hints, rows at pluginDescription) is
+      // declared once here (CL-8637, invariant I-1).
+      altChords: ["a", "w", "c", "v", "t", "x"] as const,
       ...payload(rows),
       describe: (id) => {
         if (id === PLUGIN_LOAD_WARNINGS_ID) {
@@ -1140,26 +1144,25 @@ export function openPluginsSurface(
             deps.notify(`Plugin update failed: ${errorText(err)}`),
         );
       },
-      onAction: (id, key) => {
-        // Alt+<key>, never bare — bare c/v/t/a/w/x would be swallowed by the
-        // filter list. Alt+C is safe here: this branch returns before
-        // shell.ts's top-level onKey reaches the global copy-mode chord.
-        if (key.ctrl || !(key.meta || key.option)) return false;
-        const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
+      onAltChord: (id, letter) => {
+        // Chords arrive resolved to declared letters (CL-8637): never bare,
+        // and Alt+C is safe against the app copy-mode chord because this
+        // surface declared `c` and the popup branch claims the key before
+        // app chords are consulted (keys.ts, invariant I-5).
         // Surface-level chords — advertised in the how-to even when focus is on
         // Close, the empty-list row, or load warnings.
-        if (name === "a") {
+        if (letter === "a") {
           openAddPathPane(shell, deps, plugins);
           return true;
         }
-        if (name === "w") {
+        if (letter === "w") {
           openWebProviderChooser(shell, deps, plugins);
           return true;
         }
         if (id === PLUGIN_LOAD_WARNINGS_ID) return false;
         const target = byId.get(id);
         if (target === undefined) return false;
-        switch (name) {
+        switch (letter) {
           case "c":
             if (target.credentials.length === 0) return false;
             openCredentialsPane(shell, deps, plugins, target, {
@@ -1516,8 +1519,10 @@ export function openMcpSurface(
       // The flash below reports the outcome; the echo would quote the row's
       // pre-authorization label back at the operator forever.
       echoChoice: false,
-      mcpManageHint: true,
-      mcpAddHint: canAdd,
+      // One declaration drives footer hints, filter yield and dispatch
+      // (CL-8637). `a` joins only when adding is possible, mirroring the
+      // old mcpAddHint gate; d/r were always advertised via mcpManageHint.
+      altChords: canAdd ? (["a", "d", "r"] as const) : (["d", "r"] as const),
       ...payload(rows),
       describe: (id) => {
         const target = byName.get(id);
@@ -1596,17 +1601,16 @@ export function openMcpSurface(
         });
         closeReplaceableOverlay(shell);
       },
-      onAction: (id, key) => {
-        if (key.ctrl || !(key.meta || key.option)) return false;
-        const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
-        if (name === "a") {
-          if (!canAdd) return false;
+      onAltChord: (id, letter) => {
+        // Letters arrive resolved (CL-8637): modifier or composed glyph,
+        // no modifier inspection here (I-2).
+        if (letter === "a") {
           unsubscribe();
           openAddMcpNamePane(shell, deps, mcp);
           return true;
         }
         if (isMcpChromeRow(id)) return false;
-        if (name === "d") {
+        if (letter === "d") {
           const setEnabled = mcp.setEnabled;
           if (setEnabled === undefined) return false;
           unsubscribe();
@@ -1619,7 +1623,7 @@ export function openMcpSurface(
           );
           return true;
         }
-        if (name === "r") {
+        if (letter === "r") {
           const target = byName.get(id);
           if (target?.builtin === true) {
             deps.notify(
