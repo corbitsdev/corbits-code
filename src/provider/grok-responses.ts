@@ -2,7 +2,7 @@ import { responsesAdapterFactory } from "@corbits/openai-responses";
 import { XAI_USER_ID_OPTION, xaiResponsesQuirks } from "@corbits/xai-provider";
 import type { AdapterFactory } from "@intx/inference";
 
-export { GROK_RESPONSES_PROVIDER } from "./grok-responses-id.js";
+export const GROK_RESPONSES_PROVIDER = "grok-responses";
 
 export const GROK_USER_ID_OPTION = "grokUserId";
 export const GROK_SESSION_ID_OPTION = "grokSessionId";

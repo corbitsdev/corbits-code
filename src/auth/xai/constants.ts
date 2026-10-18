@@ -1,21 +1,9 @@
-import { createRequire } from "node:module";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import { callbackTargetFor } from "@corbits/oauth-core";
-
-const require = createRequire(import.meta.url);
-const packageIndex = pathToFileURL(require.resolve("@corbits/xai-provider"));
-const {
-  XAI_DEFAULT_MODELS: VENDOR_XAI_DEFAULT_MODELS,
-  XAI_OAUTH_PROXY_BASE_URL: XAI_BASE_URL,
-} = require(fileURLToPath(new URL("./constants.js", packageIndex))) as {
-  XAI_DEFAULT_MODELS: readonly string[];
-  XAI_OAUTH_PROXY_BASE_URL: string;
-};
-const { xaiOAuthConfig } = require(
-  fileURLToPath(new URL("./oauth.js", packageIndex)),
-) as {
-  xaiOAuthConfig: Parameters<typeof callbackTargetFor>[0];
-};
+import {
+  XAI_DEFAULT_MODELS as VENDOR_XAI_DEFAULT_MODELS,
+  XAI_OAUTH_PROXY_BASE_URL as XAI_BASE_URL,
+  xaiOAuthConfig,
+} from "@corbits/xai-provider";
 
 export { XAI_BASE_URL };
 
