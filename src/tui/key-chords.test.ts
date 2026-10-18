@@ -26,9 +26,10 @@ function charKey(glyph: string): KeyEvent {
 // Proven subset (`å/Å`, `∂`, `®`) is pinned end-to-end by CL-8635's
 // composed-glyph tests in product-host.test.ts. The remaining rows are the
 // SOLUTION_SCOPE.md §3 allowlist for the macOS built-in U.S./ABC Option
-// layer (Option+C ç/Ç, Option+T †/‡, Option+V √, Option+W ∑, Option+X ≈).
-// `w` carries no shifted form: ⇧Option+W composes `„`, and `◊` is the shifted
-// glyph of Option+**V** — a key whose own glyph is already its chord row (I-4).
+// layer (Option+C ç/Ç, Option+T †, Option+V √, Option+W ∑, Option+X ≈).
+// Neither `t` nor `w` carries a shifted form: their ⇧Option layers compose
+// `ˇ` and `„`, while `‡` and `◊` are the shifted glyphs of Option+**7** and
+// Option+**V** — printables that belong to another key (I-4).
 const PICKER: readonly AltChordLetter[] = ["a", "d", "r"];
 
 describe("altChordLetterForKey", () => {
@@ -82,12 +83,16 @@ describe("altChordLetterForKey", () => {
     // glyph has no chord path on any surface, whatever is declared.
     expect(altChordLetterForKey(charKey("ƒ"), ALT_CHORD_LETTERS)).toBeNull();
     // Shifted-layer glyphs belong to other keys on macOS US: „ is
-    // ⇧Option+W, ◊ is ⇧Option+V and ‰ is ⇧Option+R. None of them is the
-    // glyph of its own letter, so none is a chord wherever w or v is
-    // declared (I-4).
+    // ⇧Option+W, ◊ is ⇧Option+V, ‰ is ⇧Option+R and ‡ is ⇧Option+**7** —
+    // none of them is the glyph of its own letter, so none is a chord
+    // wherever w, v, r or t is declared (I-4). ‡ in particular once
+    // hijacked the /plugins trust chord: a printable keystroke granted
+    // trust and enabled plugin code with no confirmation.
     expect(altChordLetterForKey(charKey("„"), ALT_CHORD_LETTERS)).toBeNull();
     expect(altChordLetterForKey(charKey("◊"), ALT_CHORD_LETTERS)).toBeNull();
     expect(altChordLetterForKey(charKey("‰"), ALT_CHORD_LETTERS)).toBeNull();
+    expect(altChordLetterForKey(charKey("‡"), ALT_CHORD_LETTERS)).toBeNull();
+    expect(altChordLetterForKey(charKey("‡"), ["t"])).toBeNull();
   });
 
   test("ctrl plus a composed glyph is never a chord", () => {
@@ -116,6 +121,39 @@ describe("ALT_CHORD_LETTERS / OPTION_CHORD_GLYPHS", () => {
         expect(altChordLetterForKey(charKey(glyph), ALT_CHORD_LETTERS)).toBe(
           letter,
         );
+      }
+    }
+  });
+
+  // Provenance lock (I-4): the independent ground truth for the macOS
+  // built-in U.S./ABC Option layer, letter by letter — plain glyph and,
+  // where the layout composes one, the ⇧Option glyph. Every table entry
+  // must be its OWN letter's glyph here; `‡` (⇧Option+7) and `◊`
+  // (⇧Option+V) failed this and were dropped, and `‰` (⇧Option+R) was
+  // never declared. Adding a row to the table means adding its verified
+  // layout pair here first.
+  const MACOS_US_OPTION_LAYER: Readonly<
+    Record<AltChordLetter, readonly string[]>
+  > = {
+    a: ["å", "Å"],
+    c: ["ç", "Ç"],
+    d: ["∂", "Î"],
+    r: ["®", "‰"],
+    t: ["†", "ˇ"],
+    v: ["√", "◊"],
+    w: ["∑", "„"],
+    x: ["≈", "˛"],
+  };
+
+  test("every table entry is its own letter's macOS US/ABC Option glyph", () => {
+    for (const letter of ALT_CHORD_LETTERS) {
+      const layoutGlyphs = MACOS_US_OPTION_LAYER[letter];
+      expect(layoutGlyphs, `no layout provenance for ${letter}`).toBeDefined();
+      for (const glyph of OPTION_CHORD_GLYPHS[letter] ?? []) {
+        expect(
+          layoutGlyphs.includes(glyph),
+          `${glyph} is not an Option-layer glyph of ${letter} on macOS US/ABC`,
+        ).toBe(true);
       }
     }
   });

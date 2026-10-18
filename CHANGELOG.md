@@ -25,7 +25,7 @@ by hand.
 ### Fixed
 
 - TUI slash popups now run their advertised `Alt+<letter>` chords from the
-  composed macOS Option glyph (å/Å/∂/®/ç/†/‡/√/∑/≈), not only from the
+  composed macOS Option glyph (å/Å/∂/®/ç/†/√/∑/≈), not only from the
   Option-as-Meta shape: on stock iTerm2/Terminal.app/Ghostty/VS Code,
   Option+letter finally does what the footer promises in `/model`, `/mcp`
   and `/plugins`, and the glyph no longer leaks into the hidden prompt

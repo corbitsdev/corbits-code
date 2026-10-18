@@ -35,7 +35,10 @@ export const OPTION_CHORD_GLYPHS: Readonly<
   c: ["ç", "Ç"],
   d: ["∂"],
   r: ["®"],
-  t: ["†", "‡"],
+  // No shifted form: macOS US composes ⇧Option+T as `ˇ`, and `‡` is the
+  // shifted glyph of Option+**7**, so claiming either for `t` would turn a
+  // printable that belongs to another key into the trust chord (I-4).
+  t: ["†"],
   v: ["√"],
   // No shifted form: macOS US composes ⇧Option+W as `„`, and `◊` is the
   // shifted glyph of Option+**V**, so claiming either for `w` would turn a
