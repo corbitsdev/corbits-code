@@ -362,6 +362,7 @@ export function createSubmitPath(
     send: (message: InboundMessage) => Promise<SendResult> = (next) =>
       live.agentProxy.send(next),
     presentFailureNotice = true,
+    detachApproval = false,
   ): Promise<AgentDeliveryResult> => {
     hostOf(state).bridge.setSuspendedApprovalRecovery(
       services.suspendedApprovalRecovery.tryResumeOnce,
@@ -393,6 +394,23 @@ export function createSubmitPath(
             result,
             services.deliveryGeneration.capture(),
           );
+        }
+        // A queue-drained send runs inside a sessionOps op, and the decision is
+        // delivered through sessionOps too; awaiting it here would chain the
+        // delivery behind this op forever.
+        if (detachApproval && result.type === "suspended") {
+          void runWhileAgentBusy(state, async () => {
+            await services.approvalResume.handle(result);
+            services.suspendedApprovalRecovery.clear();
+          }).catch((err: unknown) => {
+            tuiLogger.warn(
+              "approval for a queued turn failed to settle: {kind}",
+              {
+                kind: err instanceof Error ? err.name : typeof err,
+              },
+            );
+          });
+          return;
         }
         await services.approvalResume.handle(result);
         // Settled: nothing is left for the stall watchdog to re-present.
@@ -537,6 +555,7 @@ export function createDeliverRouting(
           userInboundMessage(text, pending, operatorOriginated),
           (message) => targetAgent.send(message),
           false,
+          true,
         );
       },
       recordSent: (text) => {

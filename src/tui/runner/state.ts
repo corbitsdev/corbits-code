@@ -306,6 +306,7 @@ export interface RunnerState {
     message: InboundMessage,
     send?: (message: InboundMessage) => Promise<SendResult>,
     presentFailureNotice?: boolean,
+    detachApproval?: boolean,
   ) => Promise<AgentDeliveryResult>;
   /** Bound by the mounted host; receives only accepted operator message ids. */
   acceptedInputObserver?: (messageId: string) => void;
