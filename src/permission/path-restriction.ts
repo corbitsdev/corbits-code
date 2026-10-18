@@ -1,8 +1,17 @@
-import { lstatSync, readlinkSync, realpathSync } from "node:fs";
+import { readlinkSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { realpathOrOriginal, type RootsProvider } from "./worktree-roots.js";
 import { projectSessionsRoot } from "../session/project-key.js";
+import {
+  cachedLinkReal,
+  cachedNodeReal,
+  enterPathResolution,
+  lstatMemoized,
+  readlinkMemoized,
+  rememberLink,
+  rememberNode,
+} from "./realpath-cache.js";
 
 // Paths the agent must not touch without explicit operator approval, even
 // though read tools are otherwise allow-tier and write/edit auto-allow in
@@ -31,6 +40,77 @@ const LEGACY_STATE_DIR = ".agent-state";
 // appear in a real path, so it cannot collide with a genuine result.
 export const UNRESOLVABLE = "\0unresolvable\0";
 
+// A single normal path segment. `.`, `..`, a trailing slash, or an empty tail
+// stay on realpathSync so the cached join cannot diverge from the kernel.
+function existingTail(path: string, parent: string): string | undefined {
+  const tailStart = parent.endsWith(sep) ? parent.length : parent.length + 1;
+  const tail = path.slice(tailStart);
+  if (
+    tail.length === 0 ||
+    tail === "." ||
+    tail === ".." ||
+    tail.includes(sep)
+  ) {
+    return undefined;
+  }
+  return tail;
+}
+
+function rememberRealpath(
+  path: string,
+  st: NonNullable<ReturnType<typeof lstatMemoized>>,
+): string {
+  try {
+    const real = realpathSync(path);
+    rememberNode(path, st, real);
+    return real;
+  } catch {
+    return UNRESOLVABLE;
+  }
+}
+
+function resolveNearest(path: string): string {
+  const st = lstatMemoized(path);
+  if (st !== undefined && !st.isSymbolicLink()) {
+    const hit = cachedNodeReal(path, st);
+    if (hit !== undefined) return hit;
+    const parent = dirname(path);
+    if (parent === path) return rememberRealpath(path, st);
+    const tail = existingTail(path, parent);
+    if (tail === undefined) return rememberRealpath(path, st);
+    const parentReal = resolveNearest(parent);
+    if (parentReal === UNRESOLVABLE) return UNRESOLVABLE;
+    const real = join(parentReal, tail);
+    rememberNode(path, st, real);
+    return real;
+  }
+
+  if (st !== undefined && st.isSymbolicLink()) {
+    const linkTarget = readlinkMemoized(path);
+    if (linkTarget !== undefined) {
+      const hit = cachedLinkReal(path, st, linkTarget);
+      if (hit !== undefined) return hit;
+    }
+    try {
+      const real = realpathSync(path);
+      if (linkTarget !== undefined) rememberLink(path, st, linkTarget, real);
+      return real;
+    } catch {
+      return UNRESOLVABLE;
+    }
+  }
+
+  const parent = dirname(path);
+  if (parent === path) return path;
+  // Root (e.g. "/") already ends in the separator, so slicing past
+  // parent.length lands on the tail; elsewhere the separator between
+  // parent and tail must be skipped too.
+  const tailStart = parent.endsWith(sep) ? parent.length : parent.length + 1;
+  const parentReal = resolveNearest(parent);
+  if (parentReal === UNRESOLVABLE) return UNRESOLVABLE;
+  return join(parentReal, path.slice(tailStart));
+}
+
 // A write/edit target usually does not exist yet, so realpath the nearest
 // existing ancestor and rejoin the missing tail instead of using the raw
 // (possibly symlink-relative) path, which would defeat containment when the
@@ -41,26 +121,11 @@ export const UNRESOLVABLE = "\0unresolvable\0";
 // "component exists but is a dangling symlink / loop" (unsafe). lstat
 // distinguishes the two: it succeeds for an existing-but-broken symlink and
 // fails only when the component is genuinely absent.
+//
+// Already-resolved ancestors are memoized across calls, keyed by lstat
+// identity (see realpath-cache.ts). The check stays synchronous.
 export function realpathNearestOr(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    try {
-      lstatSync(path);
-      return UNRESOLVABLE;
-    } catch {
-      // Doesn't exist at all — fall through to the nearest-ancestor walk.
-    }
-    const parent = dirname(path);
-    if (parent === path) return path;
-    // Root (e.g. "/") already ends in the separator, so slicing past
-    // parent.length lands on the tail; elsewhere the separator between
-    // parent and tail must be skipped too.
-    const tailStart = parent.endsWith(sep) ? parent.length : parent.length + 1;
-    const parentReal = realpathNearestOr(parent);
-    if (parentReal === UNRESOLVABLE) return UNRESOLVABLE;
-    return join(parentReal, path.slice(tailStart));
-  }
+  return enterPathResolution(() => resolveNearest(path));
 }
 
 const MAX_SYMLINK_HOPS = 40;
@@ -69,16 +134,11 @@ const MAX_SYMLINK_HOPS = 40;
 function danglingLinkOf(path: string): string | undefined {
   let current = path;
   for (;;) {
-    try {
-      if (lstatSync(current).isSymbolicLink()) {
-        try {
-          realpathSync(current);
-        } catch {
-          return current;
-        }
-      }
-    } catch {
-      // Component absent: keep walking up.
+    const st = lstatMemoized(current);
+    if (st !== undefined && st.isSymbolicLink()) {
+      // Same resolver as containment, so a resolved ancestor is not lstat'd
+      // again inside this check. UNRESOLVABLE covers dangling links and loops.
+      if (resolveNearest(current) === UNRESOLVABLE) return current;
     }
     const parent = dirname(current);
     if (parent === current) return undefined;
@@ -91,21 +151,23 @@ function danglingLinkOf(path: string): string | undefined {
 // `link -> .env` creates `.env`, so judgments needing the landing path follow
 // link targets by hand. Loops and unreadable links stay UNRESOLVABLE.
 export function realpathFollowingDangling(path: string): string {
-  let current = path;
-  for (let hop = 0; hop < MAX_SYMLINK_HOPS; hop++) {
-    const real = realpathNearestOr(current);
-    if (real !== UNRESOLVABLE) return real;
-    const link = danglingLinkOf(current);
-    if (link === undefined) return UNRESOLVABLE;
-    let target: string;
-    try {
-      target = resolve(dirname(link), readlinkSync(link));
-    } catch {
-      return UNRESOLVABLE;
+  return enterPathResolution(() => {
+    let current = path;
+    for (let hop = 0; hop < MAX_SYMLINK_HOPS; hop++) {
+      const real = resolveNearest(current);
+      if (real !== UNRESOLVABLE) return real;
+      const link = danglingLinkOf(current);
+      if (link === undefined) return UNRESOLVABLE;
+      let target: string;
+      try {
+        target = resolve(dirname(link), readlinkSync(link));
+      } catch {
+        return UNRESOLVABLE;
+      }
+      current = join(target, current.slice(link.length));
     }
-    current = join(target, current.slice(link.length));
-  }
-  return UNRESOLVABLE;
+    return UNRESOLVABLE;
+  });
 }
 
 // An empty root must never reach the prefix compare: `"" + sep` is just `sep`,
