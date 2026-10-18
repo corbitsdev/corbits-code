@@ -144,12 +144,6 @@ export interface OpenModelPickerOpts {
    * as you type. Off by default so other list overlays keep j/k.
    */
   readonly typeToFilter?: boolean;
-  /** Advertise Alt+A /connect in the footer — only when the caller wired the handler. */
-  readonly addProviderHint?: boolean;
-  /** Advertise Alt+D in the footer — only when the caller wired the handler. */
-  readonly setDefaultHint?: boolean;
-  /** Advertise Alt+R remove in the footer — only when the caller wired the handler. */
-  readonly removeProviderHint?: boolean;
 }
 
 export function openModelPickerOverlay(
@@ -176,15 +170,6 @@ export function openModelPickerOverlay(
       ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
       ...(opts?.typeToFilter !== undefined
         ? { typeToFilter: opts.typeToFilter }
-        : {}),
-      ...(opts?.addProviderHint !== undefined
-        ? { addProviderHint: opts.addProviderHint }
-        : {}),
-      ...(opts?.setDefaultHint !== undefined
-        ? { setDefaultHint: opts.setDefaultHint }
-        : {}),
-      ...(opts?.removeProviderHint !== undefined
-        ? { removeProviderHint: opts.removeProviderHint }
         : {}),
       deferIfBusy: true,
     });

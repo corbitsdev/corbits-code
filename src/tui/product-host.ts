@@ -838,9 +838,7 @@ export async function mountProductHost(
         itemIds: items.map((m) => m.id),
         // Flat list: type to narrow rather than drill into a provider pane.
         typeToFilter: true,
-        addProviderHint: openAddProvider !== undefined,
-        setDefaultHint: onSetDefault !== undefined,
-        removeProviderHint: removeEnabled,
+        altChords,
         ...(focusIndex >= 0 ? { activeIndex: focusIndex } : {}),
         onAccept: (sel) => {
           disarmRemove();
@@ -868,7 +866,6 @@ export async function mountProductHost(
         onCancel: () => {
           disarmRemove();
         },
-        altChords,
         // Declared chords reach us already resolved to a letter by
         // altChordLetterForKey (CL-8637): no modifier inspection here (I-2),
         // and both the modifier and the composed-glyph shapes land the same.

@@ -593,7 +593,7 @@ export interface OverlayList {
   visibleRange(): OverlayListRange;
 }
 
-interface PrimaryOverlayBindings {
+export interface PrimaryOverlayBindings {
   /** Stable ids aligned with overlayItems. */
   itemIds: readonly string[];
   /** Plain chosen values aligned with overlayItems. */
@@ -849,20 +849,6 @@ export interface OpenListOverlayOpts {
   /** Claim printable keys for a `>` filter row so the list narrows;
    * opt-in per open, else j/k navigate. */
   readonly typeToFilter?: boolean;
-  /** Advertise Alt+A and /connect in the footer and yield Option+A (å/Å) from
-   * type-to-filter. */
-  readonly addProviderHint?: boolean;
-  /** Advertise the Alt+D set-default hint in the footer. */
-  readonly setDefaultHint?: boolean;
-  /** Advertise the Alt+R remove-provider hint and yield Option+R (®) from
-   * type-to-filter. */
-  readonly removeProviderHint?: boolean;
-  /** Advertise Alt+D disable / Alt+R remove in the `/mcp` footer; confirm
-   * overlays leave it unset (DEFAULT_OVERLAY_HINTS). */
-  readonly mcpManageHint?: boolean;
-  /** Advertise Alt+A add in the `/mcp` footer; false while local settings
-   * shadow global MCP. */
-  readonly mcpAddHint?: boolean;
   /** When the host shows a non-palette overlay, stash this open in the one
    * deferred slot and print a system line. Off by default: a busy open is a
    * silent no-op. */
