@@ -17,6 +17,7 @@ import {
   destroyUnpaintedSyntaxStyles,
 } from "./syntax-style-cache.js";
 import { pastTenseToolLabel } from "./tool-formatter.js";
+import { clearMarkdownParseInputCache } from "./markdown-parser.js";
 
 /** One pre-coloured body line (an expanded call's structured args). */
 export type StyledBodyLine = readonly {
@@ -790,6 +791,14 @@ const transcriptStylesByRenderer = new WeakMap<
 const retiredTranscriptStyles = new WeakMap<CliRenderer, SyntaxStyle[]>();
 
 let transcriptStyleGeneration = 0;
+let markdownParseInputGeneration = transcriptStyleGeneration;
+
+/** Drop parse inputs once the syntax-style generation actually moves. */
+function invalidateMarkdownParseInputCache(): void {
+  if (markdownParseInputGeneration === transcriptStyleGeneration) return;
+  markdownParseInputGeneration = transcriptStyleGeneration;
+  clearMarkdownParseInputCache();
+}
 
 /** Shared transcript SyntaxStyle for `ctx`, built lazily — the native render
  * lib is unreachable until a renderer exists. */
@@ -810,6 +819,7 @@ export function dropRetiredTranscriptSyntaxStyles(
   ctx: CliRenderer,
   painted: () => ReadonlySet<SyntaxStyle>,
 ): void {
+  invalidateMarkdownParseInputCache();
   const pending = retiredTranscriptStyles.get(ctx);
   if (pending === undefined || pending.length === 0) return;
   const held = painted();
@@ -820,4 +830,5 @@ export function dropRetiredTranscriptSyntaxStyles(
 
 onThemeChange(() => {
   transcriptStyleGeneration += 1;
+  invalidateMarkdownParseInputCache();
 });
