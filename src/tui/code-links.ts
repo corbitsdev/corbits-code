@@ -406,12 +406,23 @@ export function armMarkdownLinks(
   };
 }
 
-const armedChildCounts = new WeakMap<Renderable, number>();
+const armedChildIdentity = new WeakMap<Renderable, readonly Renderable[]>();
 let codeLinkWalkCount = 0;
 
-/** Subtree walks `armCodeLinks` actually performed. Equal child counts do not count. */
+/** Subtree walks `armCodeLinks` actually performed. Same child nodes do not count. */
 export function codeLinkArmWalks(): number {
   return codeLinkWalkCount;
+}
+
+function sameChildIdentity(
+  previous: readonly Renderable[],
+  next: readonly Renderable[],
+): boolean {
+  if (previous.length !== next.length) return false;
+  for (let i = 0; i < previous.length; i += 1) {
+    if (previous[i] !== next[i]) return false;
+  }
+  return true;
 }
 
 /**
@@ -419,15 +430,13 @@ export function codeLinkArmWalks(): number {
  * `onHighlight` keeps the tree-sitter groups; `onChunks` is `detectLinks`,
  * so a bare URL becomes an OSC-8 span and survives native wrap. Markdown
  * prose already sets both — do not replace those, or conceal regresses.
- * A retext whose child count did not grow has no new code block to arm.
+ * OpenTUI can swap the only block for a new CodeRenderable without growing
+ * the child count, so the walk follows child identity, not the count.
  */
 export function armCodeLinks(node: Renderable): void {
-  const count = node.getChildrenCount();
-  const previous = armedChildCounts.get(node);
-  if (previous !== undefined && count <= previous) {
-    if (count < previous) armedChildCounts.set(node, count);
-    return;
-  }
+  const children = node.getChildren();
+  const previous = armedChildIdentity.get(node);
+  if (previous !== undefined && sameChildIdentity(previous, children)) return;
   codeLinkWalkCount += 1;
   const walk = (current: Renderable): void => {
     if (current instanceof CodeRenderable) {
@@ -441,5 +450,5 @@ export function armCodeLinks(node: Renderable): void {
     for (const child of current.getChildren()) walk(child);
   };
   walk(node);
-  armedChildCounts.set(node, count);
+  armedChildIdentity.set(node, children);
 }
