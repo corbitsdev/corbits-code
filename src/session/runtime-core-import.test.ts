@@ -62,3 +62,13 @@ test(
   },
   { timeout: 60_000 },
 );
+
+test(
+  "importing reactor-authorize does not evaluate inference-events",
+  () => {
+    const result = importUnderProbe("./src/permission/reactor-authorize.ts");
+    expect(result.stderr).not.toContain("evaluated-inference-events");
+    expect(result.status).toBe(0);
+  },
+  { timeout: 60_000 },
+);

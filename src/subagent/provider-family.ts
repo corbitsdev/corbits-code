@@ -1,7 +1,21 @@
-import { GROK_RESPONSES_PROVIDER } from "../provider/grok-responses.js";
-import { isXaiProviderName } from "../config/xai-providers.js";
-import { isCodexProviderName } from "../config/codex-providers.js";
 import { isDeepSeekModel } from "../provider/deepseek-v4-effort.js";
+
+/** Wire id for the Grok Responses adapter. Duplicated in grok-responses.ts so
+ * this module does not load @corbits/openai-responses at reactor boot. */
+const GROK_RESPONSES_PROVIDER = "grok-responses";
+
+/** Prefixes owned by config/xai-providers.ts and config/codex-providers.ts.
+ * Inlined so a name check does not evaluate those modules' provider barrels. */
+const XAI_PROVIDER_PREFIX = "xai/";
+const CODEX_PROVIDER_PREFIX = "codex/";
+
+function isXaiProviderName(name: string): boolean {
+  return name.startsWith(XAI_PROVIDER_PREFIX);
+}
+
+function isCodexProviderName(name: string): boolean {
+  return name.startsWith(CODEX_PROVIDER_PREFIX);
+}
 
 /** True when the leaf inference path is xAI / Grok. For small prompt
  * residuals only. */
