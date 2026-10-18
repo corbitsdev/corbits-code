@@ -1,5 +1,4 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { realpathSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { ShellOutputFeedMap } from "../session/shell-output-feed.js";
@@ -30,6 +29,10 @@ import {
   shellCwdEscapesSessionMessage,
   wrapCommandWithPwdProbe,
 } from "../shell/persistent-shell-cwd.js";
+import {
+  cachedRealpathSync,
+  enterPathResolution,
+} from "../permission/realpath-cache.js";
 import type { ShellSandbox } from "../shell/sandbox-config.js";
 import { wrapWithShellSandbox } from "../shell/sandbox-config.js";
 
@@ -556,7 +559,7 @@ export function shellGuardPlugin(
   const defaultMs = timeoutConfig?.defaultMs;
   const maxOutputBytes =
     timeoutConfig?.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
-  const sessionRoot = realpathSync(cwd);
+  const sessionRoot = cachedRealpathSync(cwd);
   let retainedShellCwd = sessionRoot;
   const liveChildren = new Set<ChildProcess>();
   let disposed = false;
@@ -613,21 +616,17 @@ export function shellGuardPlugin(
               : undefined;
           const allowOutsideCwd = resolveAllowOutside(options.allowOutsideCwd);
           let executionCwd = retainedShellCwd;
-          if (perCallCwdRaw !== undefined) {
-            try {
-              executionCwd = resolvePerCallShellCwd(
-                sessionRoot,
-                perCallCwdRaw,
-                {
-                  allowOutsideSession: allowOutsideCwd,
-                },
-              );
-            } catch (err) {
-              return denyResult(call.id, errorMessage(err));
-            }
-          }
           try {
-            assertShellCwdUsable(executionCwd);
+            executionCwd = enterPathResolution(() => {
+              const resolved =
+                perCallCwdRaw !== undefined
+                  ? resolvePerCallShellCwd(sessionRoot, perCallCwdRaw, {
+                      allowOutsideSession: allowOutsideCwd,
+                    })
+                  : retainedShellCwd;
+              assertShellCwdUsable(resolved);
+              return resolved;
+            });
           } catch (err) {
             return denyResult(call.id, errorMessage(err));
           }
