@@ -3,6 +3,7 @@
  * copy the transcript child list to find the open row.
  */
 import { describe, expect, test } from "bun:test";
+import { CodeRenderable, type BaseRenderable } from "@opentui/core";
 import { withTestRenderer } from "./harness";
 import { codeLinkArmWalks } from "./code-links";
 import { appendStreamRow, replaceStreamRowAt } from "./shell/chrome";
@@ -16,6 +17,16 @@ const SHELL_OPTS = {
 } as const;
 
 const SETTLED = "### Title\n\n```bash\necho hi\n```\n\ntail";
+
+function codeNodes(node: BaseRenderable): CodeRenderable[] {
+  const found: CodeRenderable[] = [];
+  const walk = (current: BaseRenderable): void => {
+    if (current instanceof CodeRenderable) found.push(current);
+    for (const child of current.getChildren()) walk(child);
+  };
+  walk(node);
+  return found;
+}
 
 describe("streaming retext work", () => {
   test("an in-place retext does not call getChildren to find the row", async () => {
@@ -95,6 +106,40 @@ describe("streaming retext work", () => {
             text: `${text} still`,
           });
           expect(codeLinkArmWalks()).toBe(after);
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("prose rewritten as one fenced URL block arms that code node", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, SHELL_OPTS);
+        try {
+          appendStreamRow(shell, {
+            role: "assistant",
+            streaming: true,
+            text: "hello",
+          });
+          await h.renderOnce();
+          const before = codeLinkArmWalks();
+          replaceStreamRowAt(shell, 0, {
+            role: "assistant",
+            streaming: true,
+            text: "```js\nhttps://example.com\n```",
+          });
+          const row = transcriptRowChildren(shell)[0];
+          if (row === undefined) throw new Error("row missing");
+          const codes = codeNodes(row);
+          expect(codes).toHaveLength(1);
+          const code = codes[0];
+          if (code === undefined) throw new Error("code node missing");
+          expect(code.onChunks).toBeDefined();
+          expect(code.onHighlight).toBeDefined();
+          expect(codeLinkArmWalks()).toBeGreaterThan(before);
         } finally {
           shell.dispose();
         }
