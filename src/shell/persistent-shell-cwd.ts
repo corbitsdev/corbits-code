@@ -1,9 +1,7 @@
+import { realpathSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { SHELL_PWD_MARKER } from "../branding.js";
-import {
-  cachedRealpathSync,
-  cachedStatSync,
-} from "../permission/realpath-cache.js";
+import { cachedStatSync } from "../permission/realpath-cache.js";
 
 export { SHELL_PWD_MARKER };
 
@@ -36,7 +34,7 @@ export function parsePwdProbeOutput(raw: string): PwdProbeParse {
       const path = line.slice(SHELL_PWD_MARKER.length).trim();
       if (path.length > 0) {
         try {
-          finalCwd = cachedRealpathSync(path);
+          finalCwd = realpathSync(path);
         } catch {
           finalCwd = resolve(path);
         }
@@ -88,11 +86,11 @@ export function resolvePerCallShellCwd(
   cwdArg: string,
   options: ResolvePerCallShellCwdOptions = {},
 ): string {
-  const root = cachedRealpathSync(sessionRoot);
+  const root = realpathSync(sessionRoot);
   const candidate = resolve(root, cwdArg);
   let resolved: string;
   try {
-    resolved = cachedRealpathSync(candidate);
+    resolved = realpathSync(candidate);
   } catch {
     resolved = candidate;
   }

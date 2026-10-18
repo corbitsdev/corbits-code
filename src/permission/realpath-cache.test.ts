@@ -24,7 +24,7 @@ afterEach(async () => {
   }
 });
 
-test("an unchanged path skips realpath but rechecks every ancestor", async () => {
+test("a later check of the same path lstats and realpaths again", async () => {
   scratch = await mkdtemp(join(tmpdir(), "corbits-realpath-once-"));
   const ancestorA = join(scratch, "a");
   const ancestorB = join(ancestorA, "b");
@@ -54,8 +54,9 @@ test("an unchanged path skips realpath but rechecks every ancestor", async () =>
       expect(realpathNearestOr(file)).toBe(canonical);
       const lstatAfterFirst = new Map(lstatCounts);
       const realpathAfterFirst = realpathCalls;
+      expect(realpathAfterFirst).toBeGreaterThan(0);
       expect(realpathNearestOr(file)).toBe(canonical);
-      expect(realpathCalls).toBe(realpathAfterFirst);
+      expect(realpathCalls).toBeGreaterThan(realpathAfterFirst);
       for (const ancestor of [scratch, ancestorA, ancestorB]) {
         expect(lstatAfterFirst.get(ancestor)).toBe(1);
         expect(lstatCounts.get(ancestor)).toBe(2);
@@ -169,4 +170,40 @@ test("renaming an ancestor and replacing it with a symlink does not keep the old
       allowOutsideSession: true,
     }),
   ).toBe(outsideDir);
+});
+
+test("a symlink target tree moved out from behind an unchanged link is not served as the old real path", async () => {
+  // jail/link → inner/sub. Lexical stamps of the link do not include jail/inner.
+  // Moving that directory and symlinking it back keeps the link text and the
+  // leaf inode, so a cached link real path must not be reused or joined onto
+  // a child that was never resolved.
+  scratch = await mkdtemp(join(tmpdir(), "corbits-realpath-behind-"));
+  const jail = join(scratch, "jail");
+  const outside = join(scratch, "outside");
+  const inner = join(jail, "inner");
+  const sub = join(inner, "sub");
+  const file = join(sub, "file.txt");
+  await mkdir(sub, { recursive: true });
+  await mkdir(outside);
+  await writeFile(file, "x");
+  const link = join(jail, "link");
+  await symlink(join("inner", "sub"), link);
+
+  expect(realpathNearestOr(link)).toBe(realpathSync(sub));
+
+  const moved = join(outside, "inner");
+  await rename(inner, moved);
+  await symlink(moved, inner);
+
+  const outsideSub = realpathSync(link);
+  const outsideFile = realpathSync(join(link, "file.txt"));
+  expect(outsideSub).toBe(realpathSync(join(moved, "sub")));
+  expect(realpathNearestOr(link)).toBe(outsideSub);
+  expect(realpathNearestOr(join(link, "file.txt"))).toBe(outsideFile);
+  expect(() => resolvePerCallShellCwd(jail, "link")).toThrow(
+    /outside the session workspace/,
+  );
+  expect(
+    resolvePerCallShellCwd(jail, "link", { allowOutsideSession: true }),
+  ).toBe(outsideSub);
 });
