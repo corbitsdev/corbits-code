@@ -30,18 +30,25 @@ import {
   isProductMutationTool,
   productMutationPaths,
 } from "../agent/product-mutation-tools.js";
-import { AUTO_ALLOW_READ_TOOLS as READ_ONLY_TOOLS } from "../agent/tool-classification.js";
+import {
+  AUTO_ALLOW_READ_TOOLS as READ_ONLY_TOOLS,
+  READ_ONLY_CONTROL_PLANE_TOOLS,
+} from "../agent/tool-classification.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
 
 // Read-only tools never need approval while they stay off restricted paths —
 // they cannot change the workspace. `lsp` is included despite activating
 // mid-session: hover/definition lookups are as inert as a grep. `manage_tasks`
 // has no side effect (the director's decide() loop already applied the task
-// list), so an approval denial would prevent nothing. Every other posix tool
-// defaults to "ask"; catastrophic commands are denied earlier by the
-// authorization plugin.
+// list), so an approval denial would prevent nothing. Read-only control-plane
+// lookups (READ_ONLY_CONTROL_PLANE_TOOLS) are the same tier: they read this
+// agent's catalogs or worker records and do not grant authority. gate.ts lists
+// every control-plane verb and its non-auto, non-yolo effect beside that
+// allow. Every other tool defaults to "ask"; catastrophic commands are denied
+// earlier by the authorization plugin.
 //
-// Membership lives in tool-classification.ts (AUTO_ALLOW_READ_TOOLS).
+// Read membership: tool-classification.ts (AUTO_ALLOW_READ_TOOLS,
+// READ_ONLY_CONTROL_PLANE_TOOLS).
 
 // Tools with a single path-like argument the gate checks against restriction
 // (outside the workspace, or writes under the session state root): read-only
@@ -81,7 +88,9 @@ export function classifyTool(
   mcpTiers?: McpToolPermissionRegistry,
 ): Tier {
   const name = canonicalToolName(toolName);
-  if (READ_ONLY_TOOLS.has(name)) return "allow";
+  if (READ_ONLY_TOOLS.has(name) || READ_ONLY_CONTROL_PLANE_TOOLS.has(name)) {
+    return "allow";
+  }
   if (isMcpToolName(name)) {
     const registered = mcpTiers?.tierFor(name);
     if (registered !== undefined) return registered;
