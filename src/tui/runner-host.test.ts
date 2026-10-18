@@ -84,6 +84,44 @@ async function withRunnerHost(
   }
 }
 
+describe("mountRunnerHost branch label", () => {
+  test("looks the branch up once, then only when a turn ends", async () => {
+    const emitter = new EventEmitter();
+    let branch = "main";
+    let calls = 0;
+    await withRunnerHost(
+      async (host) => {
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(calls).toBe(1);
+        expect(host.shell.workspace.branch).toBe("main");
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("(main)");
+
+        emitter.emit("event", { type: "inference.start" });
+        emitter.emit("event", { type: "connector.reply" });
+        await Promise.resolve();
+        expect(calls).toBe(1);
+
+        branch = "topic";
+        emitter.emit("event", { type: "inference.done" });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(calls).toBe(2);
+        expect(host.shell.workspace.branch).toBe("topic");
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("(topic)");
+      },
+      {
+        eventEmitter: emitter,
+        cwd: "/repo",
+        fetchBranch: async () => {
+          calls += 1;
+          return branch;
+        },
+      },
+    );
+  });
+});
+
 function session(over: Partial<SubAgentSession>): SubAgentSession {
   return {
     id: "s1",

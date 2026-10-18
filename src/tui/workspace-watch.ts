@@ -1,11 +1,14 @@
 /**
- * Git branch polling for the prompt box's bottom border.
+ * Git branch lookup for the prompt box's bottom border.
  *
- * The branch is the one border piece that changes without the shell being
- * told, so it is polled rather than pushed. While a lookup is outstanding the
- * tick is skipped, so a git process hung on a network filesystem cannot
- * accumulate children. Nothing here blocks a paint — the border keeps the
- * last branch it was given.
+ * The label is filled once at start, then only when `refresh` runs. A fixed
+ * interval used to fork `git rev-parse` every few seconds for the whole TUI
+ * lifetime, including idle. Callers refresh on an event that can change the
+ * branch (a finished turn); staleness between those events is acceptable.
+ * While a lookup is outstanding a refresh is skipped, so a git process hung
+ * on a network filesystem cannot accumulate children. A lookup that lands
+ * after stop is dropped. Nothing here blocks a paint — the border keeps the
+ * last branch it was given, including across a failed lookup.
  */
 
 import { getGitBranch } from "../agent/environment.js";
@@ -15,26 +18,19 @@ export type FetchBranch = (cwd: string) => Promise<string | null>;
 export interface BranchWatchInput {
   readonly cwd: string;
   readonly onBranch: (branch: string | null) => void;
-  readonly intervalMs?: number;
   readonly fetchBranch?: FetchBranch;
-  /** Timer injection for tests; defaults to the global interval. */
-  readonly schedule?: (tick: () => void, intervalMs: number) => () => void;
 }
 
-const DEFAULT_INTERVAL_MS = 5_000;
-
-function defaultSchedule(tick: () => void, intervalMs: number): () => void {
-  const timer = setInterval(tick, intervalMs);
-  return () => {
-    clearInterval(timer);
-  };
+export interface BranchWatch {
+  /** Drop a lookup that lands afterwards. */
+  readonly stop: () => void;
+  /** Look up the branch again. Idle time never calls this. */
+  readonly refresh: () => void;
 }
 
-/** Start polling; returns an unsubscribe that also silences a late lookup. */
-export function watchGitBranch(input: BranchWatchInput): () => void {
+/** Start watching. Looks up once immediately so the label is not blank. */
+export function watchGitBranch(input: BranchWatchInput): BranchWatch {
   const fetchBranch = input.fetchBranch ?? getGitBranch;
-  const intervalMs = input.intervalMs ?? DEFAULT_INTERVAL_MS;
-  const schedule = input.schedule ?? defaultSchedule;
   let inFlight = false;
   let stopped = false;
 
@@ -53,9 +49,10 @@ export function watchGitBranch(input: BranchWatchInput): () => void {
   };
 
   refresh();
-  const cancel = schedule(refresh, intervalMs);
-  return () => {
-    stopped = true;
-    cancel();
+  return {
+    stop: () => {
+      stopped = true;
+    },
+    refresh,
   };
 }
