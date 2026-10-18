@@ -1,4 +1,4 @@
-import { createBlobReader } from "@intx/types/runtime";
+import { createBlobReader } from "@intx/types/runtime-core";
 import { describe, expect, test } from "bun:test";
 import type { Task } from "../agent/tasks.js";
 import { createFleetMailbox } from "./agent-fleet.js";

@@ -5,7 +5,7 @@ import {
   createBlobReader,
   type StrategyContext,
   type ToolResult,
-} from "@intx/types/runtime";
+} from "@intx/types/runtime-core";
 import {
   MAX_RESULT_CHARS,
   resultTruncationPlugin,

@@ -14,7 +14,7 @@ import {
   type ConversationTurn,
   type InferenceSource,
   type RetryPolicy,
-} from "@intx/types/runtime";
+} from "@intx/types/runtime-core";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import {

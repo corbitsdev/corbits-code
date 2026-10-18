@@ -14,7 +14,10 @@
 import { getLogger } from "@intx/log";
 
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
-import { ToolCall, type ToolCall as ToolCallType } from "@intx/types/runtime";
+import {
+  ToolCall,
+  type ToolCall as ToolCallType,
+} from "@intx/types/runtime-core";
 import { type } from "arktype";
 
 import type { AuthzCallResult } from "@intx/inference";
