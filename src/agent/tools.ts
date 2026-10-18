@@ -15,6 +15,7 @@ import {
 import { manageTasksDefinition } from "./tasks.js";
 import { validateView } from "../tui/view/validate.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
+import { startBoundMcpHandshake } from "../exec/mcp-handshake.js";
 import {
   advertiseShellGuardTimeout,
   type ShellTimeoutConfig,
@@ -1273,6 +1274,7 @@ export async function createAgentToolset(
           return;
         }
       }
+      startBoundMcpHandshake(signal);
       if (staleOrDisabled()) return;
       callbacks.onStatus({ name: config.name, state: "connecting" });
       let result: MCPConnectResult;

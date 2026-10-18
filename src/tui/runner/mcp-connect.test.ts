@@ -157,4 +157,36 @@ describe("TUI MCP dial timeout", () => {
       await dial;
     }
   });
+
+  test("a trust prompt longer than the dial cap still connects on a live signal", async () => {
+    const toolset = await createAgentToolset({
+      cwd: tempCwd(),
+      permissionGate: mcpTestPermissionGate(),
+      onOperatorGate: async () => ({ kind: "cancel" }),
+      mcpServers: [acme],
+      mcpServersSource: "local",
+      projectTrust: {
+        trustedPluginPaths: [],
+        trustedMcpFingerprints: [],
+        trustedGrantFingerprints: [],
+      },
+      requestMcpTrust: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        return true;
+      },
+    });
+    const exit = new AbortController();
+    try {
+      await runTuiMcpDial(
+        (signal) => toolset.connectMCP(callbacks([]), signal),
+        exit.signal,
+        40,
+      );
+      expect(mock.connectOptions).toHaveLength(1);
+      expect(mock.connectOptions[0]?.signal?.aborted).toBe(false);
+      expect(toolset.hasMCPServer("acme")).toBe(true);
+    } finally {
+      await toolset.dispose();
+    }
+  });
 });
