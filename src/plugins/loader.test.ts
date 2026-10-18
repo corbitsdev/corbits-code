@@ -1,11 +1,12 @@
 import { defined } from "../../testkit/defined.js";
 import { describe, test, expect } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPluginLoadDiagnostics } from "./diagnostics.js";
 import {
   dedupePluginModules,
+  discoverUserPlugins,
   loadPluginEntry,
   loadPluginsFromPaths,
   type PluginModule,
@@ -311,5 +312,44 @@ describe("plugin path loading", () => {
     expect(webMod?.manifest?.kind).toBe("web");
     expect(typeof webMod?.createWebProvider).toBe("function");
     expect(webMod?.createToolPlugin).toBeUndefined();
+  });
+
+  test("src/index.ts wins when index.ts also exists", async () => {
+    const dir = await makeJsPlugin({
+      "src/index.ts":
+        'export const manifest = { id: "from-src", name: "FromSrc", kind: "command" };\n',
+      "index.ts":
+        'export const manifest = { id: "from-index", name: "FromIndex", kind: "command" };\n',
+    });
+    const mod = await loadPluginEntry(dir);
+    expect(mod?.manifest?.id).toBe("from-src");
+  });
+});
+
+describe("scanPluginsDir warning order", () => {
+  test("overlapping probes still emit warnings in readdir order", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "plugin-order-"));
+    const pluginsRoot = join(cwd, ".corbits", "plugins");
+    for (const name of ["a-plug", "b-plug"]) {
+      const dir = join(pluginsRoot, name);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "index.js"), "export {};\n");
+      await writeFile(join(dir, "manifest.json"), "{not-json");
+    }
+    const diag = createPluginLoadDiagnostics();
+    await discoverUserPlugins(cwd, { diagnostics: diag });
+    const entries = await readdir(pluginsRoot);
+    const positions = entries.map((entry) =>
+      diag.warnings.findIndex((warning) =>
+        warning.includes(join(pluginsRoot, entry)),
+      ),
+    );
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    for (let i = 1; i < positions.length; i++) {
+      const previous = positions[i - 1];
+      const current = positions[i];
+      if (previous === undefined || current === undefined) continue;
+      expect(current).toBeGreaterThan(previous);
+    }
   });
 });

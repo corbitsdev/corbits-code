@@ -82,14 +82,34 @@ export async function resolveProfile(
   profileName?: string,
   home: string = homedir(),
 ): Promise<ProfileConfig> {
-  const projectProfile = await loadProfile(projectProfilePath(cwd));
+  const projectPromise = loadProfile(projectProfilePath(cwd));
+  // The named file is known only once the CLI flag or the project profile
+  // says so. Overlap the named read when the flag already names it. When the
+  // name comes from project profile.json, reading a guessed file would not
+  // change the winner — there is nothing to guess — so that read stays after
+  // the project file.
+  const namedPromise =
+    profileName !== undefined
+      ? loadProfile(join(profilesDir(home), `${profileName}.json`))
+      : undefined;
+
+  let projectProfile: ProfileConfig | null;
+  try {
+    projectProfile = await projectPromise;
+  } catch (err) {
+    if (namedPromise !== undefined) await namedPromise.catch(() => undefined);
+    throw err;
+  }
 
   const namedProfileName = profileName ?? projectProfile?.profile;
 
   let namedProfile: ProfileConfig | null = null;
   if (namedProfileName !== undefined) {
     const namedPath = join(profilesDir(home), `${namedProfileName}.json`);
-    namedProfile = await loadProfile(namedPath);
+    namedProfile =
+      namedPromise !== undefined
+        ? await namedPromise
+        : await loadProfile(namedPath);
     if (namedProfile === null) {
       throw new Error(`Profile not found: ${namedPath}`);
     }
