@@ -115,7 +115,7 @@ describe("overlay host never shares cells with the prompt border", () => {
             title: "model",
             items: ITEMS,
             // Mirror production /model, which always wires add-provider.
-            addProviderHint: true,
+            altChords: ["a"] as const,
           }),
         size,
       );

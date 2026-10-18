@@ -7,12 +7,19 @@
 import { describe, expect, test } from "bun:test";
 
 import { withTestRenderer } from "./harness";
+import type { KeyEvent } from "@opentui/core";
 import type { PaletteCommand } from "./command-catalog";
 import { openPermissionsOverlay, openOperatorOverlay } from "./overlays";
 import { createAppShell } from "./shell/index";
 import type { AppShell } from "./shell/internals";
 import { isSlashPopupOpen } from "./shell/internals";
-import { openHelpOverlay, openPalette } from "./shell/palette";
+import { openListOverlay } from "./shell/overlay-host";
+import { runOverlayAction } from "./shell/overlay-list";
+import {
+  handleListFilterKey,
+  openHelpOverlay,
+  openPalette,
+} from "./shell/palette";
 
 const CATALOG: readonly PaletteCommand[] = [
   { id: "model", label: "/model" },
@@ -104,6 +111,98 @@ describe("unclaimed overlay keys reach the prompt", () => {
       press("j");
       expect(shell.overlayList?.activeIndex).toBe(before + 1);
       expect(shell.prompt.value).toBe("");
+    });
+  });
+});
+
+/** A composed Option glyph with no modifier bits (shape B, Option+D → ∂). */
+function glyphKey(glyph: string): KeyEvent {
+  return {
+    name: glyph,
+    sequence: glyph,
+    ctrl: false,
+    meta: false,
+    option: false,
+  } as KeyEvent;
+}
+
+describe("declared altChords drive filter yield and dispatch (CL-8637)", () => {
+  test("a declared glyph yields the type-to-filter and routes to onAltChord", async () => {
+    await withShell(async ({ shell }) => {
+      const chords: string[] = [];
+      openListOverlay(shell, {
+        kind: "model_picker",
+        items: ["alpha", "beta"],
+        itemIds: ["a", "b"],
+        typeToFilter: true,
+        altChords: ["d"],
+        onAltChord: (itemId, letter) => {
+          chords.push(`${itemId}:${letter}`);
+          return true;
+        },
+      });
+
+      const composed = glyphKey("∂");
+      expect(handleListFilterKey(shell, composed)).toBe(false);
+      expect(runOverlayAction(shell, composed)).toBe(true);
+      expect(chords).toEqual(["a:d"]);
+      expect(shell.overlayItems).toEqual(["alpha", "beta"]);
+      expect(shell.prompt.value).toBe("");
+    });
+  });
+
+  test("the same glyph stays filter text on a surface that did not declare it (I-3)", async () => {
+    await withShell(async ({ shell, press }) => {
+      openListOverlay(shell, {
+        kind: "model_picker",
+        items: ["alpha", "beta"],
+        itemIds: ["a", "b"],
+        typeToFilter: true,
+      });
+
+      press("∂");
+      expect(shell.overlayItems).toEqual(["(no matches)"]);
+      expect(shell.prompt.value).toBe("");
+    });
+  });
+
+  test("onAltChord returning false leaves the key to the later handlers", async () => {
+    await withShell(async ({ shell, press }) => {
+      const chords: string[] = [];
+      openListOverlay(shell, {
+        items: ["alpha"],
+        itemIds: ["a"],
+        altChords: ["d"],
+        onAltChord: (itemId, letter) => {
+          chords.push(`${itemId}:${letter}`);
+          return false;
+        },
+      });
+
+      press("∂");
+      expect(chords).toEqual(["a:d"]);
+      // Refused by the chord handler, the glyph behaves like any unclaimed
+      // printable: it reaches the prompt, exactly as before this change.
+      expect(shell.prompt.value).toBe("∂");
+    });
+  });
+
+  test("no overlay open: composed option glyphs type, never translate (I-6)", async () => {
+    await withShell(async ({ shell, press }) => {
+      press("∂");
+      press("´");
+      expect(shell.prompt.value).toBe("∂´");
+      expect(shell.overlayList).toBeNull();
+    });
+  });
+
+  test("the `/` popup claims declared chord glyphs as filter text (I-5)", async () => {
+    await withShell(async ({ shell, press }) => {
+      press("/");
+      expect(isSlashPopupOpen(shell)).toBe(true);
+      press("∂");
+      expect(shell.prompt.value).toBe("/∂");
+      expect(isSlashPopupOpen(shell)).toBe(true);
     });
   });
 });

@@ -168,6 +168,15 @@ describe("@ popup narrows as you type", () => {
     });
   });
 
+  test("declared chord glyphs type into the popup like any printable (I-5, CL-8637)", async () => {
+    await withShell(async (shell) => {
+      await openAt(shell, "read @");
+      // ∂ is a declared chord glyph on other surfaces; here it is text.
+      expect(await type(shell, printable("∂"))).toBe(true);
+      expect(shell.prompt.value).toBe("read @∂");
+    });
+  });
+
   test("backspace widens the list again", async () => {
     await withShell(async (shell) => {
       await openAt(shell, "read @se");
