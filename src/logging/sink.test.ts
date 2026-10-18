@@ -108,6 +108,34 @@ describe("installFileLogSink", () => {
     }
   });
 
+  test("a failed rotation keeps already-written records in the active file", () => {
+    const { dir, file } = tempLogFile();
+    try {
+      installFileLogSink(file, { maxBytes: 180 });
+      const logger = getLogger(["logging", "rotate-fail"]);
+      for (let i = 0; i < 30; i++) logger.info(`seed-line-${i}-xxxxxxxx`);
+      flushFileLogSinkSync();
+      const rotated = `${file}.1`;
+      expect(fs.statSync(rotated).isFile()).toBe(true);
+      fs.rmSync(rotated);
+      fs.mkdirSync(rotated);
+      const kept = fs.readFileSync(file, "utf8");
+      expect(kept.length).toBeGreaterThan(0);
+      logger.info("kept-tail-1");
+      logger.info("kept-tail-2");
+      logger.info("kept-tail-3");
+      flushFileLogSinkSync();
+      const active = fs.readFileSync(file, "utf8");
+      expect(active.startsWith(kept)).toBe(true);
+      expect(active).toContain("kept-tail-1");
+      expect(active).toContain("kept-tail-2");
+      expect(active).toContain("kept-tail-3");
+      expect(fs.statSync(rotated).isDirectory()).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a crash or exit flush writes the pending tail", () => {
     const { dir, file } = tempLogFile();
     try {
