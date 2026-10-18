@@ -1,12 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
+  clearMarkdownParseInputCache,
   nextStreamMarkdownState,
   parseMarkdown,
+  settledBlockFullSplits,
   splitAtSettledBlock,
   splitAtSettledHeading,
   withholdIncompleteHeading,
   type StyledSegment,
 } from "./markdown-parser.js";
+import { setTheme } from "./theme.js";
+import "./stream.js";
 
 function firstLine(text: string): StyledSegment[] {
   return parseMarkdown(text)[0] ?? [];
@@ -577,6 +581,78 @@ describe("splitAtSettledBlock", () => {
   test("agrees with splitAtSettledHeading on heading-only content", () => {
     for (const text of ["# Title\nbody", "# Title", "plain"]) {
       expect(splitAtSettledBlock(text)).toEqual(splitAtSettledHeading(text));
+    }
+  });
+
+  test("an unchanged body does not split or join again", () => {
+    clearMarkdownParseInputCache();
+    const text = "### Title\n\n```bash\necho hi\n```\n\ntail";
+    const before = settledBlockFullSplits();
+    const first = splitAtSettledBlock(text, 40);
+    const second = splitAtSettledBlock(text, 40);
+    expect(second).toBe(first);
+    expect(second?.frozen).toBe(first?.frozen);
+    expect(settledBlockFullSplits() - before).toBe(1);
+  });
+
+  test("an append keeps the frozen string and skips another full-body join", () => {
+    clearMarkdownParseInputCache();
+    const base = "### Title\n\n```bash\necho hi\n```\n\ntail";
+    const first = splitAtSettledBlock(base, 40);
+    const before = settledBlockFullSplits();
+    const next = splitAtSettledBlock(`${base} more`, 40);
+    expect(next?.frozen).toBe(first?.frozen);
+    expect(next?.live).toBe("tail more");
+    expect(next?.gapRows).toBe(1);
+    expect(settledBlockFullSplits() - before).toBe(0);
+  });
+
+  test("appended chunks match a full split at every prefix", () => {
+    clearMarkdownParseInputCache();
+    const chunks = [
+      "### Title",
+      "\n\n",
+      "hello",
+      " world",
+      "\n\n```bash\n",
+      "echo hi\n",
+      "```\n\n",
+      "tail",
+      " more",
+      "\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n",
+      "after",
+      "\n\n## Next\n\n",
+      "done",
+    ];
+    let body = "";
+    chunks.forEach((chunk, index) => {
+      body += chunk;
+      const fast = splitAtSettledBlock(body, 48);
+      // A fresh width has no append chain, so this walk is the full split.
+      const full = splitAtSettledBlock(body, -(index + 1));
+      expect(fast).toEqual(full);
+    });
+    clearMarkdownParseInputCache();
+    const rewritten = "### Title\n\nrewritten tail";
+    expect(splitAtSettledBlock(rewritten, 48)).toEqual(
+      splitAtSettledBlock(rewritten, -2),
+    );
+  });
+
+  test("a theme change drops the parse-input cache", () => {
+    const text = "### T\n\nhello";
+    try {
+      setTheme("corbits-dark");
+      clearMarkdownParseInputCache();
+      splitAtSettledBlock(text, 12);
+      const before = settledBlockFullSplits();
+      splitAtSettledBlock(text, 12);
+      expect(settledBlockFullSplits() - before).toBe(0);
+      setTheme("corbits-light");
+      splitAtSettledBlock(text, 12);
+      expect(settledBlockFullSplits() - before).toBe(1);
+    } finally {
+      setTheme("corbits-dark");
     }
   });
 });

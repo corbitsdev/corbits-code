@@ -406,13 +406,29 @@ export function armMarkdownLinks(
   };
 }
 
+const armedChildCounts = new WeakMap<Renderable, number>();
+let codeLinkWalkCount = 0;
+
+/** Subtree walks `armCodeLinks` actually performed. Equal child counts do not count. */
+export function codeLinkArmWalks(): number {
+  return codeLinkWalkCount;
+}
+
 /**
  * Fenced code is a Code renderable without markdown's link callbacks.
  * `onHighlight` keeps the tree-sitter groups; `onChunks` is `detectLinks`,
  * so a bare URL becomes an OSC-8 span and survives native wrap. Markdown
  * prose already sets both — do not replace those, or conceal regresses.
+ * A retext whose child count did not grow has no new code block to arm.
  */
 export function armCodeLinks(node: Renderable): void {
+  const count = node.getChildrenCount();
+  const previous = armedChildCounts.get(node);
+  if (previous !== undefined && count <= previous) {
+    if (count < previous) armedChildCounts.set(node, count);
+    return;
+  }
+  codeLinkWalkCount += 1;
   const walk = (current: Renderable): void => {
     if (current instanceof CodeRenderable) {
       if (current.onHighlight === undefined) {
@@ -425,4 +441,5 @@ export function armCodeLinks(node: Renderable): void {
     for (const child of current.getChildren()) walk(child);
   };
   walk(node);
+  armedChildCounts.set(node, count);
 }

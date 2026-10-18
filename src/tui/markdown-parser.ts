@@ -1,4 +1,5 @@
 import { highlightCode } from "./syntax-highlight.js";
+import { onThemeChange } from "./theme.js";
 import { wrapRanges, stringWidth } from "./view/height.js";
 
 export interface StyledSegment {
@@ -742,8 +743,106 @@ export function splitAtSettledHeading(text: string): MarkdownSplit | null {
  * heading checks stay in that order so a settled block can freeze while the
  * tail is still streaming. An unclosed fence consumes to the end; blank lines
  * before the tail collapse to one.
+ *
+ * Repeat calls keep the previous frozen string object. An unchanged body
+ * returns the cached split; an append reuses that frozen reference and only
+ * rebuilds the live tail. The cache stores those parse inputs (text, width),
+ * not painted nodes, and drops them when the theme changes.
  */
-export function splitAtSettledBlock(withheld: string): MarkdownSplit | null {
+const PARSE_INPUT_CACHE_LIMIT = 32;
+
+interface SettledSplitEntry {
+  input: string;
+  width: number;
+  split: MarkdownSplit | null;
+  restStart: number;
+}
+
+const parseInputCache: SettledSplitEntry[] = [];
+let settledBlockFullSplitCount = 0;
+
+/** Full-body split walks since process start. Appends and cache hits do not count. */
+export function settledBlockFullSplits(): number {
+  return settledBlockFullSplitCount;
+}
+
+/** Drop cached parse inputs. Theme changes call this; the strings are not styled. */
+export function clearMarkdownParseInputCache(): void {
+  parseInputCache.length = 0;
+}
+
+onThemeChange(() => {
+  clearMarkdownParseInputCache();
+});
+
+function rememberSplit(
+  entry: SettledSplitEntry,
+  drop?: SettledSplitEntry,
+): void {
+  if (drop !== undefined) {
+    const index = parseInputCache.indexOf(drop);
+    if (index >= 0) parseInputCache.splice(index, 1);
+  }
+  parseInputCache.push(entry);
+  if (parseInputCache.length > PARSE_INPUT_CACHE_LIMIT) parseInputCache.shift();
+}
+
+function findCachedSplit(
+  text: string,
+  width: number,
+): SettledSplitEntry | undefined {
+  for (let i = parseInputCache.length - 1; i >= 0; i--) {
+    const entry = parseInputCache[i];
+    if (entry === undefined || entry.width !== width || entry.input !== text) {
+      continue;
+    }
+    if (i !== parseInputCache.length - 1) {
+      parseInputCache.splice(i, 1);
+      parseInputCache.push(entry);
+    }
+    return entry;
+  }
+  return undefined;
+}
+
+function findAppendBase(
+  text: string,
+  width: number,
+): SettledSplitEntry | undefined {
+  for (let i = parseInputCache.length - 1; i >= 0; i--) {
+    const entry = parseInputCache[i];
+    if (entry === undefined || entry.width !== width || entry.split === null) {
+      continue;
+    }
+    if (text.length <= entry.input.length || !text.startsWith(entry.input)) {
+      continue;
+    }
+    return entry;
+  }
+  return undefined;
+}
+
+function restStartFor(withheld: string, split: MarkdownSplit | null): number {
+  if (split === null || !withheld.startsWith(split.frozen)) return 0;
+  const end = split.frozen.length;
+  return end < withheld.length && withheld[end] === "\n" ? end + 1 : end;
+}
+
+function firstContentOffset(text: string): number {
+  let start = 0;
+  for (let i = 0; i <= text.length; i++) {
+    if (i !== text.length && text[i] !== "\n") continue;
+    if (text.slice(start, i).trim().length > 0) return start;
+    start = i + 1;
+  }
+  return text.length;
+}
+
+function computeSettledSplit(
+  withheld: string,
+  account: boolean,
+): { split: MarkdownSplit | null; restStart: number } {
+  if (account) settledBlockFullSplitCount += 1;
   const lines = withheld.split("\n");
   const boundaries = new Set<number>();
   let i = 0;
@@ -803,13 +902,78 @@ export function splitAtSettledBlock(withheld: string): MarkdownSplit | null {
     const rest = lines.slice(boundary + 1);
     const firstContent = rest.findIndex((entry) => entry.trim().length > 0);
     if (firstContent === -1) continue;
-    return settledSplit(
+    const split = settledSplit(
       lines.slice(0, boundary + 1).join("\n"),
       rest,
       firstContent,
     );
+    return { split, restStart: restStartFor(withheld, split) };
   }
-  return null;
+  return { split: null, restStart: 0 };
+}
+
+function tryExtendSplit(
+  prev: SettledSplitEntry,
+  withheld: string,
+  width: number,
+): SettledSplitEntry | undefined {
+  const split = prev.split;
+  if (split === null || !withheld.startsWith(split.frozen)) return undefined;
+  const candidateLive = split.live + withheld.slice(prev.input.length);
+  const moved = computeSettledSplit(candidateLive, false);
+  if (moved.split === null) {
+    return {
+      input: withheld,
+      width,
+      split: {
+        frozen: split.frozen,
+        live: candidateLive,
+        gapRows: split.gapRows,
+      },
+      restStart: prev.restStart,
+    };
+  }
+  const tail = withheld.slice(prev.restStart);
+  const at = firstContentOffset(tail);
+  const marker = moved.split.frozen;
+  if (!tail.startsWith(marker, at)) return undefined;
+  const frozenEnd = prev.restStart + at + marker.length;
+  const frozen = withheld.slice(0, frozenEnd);
+  const next: MarkdownSplit = {
+    frozen,
+    live: moved.split.live,
+    gapRows: moved.split.gapRows,
+  };
+  return {
+    input: withheld,
+    width,
+    split: next,
+    restStart: restStartFor(withheld, next),
+  };
+}
+
+export function splitAtSettledBlock(
+  withheld: string,
+  width = 0,
+): MarkdownSplit | null {
+  const cached = findCachedSplit(withheld, width);
+  if (cached) return cached.split;
+  const base = findAppendBase(withheld, width);
+  if (base) {
+    const extended = tryExtendSplit(base, withheld, width);
+    if (extended) {
+      rememberSplit(extended, base);
+      return extended.split;
+    }
+  }
+  const computed = computeSettledSplit(withheld, true);
+  rememberSplit({
+    input: withheld,
+    width,
+    split: computed.split,
+    restStart: computed.restStart,
+  });
+  return computed.split;
 }
 
 /** Paint state for one streaming markdown row across repaints. */
@@ -833,6 +997,8 @@ export function nextStreamMarkdownState(
 ): { state: StreamMarkdownSnapshot; paintFrozen: boolean } {
   const state: StreamMarkdownSnapshot = { content, frozen, width, streaming };
   if (prev === null) return { state, paintFrozen: true };
+  // Frozen text is the cached string object, so an unchanged boundary does
+  // not compare a freshly joined copy of the prefix.
   const paintFrozen =
     prev.frozen !== frozen ||
     prev.width !== width ||

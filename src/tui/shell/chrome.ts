@@ -139,6 +139,8 @@ import {
   labelBefore,
   noteAgentVoice,
   retextStreamRow,
+  transcriptLaidOutRow,
+  transcriptLaidOutRowCount,
   transcriptMarker,
   transcriptRowChildren,
   transcriptRowLayout,
@@ -1353,16 +1355,17 @@ export function replaceStreamRowAt(
   if (local < 0 || local >= shell.streamLog.length) return;
   shell.streamLog[local] = row;
 
-  const children = transcriptRowChildren(shell);
-  // A raw appendTranscript line breaks the 1:1 node↔row mapping; fall back to
-  // a full repaint, which derives every node from the log.
-  if (children.length !== shell.streamLog.length) {
+  // Index the content list directly. `getChildren()` copies every row to
+  // find this one, and an in-place retext never needs that copy. A raw
+  // appendTranscript line breaks the 1:1 node-row mapping; fall back to a
+  // full repaint, which derives every node from the log.
+  if (transcriptLaidOutRowCount(shell) !== shell.streamLog.length) {
     repaintTranscriptWindow(shell);
     paintChrome(shell);
     return;
   }
 
-  const stale = children[local];
+  const stale = transcriptLaidOutRow(shell, local);
   if (stale && retextStreamRow(shell, stale, row, labelBefore(shell, local))) {
     paintChrome(shell);
     return;
