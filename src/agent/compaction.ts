@@ -8,9 +8,12 @@ import type {
 } from "@intx/types/runtime";
 import {
   compactionThresholdFor,
+  completionReservationExceedsWindow,
   contextTokensFromUsage,
   hasWideResumeGap,
   isAtOrUnderCompactThreshold,
+  pinSessionContextWindow,
+  reservedMaxTokensFor,
 } from "../provider/context-window.js";
 import {
   assistantTextIsCompactSpacerEcho,
@@ -30,6 +33,23 @@ const MIN_TURNS_TO_COMPACT = COMPACT_NOOP_FLOOR;
 // Cap overflow retries so an unshrinkable history cannot loop forever;
 // cleared once usage drops back under the watermark.
 const MAX_OVERFLOW_RECOVERIES = 2;
+// vLLM / OpenAI-compatible bodies name the enforced window even when the
+// HTTP classifier did not tag context_overflow (non-400).
+const SERVER_CONTEXT_LIMIT = /maximum context length of\s+(\d+)/i;
+
+/** Phrases that name a context window. The two loose length clauses in looksLikeContextOverflow are not enough to compact. */
+function messageNamesContextOverflow(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("context_length_exceeded") ||
+    lower.includes("context length") ||
+    lower.includes("context window") ||
+    lower.includes("maximum context") ||
+    lower.includes("too many tokens") ||
+    lower.includes("input is too long")
+  );
+}
+
 // Consecutive threshold compacts with no under-watermark relief; tool-call
 // occupancy must not reset it, or tool traffic re-enables the loop.
 const MAX_CONSECUTIVE_THRESHOLD_COMPACTS = 2;
@@ -151,6 +171,7 @@ export function createCompactionGovernor(
   // True when arming fell back to the local estimate (usage omitted or
   // zero), so a meter can flag the number as approximate.
   let usingEstimate = false;
+  let lastReportedTokens = 0;
   let lastModel: string | undefined;
   let turnCount = 0;
   // Growth latch: snapshot the first inference.done after a compact and
@@ -177,14 +198,36 @@ export function createCompactionGovernor(
     return estimate.syncFromTurns(turns);
   }
 
+  function reserved(): number {
+    return reservedMaxTokensFor(lastModel);
+  }
+
   function isOverThreshold(contextTokens: number): boolean {
     if (turnCount <= MIN_TURNS_TO_COMPACT) return false;
-    const high = compactionThresholdFor(lastModel);
+    const high = compactionThresholdFor(lastModel, reserved());
     if (contextTokens <= high) return false;
     if (tokensAtLastCompact !== undefined) {
       return hasWideResumeGap(tokensAtLastCompact, contextTokens, lastModel);
     }
     return true;
+  }
+
+  // Reported usage wins for the 60% latch, but a follow-up can grow the live
+  // estimate past that sample. The hard check takes the larger of the two so
+  // a prompt that fits the last sample still compacts when adding maxTokens
+  // would cross the window.
+  function occupancyTokens(): number {
+    if (usingEstimate || lastReportedTokens <= 0) return estimate.tokens;
+    return Math.max(lastReportedTokens, estimate.tokens);
+  }
+
+  function wouldExceedWindow(): boolean {
+    if (turnCount <= MIN_TURNS_TO_COMPACT) return false;
+    return completionReservationExceedsWindow(
+      occupancyTokens(),
+      lastModel,
+      reserved(),
+    );
   }
 
   function noteCompactIssued(): void {
@@ -244,13 +287,14 @@ export function createCompactionGovernor(
     lastModel = event.source?.model;
     const reportedTokens = contextTokensFromUsage(event.usage);
     usingEstimate = reportedTokens <= 0;
+    lastReportedTokens = reportedTokens;
     const contextTokens = usingEstimate ? estimate.tokens : reportedTokens;
     // Snapshot on the first inference.done after a compact (the post-compact
     // infer); intercept has no fresh usage.
     if (awaitingPostCompactMeasurement) {
       tokensAtLastCompact = contextTokens;
       awaitingPostCompactMeasurement = false;
-      if (!isAtOrUnderCompactThreshold(contextTokens, lastModel)) {
+      if (!isAtOrUnderCompactThreshold(contextTokens, lastModel, reserved())) {
         foldNonConverged = true;
         consecutiveThresholdCompacts = MAX_CONSECUTIVE_THRESHOLD_COMPACTS;
       }
@@ -259,7 +303,7 @@ export function createCompactionGovernor(
     // compacts, overflow recoveries) and clears foldNonConverged; the growth
     // latch stays. Nothing else resets them, or compact→infer→compact loops
     // forever.
-    if (isAtOrUnderCompactThreshold(contextTokens, lastModel)) {
+    if (isAtOrUnderCompactThreshold(contextTokens, lastModel, reserved())) {
       consecutiveThresholdCompacts = 0;
       overflowRecoveries = 0;
       foldNonConverged = false;
@@ -269,22 +313,43 @@ export function createCompactionGovernor(
     pending = isOverThreshold(contextTokens);
   }
 
+  function issueOverflowPreflight(
+    capabilities: ReactorCapabilities,
+  ): ReactorAction[] | null {
+    if (manualPending || atThresholdCompactCap()) return null;
+    if (turnCount <= MIN_TURNS_TO_COMPACT) return null;
+    if (!wouldExceedWindow()) return null;
+    clearManualArming();
+    postCompactInfer = true;
+    issueThresholdCompact();
+    return [
+      capabilities.compact(COMPACTOR_NAME, THRESHOLD_COMPACT_REASON),
+      ...continuationActions(capabilities),
+    ];
+  }
+
   // Compact at the natural pause between a tool batch and its follow-up
-  // infer: drop the infer, compact, and re-enter via the continuation.
+  // infer, and before a user message's infer: drop the infer, compact, and
+  // re-enter via the continuation.
   // `pending` is the last inference.done snapshot — authoritative with real
   // usage; with omitted usage it came from the estimate, so re-derive
   // against the live estimate instead of trusting a `pending` stale by one
-  // tool batch.
+  // tool batch. A reported sample can still be under the watermark while the
+  // live estimate plus maxTokens already fills the window; that preflight
+  // does not wait for the next inference.done.
   function interceptActions(
     event: ReactorInboundEvent,
     actions: ReactorAction[],
     capabilities: ReactorCapabilities,
   ): ReactorAction[] | null {
-    if (event.type !== "tool.done") return null;
+    if (event.type !== "tool.done" && event.type !== "message.received")
+      return null;
     const operator = manualPending;
+    const hard = !operator && wouldExceedWindow();
     if (
       !operator &&
       !pending &&
+      !hard &&
       !(usingEstimate && isOverThreshold(estimate.tokens))
     )
       return null;
@@ -390,17 +455,23 @@ export function createCompactionGovernor(
   }
 
   // A context-overflow error would terminate the loop; compact and retry,
-  // bounded so an unshrinkable history does not loop forever.
+  // bounded so an unshrinkable history does not loop forever. Message text
+  // is enough: the vendor classifier only tags HTTP 400, and vLLM can phrase
+  // the same overflow on another status. "exceeds the maximum" and
+  // "reduce the length" alone are not that sentence.
   function interceptOverflow(
     event: ReactorInboundEvent,
     capabilities: ReactorCapabilities,
   ): ReactorAction[] | null {
+    if (event.type !== "inference.error") return null;
+    const message = event.error.message ?? "";
     if (
-      event.type !== "inference.error" ||
-      event.error.category !== "context_overflow"
+      event.error.category !== "context_overflow" &&
+      !messageNamesContextOverflow(message)
     ) {
       return null;
     }
+    pinNamedServerLimit(message);
     if (overflowRecoveries >= MAX_OVERFLOW_RECOVERIES) return null;
     overflowRecoveries++;
     // Overflow compact spends any operator arming so a queued handoff
@@ -412,6 +483,15 @@ export function createCompactionGovernor(
       capabilities.compact(COMPACTOR_NAME, "context-overflow"),
       ...continuationActions(capabilities),
     ];
+  }
+
+  function pinNamedServerLimit(message: string): void {
+    if (lastModel === undefined) return;
+    const match = SERVER_CONTEXT_LIMIT.exec(message);
+    if (match === null) return;
+    const limit = Number(match[1]);
+    if (!Number.isSafeInteger(limit) || limit <= 0) return;
+    pinSessionContextWindow(lastModel, limit);
   }
 
   // A keep-prior compact (verify abort, summarizer failure) must not resume
@@ -564,6 +644,7 @@ export function createCompactionGovernor(
     notePostCompact,
     noteIdleTurn,
     interceptActions,
+    preflightInfer: issueOverflowPreflight,
     interceptIdleContinuation,
     interceptOverflow,
     resumeAfterCompact,

@@ -873,6 +873,8 @@ class ChatDirectorImpl extends DefaultDirector {
       this.compaction.notePostCompact(state.turns ?? []);
       // The meter-only re-entry stays idle — no unprompted inference.
       if (afterCompact === "meter") return capabilities.wait();
+      const preflight = this.compaction.preflightInfer(capabilities);
+      if (preflight !== null) return preflight;
       return capabilities.infer();
     }
     const idleCompact = this.compaction.interceptIdleContinuation(

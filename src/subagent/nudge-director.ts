@@ -262,6 +262,8 @@ export class SubAgentDirector extends DefaultDirector {
       // post-compact resume once this leaf already replied.
       if (afterCompact === "meter" || this.reportReplied)
         return capabilities.wait();
+      const preflight = this.compaction.preflightInfer(capabilities);
+      if (preflight !== null) return preflight;
       return this.applyPendingNudge([capabilities.infer()], capabilities);
     }
     const idleCompact = this.compaction.interceptIdleContinuation(
