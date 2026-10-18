@@ -409,6 +409,10 @@ export function createSubmitPath(
                 kind: err instanceof Error ? err.name : typeof err,
               },
             );
+            // The drained message already reached the agent, so its delivery
+            // stays accepted and the queue posts no notice. Surface the lost
+            // decision as a failed send, with the notice the drain left off.
+            handleSendFailure(err, attempt, providerFailure, true);
           });
           return;
         }
