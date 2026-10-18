@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 // Scrub secret-shaped substrings before untrusted text reaches a transcript or
 // terminal. Complements secret-guard (path denylist) for secrets that surface
 // in tool output and upstream diagnostics.
@@ -93,7 +95,101 @@ function replaceAll(
   return text.replace(pattern, replacement);
 }
 
+// One scan before the full-text passes. Each alternative drops constraints
+// from exactly one pattern above, so any match of those patterns is a match
+// here. Extra matches are safe: they only pay for the passes. /i is required
+// for query and JSON case-folding; it also over-matches the case-sensitive
+// patterns. Not global — RegExp.test would otherwise keep lastIndex.
+//
+// PEM: every match contains "PRIVATE KEY-----".
+// API keys: sk- / ghp_ / gho_ / xox[baprs]- / AKIA / Bearer\s / Basic\s
+// (\b and minimum lengths are stricter than these literals).
+// Query: the key is glued to "=". access[_-]?token always contains "token=".
+// Marker prefixes sit in front of "{marker}_key=", so they cannot hide it.
+// JSON: the same keys are glued to a closing quote, optional space, and ":".
+// access[_-]?token therefore contains token"\s*:. authorization is JSON-only.
+// Prefixed marker keys still contain {marker}_key"\s*:.
+// ENV: every match contains (?:^|:)[A-Z][A-Z0-9_]+= with /m. The value length
+// check is dropped. /i makes this alternative match lowercase too.
+const SECRET_SHAPE_PREFILTER = new RegExp(
+  [
+    "PRIVATE KEY-----",
+    "sk-",
+    "ghp_",
+    "gho_",
+    String.raw`xox[baprs]-`,
+    "AKIA",
+    String.raw`Bearer\s`,
+    String.raw`Basic\s`,
+    "api[-_]?key=",
+    "token=",
+    "password=",
+    "secret=",
+    "credential=",
+    "secret_key=",
+    "private_key=",
+    "access_key=",
+    "auth_key=",
+    "token_key=",
+    "password_key=",
+    "credential_key=",
+    "openai_key=",
+    String.raw`api[-_]?key"\s*:`,
+    String.raw`token"\s*:`,
+    String.raw`password"\s*:`,
+    String.raw`secret"\s*:`,
+    String.raw`credential"\s*:`,
+    String.raw`authorization"\s*:`,
+    String.raw`secret_key"\s*:`,
+    String.raw`private_key"\s*:`,
+    String.raw`access_key"\s*:`,
+    String.raw`auth_key"\s*:`,
+    String.raw`token_key"\s*:`,
+    String.raw`password_key"\s*:`,
+    String.raw`credential_key"\s*:`,
+    String.raw`openai_key"\s*:`,
+    String.raw`(?:^|:)[A-Z][A-Z0-9_]+=`,
+  ].join("|"),
+  "im",
+);
+
+const expensivePassCounter = new AsyncLocalStorage<{ count: number }>();
+
+function noteExpensiveSecretScrubPass(): void {
+  const counter = expensivePassCounter.getStore();
+  if (counter !== undefined) counter.count += 1;
+}
+
+/** Runs `run` and reports entries into the full-text scrub passes. */
+export function countExpensiveSecretScrubPasses(run: () => void): number {
+  const counter = { count: 0 };
+  expensivePassCounter.run(counter, run);
+  return counter.count;
+}
+
+function patternHits(pattern: RegExp, text: string): boolean {
+  pattern.lastIndex = 0;
+  try {
+    return pattern.test(text);
+  } finally {
+    pattern.lastIndex = 0;
+  }
+}
+
+/** True when any scrub pattern matches. Test seam for the prefilter. */
+export function secretScrubPatternHits(text: string): boolean {
+  return (
+    patternHits(PEM_BLOCK, text) ||
+    API_KEY_PATTERNS.some((pattern) => patternHits(pattern, text)) ||
+    patternHits(SECRET_QUERY_PARAMETER, text) ||
+    patternHits(JSON_CREDENTIAL_FIELD, text) ||
+    patternHits(ENV_ASSIGNMENT, text)
+  );
+}
+
 export function scrubSecretShapedContent(text: string): string {
+  if (!SECRET_SHAPE_PREFILTER.test(text)) return text;
+  noteExpensiveSecretScrubPass();
   let result = text;
 
   result = replaceAll(result, PEM_BLOCK, CREDENTIAL_REDACTION);
