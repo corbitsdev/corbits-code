@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSizeCapTransform } from "@intx/inference";
-import { createBlobReader } from "@intx/types/runtime-core";
+import { createBlobReader } from "@intx/types/runtime";
 import type {
   StrategyContext,
   ToolCall,

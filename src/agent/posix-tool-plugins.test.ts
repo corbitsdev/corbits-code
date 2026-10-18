@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createBlobReader } from "@intx/types/runtime-core";
+import { createBlobReader } from "@intx/types/runtime";
 import { createPosixTools, composeMiddleware } from "@intx/tools-posix";
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";

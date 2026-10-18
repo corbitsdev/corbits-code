@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createBlobReader } from "@intx/types/runtime-core";
+import { createBlobReader } from "@intx/types/runtime";
 import {
   createCompositeBlobReader,
   createLazyBlobReader,
