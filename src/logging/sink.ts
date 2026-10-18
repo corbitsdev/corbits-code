@@ -58,20 +58,17 @@ function fileSize(path: string): number {
 }
 
 function rotateActive(current: FileSinkState): void {
-  const rotated = `${current.path}.1`;
+  // Publish the filled file by renaming it onto `.1`. Do not remove `.1`
+  // first, and do not truncate the active file if rename fails: a directory
+  // or busy `.1` throws, and wiping the live log then leaves only the next
+  // line. A failed rename leaves both paths untouched, so this cycle may
+  // grow past the cap.
   try {
-    fs.rmSync(rotated, { force: true });
-    fs.renameSync(current.path, rotated);
-    current.size = 0;
+    fs.renameSync(current.path, `${current.path}.1`);
   } catch {
-    try {
-      // rename can fail (missing file, cross-device); truncating still caps growth.
-      fs.truncateSync(current.path, 0);
-      current.size = 0;
-    } catch {
-      // Keep `size` so a later flush retries instead of appending forever.
-    }
+    return;
   }
+  current.size = 0;
 }
 
 function writeBatch(
