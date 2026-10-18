@@ -545,6 +545,11 @@ export function createApprovalResume(args: {
 
       const outcome = await args.gate.resolveSuspended(request, stillCurrent);
       if (!overlayAbort.signal.aborted) overlayAbort.abort();
+      // The overlay is gone, but its aborted controller still feeds every
+      // permission prompt's signal while registered. A resumed call can prompt
+      // (approve_worker_call checks the worker's frozen call) before delivery
+      // below resolves, and would be denied unseen.
+      args.registerOverlayAbort?.(undefined);
       const timedOutDuringOverlay =
         overlayAbort.signal.reason === APPROVAL_TIMEOUT_RESULT_TEXT ||
         (await timeoutWatch);
