@@ -12,7 +12,6 @@ import {
   CONTEXT_METER_DANGER_FRACTION,
   setModelContextWindows,
   setProviderContextWindowOverrides,
-  clearSessionContextWindowPins,
 } from "./context-window.js";
 
 function usage(overrides: Partial<TokenUsage>): TokenUsage {
@@ -29,7 +28,6 @@ function usage(overrides: Partial<TokenUsage>): TokenUsage {
 afterEach(() => {
   setModelContextWindows(undefined);
   setProviderContextWindowOverrides(undefined);
-  clearSessionContextWindowPins();
 });
 
 describe("contextWindowFor", () => {
@@ -64,18 +62,6 @@ describe("compactionThresholdFor", () => {
 
   test("falls back to the default window when the model is unknown", () => {
     expect(compactionThresholdFor(undefined)).toBe(76_800);
-  });
-
-  test("is 60 percent of the window minus the reserved completion budget", () => {
-    setModelContextWindows({ "qwen-test": 262_144 });
-    const reserved = 32_768;
-    const usable = 262_144 - reserved;
-    const threshold = compactionThresholdFor("qwen-test", reserved);
-    expect(threshold).toBe(Math.floor(usable * COMPACTION_WINDOW_FRACTION));
-    expect(threshold).toBeLessThan(usable);
-    expect(compactionThresholdFor("qwen-test", 0)).toBe(
-      Math.floor(262_144 * COMPACTION_WINDOW_FRACTION),
-    );
   });
 });
 

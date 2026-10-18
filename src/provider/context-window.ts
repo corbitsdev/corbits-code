@@ -26,15 +26,6 @@ let contextWindowRegistry: Record<string, number> = {};
 // later models.dev refresh because it lives beside the registry, not in it.
 let contextWindowOverrides: Record<string, number> = {};
 
-// Completion budget the active source will send (`maxTokens`). Separate from
-// the window tables so a reservation cannot be mistaken for a context limit.
-let reservedCompletionTokens: Record<string, number> = {};
-
-// Server-enforced limits learned from an overflow body this process. They win
-// over settings and models.dev, which can advertise a larger window than the
-// server actually accepts, and they are never written back to user settings.
-let sessionContextWindowPins: Record<string, number> = {};
-
 // Both tables are wholesale-replaced on refresh; one factory keeps the two
 // trivial setters from drifting. `undefined` (no cache yet) means empty.
 function createRegistrySetter(
@@ -52,21 +43,6 @@ export const setProviderContextWindowOverrides = createRegistrySetter(
     contextWindowOverrides = windows;
   },
 );
-
-export const setReservedCompletionTokens = createRegistrySetter((windows) => {
-  reservedCompletionTokens = windows;
-});
-
-/** Drop server limits learned from overflow bodies. Test isolation only. */
-export function clearSessionContextWindowPins(): void {
-  sessionContextWindowPins = {};
-}
-
-/** Remember a server-named context limit for this process. Not persisted. */
-export function pinSessionContextWindow(model: string, window: number): void {
-  if (model.length === 0 || !isPositiveWindow(window)) return;
-  sessionContextWindowPins = { ...sessionContextWindowPins, [model]: window };
-}
 
 export type ProviderContextWindowSource = {
   models: readonly string[];
@@ -103,39 +79,6 @@ export function buildProviderContextWindowOverrides(
     }
   }
   return overrides;
-}
-
-// Same keying as context-window overrides. Unset provider maxTokens falls
-// back to the source default the client actually sends; 0 means unknown.
-export function buildReservedCompletionTokens(
-  providers: Record<
-    string,
-    ProviderContextWindowSource & { maxTokens?: number }
-  >,
-  resolvedProviderName: string,
-  resolvedModel: string,
-  fallbackMaxTokens: number,
-): Record<string, number> {
-  const reserved: Record<string, number> = {};
-  const fallback = isPositiveWindow(fallbackMaxTokens) ? fallbackMaxTokens : 0;
-  for (const [name, provider] of Object.entries(providers)) {
-    const budget = isPositiveWindow(provider.maxTokens)
-      ? provider.maxTokens
-      : fallback;
-    if (budget === 0) continue;
-    const models = new Set(provider.models);
-    if (name === resolvedProviderName && resolvedModel.length > 0) {
-      models.add(resolvedModel);
-    }
-    for (const model of models) {
-      if (model.length === 0) continue;
-      reserved[`${name}:${model}`] = budget;
-      if (name === resolvedProviderName) {
-        reserved[model] = budget;
-      }
-    }
-  }
-  return reserved;
 }
 
 function heuristicWindow(model: string): number {
@@ -199,18 +142,10 @@ export function hasContextWindowFor(model: string): boolean {
 
 export function contextWindowFor(model: string): number {
   return (
-    lookupWindow(sessionContextWindowPins, model) ??
     lookupWindow(contextWindowOverrides, model) ??
     lookupWindow(contextWindowRegistry, model) ??
     heuristicWindow(model)
   );
-}
-
-/** maxTokens the source will send for `model`, or 0 when unset. */
-export function reservedMaxTokensFor(model: string | undefined): number {
-  if (model === undefined) return 0;
-  const reserved = lookupWindow(reservedCompletionTokens, model);
-  return isPositiveWindow(reserved) ? reserved : 0;
 }
 
 // Fraction of the window at which proactive compaction fires. Kept well below
@@ -247,21 +182,10 @@ export function contextMeterBand(percentUsed: number): ContextMeterBand {
 // Token threshold at which the director should compact, sized to the model's
 // real window. `model` may be undefined early in a session (no cycle yet);
 // fall back to the default window.
-export function compactionThresholdFor(
-  model: string | undefined,
-  reservedMaxTokens = 0,
-): number {
+export function compactionThresholdFor(model: string | undefined): number {
   const window =
     model !== undefined ? contextWindowFor(model) : DEFAULT_CONTEXT_WINDOW;
-  // Reserve the completion budget the client adds on top of the prompt.
-  // 60% of what remains sits strictly below `window - maxTokens` (the fraction
-  // is under 1), so a steady-state prompt cannot be legal locally and illegal
-  // once that reservation is sent.
-  const reserved =
-    Number.isFinite(reservedMaxTokens) && reservedMaxTokens > 0
-      ? Math.min(reservedMaxTokens, window)
-      : 0;
-  return Math.floor((window - reserved) * COMPACTION_WINDOW_FRACTION);
+  return Math.floor(window * COMPACTION_WINDOW_FRACTION);
 }
 
 /** Tokens of growth past the last post-compact measurement before the
@@ -281,24 +205,8 @@ export function compactionWideResumeDeltaFor(
 export function isAtOrUnderCompactThreshold(
   contextTokens: number,
   model: string | undefined,
-  reservedMaxTokens = 0,
 ): boolean {
-  return contextTokens <= compactionThresholdFor(model, reservedMaxTokens);
-}
-
-/** Prompt plus the completion reservation would be rejected by the window. */
-export function completionReservationExceedsWindow(
-  contextTokens: number,
-  model: string | undefined,
-  reservedMaxTokens: number,
-): boolean {
-  const window =
-    model !== undefined ? contextWindowFor(model) : DEFAULT_CONTEXT_WINDOW;
-  const reserved =
-    Number.isFinite(reservedMaxTokens) && reservedMaxTokens > 0
-      ? reservedMaxTokens
-      : 0;
-  return contextTokens + reserved >= window;
+  return contextTokens <= compactionThresholdFor(model);
 }
 
 /** Shared re-arm rule for a session latched after a compact (automatic,
