@@ -1,11 +1,25 @@
+import { createRequire } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { callbackTargetFor } from "@corbits/oauth-core";
-import { codexOAuthConfig } from "@corbits/codex-provider";
 
-export {
-  CODEX_BASE_URL,
-  CODEX_REDIRECT_URI,
-  CODEX_RESPONSES_PATH,
-} from "@corbits/codex-provider";
+const require = createRequire(import.meta.url);
+const packageIndex = pathToFileURL(require.resolve("@corbits/codex-provider"));
+const codexConstants = require(
+  fileURLToPath(new URL("./constants.js", packageIndex)),
+) as {
+  CODEX_BASE_URL: string;
+  CODEX_REDIRECT_URI: string;
+  CODEX_RESPONSES_PATH: string;
+};
+const { codexOAuthConfig } = require(
+  fileURLToPath(new URL("./oauth.js", packageIndex)),
+) as {
+  codexOAuthConfig: Parameters<typeof callbackTargetFor>[0];
+};
+
+export const CODEX_BASE_URL = codexConstants.CODEX_BASE_URL;
+export const CODEX_REDIRECT_URI = codexConstants.CODEX_REDIRECT_URI;
+export const CODEX_RESPONSES_PATH = codexConstants.CODEX_RESPONSES_PATH;
 
 const callbackTarget = callbackTargetFor(codexOAuthConfig);
 export const CODEX_CALLBACK_HOST = callbackTarget.host;

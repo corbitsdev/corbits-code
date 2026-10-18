@@ -1,4 +1,4 @@
-import { GROK_RESPONSES_PROVIDER } from "../provider/grok-responses.js";
+import { GROK_RESPONSES_PROVIDER } from "../provider/grok-responses-id.js";
 import { isXaiProviderName } from "../config/xai-providers.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { isDeepSeekModel } from "../provider/deepseek-v4-effort.js";
