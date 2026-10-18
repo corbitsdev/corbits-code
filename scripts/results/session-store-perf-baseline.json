@@ -1,0 +1,74 @@
+{
+  "coverage": "context-store-perf.ts and turn-persistence-census.ts both patch fs.promises only, so synchronous fs is invisible. .git mkdir and writeFile may move with object-id fanout; other counted ops are exact.",
+  "tolerance": {
+    "countedOp": 0,
+    "gitFanoutMkdirAndWriteFile": 64
+  },
+  "commands": [
+    "bun scripts/context-store-perf.ts 200 --json",
+    "bun scripts/turn-persistence-census.ts 200 --flow=coalesced --json"
+  ],
+  "contextStorePerf": {
+    "turnCount": 200,
+    "wallMs": 744,
+    "loadedTurns": 250,
+    "totalFsOps": 21396,
+    "gitPathFsOps": 10385,
+    "fsOps": {
+      "readFile": 10881,
+      "mkdir": 247,
+      "writeFile": 1275,
+      "stat": 3141,
+      "lstat": 4249,
+      "readdir": 1203,
+      "access": 202,
+      "open": 198
+    },
+    "gitPathFsOpsByName": {
+      "stat": 1273,
+      "mkdir": 241,
+      "writeFile": 1269,
+      "lstat": 1324,
+      "readFile": 6278
+    },
+    "perTurn": {
+      "wallMs": 3.72,
+      "fsOps": 106.98
+    }
+  },
+  "turnPersistenceCensus": {
+    "flow": "coalesced",
+    "turnCount": 200,
+    "wallMs": 642,
+    "loadedTurns": 800,
+    "totalWriteOps": 2088,
+    "gitPathWriteOps": 1678,
+    "byName": {
+      "mkdir": 246,
+      "writeFile": 1642,
+      "appendFile": 200
+    },
+    "gitByPath": {
+      "mkdir": 240,
+      "writeFile": 1438
+    },
+    "perTurn": {
+      "wallMs": 3.21,
+      "writeOps": 10.44
+    },
+    "persistCalls": {
+      "writePrompt": 200,
+      "writeTurns": 600,
+      "writeManifest": 200,
+      "writeMetadata": 200,
+      "commit": 200
+    },
+    "persistCallsPerTurn": {
+      "writePrompt": 1,
+      "writeTurns": 3,
+      "writeManifest": 1,
+      "writeMetadata": 1,
+      "commit": 1
+    }
+  }
+}
