@@ -428,18 +428,16 @@ function incomingAlias(requested: string): string {
 }
 
 /** Coerce hidden Codex-shaped arguments onto the engine tool. Callers pass
- * the already-resolved engine. */
+ * the already-resolved engine. gpt advertises `shell` with run_shell's own
+ * arguments (`cwd`, `timeout`, `background`, `stop`); those pass through.
+ * Only Codex argv, `workdir`, and `timeout_ms` are rewritten. */
 export function prepareDispatchedToolCall(
   call: ToolCall,
   engine: string,
 ): ToolCall {
   const incoming = incomingAlias(call.name);
   let args = call.arguments;
-  if (
-    incoming === "shell" ||
-    incoming.toLowerCase() === "shell" ||
-    (engine === "run_shell" && looksLikeCodexShellArgs(args))
-  ) {
+  if (engine === "run_shell" && looksLikeCodexShellArgs(args)) {
     args = coerceShellArgs(args);
   }
   if (

@@ -191,6 +191,43 @@ describe("hidden alias dispatch", () => {
     expect(seen.timeout).toBe(5000);
   });
 
+  test("gpt shell keeps run_shell cwd, timeout, background, and stop", async () => {
+    let seen: Record<string, unknown> = {};
+    const runner = createDynamicToolRunner([
+      {
+        kind: "string",
+        definition: posixDef("run_shell"),
+        handler: async (args) => {
+          seen = args;
+          return "ok";
+        },
+      },
+    ]);
+    runner.setCallGate(() => true);
+    const result = await runner.run(
+      {
+        id: "1",
+        name: "shell",
+        arguments: {
+          command: "npm test",
+          cwd: "/tmp/proj",
+          timeout: 5000,
+          background: true,
+          stop: "sh_1",
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(result.content).toBe("ok");
+    expect(seen).toEqual({
+      command: "npm test",
+      cwd: "/tmp/proj",
+      timeout: 5000,
+      background: true,
+      stop: "sh_1",
+    });
+  });
+
   test("update_plan hidden-dispatches onto manage_tasks; apply_patch does not", async () => {
     const runner = createDynamicToolRunner([
       {
