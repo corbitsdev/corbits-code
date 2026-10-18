@@ -60,15 +60,15 @@ export async function mainWithRunners(
   // disk I/O); capture is fire-and-forget per createTelemetry's contract. The
   // env kill short-circuits first so a disabled run never touches the file.
   if (!telemetryDisabledByEnv()) {
-    const settings = await ensureTelemetrySettings(globalSettingsPath()).catch(
-      (err: unknown) => {
-        getLogger([LOG_NAMESPACE_ROOT, "telemetry"]).warn(
-          "Failed to ensure telemetry settings at startup: {error}",
-          { error: err },
-        );
-        return null;
-      },
-    );
+    const settings = await ensureTelemetrySettings(globalSettingsPath(), {
+      reuseBootSnapshot: true,
+    }).catch((err: unknown) => {
+      getLogger([LOG_NAMESPACE_ROOT, "telemetry"]).warn(
+        "Failed to ensure telemetry settings at startup: {error}",
+        { error: err },
+      );
+      return null;
+    });
     // Consent by proceeding: until the disclosure is shown, the disabled
     // no-op singleton stays so no event leaves the process; the disclosure
     // activates telemetry on the first affirmative action (first-run.ts).

@@ -37,16 +37,19 @@ import {
   clearSourceCredentials,
   peekSourceCredentialSecret,
 } from "./config/source-credentials.js";
+import {
+  ensureTelemetrySettings,
+  resetSettingsDocumentReadCountForTests,
+  settingsDocumentReadCountForTests,
+  mergeProviderIntoSettings,
+  type ResolvedProvider,
+  type Settings,
+} from "./config/settings.js";
 import type {
   Config,
   LoadConfigOptions,
   UnconfiguredConfig,
 } from "./config/index.js";
-import {
-  mergeProviderIntoSettings,
-  type ResolvedProvider,
-  type Settings,
-} from "./config/settings.js";
 import {
   OPENCODE_GO_BASE_URL,
   OPENCODE_GO_MODEL_IDS,
@@ -1581,6 +1584,73 @@ describe("loadConfig", () => {
     expect(config.providerName).toBe("b");
     expect(config.model).toBe("b-model");
     expect(config.apiKey).toBe("b-key");
+  });
+
+  test("CLI selection wins over local, and local wins over global", async () => {
+    const cwd = await emptyCwd();
+    await mkdir(join(cwd, ".corbits"), { recursive: true });
+    await writeFile(
+      join(cwd, ".corbits", "settings.json"),
+      JSON.stringify({ provider: "local-provider", model: "local-model" }),
+    );
+    const globalPath = join(cwd, "global.json");
+    await writeFile(
+      globalPath,
+      JSON.stringify({
+        defaultProvider: "global-provider",
+        providers: {
+          "global-provider": {
+            baseURL: "https://global.example/v1",
+            apiKey: "global-key",
+            models: ["global-model"],
+          },
+          "local-provider": {
+            baseURL: "https://local.example/v1",
+            apiKey: "local-key",
+            models: ["local-model"],
+          },
+        },
+      }),
+    );
+    const localWins = await loadConfig(["--cwd", cwd, "task"], {
+      globalSettingsPath: globalPath,
+    });
+    assertConfigured(localWins);
+    expect(localWins.providerName).toBe("local-provider");
+    expect(localWins.model).toBe("local-model");
+
+    const cliWins = await loadConfig(
+      [
+        "--cwd",
+        cwd,
+        "--provider",
+        "global-provider",
+        "--model",
+        "global-model",
+        "task",
+      ],
+      { globalSettingsPath: globalPath },
+    );
+    assertConfigured(cliWins);
+    expect(cliWins.providerName).toBe("global-provider");
+    expect(cliWins.model).toBe("global-model");
+  });
+
+  test("boot reuses the settings document instead of reading it again", async () => {
+    const cwd = await emptyCwd();
+    const globalPath = await writeGlobalSettings(cwd, {
+      telemetry: { installationId: "boot-id" },
+    });
+    resetSettingsDocumentReadCountForTests();
+    const config = await loadConfig(["--cwd", cwd, "task"], {
+      globalSettingsPath: globalPath,
+    });
+    assertConfigured(config);
+    const settings = await ensureTelemetrySettings(globalPath, {
+      reuseBootSnapshot: true,
+    });
+    expect(settingsDocumentReadCountForTests()).toBe(1);
+    expect(settings.telemetry?.installationId).toBe("boot-id");
   });
 
   test("rejects a local reasoningEffort unsupported by the selected model", async () => {
