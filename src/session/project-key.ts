@@ -29,13 +29,20 @@ function slugSegment(name: string): string {
   return slug.length > 0 ? slug : "project";
 }
 
-/**
- * Checkout project root for session identity.
- *
- * Nested cwd under a git toplevel shares that root (and therefore the same
- * project key). Linked worktrees each have their own `--show-toplevel`.
- */
-export function projectRootFor(cwd: string): string {
+// Repeated boot lookups of one cwd must not each spawn git. Keyed by the
+// resolved directory when it exists so equivalent spellings share one entry.
+// Missing paths keep the original string, because that string is the result.
+const projectRootByResolvedCwd = new Map<string, string>();
+
+function resolvedCwd(cwd: string): string {
+  try {
+    return realpathSync(cwd);
+  } catch {
+    return cwd;
+  }
+}
+
+function projectRootUncached(cwd: string): string {
   try {
     const toplevelRaw = execFileSync(
       "git",
@@ -56,6 +63,21 @@ export function projectRootFor(cwd: string): string {
     // Not a git checkout (or git unavailable) — use the workspace path.
   }
   return realpathOr(cwd);
+}
+
+/**
+ * Checkout project root for session identity.
+ *
+ * Nested cwd under a git toplevel shares that root (and therefore the same
+ * project key). Linked worktrees each have their own `--show-toplevel`.
+ */
+export function projectRootFor(cwd: string): string {
+  const key = resolvedCwd(cwd);
+  const cached = projectRootByResolvedCwd.get(key);
+  if (cached !== undefined) return cached;
+  const root = projectRootUncached(cwd);
+  projectRootByResolvedCwd.set(key, root);
+  return root;
 }
 
 export function projectKeyFor(cwd: string): string {

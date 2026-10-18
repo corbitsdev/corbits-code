@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
@@ -27,6 +27,10 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+function shQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 async function commitReadme(dir: string): Promise<void> {
   await writeFile(join(dir, "README"), "x");
   execFileSync("git", ["add", "README"], { cwd: dir, stdio: "ignore" });
@@ -49,6 +53,49 @@ test("projectKeyFor shares nested dirs under the same git toplevel", async () =>
   expect(projectRootFor(nested)).toBe(projectRootFor(root));
   expect(projectRootFor(root)).toBe(realpathSync(root));
   expect(projectKeyFor(nested)).toBe(projectKeyFor(root));
+});
+
+test("projectRootFor spawns git rev-parse once for the same cwd", async () => {
+  initTemporaryGitRepo(root);
+  await commitReadme(root);
+
+  const countFile = join(root, "rev-parse-spawns");
+  await writeFile(countFile, "0\n");
+  const realGit = execFileSync("/usr/bin/which", ["git"], {
+    encoding: "utf8",
+  }).trim();
+  const bin = join(root, "git-bin");
+  await mkdir(bin);
+  const wrapper = join(bin, "git");
+  const resolved = realpathSync(root);
+  await writeFile(
+    wrapper,
+    `#!/bin/sh
+if [ "$1" = "rev-parse" ] && [ "$(pwd)" = ${shQuote(resolved)} ]; then
+  n=$(cat ${shQuote(countFile)})
+  echo $((n + 1)) > ${shQuote(countFile)}
+fi
+exec ${shQuote(realGit)} "$@"
+`,
+  );
+  await chmod(wrapper, 0o755);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  try {
+    const first = projectRootFor(root);
+    const second = projectRootFor(root);
+    expect(second).toBe(first);
+    expect(first).toBe(realpathSync(root));
+    const spawns = Number((await readFile(countFile, "utf8")).trim());
+    expect(spawns).toBe(1);
+  } finally {
+    if (previousPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = previousPath;
+    }
+  }
 });
 
 test("linked worktrees have distinct project roots and keys from main and each other", async () => {
