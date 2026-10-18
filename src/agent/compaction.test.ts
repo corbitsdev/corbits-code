@@ -209,6 +209,35 @@ describe("compaction governor", () => {
     expect(userActions?.some((a) => a.type === "infer")).toBe(false);
   });
 
+  test("loose length wording alone does not compact; a real context-length sentence still recovers twice", () => {
+    const loose = createCompactionGovernor(undefined);
+    for (const message of ["exceeds the maximum", "reduce the length"]) {
+      expect(
+        loose.interceptOverflow(
+          {
+            type: "inference.error",
+            error: { category: "fatal", message },
+            partial: { text: "" },
+          } as ReactorInboundEvent,
+          capabilities,
+        ),
+      ).toBeNull();
+    }
+    const governor = createCompactionGovernor(undefined);
+    const event = mislabeledOverflow("fatal");
+    expect(
+      governor
+        .interceptOverflow(event, capabilities)
+        ?.some((a) => a.type === "compact" && a.reason === "context-overflow"),
+    ).toBe(true);
+    expect(
+      governor
+        .interceptOverflow(event, capabilities)
+        ?.some((a) => a.type === "compact"),
+    ).toBe(true);
+    expect(governor.interceptOverflow(event, capabilities)).toBeNull();
+  });
+
   test("a non-context_overflow body that names a context overflow compact-and-retries twice", () => {
     const governor = createCompactionGovernor(undefined);
     const event = mislabeledOverflow("fatal");

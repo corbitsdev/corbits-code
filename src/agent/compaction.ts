@@ -15,7 +15,6 @@ import {
   pinSessionContextWindow,
   reservedMaxTokensFor,
 } from "../provider/context-window.js";
-import { looksLikeContextOverflow } from "../inference-error-message.js";
 import {
   assistantTextIsCompactSpacerEcho,
   COMPACT_NOOP_FLOOR,
@@ -37,6 +36,20 @@ const MAX_OVERFLOW_RECOVERIES = 2;
 // vLLM / OpenAI-compatible bodies name the enforced window even when the
 // HTTP classifier did not tag context_overflow (non-400).
 const SERVER_CONTEXT_LIMIT = /maximum context length of\s+(\d+)/i;
+
+/** Phrases that name a context window. The two loose length clauses in looksLikeContextOverflow are not enough to compact. */
+function messageNamesContextOverflow(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("context_length_exceeded") ||
+    lower.includes("context length") ||
+    lower.includes("context window") ||
+    lower.includes("maximum context") ||
+    lower.includes("too many tokens") ||
+    lower.includes("input is too long")
+  );
+}
+
 // Consecutive threshold compacts with no under-watermark relief; tool-call
 // occupancy must not reset it, or tool traffic re-enables the loop.
 const MAX_CONSECUTIVE_THRESHOLD_COMPACTS = 2;
@@ -444,7 +457,8 @@ export function createCompactionGovernor(
   // A context-overflow error would terminate the loop; compact and retry,
   // bounded so an unshrinkable history does not loop forever. Message text
   // is enough: the vendor classifier only tags HTTP 400, and vLLM can phrase
-  // the same overflow on another status.
+  // the same overflow on another status. "exceeds the maximum" and
+  // "reduce the length" alone are not that sentence.
   function interceptOverflow(
     event: ReactorInboundEvent,
     capabilities: ReactorCapabilities,
@@ -453,7 +467,7 @@ export function createCompactionGovernor(
     const message = event.error.message ?? "";
     if (
       event.error.category !== "context_overflow" &&
-      !looksLikeContextOverflow(message)
+      !messageNamesContextOverflow(message)
     ) {
       return null;
     }
