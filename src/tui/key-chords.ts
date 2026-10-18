@@ -37,7 +37,10 @@ export const OPTION_CHORD_GLYPHS: Readonly<
   r: ["®"],
   t: ["†", "‡"],
   v: ["√"],
-  w: ["∑", "◊"],
+  // No shifted form: macOS US composes ⇧Option+W as `„`, and `◊` is the
+  // shifted glyph of Option+**V**, so claiming either for `w` would turn a
+  // printable that belongs to another key into this chord (CL-8637, I-4).
+  w: ["∑"],
   x: ["≈"],
 };
 

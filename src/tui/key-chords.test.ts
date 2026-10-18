@@ -24,11 +24,11 @@ function charKey(glyph: string): KeyEvent {
 }
 
 // Proven subset (`å/Å`, `∂`, `®`) is pinned end-to-end by CL-8635's
-// composed-glyph tests in product-host.test.ts. The other rows match the
-// macOS built-in U.S./ABC Option layer as documented by Apple's keyboard
-// modifier set (Option+C ç/Ç, Option+T †/‡, Option+V √, Option+W ∑/◊,
-// Option+X ≈). ‰ (⇧Option+W) stays text: SOLUTION_SCOPE.md §3 lists exactly
-// the glyphs below, and an unlisted glyph is never a chord (I-4).
+// composed-glyph tests in product-host.test.ts. The remaining rows are the
+// SOLUTION_SCOPE.md §3 allowlist for the macOS built-in U.S./ABC Option
+// layer (Option+C ç/Ç, Option+T †/‡, Option+V √, Option+W ∑, Option+X ≈).
+// `w` carries no shifted form: ⇧Option+W composes `„`, and `◊` is the shifted
+// glyph of Option+**V** — a key whose own glyph is already its chord row (I-4).
 const PICKER: readonly AltChordLetter[] = ["a", "d", "r"];
 
 describe("altChordLetterForKey", () => {
@@ -81,11 +81,13 @@ describe("altChordLetterForKey", () => {
     // ƒ is Option+F — favorites is excluded from the union (§5), so the
     // glyph has no chord path on any surface, whatever is declared.
     expect(altChordLetterForKey(charKey("ƒ"), ALT_CHORD_LETTERS)).toBeNull();
-    // ‰ is the ⇧Option+W layer glyph; §3 lists ∑/◊ for w and stops there.
-    expect(altChordLetterForKey(charKey("‰"), ["v", "w"])).toBeNull();
-    // ◊ is the listed shifted form of w — a chord only where w is declared.
-    expect(altChordLetterForKey(charKey("◊"), ["w"])).toBe("w");
-    expect(altChordLetterForKey(charKey("◊"), ["v"])).toBeNull();
+    // Shifted-layer glyphs belong to other keys on macOS US: „ is
+    // ⇧Option+W, ◊ is ⇧Option+V and ‰ is ⇧Option+R. None of them is the
+    // glyph of its own letter, so none is a chord wherever w or v is
+    // declared (I-4).
+    expect(altChordLetterForKey(charKey("„"), ALT_CHORD_LETTERS)).toBeNull();
+    expect(altChordLetterForKey(charKey("◊"), ALT_CHORD_LETTERS)).toBeNull();
+    expect(altChordLetterForKey(charKey("‰"), ALT_CHORD_LETTERS)).toBeNull();
   });
 
   test("ctrl plus a composed glyph is never a chord", () => {
