@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type {
   ConversationTurn,
   ReactorAction,
@@ -18,8 +18,12 @@ import {
   createChatDirector,
 } from "./director.js";
 import {
-  compactionWideResumeDeltaFor,
+  clearSessionContextWindowPins,
   compactionThresholdFor,
+  compactionWideResumeDeltaFor,
+  contextWindowFor,
+  setModelContextWindows,
+  setReservedCompletionTokens,
 } from "../provider/context-window.js";
 import {
   COMPACT_SPACER_TEXT,
@@ -138,6 +142,30 @@ function emptyMessage(): ReactorInboundEvent {
   } as ReactorInboundEvent;
 }
 
+function userMessage(content: string): ReactorInboundEvent {
+  return {
+    type: "message.received",
+    message: { content },
+  } as ReactorInboundEvent;
+}
+
+const VLLM_OVERFLOW =
+  "Requested token count exceeds the model's maximum context length of 262144 tokens. You requested a total of 269714 tokens: 236946 tokens from the input messages and 32768 tokens for the completion.";
+
+function mislabeledOverflow(category: string): ReactorInboundEvent {
+  return {
+    type: "inference.error",
+    error: { category, message: VLLM_OVERFLOW },
+    partial: { text: "" },
+  } as ReactorInboundEvent;
+}
+
+afterEach(() => {
+  setReservedCompletionTokens(undefined);
+  setModelContextWindows(undefined);
+  clearSessionContextWindowPins();
+});
+
 function overflowError(): ReactorInboundEvent {
   return {
     type: "inference.error",
@@ -152,6 +180,96 @@ const inferAction: ReactorAction[] = [{ type: "infer" }];
 const tenTurns = turnsOfLength(10, 1);
 
 describe("compaction governor", () => {
+  test("compacts a follow-up when the live estimate plus maxTokens crosses the window", () => {
+    setReservedCompletionTokens({ m: 40_000 });
+    const grown = turnsOfLength(10, 36_000);
+    const arm = (governor: ReturnType<typeof createCompactionGovernor>) => {
+      governor.noteInferenceDone(inferenceDone(20_000), tenTurns);
+      governor.syncFromTurns(grown);
+    };
+
+    const toolGovernor = createCompactionGovernor(() => undefined);
+    arm(toolGovernor);
+    const toolActions = toolGovernor.interceptActions(
+      toolDone(),
+      inferAction,
+      capabilities,
+    );
+    expect(toolActions?.some((a) => a.type === "compact")).toBe(true);
+    expect(toolActions?.some((a) => a.type === "infer")).toBe(false);
+
+    const userGovernor = createCompactionGovernor(() => undefined);
+    arm(userGovernor);
+    const userActions = userGovernor.interceptActions(
+      userMessage("continue"),
+      inferAction,
+      capabilities,
+    );
+    expect(userActions?.some((a) => a.type === "compact")).toBe(true);
+    expect(userActions?.some((a) => a.type === "infer")).toBe(false);
+  });
+
+  test("loose length wording alone does not compact; a real context-length sentence still recovers twice", () => {
+    const loose = createCompactionGovernor(undefined);
+    for (const message of ["exceeds the maximum", "reduce the length"]) {
+      expect(
+        loose.interceptOverflow(
+          {
+            type: "inference.error",
+            error: { category: "fatal", message },
+            partial: { text: "" },
+          } as ReactorInboundEvent,
+          capabilities,
+        ),
+      ).toBeNull();
+    }
+    const governor = createCompactionGovernor(undefined);
+    const event = mislabeledOverflow("fatal");
+    expect(
+      governor
+        .interceptOverflow(event, capabilities)
+        ?.some((a) => a.type === "compact" && a.reason === "context-overflow"),
+    ).toBe(true);
+    expect(
+      governor
+        .interceptOverflow(event, capabilities)
+        ?.some((a) => a.type === "compact"),
+    ).toBe(true);
+    expect(governor.interceptOverflow(event, capabilities)).toBeNull();
+  });
+
+  test("a non-context_overflow body that names a context overflow compact-and-retries twice", () => {
+    const governor = createCompactionGovernor(undefined);
+    const event = mislabeledOverflow("fatal");
+    expect(
+      governor
+        .interceptOverflow(event, capabilities)
+        ?.some((a) => a.type === "compact" && a.reason === "context-overflow"),
+    ).toBe(true);
+    expect(
+      governor
+        .interceptOverflow(event, capabilities)
+        ?.some((a) => a.type === "compact"),
+    ).toBe(true);
+    expect(governor.interceptOverflow(event, capabilities)).toBeNull();
+  });
+
+  test("a server-named context limit pins the window used by the next threshold", () => {
+    setModelContextWindows({ m: 1_000_000 });
+    const reserved = 32_768;
+    const governor = createCompactionGovernor(undefined);
+    governor.noteInferenceDone(inferenceDone(1000), tenTurns);
+    expect(contextWindowFor("m")).toBe(1_000_000);
+    expect(compactionThresholdFor("m", reserved)).toBe(
+      Math.floor((1_000_000 - reserved) * 0.6),
+    );
+    governor.interceptOverflow(mislabeledOverflow("retryable"), capabilities);
+    expect(contextWindowFor("m")).toBe(262_144);
+    expect(compactionThresholdFor("m", reserved)).toBe(
+      Math.floor((262_144 - reserved) * 0.6),
+    );
+  });
+
   test("stays inert below the threshold or with few turns", () => {
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(inferenceDone(1000), tenTurns);
