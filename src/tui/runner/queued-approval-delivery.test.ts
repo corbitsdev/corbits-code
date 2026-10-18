@@ -30,13 +30,24 @@ import {
 } from "../../session/approval-resume.js";
 import type { PermissionGate } from "../../permission/gate.js";
 import { ASK_DIRECTOR_WAKE_PREFIX } from "../../subagent/fleet-report.js";
+import { withTestRenderer } from "../harness.js";
+import { createAppShell } from "../shell/index.js";
+import { shellInternals, type AppShell } from "../shell/internals.js";
 import { createDeliverRouting, createSubmitPath } from "./submit.js";
 import type { RunnerServices, RunnerState } from "./state.js";
 
 const CORRELATION = "00000000-0000-4000-8000-0000000000a1";
 const PARKED_CALL = "call_parked_approve_worker";
 
-function harness() {
+interface HarnessOptions {
+  // The operator's answer; defaults to allow-once.
+  resolveSuspended?: () => Promise<{ allow: boolean }>;
+  // Whether the stub reactor accepts a delivered decision.
+  acceptsDecisions?: boolean;
+  shell?: AppShell;
+}
+
+function harness(opts: HarnessOptions = {}) {
   const delivered: InboundMessage[] = [];
   const waiters = new Map<string, () => void>();
   const acceptance = {
@@ -70,17 +81,17 @@ function harness() {
     deliver: (message: InboundMessage) => {
       delivered.push(message);
       const id = message.headers.interchangeCorrelationId;
-      if (id !== undefined) acceptance.settle(id);
+      if (id !== undefined && opts.acceptsDecisions !== false)
+        acceptance.settle(id);
     },
     history: async () => [],
   } as unknown as Agent;
 
   let gateAsked = 0;
-  // Operator answers allow-once immediately.
   const gate = {
     resolveSuspended: async () => {
       gateAsked++;
-      return { allow: true };
+      return opts.resolveSuspended?.() ?? { allow: true };
     },
   } as unknown as PermissionGate;
 
@@ -94,6 +105,7 @@ function harness() {
     fatalBuildError: null,
     inFlight: 0,
     sendAborted: false,
+    liveSource: { credentialId: undefined },
     approvalPersistNotice: {},
     credentialRecovery: {
       begin: () => ({ failedProvider: "p" }),
@@ -107,14 +119,14 @@ function harness() {
         setSuspendedApprovalRecovery: () => undefined,
         parentCycleLive: false,
       },
-      shell: {},
+      shell: opts.shell ?? {},
     },
   } as unknown as RunnerState;
 
   const approvalDeliverer = createApprovalDeliverer({
     deliverToAgent: (message) => agent.deliver(message),
     acceptance,
-    timeoutMs: 1_000,
+    timeoutMs: 50,
   });
   const approvalResume = createApprovalResume({
     getAgent: () => agent,
@@ -208,3 +220,63 @@ test("wake-drained turn: allow-once decision reaches the reactor", async () => {
   // And the queue must not be wedged: a later operator send awaits the tail.
   expect(await settleWithin(h.sessionOps.awaitTail(), 200)).toBe("settled");
 });
+
+// A fresh shell is on the landing, which defers system rows until it closes.
+const systemRows = (shell: AppShell): string[] =>
+  [
+    ...(shellInternals(shell)?.landingDeferredRows ?? []),
+    ...shell.streamLog,
+  ].flatMap((row) => (row.role === "system" ? [row.text] : []));
+
+const drainWake = (h: ReturnType<typeof harness>): (() => unknown) => {
+  let settled: unknown;
+  h.route(
+    `${ASK_DIRECTOR_WAKE_PREFIX} — worker qa-lead parked question ask-1`,
+    "queue",
+    [],
+    (result) => {
+      settled = result;
+    },
+    false,
+  );
+  return () => settled;
+};
+
+// A decision that fails after the drained send returned cannot change the
+// drain's result: the wake already reached the agent, and restoring it would
+// resend it. It must be surfaced the way a failed send is instead.
+for (const [name, opts] of [
+  [
+    "the approval surface throws",
+    {
+      resolveSuspended: () =>
+        Promise.reject(new Error("approval overlay failed")),
+    },
+  ],
+  ["the reactor never accepts the decision", { acceptsDecisions: false }],
+] as const) {
+  test(`wake-drained turn: surfaces a lost decision when ${name}`, async () => {
+    await withTestRenderer(async (r) => {
+      const shell = createAppShell(r.renderer, {
+        title: "test",
+        cwd: "/tmp",
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+      });
+      try {
+        const h = harness({ ...opts, shell });
+        const settled = drainWake(h);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        expect(h.gateAsked()).toBe(1);
+        expect(settled()).toEqual({ status: "accepted" });
+        expect(h.state.runError).toBeDefined();
+        expect(systemRows(shell).length).toBe(1);
+        expect(await settleWithin(h.sessionOps.awaitTail(), 200)).toBe(
+          "settled",
+        );
+      } finally {
+        shell.dispose();
+      }
+    });
+  });
+}
