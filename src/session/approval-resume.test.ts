@@ -23,6 +23,7 @@ import {
   resolveSuspendedApprovalFromStore,
 } from "./approval-resume.js";
 import { createSessionOperationQueue } from "../tui/delivery-queue.js";
+import { createParkedOverlayAbortBinding } from "../tui/runner/parked-overlay-abort.js";
 import { defined } from "../../testkit/defined.js";
 import { redactedCorrelationId } from "./redacted-correlation.js";
 import {
@@ -1220,5 +1221,32 @@ describe("approval resume retry re-await", () => {
     expect(await resume.handle(suspension("corr-A", "echo alpha"))).toBe(true);
     expect(resolveSuspended).toHaveBeenCalledTimes(2);
     expect(delivered).toHaveLength(1);
+  });
+});
+
+describe("parked overlay registration after the operator answers", () => {
+  // approve_worker_call raises a nested permission prompt as soon as its
+  // redispatched call starts, while the decision that resumed it is still being
+  // delivered. That prompt's abort signal merges the parked overlay controller.
+  test("a permission prompt raised while the decision is delivered is not pre-aborted", async () => {
+    const binding = createParkedOverlayAbortBinding();
+    const identity = new AbortController();
+    const { agent, gate } = createApprovalResumeHarness();
+    let promptSignal: AbortSignal | undefined;
+    const resume = createApprovalResume({
+      getAgent: () => agent,
+      gate,
+      resolveParkedCallId: () => "call-A",
+      registerOverlayAbort: binding.registerOverlayAbort,
+      deliver: async (message) => {
+        promptSignal = binding.identitySignal(identity.signal);
+        agent.deliver(message);
+      },
+    });
+    expect(
+      await resume.handle(suspension("corr-A", "git status --short")),
+    ).toBe(true);
+    expect(promptSignal).toBeDefined();
+    expect(promptSignal?.aborted).toBe(false);
   });
 });
