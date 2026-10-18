@@ -13,6 +13,7 @@ import {
   type PaletteCommand,
 } from "../command-catalog.js";
 import { helpItems } from "../keybindings.js";
+import { altChordLetterForKey } from "../key-chords.js";
 import {
   filterMentionSuggestions,
   splitMentionToken,
@@ -223,6 +224,12 @@ export function handleListFilterKey(shell: AppShell, key: KeyEvent): boolean {
   if (!state || shell.overlayList === null) return false;
   if (shell.overlayKind === "palette") return false;
   if (key.ctrl || key.meta || key.option) return false;
+
+  // A glyph the open surface declared as a chord yields the filter to
+  // runOverlayAction (CL-8637). Undeclared glyphs keep filtering: on other
+  // layouts the same Option press is ordinary text (invariant I-3).
+  if (altChordLetterForKey(key, bag?.primaryBindings.altChords ?? []) !== null)
+    return false;
 
   // Armed provider hints send the composed Option chords (å/Å, ∂, ®) to
   // runOverlayAction, not type-to-filter.

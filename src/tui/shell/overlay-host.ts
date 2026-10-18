@@ -277,6 +277,8 @@ export function openListOverlay(
         onCycle: opts?.onCycle ?? null,
         describe: opts?.describe ?? null,
         onAction: opts?.onAction ?? null,
+        altChords: opts?.altChords ?? [],
+        onAltChord: opts?.onAltChord ?? null,
         onPaste: opts?.onPaste ?? null,
         onCancel: opts?.onCancel ?? null,
         onDispose: opts?.onDispose ?? null,

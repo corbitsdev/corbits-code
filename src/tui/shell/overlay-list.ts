@@ -10,6 +10,7 @@ import {
   type SelectOption,
 } from "@opentui/core";
 import { UI } from "../theme.js";
+import { altChordLetterForKey } from "../key-chords.js";
 import {
   overlayRowsPerItem,
   overlayChromeRows,
@@ -379,15 +380,27 @@ export function cycleOverlaySelection(
 }
 
 /**
- * Run the open overlay's bare-key claim, for overlays that opted in via
- * `onAction`. No-op without one, so the key falls through unclaimed.
+ * Run the open overlay's chord or bare-key claim, for overlays that opted in
+ * via `altChords`/`onAltChord` or `onAction`. This is the one and only place
+ * a popup asks "is this key my Alt+<letter> chord" (invariant I-2), and it
+ * stays silent while a palette is stacked on top: typing there belongs to
+ * the palette filter, not the borrowed primary bindings (invariant I-5).
+ * No-op without a handler, so the key falls through unclaimed.
  */
 export function runOverlayAction(shell: AppShell, key: KeyEvent): boolean {
   const list = shell.overlayList;
   if (!list) return false;
-  const onAction = shellInternals(shell)?.primaryBindings.onAction;
-  if (!onAction) return false;
-  return onAction(activeOverlayItemId(shell, list), key);
+  const bindings = shellInternals(shell)?.primaryBindings;
+  if (!bindings) return false;
+  const itemId = activeOverlayItemId(shell, list);
+  const letter =
+    shell.overlayKind === "palette"
+      ? null
+      : altChordLetterForKey(key, bindings.altChords);
+  if (letter !== null) {
+    return bindings.onAltChord?.(itemId, letter, key) ?? false;
+  }
+  return bindings.onAction?.(itemId, key) ?? false;
 }
 
 /** Page overlay selection (PgUp/PgDn). */
