@@ -47,6 +47,11 @@ export interface McpConnectMock {
   authResourceCloses: number;
   /** Server names whose connect never settles until the signal aborts. */
   hangNames: Set<string>;
+  /**
+   * Server names that offer an auth URL and then wait until the connect
+   * signal aborts. Other servers in the same batch are unaffected.
+   */
+  browserAuthNames: Set<string>;
   connectedTools: MCPTool[];
   toolCallResult: string;
   calls: McpToolCall[];
@@ -127,6 +132,7 @@ export async function installMcpConnectMock(
     authWaitAborts: 0,
     authResourceCloses: 0,
     hangNames: new Set<string>(),
+    browserAuthNames: new Set<string>(),
     connectedTools: initialTools,
     toolCallResult,
     calls: [],
@@ -146,6 +152,7 @@ export async function installMcpConnectMock(
       mock.authWaitAborts = 0;
       mock.authResourceCloses = 0;
       mock.hangNames.clear();
+      mock.browserAuthNames.clear();
       mock.connectedTools = initialTools;
       mock.toolCallResult = toolCallResult;
       mock.calls.length = 0;
@@ -165,6 +172,29 @@ export async function installMcpConnectMock(
         const generation = ++mock.connectGeneration;
         const mode = mock.mode;
 
+        if (mock.browserAuthNames.has(config.name)) {
+          connectOptions.onAuthURL?.(
+            config.name,
+            mock.authURL ?? "https://auth.test/authorize",
+          );
+          await new Promise<void>((resolve) => {
+            const onAbort = (): void => {
+              mock.authWaitAborts += 1;
+              mock.authResourceCloses += 1;
+              resolve();
+            };
+            if (connectOptions.signal?.aborted === true) onAbort();
+            else
+              connectOptions.signal?.addEventListener("abort", onAbort, {
+                once: true,
+              });
+          });
+          return {
+            ok: false as const,
+            serverName: config.name,
+            error: "authorization aborted",
+          };
+        }
         if (mode === "auth" || mock.blockOnAuth || mock.authURL !== null) {
           connectOptions.onAuthURL?.(
             config.name,

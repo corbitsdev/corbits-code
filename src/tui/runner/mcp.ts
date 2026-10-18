@@ -29,6 +29,7 @@ import {
 import { mergeMcpSurfaceEntries, isBuiltinRow } from "../mcp-list.js";
 import { nextMcpCatalog } from "../mcp-catalog.js";
 import type { MCPConnectCallbacks } from "../../agent/tools.js";
+import { runTuiMcpDial } from "./mcp-connect.js";
 import { type RunnerServices, type RunnerState } from "./state.js";
 import { SETTINGS_DIR_NAME, LOG_NAMESPACE_ROOT } from "../../branding.js";
 
@@ -46,6 +47,9 @@ export function wireMcp(
 ): McpWiring {
   const mcpConnectCallbacks: MCPConnectCallbacks = {
     interactiveAuth: true,
+    // Browser auth has its own wait. The startup dial cap must not fail that
+    // row or close the redirect once the auth URL is up.
+    browserAuthOutlivesDialAbort: true,
     onStatus: (status) => {
       services.mcpStates.set(status.name, status);
       services.emitter.emit("mcp.status", status);
@@ -66,19 +70,17 @@ export function wireMcp(
   };
 
   const connectLateMCPServer = (server: MCPServerConfig): void => {
-    void services.toolset
-      .connectMCPServer(
-        server,
-        mcpConnectCallbacks,
-        services.mcpConnectController.signal,
-      )
-      .catch((err: unknown) => {
-        if (err instanceof Error && err.name === "AbortError") return;
-        tuiLogger.warn("Late MCP connect failed for {server}: {error}", {
-          server: server.name,
-          error: err instanceof Error ? err.message : String(err),
-        });
+    void runTuiMcpDial(
+      (signal) =>
+        services.toolset.connectMCPServer(server, mcpConnectCallbacks, signal),
+      services.mcpConnectController.signal,
+    ).catch((err: unknown) => {
+      if (err instanceof Error && err.name === "AbortError") return;
+      tuiLogger.warn("Late MCP connect failed for {server}: {error}", {
+        server: server.name,
+        error: err instanceof Error ? err.message : String(err),
       });
+    });
   };
   state.connectLateMCPServer = connectLateMCPServer;
 
@@ -239,18 +241,16 @@ function createMcpSurface(
         };
       }
       // Manual retry: cancel any backoff loop first so exactly one dial runs.
-      void services.toolset
-        .retryMCPServer(
-          server,
-          mcpConnectCallbacks,
-          services.mcpConnectController.signal,
-        )
-        .catch((err: unknown) => {
-          tuiLogger.warn("MCP retry failed for {server}: {error}", {
-            server: server.name,
-            error: err instanceof Error ? err.message : String(err),
-          });
+      void runTuiMcpDial(
+        (signal) =>
+          services.toolset.retryMCPServer(server, mcpConnectCallbacks, signal),
+        services.mcpConnectController.signal,
+      ).catch((err: unknown) => {
+        tuiLogger.warn("MCP retry failed for {server}: {error}", {
+          server: server.name,
+          error: err instanceof Error ? err.message : String(err),
         });
+      });
       return { ok: true, message: `Retrying ${server.name}; connecting now.` };
     },
     setEnabled: async (name: string, enabled: boolean) => {

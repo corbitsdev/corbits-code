@@ -25,26 +25,56 @@ export async function awaitExecMcpConnect(
   }
 }
 
+const deferredHandshakeStarts = new WeakMap<AbortSignal, () => void>();
+
+export function bindDeferredMcpHandshake(
+  signal: AbortSignal,
+  start: () => void,
+): void {
+  deferredHandshakeStarts.set(signal, start);
+}
+
+// First post-trust dial starts a deferred cap. Later servers in the same
+// batch share that window. Unbound signals (headless) are already armed.
+export function startBoundMcpHandshake(signal: AbortSignal | undefined): void {
+  if (signal === undefined) return;
+  const start = deferredHandshakeStarts.get(signal);
+  if (start === undefined) return;
+  deferredHandshakeStarts.delete(signal);
+  start();
+}
+
 // Connect-only abort. The MCP client ties `signal` to the transport lifecycle,
 // so AbortSignal.timeout would kill a handshake that already succeeded. The
 // toolset forwards this signal per server and detaches on settle, so abort
 // only reaches handshakes still in flight. Disarm only when the batch
 // fulfills — a rejected Promise.all still leaves sibling forwards armed.
-export function armExecMcpHandshakeAbort(timeoutMs: number): {
+// `when` "later" does not start the timer until `start` (TUI trust gate).
+export function armExecMcpHandshakeAbort(
+  timeoutMs: number,
+  when: "now" | "later" = "now",
+): {
   signal: AbortSignal;
   disarm: () => void;
+  start: () => void;
 } {
   const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let disarmed = false;
+  const start = (): void => {
+    if (disarmed || timer !== undefined) return;
+    timer = setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
+  };
+  if (when === "now") start();
   return {
     signal: controller.signal,
+    start,
     disarm: () => {
       if (disarmed) return;
       disarmed = true;
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
     },
   };
 }
