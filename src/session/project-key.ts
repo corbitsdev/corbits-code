@@ -29,9 +29,9 @@ function slugSegment(name: string): string {
   return slug.length > 0 ? slug : "project";
 }
 
-// Repeated boot lookups of one cwd must not each spawn git. Keyed by the
-// resolved directory when it exists so equivalent spellings share one entry.
-// Missing paths keep the original string, because that string is the result.
+// Repeated boot lookups of one cwd must not each spawn git. Only a successful
+// toplevel is stored: a missing directory or a failed git lookup must be tried
+// again, or the session key stays on the fallback for the process lifetime.
 const projectRootByResolvedCwd = new Map<string, string>();
 
 function resolvedCwd(cwd: string): string {
@@ -42,7 +42,7 @@ function resolvedCwd(cwd: string): string {
   }
 }
 
-function projectRootUncached(cwd: string): string {
+function gitToplevel(cwd: string): string | undefined {
   try {
     const toplevelRaw = execFileSync(
       "git",
@@ -53,16 +53,15 @@ function projectRootUncached(cwd: string): string {
         stdio: ["ignore", "pipe", "ignore"],
       },
     ).trim();
-    if (toplevelRaw.length > 0) {
-      const toplevelAbs = isAbsolute(toplevelRaw)
-        ? toplevelRaw
-        : resolve(cwd, toplevelRaw);
-      return realpathOr(toplevelAbs);
-    }
+    if (toplevelRaw.length === 0) return undefined;
+    const toplevelAbs = isAbsolute(toplevelRaw)
+      ? toplevelRaw
+      : resolve(cwd, toplevelRaw);
+    return realpathOr(toplevelAbs);
   } catch {
     // Not a git checkout (or git unavailable) — use the workspace path.
+    return undefined;
   }
-  return realpathOr(cwd);
 }
 
 /**
@@ -75,9 +74,12 @@ export function projectRootFor(cwd: string): string {
   const key = resolvedCwd(cwd);
   const cached = projectRootByResolvedCwd.get(key);
   if (cached !== undefined) return cached;
-  const root = projectRootUncached(cwd);
-  projectRootByResolvedCwd.set(key, root);
-  return root;
+  const toplevel = gitToplevel(cwd);
+  if (toplevel !== undefined) {
+    projectRootByResolvedCwd.set(key, toplevel);
+    return toplevel;
+  }
+  return realpathOr(cwd);
 }
 
 export function projectKeyFor(cwd: string): string {

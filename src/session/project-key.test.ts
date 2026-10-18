@@ -98,6 +98,41 @@ exec ${shQuote(realGit)} "$@"
   }
 });
 
+test("projectRootFor resolves a directory created after a missing lookup", async () => {
+  initTemporaryGitRepo(root);
+  await commitReadme(root);
+
+  const parent = realpathSync(root);
+  const child = join(parent, "child");
+  expect(projectRootFor(child)).toBe(child);
+  await mkdir(child);
+  expect(projectRootFor(child)).toBe(parent);
+});
+
+test("projectRootFor retries a nested dir after git was unavailable", async () => {
+  initTemporaryGitRepo(root);
+  await commitReadme(root);
+
+  const nested = join(root, "nested");
+  await mkdir(nested);
+  const parent = realpathSync(root);
+  const emptyBin = join(root, "empty-bin");
+  await mkdir(emptyBin);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = emptyBin;
+  try {
+    expect(projectRootFor(nested)).toBe(realpathSync(nested));
+  } finally {
+    if (previousPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = previousPath;
+    }
+  }
+  expect(projectRootFor(nested)).toBe(parent);
+});
+
 test("linked worktrees have distinct project roots and keys from main and each other", async () => {
   initTemporaryGitRepo(root);
   await commitReadme(root);
