@@ -186,4 +186,23 @@ describe("declared altChords drive filter yield and dispatch (CL-8637)", () => {
       expect(shell.prompt.value).toBe("∂");
     });
   });
+
+  test("no overlay open: composed option glyphs type, never translate (I-6)", async () => {
+    await withShell(async ({ shell, press }) => {
+      press("∂");
+      press("´");
+      expect(shell.prompt.value).toBe("∂´");
+      expect(shell.overlayList).toBeNull();
+    });
+  });
+
+  test("the `/` popup claims declared chord glyphs as filter text (I-5)", async () => {
+    await withShell(async ({ shell, press }) => {
+      press("/");
+      expect(isSlashPopupOpen(shell)).toBe(true);
+      press("∂");
+      expect(shell.prompt.value).toBe("/∂");
+      expect(isSlashPopupOpen(shell)).toBe(true);
+    });
+  });
 });

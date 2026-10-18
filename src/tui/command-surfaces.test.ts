@@ -24,8 +24,10 @@ import type { ThemeSetting } from "./theme-detect.js";
 import { focusOwner } from "./focus/index.js";
 import { BUNDLED_PLUGIN_MARKER as BUNDLED_MARKER } from "../plugins/origin-marker.js";
 import type { Harness } from "./harness";
+import type { AltChordLetter } from "./key-chords";
 import { projectPluginsRoot, userPluginsRoot } from "../plugins/uninstall.js";
 import type { AppShell } from "./shell/internals";
+import { shellInternals } from "./shell/internals";
 import { withAppShell } from "./test-helpers";
 import {
   acceptOverlaySelection,
@@ -1047,6 +1049,37 @@ describe("composed option glyphs on /plugins and /mcp (CL-8637)", () => {
         openAuthURL: () => undefined,
       });
       expect(runOverlayAction(shell, charKey("ç"))).toBe(false);
+    });
+  });
+
+  test("rendered footers only advertise declared letters, and never Alt+F (I-3)", async () => {
+    const advertised = (frame: string): string[] =>
+      [...frame.matchAll(/Alt\+([A-Za-z])/g)].map((m) =>
+        (m[1] ?? "").toLowerCase(),
+      );
+    await withWiredShell(async (shell, harness) => {
+      const { deps } = pluginActionDeps();
+      openCommandSurface(shell, "plugins", deps);
+      await harness.renderOnce();
+      const declared = shellInternals(shell)?.primaryBindings.altChords ?? [];
+      const letters = advertised(harness.captureCharFrame());
+      expect(letters.length).toBeGreaterThan(0);
+      for (const letter of letters) {
+        expect(declared.includes(letter as AltChordLetter)).toBe(true);
+      }
+    });
+    await withWiredShell(async (shell, harness) => {
+      openMcp(shell, {
+        list: () => [{ name: "linear", state: "connected", toolCount: 1 }],
+        openAuthURL: () => undefined,
+      });
+      await harness.renderOnce();
+      const declared = shellInternals(shell)?.primaryBindings.altChords ?? [];
+      const letters = advertised(harness.captureCharFrame());
+      expect(letters.length).toBeGreaterThan(0);
+      for (const letter of letters) {
+        expect(declared.includes(letter as AltChordLetter)).toBe(true);
+      }
     });
   });
 });

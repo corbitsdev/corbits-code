@@ -27,7 +27,8 @@ function charKey(glyph: string): KeyEvent {
 // composed-glyph tests in product-host.test.ts. The other rows match the
 // macOS built-in U.S./ABC Option layer as documented by Apple's keyboard
 // modifier set (Option+C ç/Ç, Option+T †/‡, Option+V √, Option+W ∑/◊,
-// Option+X ≈).
+// Option+X ≈). ‰ (⇧Option+W) stays text: SOLUTION_SCOPE.md §3 lists exactly
+// the glyphs below, and an unlisted glyph is never a chord (I-4).
 const PICKER: readonly AltChordLetter[] = ["a", "d", "r"];
 
 describe("altChordLetterForKey", () => {
@@ -77,6 +78,14 @@ describe("altChordLetterForKey", () => {
     // µ is Option+M; no surface declares m.
     expect(altChordLetterForKey(charKey("µ"), PICKER)).toBeNull();
     expect(altChordLetterForKey(charKey("é"), PICKER)).toBeNull();
+    // ƒ is Option+F — favorites is excluded from the union (§5), so the
+    // glyph has no chord path on any surface, whatever is declared.
+    expect(altChordLetterForKey(charKey("ƒ"), ALT_CHORD_LETTERS)).toBeNull();
+    // ‰ is the ⇧Option+W layer glyph; §3 lists ∑/◊ for w and stops there.
+    expect(altChordLetterForKey(charKey("‰"), ["v", "w"])).toBeNull();
+    // ◊ is the listed shifted form of w — a chord only where w is declared.
+    expect(altChordLetterForKey(charKey("◊"), ["w"])).toBe("w");
+    expect(altChordLetterForKey(charKey("◊"), ["v"])).toBeNull();
   });
 
   test("ctrl plus a composed glyph is never a chord", () => {
