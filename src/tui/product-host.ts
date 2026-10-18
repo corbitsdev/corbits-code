@@ -68,12 +68,8 @@ import {
   type PaletteOnObserveRequest,
 } from "./shell/internals.js";
 import { setOwnedOverlayItems } from "./shell/overlay-host.js";
-import {
-  isAddProviderShortcutKey,
-  isRemoveProviderShortcutKey,
-  isSetDefaultShortcutKey,
-  setPaletteCatalog,
-} from "./shell/palette.js";
+import { setPaletteCatalog } from "./shell/palette.js";
+import { type AltChordLetter } from "./key-chords.js";
 import { surfaceSystemNotice } from "./shell/prompt.js";
 import type { DeliverySettle, QueueKind } from "./delivery-queue.js";
 import {
@@ -830,6 +826,13 @@ export async function mountProductHost(
       const items = annotateCurrent(currentModels, activeId);
       const focusIndex =
         focusId !== undefined ? items.findIndex((m) => m.id === focusId) : -1;
+      // One declaration drives footer hints, filter yield and dispatch
+      // (CL-8637); a letter joins only when its action is wired.
+      const altChords: AltChordLetter[] = [
+        ...(openAddProvider !== undefined ? (["a"] as const) : []),
+        ...(onSetDefault !== undefined ? (["d"] as const) : []),
+        ...(removeEnabled ? (["r"] as const) : []),
+      ];
       openModelPickerOverlay(shell, {
         items: items.map((m) => m.label),
         itemIds: items.map((m) => m.id),
@@ -865,69 +868,60 @@ export async function mountProductHost(
         onCancel: () => {
           disarmRemove();
         },
-        ...(onFavoriteToggle !== undefined ||
-        openAddProvider !== undefined ||
-        onSetDefault !== undefined ||
-        removeEnabled
-          ? {
-              onAction: (itemId, key) => {
-                if (key.ctrl) return false;
-                // Alt+A / composed Option+A (å/Å) — never bare `a`;
-                // type-to-filter claims ordinary printables.
-                if (
-                  openAddProvider !== undefined &&
-                  isAddProviderShortcutKey(key)
-                ) {
-                  disarmRemove();
-                  openAddProvider({ returnToModels: true });
-                  return true;
-                }
-                // Alt+F stays modifier-only; the default shortcut also accepts
-                // the composed Option+D glyph through its scoped predicate.
-                const name =
-                  typeof key.name === "string" ? key.name.toLowerCase() : "";
-                if (
-                  !key.ctrl &&
-                  (key.meta || key.option) &&
-                  name === "f" &&
-                  onFavoriteToggle !== undefined
-                ) {
-                  // Empty id is the "(no matches)" filter sentinel — not a model.
-                  if (itemId.length === 0) return false;
-                  onFavoriteToggle(itemId);
-                  return true;
-                }
-                if (
-                  onSetDefault !== undefined &&
-                  isSetDefaultShortcutKey(key)
-                ) {
-                  if (itemId.length === 0) return true;
-                  onSetDefault(itemId);
-                  return true;
-                }
-                // Alt+R remove stays modifier-only (plus the composed ®
-                // glyph); bare `r` is type-to-filter text and never arrives.
-                if (removeEnabled && isRemoveProviderShortcutKey(key)) {
-                  // Null arm line: ghost/residual row with no settings entry.
-                  const armLine = describeRemoveProvider?.(itemId) ?? null;
-                  if (armLine === null) return false;
-                  if (
-                    decideRemoveKey(armedRemove, itemId, true, Date.now()) ===
-                    "confirmed"
-                  ) {
-                    disarmRemove();
-                    onRemoveProvider?.(itemId);
-                    return true;
-                  }
-                  armedRemove = { itemId, armedAt: Date.now() };
-                  armedRemoveFlash = armLine;
-                  setStatusFlash(shell, armLine, { ttlMs: REMOVE_ARM_MS });
-                  return true;
-                }
-                return false;
-              },
-            }
-          : {}),
+        altChords,
+        // Declared chords reach us already resolved to a letter by
+        // altChordLetterForKey (CL-8637): no modifier inspection here (I-2),
+        // and both the modifier and the composed-glyph shapes land the same.
+        onAltChord: (itemId, letter) => {
+          if (letter === "a") {
+            // Never bare `a`: type-to-filter claims ordinary printables.
+            disarmRemove();
+            openAddProvider?.({ returnToModels: true });
+            return true;
+          }
+          if (letter === "d") {
+            // Empty id is the "(no matches)" filter sentinel — not a model.
+            if (itemId.length === 0) return true;
+            onSetDefault?.(itemId);
+            return true;
+          }
+          // Alt+R remove: two-press arm; bare `r` is type-to-filter text and
+          // never arrives here.
+          // Null arm line: ghost/residual row with no settings entry.
+          const armLine = describeRemoveProvider?.(itemId) ?? null;
+          if (armLine === null) return false;
+          if (
+            decideRemoveKey(armedRemove, itemId, true, Date.now()) ===
+            "confirmed"
+          ) {
+            disarmRemove();
+            onRemoveProvider?.(itemId);
+            return true;
+          }
+          armedRemove = { itemId, armedAt: Date.now() };
+          armedRemoveFlash = armLine;
+          setStatusFlash(shell, armLine, { ttlMs: REMOVE_ARM_MS });
+          return true;
+        },
+        // Alt+F favorites stays modifier-only: `f` is deliberately outside
+        // AltChordLetter and unadvertised, so the composed ƒ glyph remains
+        // filter text (SOLUTION_SCOPE.md §5).
+        onAction: (itemId, key) => {
+          if (key.ctrl) return false;
+          const name =
+            typeof key.name === "string" ? key.name.toLowerCase() : "";
+          if (
+            (key.meta || key.option) &&
+            name === "f" &&
+            onFavoriteToggle !== undefined
+          ) {
+            // Empty id is the "(no matches)" filter sentinel — not a model.
+            if (itemId.length === 0) return false;
+            onFavoriteToggle(itemId);
+            return true;
+          }
+          return false;
+        },
       });
     };
   }

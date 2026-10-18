@@ -956,6 +956,50 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
+  test("composed Option+F (ƒ) stays filter text and toggles no favourite (AC-6)", async () => {
+    const favorites: string[] = [];
+    const defaults: string[] = [];
+    const { harness, host } = await mountPicker({
+      onFavoriteToggle: (id) => favorites.push(id),
+      onSetDefault: (id) => defaults.push(id),
+    });
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      const composed = composedKey("ƒ");
+      // `f` is not a declared chord letter, so the glyph is never yielded
+      // from the filter and never reaches the Alt+F modifier branch.
+      expect(handleListFilterKey(host.shell, composed)).toBe(true);
+      await harness.renderOnce();
+      expect(host.shell.overlayItems).toEqual(["(no matches)"]);
+      expect(runOverlayAction(host.shell, composed)).toBe(false);
+      expect(favorites).toEqual([]);
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("composed Option+M (µ) stays filter text: no surface declares m", async () => {
+    const defaults: string[] = [];
+    const { harness, host } = await mountPicker({
+      onSetDefault: (id) => defaults.push(id),
+    });
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      const composed = composedKey("µ");
+      expect(handleListFilterKey(host.shell, composed)).toBe(true);
+      await harness.renderOnce();
+      expect(host.shell.overlayItems).toEqual(["(no matches)"]);
+      expect(runOverlayAction(host.shell, composed)).toBe(false);
+      expect(defaults).toEqual([]);
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
   const altR = {
     name: "r",
     ctrl: false,

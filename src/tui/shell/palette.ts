@@ -164,56 +164,6 @@ export function handlePaletteFilterKey(
 }
 
 /**
- * Glyphs some terminals emit for Option+A without setting meta/option.
- */
-const OPTION_A_COMPOSED_CHARS = new Set(["å", "Å"]);
-const OPTION_D_COMPOSED_CHARS = new Set(["∂"]);
-const OPTION_R_COMPOSED_CHARS = new Set(["®"]);
-
-/**
- * True when a key event is the model-picker Alt+A add-provider chord.
- * Terminals may deliver Option+A as å/Å without meta/option.
- */
-export function isAddProviderShortcutKey(key: KeyEvent): boolean {
-  if (key.ctrl) return false;
-  const name = typeof key.name === "string" ? key.name : "";
-  const seq = typeof key.sequence === "string" ? key.sequence : "";
-  if ((key.meta || key.option) && name.toLowerCase() === "a") return true;
-  if (OPTION_A_COMPOSED_CHARS.has(name) || OPTION_A_COMPOSED_CHARS.has(seq))
-    return true;
-  return false;
-}
-
-/**
- * True when a key event is the model-picker Alt+D set-default chord.
- * Terminals may deliver Option+D as ∂ without meta/option.
- */
-export function isSetDefaultShortcutKey(key: KeyEvent): boolean {
-  if (key.ctrl) return false;
-  const name = typeof key.name === "string" ? key.name : "";
-  const seq = typeof key.sequence === "string" ? key.sequence : "";
-  if ((key.meta || key.option) && name.toLowerCase() === "d") return true;
-  if (OPTION_D_COMPOSED_CHARS.has(name) || OPTION_D_COMPOSED_CHARS.has(seq))
-    return true;
-  return false;
-}
-
-/**
- * True when a key event is the model-picker Alt+R remove-provider chord.
- * Terminals may deliver Option+R as ® without meta/option. Bare `r` stays
- * false: type-to-filter owns printables.
- */
-export function isRemoveProviderShortcutKey(key: KeyEvent): boolean {
-  if (key.ctrl) return false;
-  const name = typeof key.name === "string" ? key.name : "";
-  const seq = typeof key.sequence === "string" ? key.sequence : "";
-  if ((key.meta || key.option) && name.toLowerCase() === "r") return true;
-  if (OPTION_R_COMPOSED_CHARS.has(name) || OPTION_R_COMPOSED_CHARS.has(seq))
-    return true;
-  return false;
-}
-
-/**
  * Keys a type-to-filter list overlay claims while open. Mirrors the palette
  * filter but updates the open list in place: a busy openListOverlay is a
  * silent no-op unless `deferIfBusy` is set.
@@ -227,35 +177,11 @@ export function handleListFilterKey(shell: AppShell, key: KeyEvent): boolean {
 
   // A glyph the open surface declared as a chord yields the filter to
   // runOverlayAction (CL-8637). Undeclared glyphs keep filtering: on other
-  // layouts the same Option press is ordinary text (invariant I-3).
+  // layouts the same Option press is ordinary text (invariant I-3). The
+  // picker's legacy per-letter escape clauses stood here; one declaration
+  // now covers every surface.
   if (altChordLetterForKey(key, bag?.primaryBindings.altChords ?? []) !== null)
     return false;
-
-  // Armed provider hints send the composed Option chords (å/Å, ∂, ®) to
-  // runOverlayAction, not type-to-filter.
-  if (
-    bag?.primaryBindings.addProviderHint === true &&
-    shell.overlayKind === "model_picker" &&
-    isAddProviderShortcutKey(key)
-  ) {
-    return false;
-  }
-
-  if (
-    bag?.primaryBindings.setDefaultHint === true &&
-    shell.overlayKind === "model_picker" &&
-    isSetDefaultShortcutKey(key)
-  ) {
-    return false;
-  }
-
-  if (
-    bag?.primaryBindings.removeProviderHint === true &&
-    shell.overlayKind === "model_picker" &&
-    isRemoveProviderShortcutKey(key)
-  ) {
-    return false;
-  }
 
   if (key.name === "backspace") {
     if (state.query.length === 0) return true;
