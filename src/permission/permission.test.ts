@@ -1166,12 +1166,10 @@ describe("createPermissionGate", () => {
       auto: false,
     });
     const tools = [
-      "list_agents",
       "send_input",
       "interrupt_agent",
       "close_agent",
       "resume_agent",
-      "read_agent_trace",
     ];
     for (const [index, name] of tools.entries()) {
       approval = index % 2 === 0;
@@ -1220,6 +1218,63 @@ describe("createPermissionGate", () => {
     const verdict = await gate.evaluate(toolCall("manage_tasks", {}));
     expect(verdict.allowed).toBe(true);
     expect(asked.count).toBe(0);
+  });
+
+  // Pins the control-plane inventory commented beside the allow in gate.ts.
+  // A declined prompt is the stand-in for "ask": allow:false makes a prompt
+  // observable without depending on prompt copy.
+  test("control-plane tools keep their effect in auto and non-auto interactive mode", async () => {
+    const allowEveryMode = [
+      "tool_search",
+      "skill_search",
+      "use_skill",
+      "search_agents",
+      "list_agents",
+      "read_agent_trace",
+      "manage_tasks",
+    ];
+    const allowOnlyInAuto = [
+      "spawn_agent",
+      "send_input",
+      "wait_agents",
+      "interrupt_agent",
+      "close_agent",
+      "resume_agent",
+    ];
+    const askInBothModes = [
+      "approve_worker_call",
+      "submit_result",
+      "ask_director",
+    ];
+    for (const auto of [false, true]) {
+      const { gate, asked } = gatedPrompts({ allow: false }, { auto });
+      for (const name of allowEveryMode) {
+        const verdict = await gate.evaluate({
+          id: `${name}-${String(auto)}`,
+          name,
+          arguments: {},
+        });
+        expect(verdict.allowed).toBe(true);
+      }
+      for (const name of allowOnlyInAuto) {
+        const verdict = await gate.evaluate({
+          id: `${name}-${String(auto)}`,
+          name,
+          arguments: {},
+        });
+        expect(verdict.allowed).toBe(auto);
+      }
+      for (const name of askInBothModes) {
+        const verdict = await gate.evaluate({
+          id: `${name}-${String(auto)}`,
+          name,
+          arguments: {},
+        });
+        expect(verdict.allowed).toBe(false);
+      }
+      const prompted = (auto ? 0 : allowOnlyInAuto.length) + askInBothModes.length;
+      expect(asked.count).toBe(prompted);
+    }
   });
 
   test("setAuto toggles auto mode live", async () => {

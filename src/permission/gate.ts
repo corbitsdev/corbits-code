@@ -325,26 +325,24 @@ function isRequestCoveredByApprovals(
   });
 }
 
-// Non-shell tools auto-mode auto-allows without prompting; reads, run_shell,
-// and read-only MCP auto-allow via their own paths, everything else prompts.
+// Non-shell tools in this set auto-allow when auto mode is on. Reads,
+// read-only control-plane lookups, run_shell, and read-only MCP auto-allow
+// on their own paths, including outside auto mode. approve_worker_call is
+// intentionally absent so it still prompts in auto mode.
 const AUTO_ALLOWED_TOOLS = new Set([
   ...PRODUCT_MUTATION_TOOLS,
   "manage_tasks",
   "present",
-  "tool_search",
   "use_skill",
   "skill_search",
   "web_fetch",
   "web_search",
-  "search_agents",
   "spawn_agent",
   "wait_agents",
-  "list_agents",
   "send_input",
   "interrupt_agent",
   "close_agent",
   "resume_agent",
-  "read_agent_trace",
 ]);
 
 export interface PermissionGateOptions {
@@ -757,6 +755,46 @@ export function createPermissionGate(
       shellSecretInspectionRequiresApproval(
         inspectShellSecretReference(shellCmd, effectiveCwd, isExtraDenied),
       );
+    // classifyTool === "allow" never prompts while the call stays off a
+    // restricted path. That tier is workspace reads plus read-only
+    // control-plane tools. Effects below are for a non-auto, non-yolo
+    // interactive session (skip-permissions already returned allow above).
+    //
+    // Allow in every mode — catalog or worker-record lookup, or a plan
+    // update whose handler cannot undo anything:
+    //   tool_search — tool/skill catalog. Matches may join the advertised
+    //     set next turn; that is not a workspace or authority change.
+    //   skill_search — skill catalog (AUTO_ALLOW_READ_TOOLS).
+    //   use_skill — load a skill body already on the director read surface
+    //     (AUTO_ALLOW_READ_TOOLS).
+    //   search_agents — spawnable agent profile catalog. Tier-1 mount only;
+    //     the lookup itself grants nothing.
+    //   list_agents — worker id, status, and pending question. Also notes
+    //     that parked asks were surfaced so a repeat poll is refused; it
+    //     does not grant or mutate a worker.
+    //   read_agent_trace — read a worker's on-disk trace.
+    //   manage_tasks — plan checklist. The handler has no side effect
+    //     because the director already applied the list
+    //     (AUTO_ALLOW_READ_TOOLS).
+    //
+    // Ask here; auto mode allows them via AUTO_ALLOWED_TOOLS because they
+    // start, message, collect, or stop a worker:
+    //   spawn_agent — start a worker.
+    //   send_input — deliver text to a worker.
+    //   wait_agents — block and take that worker's mailbox record.
+    //   interrupt_agent — stop a worker's current turn.
+    //   close_agent — permanently close a worker.
+    //   resume_agent — send a completed or interrupted worker its next turn.
+    //
+    // Ask in auto and non-auto. Not in AUTO_ALLOWED_TOOLS; grants authority:
+    //   approve_worker_call — authorize one pending worker-denied call.
+    //
+    // Worker sessions do not use this prompt. submit_result, ask_director,
+    // and nested fleet verbs other than spawn_agent and search_agents allow
+    // on the reactor worker path without a parent grant. On this primary
+    // gate they still ask:
+    //   submit_result — worker posts its structured result.
+    //   ask_director — worker parks a question for its parent.
     if (!restricted && classifyTool(call.name, mcpTiers) === "allow") {
       return { kind: "allow" };
     }
