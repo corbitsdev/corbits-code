@@ -755,7 +755,7 @@ type-to-filter yield and the chord dispatch all read that one declaration.
 The declared table, with the chord each letter runs: `a` `å`/`Å` add
 provider / add server / add-by-path · `c` `ç`/`Ç` credentials · `d` `∂` set
 default / disable · `r` `®` remove (confirm-guarded) · `t` `†`/`‡` trust ·
-`v` `√` verify · `w` `∑`/`◊` web provider · `x` `≈` remove plugin. `f` and
+`v` `√` verify · `w` `∑` web provider · `x` `≈` remove plugin. `f` and
 the dead-key letters `e u i n g` are excluded, so `ƒ´¨ˆ˜` are never chords.
 
 The fallback rule, three clauses:
