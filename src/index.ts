@@ -11,7 +11,7 @@ import {
   ensureTelemetrySettings,
   globalSettingsPath,
 } from "./config/settings.js";
-import { installFileLogSink } from "./logging/sink.js";
+import { flushFileLogSinkSync, installFileLogSink } from "./logging/sink.js";
 import { flushPerfToOtel } from "./perf/index.js";
 import { createTelemetry, telemetryDisabledByEnv } from "./telemetry/index.js";
 import { getTelemetry, setTelemetry } from "./telemetry/singleton.js";
@@ -120,6 +120,9 @@ export async function mainWithRunners(
   // Keep process.exit from dropping in-flight captures; the flush itself is
   // deadline-capped so exit stays snappy.
   await getTelemetry().flush();
+  // The file sink only queues on the hot path. Flush before returning so a
+  // normal exit does not lose the diagnostic tail.
+  flushFileLogSinkSync();
   return exitCode;
 }
 
@@ -165,5 +168,9 @@ if (import.meta.main) {
     dest.write(exit.text);
     code = exit.code;
   }
+  // Covers logs emitted after main returns, and the catch path, which never
+  // reaches the flush inside mainWithRunners. process.exit skips the microtask
+  // drain, so this has to be synchronous.
+  flushFileLogSinkSync();
   process.exit(code);
 }

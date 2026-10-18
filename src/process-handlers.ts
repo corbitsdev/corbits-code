@@ -3,6 +3,7 @@ import {
   writeCrashReport,
   type CrashKind,
 } from "./crash/report.js";
+import { flushFileLogSinkSync } from "./logging/sink.js";
 import { getActiveRun, markCrashed } from "./session/active-run.js";
 import { printResumeHint } from "./session/resume-hint.js";
 import { getActiveDisposeHost } from "./session/active-host.js";
@@ -84,6 +85,8 @@ export async function handleFatal(
     error_class: classifyErrorClass(error),
   });
   await getTelemetry().flush();
+  // Buffered log lines never reach disk if we exit before the microtask drain.
+  flushFileLogSinkSync();
   process.exit(1);
 }
 
@@ -194,6 +197,7 @@ export function installSignalHandlers(options?: ProcessHandlerOptions): void {
         const run = getActiveRun();
         if (run !== null) printResumeHint(run.sessionId);
         await finalizeActiveRunOnSignal(signal);
+        flushFileLogSinkSync();
         process.exit(128 + SIGNAL_EXIT_NUMBER[signal]);
       })();
     });
