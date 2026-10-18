@@ -5,22 +5,31 @@ import {
   statSync,
   type Stats,
 } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 
 // Cross-call memo for the sandbox path walk. A hit is valid only while the
-// node's lstat identity still matches — and, for a symlink, while the link
-// text and the target's identity still match. Absence is not stored: a path
-// that appears between checks must be resolved again. A failed resolve
-// (dangling link, loop) is not stored either, so a target that shows up or
-// disappears cannot be hidden by an earlier UNRESOLVABLE or real path.
-// Replacing a symlink allocates a new inode, so the previous entry misses.
+// leaf's lstat identity still matches AND every ancestor still has the same
+// dev/ino (and, when that ancestor is a symlink, the same link text) as when
+// the entry was stored. Rename keeps the leaf inode, so a leaf-only key would
+// hide a directory swapped for a symlink. Absence is not stored: a path that
+// appears between checks must be resolved again. A failed resolve (dangling
+// link, loop) is not stored either, so a target that shows up or disappears
+// cannot be hidden by an earlier UNRESOLVABLE or real path.
 const MAX_ENTRIES = 4096;
+
+type AncestorStamp = {
+  path: string;
+  dev: number;
+  ino: number;
+  linkTarget: string | undefined;
+};
 
 type NodeEntry = {
   kind: "node";
   dev: number;
   ino: number;
   real: string;
+  ancestors: readonly AncestorStamp[];
 };
 
 type LinkEntry = {
@@ -31,6 +40,7 @@ type LinkEntry = {
   real: string;
   targetDev: number;
   targetIno: number;
+  ancestors: readonly AncestorStamp[];
 };
 
 type Entry = NodeEntry | LinkEntry;
@@ -108,21 +118,72 @@ export function readlinkMemoized(path: string): string | undefined {
   return target;
 }
 
+// Strict ancestors of `path`, root included. Undefined when an ancestor
+// cannot be stamped, in which case the caller must not cache a real path.
+function ancestorStamps(path: string): AncestorStamp[] | undefined {
+  const stamps: AncestorStamp[] = [];
+  let current = dirname(cacheKey(path));
+  if (current === cacheKey(path)) return stamps;
+  while (true) {
+    const st = lstatMemoized(current);
+    if (st === undefined) return undefined;
+    let linkTarget: string | undefined;
+    if (st.isSymbolicLink()) {
+      linkTarget = readlinkMemoized(current);
+      if (linkTarget === undefined) return undefined;
+    }
+    stamps.push({
+      path: current,
+      dev: st.dev,
+      ino: st.ino,
+      linkTarget,
+    });
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return stamps;
+}
+
+function ancestorsMatch(stamps: readonly AncestorStamp[]): boolean {
+  for (const stamp of stamps) {
+    const st = lstatMemoized(stamp.path);
+    if (st === undefined || st.dev !== stamp.dev || st.ino !== stamp.ino) {
+      return false;
+    }
+    if (stamp.linkTarget !== undefined) {
+      if (
+        !st.isSymbolicLink() ||
+        readlinkMemoized(stamp.path) !== stamp.linkTarget
+      ) {
+        return false;
+      }
+    } else if (st.isSymbolicLink()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function cachedNodeReal(path: string, st: Stats): string | undefined {
   const key = cacheKey(path);
   const entry = entries.get(key);
   if (entry === undefined || entry.kind !== "node") return undefined;
   if (entry.dev !== st.dev || entry.ino !== st.ino) return undefined;
+  if (!ancestorsMatch(entry.ancestors)) return undefined;
   touch(key, entry);
   return entry.real;
 }
 
 export function rememberNode(path: string, st: Stats, real: string): void {
+  const ancestors = ancestorStamps(path);
+  if (ancestors === undefined) return;
   remember(cacheKey(path), {
     kind: "node",
     dev: st.dev,
     ino: st.ino,
     real,
+    ancestors,
   });
 }
 
@@ -141,8 +202,9 @@ export function cachedLinkReal(
   ) {
     return undefined;
   }
-  // The link inode is not enough: deleting the target leaves the symlink in
-  // place. Re-lstat only the cached target, not the ancestor chain.
+  // Ancestor identity first. lstat of the cached real path follows a new
+  // ancestor symlink and can still see the same target inode after a rename.
+  if (!ancestorsMatch(entry.ancestors)) return undefined;
   let targetStat: Stats;
   try {
     targetStat = lstatSync(entry.real);
@@ -171,6 +233,8 @@ export function rememberLink(
   } catch {
     return;
   }
+  const ancestors = ancestorStamps(path);
+  if (ancestors === undefined) return;
   remember(cacheKey(path), {
     kind: "link",
     dev: st.dev,
@@ -179,6 +243,7 @@ export function rememberLink(
     real,
     targetDev: targetStat.dev,
     targetIno: targetStat.ino,
+    ancestors,
   });
 }
 

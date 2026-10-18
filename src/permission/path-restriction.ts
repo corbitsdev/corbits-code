@@ -122,8 +122,9 @@ function resolveNearest(path: string): string {
 // distinguishes the two: it succeeds for an existing-but-broken symlink and
 // fails only when the component is genuinely absent.
 //
-// Already-resolved ancestors are memoized across calls, keyed by lstat
-// identity (see realpath-cache.ts). The check stays synchronous.
+// Already-resolved ancestors are memoized across calls only while each
+// ancestor keeps the dev/ino (and symlink text) stored with the entry. The
+// check stays synchronous.
 export function realpathNearestOr(path: string): string {
   return enterPathResolution(() => resolveNearest(path));
 }
