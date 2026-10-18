@@ -15,6 +15,7 @@ import {
 import { manageTasksDefinition } from "./tasks.js";
 import { validateView } from "../tui/view/validate.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
+import { startBoundMcpHandshake } from "../exec/mcp-handshake.js";
 import {
   advertiseShellGuardTimeout,
   type ShellTimeoutConfig,
@@ -312,6 +313,10 @@ export interface MCPConnectCallbacks {
   // Headless hosts must not advertise an auth callback they cannot complete;
   // its presence marks the OAuth flow as interactive.
   interactiveAuth: boolean;
+  // The TUI sets this so a dial abort (the 15s handshake cap) is dropped once
+  // the browser auth URL is showing. The browser-auth budget and a real
+  // cancel still bound that wait. Headless leaves it unset.
+  browserAuthOutlivesDialAbort?: boolean;
   // Fired whenever a server's connection state changes.
   onStatus: (state: MCPServerState) => void;
   // Fired after a server connects and its tools register, with the full
@@ -1269,6 +1274,7 @@ export async function createAgentToolset(
           return;
         }
       }
+      startBoundMcpHandshake(signal);
       if (staleOrDisabled()) return;
       callbacks.onStatus({ name: config.name, state: "connecting" });
       let result: MCPConnectResult;
@@ -1279,6 +1285,12 @@ export async function createAgentToolset(
           ...(callbacks.interactiveAuth
             ? {
                 onAuthURL: (name: string, url: string) => {
+                  // The parent signal is the dial cap plus exit. Once the
+                  // operator has an auth URL, that cap must not close the
+                  // redirect or burn the single browser attempt. Dispose and
+                  // per-server cancel stay on connectionSignal.
+                  if (callbacks.browserAuthOutlivesDialAbort === true)
+                    forwarded?.disarm();
                   if (!disposed && !staleOrDisabled()) {
                     callbacks.onStatus({ name, state: "needs-auth", url });
                   }
