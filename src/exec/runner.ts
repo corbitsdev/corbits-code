@@ -630,7 +630,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const pluginConfig = config.settings?.plugins ?? {};
 
     const toolPluginCandidates = collectToolPlugins(executablePlugins());
-    const extraToolPlugins = await resolveToolPlugins({
+    const { plugins: extraToolPlugins } = await resolveToolPlugins({
       candidates: toolPluginCandidates,
       pluginConfig,
     });

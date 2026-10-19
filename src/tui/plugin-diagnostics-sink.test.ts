@@ -238,12 +238,12 @@ describe("interactive plugin diagnostics never hit raw stderr", () => {
     };
     const { writes } = await withStderrCapture(async () => {
       const diag = createPluginLoadDiagnostics();
-      const tools = await resolveToolPlugins({
+      const resolved = await resolveToolPlugins({
         candidates: [candidate],
         pluginConfig: { throws: { enabled: true, consented: true } },
         diagnostics: diag,
       });
-      expect(tools).toEqual([]);
+      expect(resolved).toEqual({ plugins: [] });
       const message = formatPluginWarningsSummary(diag.warnings);
       expect(message).toBeDefined();
     });
@@ -269,13 +269,13 @@ describe("resolveToolPlugins without a diagnostics collector", () => {
         throw new Error("boom");
       },
     };
-    const { result: tools, writes } = await withStderrCapture(async () =>
+    const { result: resolved, writes } = await withStderrCapture(async () =>
       resolveToolPlugins({
         candidates: [candidate],
         pluginConfig: { throws: { enabled: true, consented: true } },
       }),
     );
-    expect(tools).toEqual([]);
+    expect(resolved).toEqual({ plugins: [] });
     expect(writes).toBe(1);
   });
 });

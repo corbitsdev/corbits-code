@@ -257,7 +257,7 @@ export async function assembleTUISession(
   // Web and tool plugin resolution are independent, so resolve them
   // concurrently.
   const toolPluginDiag = createPluginLoadDiagnostics();
-  const [activeWeb, extraToolPlugins] = await Promise.all([
+  const [activeWeb, resolvedToolPlugins] = await Promise.all([
     resolveWebProviderFromPlugins({
       candidates: pluginState.webCandidates,
       pluginConfig: config.settings?.plugins ?? {},
@@ -269,6 +269,7 @@ export async function assembleTUISession(
       diagnostics: toolPluginDiag,
     }),
   ]);
+  const { plugins: extraToolPlugins } = resolvedToolPlugins;
   if (activeWeb !== undefined)
     setActiveWebProviderBrand(webBrand(activeWeb.name));
   emitPluginWarningLog(toolPluginDiag);
