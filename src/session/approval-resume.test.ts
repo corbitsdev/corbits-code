@@ -12,6 +12,7 @@ import type {
   InboundMessage,
 } from "@intx/types/runtime";
 
+import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../permission/decline-markers.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { createExtraDeniedPathMatcher } from "../plugins/secret-guard-plugin.js";
 import {
@@ -23,6 +24,7 @@ import {
   resolveSuspendedApprovalFromStore,
 } from "./approval-resume.js";
 import { createSessionOperationQueue } from "../tui/delivery-queue.js";
+import { createParkedOverlayAbortBinding } from "../tui/runner/parked-overlay-abort.js";
 import { defined } from "../../testkit/defined.js";
 import { redactedCorrelationId } from "./redacted-correlation.js";
 import {
@@ -936,6 +938,78 @@ describe("approval identity ordering", () => {
     expect(decisionBody(message).outcome).toBe("rejected");
   });
 
+  test("generation change during catch history drops the parked call once", async () => {
+    const ctx = deferredResume();
+    const failure = new Error("gate exploded");
+    ctx.resolveSuspended.mockImplementation(async () => {
+      throw failure;
+    });
+    ctx.history.mockResolvedValueOnce([]).mockImplementationOnce(async () => {
+      ctx.invalidate();
+      return [];
+    });
+    const handling = ctx.resume.handle(suspension("corr-A", "echo same"));
+    ctx.lookup.resolve("call-A");
+    await expect(handling).rejects.toBe(failure);
+    expect(ctx.onDropped).toHaveBeenCalledTimes(1);
+    expect(ctx.onDropped).toHaveBeenCalledWith(APPROVAL_DROPPED_NOTICE);
+    expect(ctx.deliver).toHaveBeenCalledTimes(1);
+    const message = ctx.deliver.mock.calls[0]?.[0];
+    if (message === undefined)
+      throw new Error("expected cancellation rejection");
+    expect(deliveredCorrelationId(message)).toBe("corr-A");
+    expect(decisionBody(message)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_DROPPED_NOTICE,
+    });
+  });
+
+  test("a gate throw with no generation change rejects once as approval surface failed", async () => {
+    const ctx = deferredResume();
+    const failure = new Error("gate exploded");
+    ctx.resolveSuspended.mockImplementation(async () => {
+      throw failure;
+    });
+    const handling = ctx.resume.handle(suspension("corr-A", "echo same"));
+    ctx.lookup.resolve("call-A");
+    await expect(handling).rejects.toBe(failure);
+    expect(ctx.onDropped).not.toHaveBeenCalled();
+    expect(ctx.deliver).toHaveBeenCalledTimes(1);
+    const message = ctx.deliver.mock.calls[0]?.[0];
+    if (message === undefined) throw new Error("expected surface rejection");
+    expect(deliveredCorrelationId(message)).toBe("corr-A");
+    expect(decisionBody(message)).toEqual({
+      outcome: "rejected",
+      message: "approval surface failed",
+    });
+  });
+
+  test("generation change during catch history after a timeout does not reject again", async () => {
+    const ctx = deferredResume();
+    const failure = new Error("gate exploded");
+    ctx.resolveSuspended.mockImplementation(async () => {
+      throw failure;
+    });
+    const reading = Promise.withResolvers<undefined>();
+    const history = Promise.withResolvers<ConversationTurn[]>();
+    ctx.history.mockResolvedValueOnce([]).mockImplementationOnce(() => {
+      reading.resolve(undefined);
+      return history.promise;
+    });
+    const handling = ctx.resume.handle(suspension("corr-A", "echo same"));
+    ctx.lookup.resolve("call-A");
+    await reading.promise;
+    expect(ctx.resolveSuspended).toHaveBeenCalledTimes(1);
+    expect(ctx.registered()).toBeUndefined();
+    ctx.invalidate();
+    history.resolve([timeoutTurn("call-A")]);
+    await expect(handling).rejects.toBe(failure);
+    expect(ctx.onDropped).toHaveBeenCalledTimes(1);
+    expect(ctx.onDropped).toHaveBeenCalledWith(APPROVAL_DROPPED_NOTICE);
+    expect(ctx.deliver).not.toHaveBeenCalled();
+    expect(ctx.registered()).toBeUndefined();
+  });
+
   for (const timedOutCallId of ["call-A", "call-B"]) {
     test(`generation change during post-gate history with ${timedOutCallId} timeout preserves exact-call cancellation`, async () => {
       const ctx = deferredResume();
@@ -1192,10 +1266,9 @@ describe("approval resume retry re-await", () => {
     expect(delivered).toHaveLength(1);
   });
 
-  // Concurrent duplicates share one in-flight rejection (one gate, zero
-  // deliveries), then a retry re-gates and delivers exactly once, and later
-  // retries memoize.
-  test("a shared rejection re-gates once, delivers once, then memoizes", async () => {
+  // Concurrent duplicates share one in-flight gate failure (one gate, one
+  // rejection delivered), and later retries memoize.
+  test("a shared gate failure rejects the parked call once, then memoizes", async () => {
     const gate = Promise.withResolvers<{ allow: boolean }>();
     const { resume, delivered, resolveSuspended } = retryHarness({
       allow: true,
@@ -1210,15 +1283,79 @@ describe("approval resume retry re-await", () => {
     await expect(first).rejects.toBe(failure);
     await expect(second).rejects.toBe(failure);
     expect(resolveSuspended).toHaveBeenCalledTimes(1);
-    expect(delivered).toHaveLength(0);
+    // Nothing retries a parked call, so the failure answers it.
+    expect(delivered).toHaveLength(1);
+    expect(decisionBody(onlyDecision(delivered)).outcome).toBe("rejected");
 
     expect(await resume.handle(suspension("corr-A", "echo alpha"))).toBe(true);
-    expect(resolveSuspended).toHaveBeenCalledTimes(2);
+    expect(resolveSuspended).toHaveBeenCalledTimes(1);
     expect(delivered).toHaveLength(1);
-    expect(decisionBody(onlyDecision(delivered)).outcome).toBe("approved");
+  });
+  test("a gate failure after the reactor timed the call out delivers nothing", async () => {
+    const delivered: InboundMessage[] = [];
+    let timedOut = false;
+    const failure = new Error("gate exploded");
+    const resume = createApprovalResume({
+      getAgent: () => ({
+        deliver: (message: InboundMessage) => {
+          delivered.push(message);
+        },
+        history: async () =>
+          timedOut
+            ? ([
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "tool_result",
+                      callId: "call-A",
+                      content: [
+                        { type: "text", text: APPROVAL_TIMEOUT_RESULT_TEXT },
+                      ],
+                    },
+                  ],
+                },
+              ] as unknown as Awaited<ReturnType<Agent["history"]>>)
+            : [],
+      }),
+      resolveParkedCallId: () => "call-A",
+      gate: {
+        resolveSuspended: async () => {
+          timedOut = true;
+          throw failure;
+        },
+      } as unknown as PermissionGate,
+    });
+    await expect(
+      resume.handle(suspension("corr-A", "echo alpha")),
+    ).rejects.toBe(failure);
+    expect(delivered).toEqual([]);
+  });
+});
 
-    expect(await resume.handle(suspension("corr-A", "echo alpha"))).toBe(true);
-    expect(resolveSuspended).toHaveBeenCalledTimes(2);
-    expect(delivered).toHaveLength(1);
+describe("parked overlay registration after the operator answers", () => {
+  // approve_worker_call raises a nested permission prompt as soon as its
+  // redispatched call starts, while the decision that resumed it is still being
+  // delivered. That prompt's abort signal merges the parked overlay controller.
+  test("a permission prompt raised while the decision is delivered is not pre-aborted", async () => {
+    const binding = createParkedOverlayAbortBinding();
+    const identity = new AbortController();
+    const { agent, gate } = createApprovalResumeHarness();
+    let promptSignal: AbortSignal | undefined;
+    const resume = createApprovalResume({
+      getAgent: () => agent,
+      gate,
+      resolveParkedCallId: () => "call-A",
+      registerOverlayAbort: binding.registerOverlayAbort,
+      deliver: async (message) => {
+        promptSignal = binding.identitySignal(identity.signal);
+        agent.deliver(message);
+      },
+    });
+    expect(
+      await resume.handle(suspension("corr-A", "git status --short")),
+    ).toBe(true);
+    expect(promptSignal).toBeDefined();
+    expect(promptSignal?.aborted).toBe(false);
   });
 });

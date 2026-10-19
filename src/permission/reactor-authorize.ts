@@ -31,6 +31,7 @@ import {
   type WorkerGrantStore,
 } from "./worker-grant.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import { prepareDispatchedToolCall } from "../agent/tool-aliases.js";
 import { getSubAgentIdentity } from "../subagent/identity-context.js";
 import {
   FLEET_VERBS,
@@ -100,6 +101,23 @@ function resolveWorkerCwd(cwd: string | undefined): string {
   return cwd ?? getSubAgentIdentity()?.cwd ?? process.cwd();
 }
 
+/**
+ * The call as DynamicToolRunner dispatches it: canonical engine name plus
+ * hidden-alias argument coercion (gpt `shell` -> run_shell via
+ * coerceShellArgs). Authorize sees the raw wire call; the middleware that
+ * consumes an authorized retry sees the dispatched call. Keying both on the
+ * dispatched shape keeps one fingerprint per executed call. Invalid hidden
+ * arguments never dispatch, so they keep their raw shape.
+ */
+function dispatchedCall(call: ToolCallType): ToolCallType {
+  const engine = canonicalToolName(call.name);
+  try {
+    return prepareDispatchedToolCall(call, engine);
+  } catch {
+    return { ...call, name: engine };
+  }
+}
+
 function workerCallIdentity(
   sessionId: string,
   call: ToolCallType,
@@ -110,10 +128,11 @@ function workerCallIdentity(
   args: Record<string, unknown>;
   cwd: string;
 } {
+  const dispatched = dispatchedCall(call);
   return {
     sessionId,
-    canonicalTool: canonicalToolName(call.name),
-    args: (call.arguments ?? {}) as Record<string, unknown>,
+    canonicalTool: dispatched.name,
+    args: (dispatched.arguments ?? {}) as Record<string, unknown>,
     cwd,
   };
 }
