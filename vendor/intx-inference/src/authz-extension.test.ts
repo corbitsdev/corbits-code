@@ -452,3 +452,15 @@ describe("createAuthzExtension", () => {
     expect(suspended.type).toBe("suspend");
   });
 });
+
+test("allow-once approval mode is copied only when present", async () => {
+  for (const approvalMode of ["allow-once", undefined] as const) {
+    const ext = createAuthzExtension({
+      authorize: async () => ({ effect: "ask", matchingGrants: [], resolvedBy: null, ...(approvalMode !== undefined ? { approvalMode } : {}) }),
+      toolDefinitions: [{ name: "bash", description: "shell", inputSchema: {} }],
+    });
+    const result = await ext.beforeTool(makeCall(), makeState(), new AbortController().signal);
+    if (result.type !== "suspend") throw new Error("expected suspend");
+    expect(result.pendingOp.approvalSnapshot?.approvalMode).toBe(approvalMode);
+  }
+});

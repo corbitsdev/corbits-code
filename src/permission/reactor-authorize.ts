@@ -340,9 +340,23 @@ export function createReactorAuthorize(
         // The model-facing block stays generic (upstream's formatBlockReason);
         // the gate's specific reason is preserved here for the audit trail.
         logger.warn`authz deny resource=${resource} reason=${verdict.reason}`;
-        return { effect: "deny", matchingGrants: [], resolvedBy: null };
+        return {
+          effect: "deny",
+          matchingGrants: [],
+          resolvedBy: null,
+          ...(verdict.publicReason !== undefined
+            ? { reason: verdict.publicReason }
+            : {}),
+        };
       case "ask":
-        return { effect: "ask", matchingGrants: [], resolvedBy: null };
+        return {
+          effect: "ask",
+          matchingGrants: [],
+          resolvedBy: null,
+          ...(verdict.request.scopes.length === 0
+            ? { approvalMode: "allow-once" as const }
+            : {}),
+        };
     }
   };
 }

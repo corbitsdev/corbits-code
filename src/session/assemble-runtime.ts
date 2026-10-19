@@ -271,6 +271,7 @@ export interface SessionGateArgs {
   /** Route this gate's decisions through the reactor authz seam (main session). */
   reactorGated: boolean;
   onGrant?: PermissionGateOptions["onGrant"] | undefined;
+  pluginAuthorize?: AuthorizeFn | undefined;
   /**
    * `--permissions` file. When set, its approvals replace global and
    * provider-model grants for this process.
@@ -323,6 +324,7 @@ export async function assembleSessionGate(
     auto: args.auto,
     reactorGated: args.reactorGated,
     onGrant: args.onGrant,
+    pluginAuthorize: args.pluginAuthorize,
   });
   return { gate, seededApprovals };
 }

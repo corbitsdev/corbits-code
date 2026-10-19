@@ -1,15 +1,19 @@
 import type { AuthorizeFn } from "@intx/agent";
+import { getLogger } from "@intx/log";
 import type { AuthzCallResult } from "@intx/inference";
 import type { ToolPlugin } from "@intx/tools-posix";
 import { collectPluginCandidates, type PluginModule } from "./loader.js";
 import type { PluginConfig } from "../config/settings.js";
 import type { PluginCredentialField } from "./manifest.js";
 import { scrubSecrets } from "../web/secret-scrub.js";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import {
   resolvePluginWarningHandler,
   stderrPluginWarning,
   type PluginLoadDiagnostics,
 } from "./diagnostics.js";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "plugins", "tool-authz"]);
 
 // A discovered plugin that contributes agent tools: a "tool"-kind manifest plus
 // the factory the loader captured.
@@ -53,11 +57,11 @@ function composePluginAuthorizers(
       try {
         result = await plugin.authorize(resource, action, context);
       } catch (err) {
+        logger.warn`tool-plugin ${plugin.id} authorization failed: ${scrubSecrets(err instanceof Error ? err.message : String(err))}`;
         result = {
           effect: "deny",
           matchingGrants: [],
           resolvedBy: null,
-          reason: `tool-plugin "${plugin.id}" authorization failed: ${scrubSecrets(err instanceof Error ? err.message : String(err))}`,
         };
       }
       if (result.effect === "deny" || result.effect === null) return result;

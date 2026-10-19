@@ -279,6 +279,21 @@ passthrough on `AuthzCallResult`. **Removal path:** Upstream PR adding
 `reason?: string` and using it in `formatBlockReason`.
 **Re-carry:** new after `0205b07b`. Low risk — additive optional field.
 
+## authz-ts-approval-mode
+
+`authz-extension.ts` — `AuthzCallResult` may carry the optional generic
+`approvalMode: "allow-once"` marker. On an `ask`, the extension copies that
+marker into the durable `ApprovalSnapshot`; absent markers preserve the
+upstream snapshot byte shape. This lets hosts retain a scope-less approval
+constraint across suspension persistence and restart without a second approval
+mechanism or plugin-specific state.
+
+**Disposition:** Promotion candidate. Requires upstream to carry generic
+approval settlement provenance through its existing snapshot contract.
+**Removal path:** Upstream support for an equivalent allow-once marker on authz
+results and approval snapshots. **Re-carry:** keep the copy at snapshot creation
+only; do not rerun authorization during resume.
+
 ## assembly-ts-deps-context-transforms
 
 `assembly.ts` — Resolves `contextTransforms` from either the direct assembly
@@ -707,6 +722,7 @@ revisit point is the next vendored sync (see `docs/VENDORING.md`).
 | --- | --- | --- | --- | --- |
 | adapter-ts-stream-terminal-detector (+ harness-ts-is-stream-terminal) | Add an `isStreamTerminal`/`StreamTerminalDetector` hook to `ProviderAdapter` for semantic end-of-stream protocols | Alexander Guy <alexander.guy@pm.me> | This ledger (vendor/intx-inference/PATCHES.md#adapter-ts-stream-terminal-detector) | Next vendored sync |
 | authz-ts-deny-reason | Optional `AuthzCallResult.reason` used as the deny block text | Alexander Guy <alexander.guy@pm.me> | This ledger (#authz-ts-deny-reason) | Next vendored sync |
+| authz-ts-approval-mode | Carry a generic allow-once marker from authz ask results into durable approval snapshots | Alexander Guy <alexander.guy@pm.me> | This ledger (#authz-ts-approval-mode) | Next vendored sync |
 | errors-ts-classify-abort-reason | Add optional `reason` param to `classifyAbortError`, carried as `raw: { origin }` | Alexander Guy <alexander.guy@pm.me> | This ledger (#errors-ts-classify-abort-reason) | Next vendored sync |
 | harness-ts-inactivity-on-semantic-progress | Gate the inactivity watchdog's re-arm on parsed events, not raw SSE bytes | Alexander Guy <alexander.guy@pm.me> | This ledger (#harness-ts-inactivity-on-semantic-progress) | Next vendored sync |
 | reactor-ts-correlating-ids-leak | Wrap `tryCorrelate` in try/finally so `correlatingIds` clears on success dispatch paths | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-correlating-ids-leak) | Next vendored sync |
