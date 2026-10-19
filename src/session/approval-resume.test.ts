@@ -938,6 +938,78 @@ describe("approval identity ordering", () => {
     expect(decisionBody(message).outcome).toBe("rejected");
   });
 
+  test("generation change during catch history drops the parked call once", async () => {
+    const ctx = deferredResume();
+    const failure = new Error("gate exploded");
+    ctx.resolveSuspended.mockImplementation(async () => {
+      throw failure;
+    });
+    ctx.history.mockResolvedValueOnce([]).mockImplementationOnce(async () => {
+      ctx.invalidate();
+      return [];
+    });
+    const handling = ctx.resume.handle(suspension("corr-A", "echo same"));
+    ctx.lookup.resolve("call-A");
+    await expect(handling).rejects.toBe(failure);
+    expect(ctx.onDropped).toHaveBeenCalledTimes(1);
+    expect(ctx.onDropped).toHaveBeenCalledWith(APPROVAL_DROPPED_NOTICE);
+    expect(ctx.deliver).toHaveBeenCalledTimes(1);
+    const message = ctx.deliver.mock.calls[0]?.[0];
+    if (message === undefined)
+      throw new Error("expected cancellation rejection");
+    expect(deliveredCorrelationId(message)).toBe("corr-A");
+    expect(decisionBody(message)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_DROPPED_NOTICE,
+    });
+  });
+
+  test("a gate throw with no generation change rejects once as approval surface failed", async () => {
+    const ctx = deferredResume();
+    const failure = new Error("gate exploded");
+    ctx.resolveSuspended.mockImplementation(async () => {
+      throw failure;
+    });
+    const handling = ctx.resume.handle(suspension("corr-A", "echo same"));
+    ctx.lookup.resolve("call-A");
+    await expect(handling).rejects.toBe(failure);
+    expect(ctx.onDropped).not.toHaveBeenCalled();
+    expect(ctx.deliver).toHaveBeenCalledTimes(1);
+    const message = ctx.deliver.mock.calls[0]?.[0];
+    if (message === undefined) throw new Error("expected surface rejection");
+    expect(deliveredCorrelationId(message)).toBe("corr-A");
+    expect(decisionBody(message)).toEqual({
+      outcome: "rejected",
+      message: "approval surface failed",
+    });
+  });
+
+  test("generation change during catch history after a timeout does not reject again", async () => {
+    const ctx = deferredResume();
+    const failure = new Error("gate exploded");
+    ctx.resolveSuspended.mockImplementation(async () => {
+      throw failure;
+    });
+    const reading = Promise.withResolvers<undefined>();
+    const history = Promise.withResolvers<ConversationTurn[]>();
+    ctx.history.mockResolvedValueOnce([]).mockImplementationOnce(() => {
+      reading.resolve(undefined);
+      return history.promise;
+    });
+    const handling = ctx.resume.handle(suspension("corr-A", "echo same"));
+    ctx.lookup.resolve("call-A");
+    await reading.promise;
+    expect(ctx.resolveSuspended).toHaveBeenCalledTimes(1);
+    expect(ctx.registered()).toBeUndefined();
+    ctx.invalidate();
+    history.resolve([timeoutTurn("call-A")]);
+    await expect(handling).rejects.toBe(failure);
+    expect(ctx.onDropped).toHaveBeenCalledTimes(1);
+    expect(ctx.onDropped).toHaveBeenCalledWith(APPROVAL_DROPPED_NOTICE);
+    expect(ctx.deliver).not.toHaveBeenCalled();
+    expect(ctx.registered()).toBeUndefined();
+  });
+
   for (const timedOutCallId of ["call-A", "call-B"]) {
     test(`generation change during post-gate history with ${timedOutCallId} timeout preserves exact-call cancellation`, async () => {
       const ctx = deferredResume();

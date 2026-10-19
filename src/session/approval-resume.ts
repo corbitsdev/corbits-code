@@ -561,6 +561,14 @@ export function createApprovalResume(args: {
               () => parkedAgent.history(),
               parkedCallId,
             ));
+          // A bump during that history read already cleared this cancel, so
+          // deliver the drop here. A call the reactor already timed out is not
+          // rejected again.
+          if (timedOut) canReject = false;
+          if (!stillCurrent()) {
+            dropParked();
+            throw err;
+          }
           if (!timedOut) {
             await deliverDecision(
               decisionMessage(
