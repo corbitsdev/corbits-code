@@ -97,9 +97,7 @@ describe("pruning compactor persists invocation trigger (CL-10869)", () => {
       async () => "Auth migration done. No errors remain.",
     ).apply(turns, ctx(trigger));
     expect(result.output).toBe(turns);
-    expect(result.record.reason).toBe(
-      "verify failed — keeping prior context",
-    );
+    expect(result.record.reason).toBe("verify failed — keeping prior context");
     expect(result.record.decisions.verifyAbortReason).toBe("contradiction");
     expect(result.record.decisions.trigger).toBe(trigger);
   });
