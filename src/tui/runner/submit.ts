@@ -411,8 +411,17 @@ export function createSubmitPath(
             );
             // The drained message already reached the agent, so its delivery
             // stays accepted and the queue posts no notice. Surface the lost
-            // decision as a failed send, with the notice the drain left off.
-            handleSendFailure(err, attempt, providerFailure, true);
+            // decision here, but leave the run state alone: the run is still
+            // open, and settling the shell idle would strand follow-ups queued
+            // behind this turn.
+            if (state.sendAborted) return;
+            const detail = err instanceof Error ? err.message : String(err);
+            systemNotice(
+              sanitizeRunnerDiagnostic(
+                state,
+                `approval for a queued turn failed: ${detail}`,
+              ),
+            );
           });
           return;
         }
