@@ -1,11 +1,18 @@
 /**
- * Git branch polling for the prompt box's bottom border.
+ * Git branch lookup for the prompt box's bottom border.
  *
- * The branch is the one border piece that changes without the shell being
- * told, so it is polled rather than pushed. While a lookup is outstanding the
- * tick is skipped, so a git process hung on a network filesystem cannot
- * accumulate children. Nothing here blocks a paint — the border keeps the
- * last branch it was given.
+ * The label is filled once at start, then only when `refresh` runs. A fixed
+ * interval used to fork `git rev-parse` every few seconds for the whole TUI
+ * lifetime, including idle. Callers refresh on an event that can change the
+ * branch (a finished turn); staleness between those events is acceptable.
+ * A refresh that arrives while a lookup is outstanding is remembered and
+ * runs once that lookup settles: one follow-up child, not a loop, and not
+ * a dropped turn-end read. A lookup that lands after stop is dropped.
+ * Nothing here blocks a paint. The border keeps the last branch it was
+ * given across a rejected lookup and across a null result: `getGitBranch`
+ * resolves null for timeout, a non-zero exit, and a non-repo, and that
+ * must not be treated as detached HEAD clearing the suffix. A null before
+ * any branch was shown still reports, so a non-repo stays unlabeled.
  */
 
 import { getGitBranch } from "../agent/environment.js";
@@ -15,47 +22,63 @@ export type FetchBranch = (cwd: string) => Promise<string | null>;
 export interface BranchWatchInput {
   readonly cwd: string;
   readonly onBranch: (branch: string | null) => void;
-  readonly intervalMs?: number;
   readonly fetchBranch?: FetchBranch;
-  /** Timer injection for tests; defaults to the global interval. */
-  readonly schedule?: (tick: () => void, intervalMs: number) => () => void;
 }
 
-const DEFAULT_INTERVAL_MS = 5_000;
-
-function defaultSchedule(tick: () => void, intervalMs: number): () => void {
-  const timer = setInterval(tick, intervalMs);
-  return () => {
-    clearInterval(timer);
-  };
+export interface BranchWatch {
+  /** Drop a lookup that lands afterwards. */
+  readonly stop: () => void;
+  /** Look up the branch again. Idle time never calls this. */
+  readonly refresh: () => void;
 }
 
-/** Start polling; returns an unsubscribe that also silences a late lookup. */
-export function watchGitBranch(input: BranchWatchInput): () => void {
+/** Start watching. Looks up once immediately so the label is not blank. */
+export function watchGitBranch(input: BranchWatchInput): BranchWatch {
   const fetchBranch = input.fetchBranch ?? getGitBranch;
-  const intervalMs = input.intervalMs ?? DEFAULT_INTERVAL_MS;
-  const schedule = input.schedule ?? defaultSchedule;
   let inFlight = false;
   let stopped = false;
+  let again = false;
+  let shown: string | null = null;
 
   const refresh = (): void => {
-    if (inFlight || stopped) return;
+    if (stopped) return;
+    if (inFlight) {
+      again = true;
+      return;
+    }
     inFlight = true;
+    again = false;
     fetchBranch(input.cwd).then(
       (branch) => {
+        // Release before paint. A throw from onBranch must not stick the
+        // guard or skip a follow-up armed while this lookup was in flight,
+        // and it must not reject this chain.
         inFlight = false;
-        if (!stopped) input.onBranch(branch);
+        try {
+          // Null after a real branch is a failed lookup (or detached HEAD,
+          // which shares that null). Keep the suffix; do not clear it.
+          if (!stopped && !(branch === null && shown !== null)) {
+            input.onBranch(branch);
+            shown = branch;
+          }
+        } catch {
+          // The label paint must not stick the lookup or reject this chain.
+        } finally {
+          if (!stopped && again) refresh();
+        }
       },
       () => {
         inFlight = false;
+        if (!stopped && again) refresh();
       },
     );
   };
 
   refresh();
-  const cancel = schedule(refresh, intervalMs);
-  return () => {
-    stopped = true;
-    cancel();
+  return {
+    stop: () => {
+      stopped = true;
+    },
+    refresh,
   };
 }

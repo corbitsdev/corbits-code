@@ -435,13 +435,19 @@ export async function mountRunnerHost(
   };
   deps.eventEmitter.on("session.clear", onSessionClear);
 
-  const stopBranchWatch = watchGitBranch({
+  const branchWatch = watchGitBranch({
     cwd,
     onBranch: (branch) => setPromptWorkspace(host.shell, { branch }),
     ...(deps.fetchBranch !== undefined
       ? { fetchBranch: deps.fetchBranch }
       : {}),
   });
+  // A turn can run a shell that checks out another branch. Idle time does not
+  // fork git; the label may stay stale until the next finished turn.
+  const onBranchEvent = (event: { type: string }): void => {
+    if (onTurnBoundary(event)) branchWatch.refresh();
+  };
+  deps.eventEmitter.on("event", onBranchEvent);
 
   // Quitting is Ctrl+C twice, the binding this interface has always used.
   // The host claims no key of its own: a second exit chord would split the
@@ -451,8 +457,9 @@ export async function mountRunnerHost(
   const dispose = (): void => {
     if (disposed) return;
     disposed = true;
-    stopBranchWatch();
+    branchWatch.stop();
     deps.eventEmitter.off("event", onCostEvent);
+    deps.eventEmitter.off("event", onBranchEvent);
     deps.eventEmitter.off("session.clear", onSessionClear);
     unsubscribeChrome?.();
     clearShellExitHandler(host.shell);
