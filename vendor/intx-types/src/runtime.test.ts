@@ -1211,6 +1211,14 @@ describe("ApprovalSnapshot", () => {
     const result = ApprovalSnapshot({ ...validSnapshot, name: 42 });
     expect(result instanceof type.errors).toBe(true);
   });
+
+  test("accepts the optional allow-once approval mode", () => {
+    expect(ApprovalSnapshot({ ...validSnapshot, approvalMode: "allow-once" }) instanceof type.errors).toBe(false);
+  });
+
+  test("rejects malformed approval modes", () => {
+    expect(ApprovalSnapshot({ ...validSnapshot, approvalMode: "plugin" }) instanceof type.errors).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

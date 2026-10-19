@@ -51,6 +51,8 @@ export type AuthzCallResult = {
   resolvedBy: AuthzMatchedGrant | null;
   // Locally patched — see vendor/intx-inference/PATCHES.md#authz-ts-deny-reason
   reason?: string;
+  // Locally patched — see vendor/intx-inference/PATCHES.md#authz-ts-approval-mode
+  approvalMode?: "allow-once";
 };
 
 export type AuthzDecision = {
@@ -257,6 +259,9 @@ export function createAuthzExtension<Ctx = unknown>(
             description: def.description,
             inputSchema: def.inputSchema,
             arguments: call.arguments,
+            ...(result.approvalMode !== undefined
+              ? { approvalMode: result.approvalMode }
+              : {}),
           };
         }
 

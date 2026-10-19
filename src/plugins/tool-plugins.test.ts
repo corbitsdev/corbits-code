@@ -206,7 +206,7 @@ describe("resolveToolPlugins", () => {
     expect(laterInvoked).toBe(false);
   });
 
-  test("fails closed with a scrubbed plugin-attributed reason", async () => {
+  test("fails closed without exposing a thrown exception as a deny reason", async () => {
     const resolved = await resolveToolPlugins({
       candidates: [
         authorizingCandidate("guard", async () => {
@@ -218,8 +218,6 @@ describe("resolveToolPlugins", () => {
 
     const result = await defined(resolved.authorize)("tool:x", "invoke", {});
     expect(result.effect).toBe("deny");
-    expect(result.reason).toContain('tool-plugin "guard" authorization failed');
-    expect(result.reason).toContain("[REDACTED]");
-    expect(result.reason).not.toContain("secret-value-123456789");
+    expect(result).not.toHaveProperty("reason");
   });
 });
