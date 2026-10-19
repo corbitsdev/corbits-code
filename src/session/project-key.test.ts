@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
@@ -26,10 +26,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
-
-function shQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
 
 async function commitReadme(dir: string): Promise<void> {
   await writeFile(join(dir, "README"), "x");
@@ -59,41 +55,26 @@ test("projectRootFor spawns git rev-parse once for the same cwd", async () => {
   initTemporaryGitRepo(root);
   await commitReadme(root);
 
-  const countFile = join(root, "rev-parse-spawns");
-  await writeFile(countFile, "0\n");
-  const realGit = execFileSync("/usr/bin/which", ["git"], {
-    encoding: "utf8",
-  }).trim();
-  const bin = join(root, "git-bin");
-  await mkdir(bin);
-  const wrapper = join(bin, "git");
-  const resolved = realpathSync(root);
-  await writeFile(
-    wrapper,
-    `#!/bin/sh
-if [ "$1" = "rev-parse" ] && [ "$(pwd)" = ${shQuote(resolved)} ]; then
-  n=$(cat ${shQuote(countFile)})
-  echo $((n + 1)) > ${shQuote(countFile)}
-fi
-exec ${shQuote(realGit)} "$@"
-`,
-  );
-  await chmod(wrapper, 0o755);
-
-  const previousPath = process.env.PATH;
-  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  const traceFile = join(root, "git-trace2-events");
+  const previousTrace = process.env.GIT_TRACE2_EVENT;
+  process.env.GIT_TRACE2_EVENT = traceFile;
   try {
     const first = projectRootFor(root);
     const second = projectRootFor(root);
     expect(second).toBe(first);
     expect(first).toBe(realpathSync(root));
-    const spawns = Number((await readFile(countFile, "utf8")).trim());
+    const spawns = (await readFile(traceFile, "utf8"))
+      .split("\n")
+      .filter(
+        (line) =>
+          line.includes('"event":"start"') && line.includes("rev-parse"),
+      ).length;
     expect(spawns).toBe(1);
   } finally {
-    if (previousPath === undefined) {
-      delete process.env.PATH;
+    if (previousTrace === undefined) {
+      delete process.env.GIT_TRACE2_EVENT;
     } else {
-      process.env.PATH = previousPath;
+      process.env.GIT_TRACE2_EVENT = previousTrace;
     }
   }
 });
@@ -116,18 +97,19 @@ test("projectRootFor retries a nested dir after git was unavailable", async () =
   const nested = join(root, "nested");
   await mkdir(nested);
   const parent = realpathSync(root);
-  const emptyBin = join(root, "empty-bin");
-  await mkdir(emptyBin);
+  // Bun resolves execFileSync("git") from the startup PATH, so emptying PATH
+  // does not hide git. A missing GIT_DIR is forwarded and makes rev-parse fail.
+  const missingGitDir = join(root, "missing-git-dir");
 
-  const previousPath = process.env.PATH;
-  process.env.PATH = emptyBin;
+  const previousGitDir = process.env.GIT_DIR;
+  process.env.GIT_DIR = missingGitDir;
   try {
     expect(projectRootFor(nested)).toBe(realpathSync(nested));
   } finally {
-    if (previousPath === undefined) {
-      delete process.env.PATH;
+    if (previousGitDir === undefined) {
+      delete process.env.GIT_DIR;
     } else {
-      process.env.PATH = previousPath;
+      process.env.GIT_DIR = previousGitDir;
     }
   }
   expect(projectRootFor(nested)).toBe(parent);
