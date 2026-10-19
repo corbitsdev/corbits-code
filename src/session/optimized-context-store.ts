@@ -517,11 +517,28 @@ interface ParsedLogSegment {
 /**
  * Resilient parse of `turns.jsonl` alone (extras merged by the caller), so a
  * torn or poisoned base cannot block the healing write.
+ *
+ * `baseListed` is the directory listing `turnSegmentStats` already paid for.
+ * A missing base is empty history (the same answer `pathExists` gave). A
+ * listed base is read directly: `access` only repeated that listing, and a
+ * changed base fingerprint was doing it once per appended turn. ENOENT
+ * between the listing and the read is still empty history, not a throw.
  */
-async function readBaseLogFromDisk(dir: string): Promise<ParsedLogSegment> {
+async function readBaseLogFromDisk(
+  dir: string,
+  baseListed: boolean,
+): Promise<ParsedLogSegment> {
+  if (!baseListed) return { turns: [], approvals: [] };
   const basePath = path.join(dir, TURNS_FILE);
-  if (!(await pathExists(basePath))) return { turns: [], approvals: [] };
-  const text = await fs.promises.readFile(basePath, "utf-8");
+  let text: string;
+  try {
+    text = await fs.promises.readFile(basePath, "utf-8");
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
+      return { turns: [], approvals: [] };
+    }
+    throw cause;
+  }
   const approvals: PendingOperation[] = [];
   const turns = parseSegmentTurns(text, true, TURNS_FILE, true, approvals);
   return { turns, approvals };
@@ -1618,11 +1635,14 @@ export async function createSessionStores(
     // Otherwise parse turns.jsonl here rather than through the isogit base's
     // load(): that also validates metadata.json against the vendor shape,
     // which this store no longer writes (tokenUsage lives on the sidecar).
-    // Metadata is read separately by readSessionMetadata.
+    // Metadata is read separately by readSessionMetadata. The segment list
+    // already says whether the base file is present, so the parse does not
+    // probe it again.
+    const baseListed = segments.at(0)?.name === TURNS_FILE;
     const baseLog =
       reused >= 1 && turnsCache !== null
         ? turnsCache.base
-        : await readBaseLogFromDisk(dir);
+        : await readBaseLogFromDisk(dir, baseListed);
     const parsedExtras: ParsedLogSegment[] = [];
     for (let index = 1; index < segments.length; index++) {
       const cached =

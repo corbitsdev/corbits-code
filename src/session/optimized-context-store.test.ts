@@ -2242,3 +2242,59 @@ describe("createOptimizedContextStore metadata ownership (CL-10667)", () => {
     expect((await resumed.load()).tokenUsage).toEqual(USAGE_TWO);
   });
 });
+
+describe("createOptimizedContextStore base-log access probes", () => {
+  test("a missing base loads as empty history", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const loaded = await store.load();
+    expect(loaded.turns).toEqual([]);
+    expect(loaded.pendingOperations).toEqual([]);
+  });
+
+  test("access calls stay flat across turn counts", async () => {
+    const lowTurns = 3;
+    const highTurns = 9;
+    const low = await accessCallsForTurnCycles(lowTurns);
+    const high = await accessCallsForTurnCycles(highTurns);
+    const slope = (high - low) / (highTurns - lowTurns);
+    // A per-turn existence probe is slope 1. The directory listing already
+    // knows whether turns.jsonl is there, so extra turns must not add access.
+    expect(slope).toBe(0);
+  });
+});
+
+/**
+ * Counts `fs.promises.access` the way `scripts/context-store-perf.ts`
+ * `installCounters` does, for one fresh store's load/write/commit cycles.
+ */
+async function accessCallsForTurnCycles(turnCount: number): Promise<number> {
+  const target = fs.promises as unknown as Record<
+    string,
+    (...args: unknown[]) => unknown
+  >;
+  const original = target.access;
+  if (typeof original !== "function") {
+    throw new Error("fs.promises.access missing");
+  }
+  let access = 0;
+  target.access = function counted(this: unknown, ...args: unknown[]) {
+    access += 1;
+    return original.apply(this, args);
+  };
+  try {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const history: ConversationTurn[] = [];
+    for (let index = 0; index < turnCount; index++) {
+      history.push(turn(`turn ${index}`));
+      await store.load();
+      await store.writePrompt(history);
+      await store.writeTurns(history);
+      await store.commit({ message: `checkpoint ${index}` });
+    }
+    return access;
+  } finally {
+    target.access = original;
+  }
+}
