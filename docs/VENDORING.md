@@ -446,11 +446,12 @@ policy change this sync deliberately does not make.
 
 `aa7b78ee`'s storage-isogit rewrite (`runtime.ts`, `commit-helpers.ts`, the new
 `node-durability.ts`, merged into the patched `store.ts`) makes each
-session-record checkpoint read the git state it is about to overwrite and fsync
-what it writes: HEAD and refs resolved before the commit, the index captured for
-rollback, loose refs written through `writeLooseRefDurable`. That is extra
-filesystem traffic on the turn-persistence hot path, so the sync measured it
-instead of asserting it was free.
+session-record checkpoint read the git state it is about to overwrite.
+`createIndexRollback` (`commit-helpers.ts`) calls `resolveHead` and captures
+`.git/index` on every commit, and `store.ts` calls it unconditionally. The
+ref-write path (`commitDurably` → `git.writeRef`) is unchanged from the
+previous pin. That is extra filesystem traffic on the turn-persistence hot
+path, so the sync measured it instead of asserting it was free.
 
 Method: the two persistence harnesses the CI perf gate already runs, 200
 synthetic turns each, counted by the harnesses' own `fs.promises` counters (the
@@ -478,12 +479,15 @@ census; wall time, which the gate deliberately ignores, went 635 → 609 ms and
 The +1,000 `.git` reads decompose per path (200 turns, from a preload that
 records the exact `.git`-relative target of each `node:fs/promises` call):
 `packed-refs` 1,006 → 1,406, `HEAD` 804 → 1,004, loose `refs/…` 403 → 603,
-`index` 602 → 802, with loose-object reads flat at 1,648 — one `resolveHead`
-(HEAD + packed-refs + loose ref) plus one index capture per checkpoint, and the
-same ref reads again inside the ref write. The +400 `readFile` / +200 `stat`
-outside `.git` is the status-and-stage walk, which now runs against an index the
-checkpoint deliberately does not rewrite: the coalesced census shows exactly
-that trade, −200 `.git/index` writes with `persistCalls` unchanged.
+`index` 602 → 802, with loose-object reads flat at 1,648. `createIndexRollback`
+accounts for the HEAD, loose-ref, and index deltas: one `resolveHead` plus one
+index capture per checkpoint. The remaining +200 `packed-refs` reads are in the
+same measurement; no changed hunk explains them, and the ref-write path above
+is untouched. The +400 `readFile` / +200 `stat` outside `.git` is the
+status-and-stage walk against an index the checkpoint no longer rewrites per
+file: upstream batches `git.add` where the previous pin looped it, and the
+census write delta is `.git/index` (about 401 → 201) with `persistCalls`
+unchanged.
 
 These are counted operations, not timings, so the shift is deterministic and the
 perf gate fails on it exactly: `COUNTED_OP_TOLERANCE = 0` for every op that is
