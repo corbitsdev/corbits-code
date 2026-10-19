@@ -97,12 +97,15 @@ test("projectRootFor retries a nested dir after git was unavailable", async () =
   const nested = join(root, "nested");
   await mkdir(nested);
   const parent = realpathSync(root);
-  // Bun resolves execFileSync("git") from the startup PATH, so emptying PATH
-  // does not hide git. A missing GIT_DIR is forwarded and makes rev-parse fail.
-  const missingGitDir = join(root, "missing-git-dir");
+  // Bun 1.3 ignores PATH rewrites and does not forward process.env mutations
+  // unless the child is given `env`. A missing GIT_DIR is not enough: git may
+  // keep discovering the work tree. An existing file that is not a git dir
+  // makes rev-parse exit non-zero.
+  const notGitDir = join(root, "not-a-git-dir");
+  await writeFile(notGitDir, "not a git dir\n");
 
   const previousGitDir = process.env.GIT_DIR;
-  process.env.GIT_DIR = missingGitDir;
+  process.env.GIT_DIR = notGitDir;
   try {
     expect(projectRootFor(nested)).toBe(realpathSync(nested));
   } finally {

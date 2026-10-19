@@ -44,12 +44,15 @@ function resolvedCwd(cwd: string): string {
 
 function gitToplevel(cwd: string): string | undefined {
   try {
+    // Pass `env` explicitly. Bun 1.3's execFileSync otherwise keeps the
+    // startup environ, so later process.env changes never reach git.
     const toplevelRaw = execFileSync(
       "git",
       ["rev-parse", "--path-format=absolute", "--show-toplevel"],
       {
         cwd,
         encoding: "utf8",
+        env: process.env,
         stdio: ["ignore", "pipe", "ignore"],
       },
     ).trim();
