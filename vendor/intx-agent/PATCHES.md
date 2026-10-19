@@ -40,6 +40,23 @@ upstream files `authoring.ts` (authoring-only subpath barrel) and the
 imports `./authoring` at its new pin). Upstream also deleted no vendored
 files and changed `testing/` not at all.
 
+### 2026-10-19 re-sync to `aa7b78ee` (npm `0.5.0`, CL-10918)
+
+`git diff --name-only 4cc6972 aa7b78ee -- packages/agent` lists only
+`package.json`, whose single changed line is upstream's own `version` field —
+a field this repo deliberately does not mirror (the `0.2.2` placeholder, per
+`docs/VENDORING.md`). The tree is therefore unchanged by this release, and
+`bin/vendor-patch-diff` prints the same shape as the pre-sync tree — 4 files,
+382 +, 2 −: nothing absorbed, nothing lost.
+
+- **`agent-ts-resume-error-seq` — KEEP.** `aa7b78ee` still never reads the
+  durable error sequence back when building an agent, so a rebuilt agent would
+  still restart `errorSeq` at 0.
+- **`agent-ts-duplicate-error-flush` — KEEP.** Upstream `flushErrors` still
+  treats `Duplicate error record:` as a flush failure.
+- **`testing-audit-noop-ts-load-errors` — KEEP.** Follows the `AuditStore`
+  contract patch in `vendor/intx-types`; that contract is still local.
+
 ## agent-ts-resume-error-seq
 
 `agent.ts` — `createAgent` resumes `errorSeq` from `auditStore.loadErrors`

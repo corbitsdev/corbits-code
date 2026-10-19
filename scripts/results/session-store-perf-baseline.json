@@ -10,15 +10,12 @@
   ],
   "contextStorePerf": {
     "turnCount": 200,
-    "wallMs": 814,
     "loadedTurns": 250,
-    "totalFsOps": 15736,
-    "gitPathFsOps": 7717,
     "fsOps": {
-      "readFile": 7878,
-      "mkdir": 246,
-      "writeFile": 1274,
-      "stat": 2580,
+      "readFile": 9278,
+      "mkdir": 252,
+      "writeFile": 1280,
+      "stat": 2780,
       "lstat": 2948,
       "readdir": 611,
       "access": 1,
@@ -26,35 +23,24 @@
     },
     "gitPathFsOpsByName": {
       "stat": 679,
-      "mkdir": 240,
-      "writeFile": 1268,
+      "mkdir": 246,
+      "writeFile": 1274,
       "lstat": 1067,
-      "readFile": 4463
-    },
-    "perTurn": {
-      "wallMs": 4.07,
-      "fsOps": 78.68
+      "readFile": 5463
     }
   },
   "turnPersistenceCensus": {
     "flow": "coalesced",
     "turnCount": 200,
-    "wallMs": 696,
     "loadedTurns": 800,
-    "totalWriteOps": 2097,
-    "gitPathWriteOps": 1687,
     "byName": {
-      "mkdir": 251,
-      "writeFile": 1646,
+      "mkdir": 247,
+      "writeFile": 1442,
       "appendFile": 200
     },
     "gitByPath": {
-      "mkdir": 245,
-      "writeFile": 1442
-    },
-    "perTurn": {
-      "wallMs": 3.48,
-      "writeOps": 10.48
+      "mkdir": 241,
+      "writeFile": 1238
     },
     "persistCalls": {
       "writePrompt": 200,
@@ -62,13 +48,6 @@
       "writeManifest": 200,
       "writeMetadata": 200,
       "commit": 200
-    },
-    "persistCallsPerTurn": {
-      "writePrompt": 1,
-      "writeTurns": 3,
-      "writeManifest": 1,
-      "writeMetadata": 1,
-      "commit": 1
     }
   }
 }

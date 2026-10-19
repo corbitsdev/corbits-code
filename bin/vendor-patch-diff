@@ -207,14 +207,35 @@ for i in "${!WORK_NAMES[@]}"; do
 
   # Unified diff of source only. diff exits 1 on differences — that is success
   # for this tool (we expect patches). Exit 2 is a real error.
+  #
+  # The diff is captured so the run also prints its own shape (files touched,
+  # added and removed lines). Each PATCHES.md re-sync section quotes exactly
+  # these three numbers as the proof that a sync carried every patch across, so
+  # they must come from this tool rather than from a hand-tallied scratch diff.
+  diff_out="$TMP/diff-$i.txt"
   set +e
-  diff -ruN "$pristine_src" "$vendor_src"
+  diff -ruN "$pristine_src" "$vendor_src" > "$diff_out"
   code=$?
   set -e
+  cat "$diff_out"
   if [[ $code -eq 0 ]]; then
     echo "(no source differences)"
   elif [[ $code -eq 1 ]]; then
     OVERALL=1
+    counts="$(
+      awk '
+        /^[+][+][+] / { next }
+        /^--- / { next }
+        /^[+]/ { plus++; next }
+        /^-/ { minus++; next }
+        /^diff / { files++ }
+        /^Only in / { files++ }
+        END { printf "%d %d %d", files + 0, plus + 0, minus + 0 }
+      ' "$diff_out"
+    )"
+    read -r changed plus minus <<<"$counts"
+    echo
+    echo "# local divergence: $changed files, $plus +, $minus -"
   else
     echo "error: diff failed for $name (exit $code)" >&2
     exit 1

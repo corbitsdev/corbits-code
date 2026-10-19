@@ -22,11 +22,11 @@
     }
   },
   "dependencies": {
-    "@intx/log": "0.3.0",
+    "@intx/log": "0.5.0",
     "@intx/types": "workspace:*",
     "arktype": "catalog:"
   },
   "devDependencies": {
-    "@intx/mime": "0.3.0"
+    "@intx/mime": "0.5.0"
   }
 }

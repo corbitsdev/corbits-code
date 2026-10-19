@@ -74,6 +74,29 @@ The `sync.request` frame and the `agent.undeploy.ack`
 `src/` has zero references to either (grep evidence recorded in
 docs/VENDORING.md).
 
+### 2026-10-19 re-sync to `aa7b78ee` (npm `0.5.0`, CL-10918)
+
+`git diff --name-only 4cc6972 aa7b78ee -- packages/types` lists `package.json`,
+`sidecar.ts`, `sidecar.test.ts`, `workflow-lifecycle.ts` and `workflows.ts`;
+all four source files were adopted verbatim. None of them is a file this
+ledger patches, so no merge was needed, and `bin/vendor-patch-diff` prints the
+same shape as the pre-sync tree: 4 files, 43 +, 6 −.
+
+- **`vendor-types-ts-runtime-format-safety-rating-compat` — KEEP.** Upstream
+  still defines `formatSafetyRatingText` in `format-safety-rating.ts` and the
+  published `@corbits/openai-responses` dist this repo imports still resolves
+  it off `@intx/types/runtime`; the compat re-export in the barrel is the only
+  thing that keeps that seam type-identical to the vendored source.
+- **`runtime-ts-auth-recovery-context` — KEEP.** `aa7b78ee` still has no
+  provider-identity headers on `CredentialMaterial` and no retry-context field
+  on the auth-recovery shapes; `git grep` for the ledgered keys in
+  `mediated-credential.ts`/`runtime.ts` at the new pin returns nothing.
+- **`runtime-ts-audit-store-load-errors` — KEEP.** `AuditStore` at `aa7b78ee`
+  still has no `loadErrors`, which is the contract
+  `vendor/intx-storage-isogit` implements and `vendor/intx-agent` resumes from.
+- **`types-ts-usage-stop-reason` — KEEP.** The `inference.usage` variant of
+  `InferenceEvent` at `aa7b78ee` still lacks `data.stopReason`.
+
 ## vendor-types-ts-runtime-format-safety-rating-compat
 
 `runtime.ts` — after the upstream moved `formatSafetyRatingText` to
