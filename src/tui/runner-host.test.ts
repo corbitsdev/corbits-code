@@ -120,6 +120,30 @@ describe("mountRunnerHost branch label", () => {
       },
     );
   });
+
+  test("a null git result after a known branch leaves the previous suffix", async () => {
+    const emitter = new EventEmitter();
+    let branch: string | null = "main";
+    await withRunnerHost(
+      async (host) => {
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("(main)");
+
+        branch = null;
+        emitter.emit("event", { type: "inference.done" });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(host.shell.workspace.branch).toBe("main");
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("(main)");
+      },
+      {
+        eventEmitter: emitter,
+        cwd: "/repo",
+        fetchBranch: async () => branch,
+      },
+    );
+  });
 });
 
 function session(over: Partial<SubAgentSession>): SubAgentSession {

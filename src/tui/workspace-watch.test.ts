@@ -23,12 +23,13 @@ describe("watchGitBranch", () => {
     watch.stop();
   });
 
-  test("skips a refresh while the previous lookup is still outstanding", async () => {
+  test("one refresh during an outstanding lookup runs a single follow-up and reports the later branch", async () => {
     let calls = 0;
     const pending: ((branch: string | null) => void)[] = [];
+    const seen: (string | null)[] = [];
     const watch = watchGitBranch({
       cwd: "/repo",
-      onBranch: () => undefined,
+      onBranch: (b) => seen.push(b),
       fetchBranch: () => {
         calls += 1;
         return new Promise((resolve) => {
@@ -42,8 +43,29 @@ describe("watchGitBranch", () => {
 
     pending[0]?.("main");
     await flush();
-    watch.refresh();
     expect(calls).toBe(2);
+    expect(seen).toEqual(["main"]);
+
+    pending[1]?.("topic");
+    await flush();
+    expect(calls).toBe(2);
+    expect(seen).toEqual(["main", "topic"]);
+    watch.stop();
+  });
+
+  test("a null result after a known branch is not reported", async () => {
+    const seen: (string | null)[] = [];
+    let branch: string | null = "main";
+    const watch = watchGitBranch({
+      cwd: "/repo",
+      onBranch: (b) => seen.push(b),
+      fetchBranch: async () => branch,
+    });
+    await flush();
+    branch = null;
+    watch.refresh();
+    await flush();
+    expect(seen).toEqual(["main"]);
     watch.stop();
   });
 

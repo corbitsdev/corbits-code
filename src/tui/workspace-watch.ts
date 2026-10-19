@@ -5,10 +5,14 @@
  * interval used to fork `git rev-parse` every few seconds for the whole TUI
  * lifetime, including idle. Callers refresh on an event that can change the
  * branch (a finished turn); staleness between those events is acceptable.
- * While a lookup is outstanding a refresh is skipped, so a git process hung
- * on a network filesystem cannot accumulate children. A lookup that lands
- * after stop is dropped. Nothing here blocks a paint — the border keeps the
- * last branch it was given, including across a failed lookup.
+ * A refresh that arrives while a lookup is outstanding is remembered and
+ * runs once that lookup settles: one follow-up child, not a loop, and not
+ * a dropped turn-end read. A lookup that lands after stop is dropped.
+ * Nothing here blocks a paint. The border keeps the last branch it was
+ * given across a rejected lookup and across a null result: `getGitBranch`
+ * resolves null for timeout, a non-zero exit, and a non-repo, and that
+ * must not be treated as detached HEAD clearing the suffix. A null before
+ * any branch was shown still reports, so a non-repo stays unlabeled.
  */
 
 import { getGitBranch } from "../agent/environment.js";
@@ -33,17 +37,31 @@ export function watchGitBranch(input: BranchWatchInput): BranchWatch {
   const fetchBranch = input.fetchBranch ?? getGitBranch;
   let inFlight = false;
   let stopped = false;
+  let again = false;
+  let shown: string | null = null;
 
   const refresh = (): void => {
-    if (inFlight || stopped) return;
+    if (stopped) return;
+    if (inFlight) {
+      again = true;
+      return;
+    }
     inFlight = true;
+    again = false;
     fetchBranch(input.cwd).then(
       (branch) => {
+        // Null after a real branch is a failed lookup (or detached HEAD, which
+        // shares that null). Keep the suffix; do not clear it.
+        if (!stopped && !(branch === null && shown !== null)) {
+          shown = branch;
+          input.onBranch(branch);
+        }
         inFlight = false;
-        if (!stopped) input.onBranch(branch);
+        if (!stopped && again) refresh();
       },
       () => {
         inFlight = false;
+        if (!stopped && again) refresh();
       },
     );
   };
