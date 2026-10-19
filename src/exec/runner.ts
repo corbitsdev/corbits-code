@@ -630,10 +630,11 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const pluginConfig = config.settings?.plugins ?? {};
 
     const toolPluginCandidates = collectToolPlugins(executablePlugins());
-    const { plugins: extraToolPlugins } = await resolveToolPlugins({
-      candidates: toolPluginCandidates,
-      pluginConfig,
-    });
+    const { plugins: extraToolPlugins, authorize: pluginAuthorize } =
+      await resolveToolPlugins({
+        candidates: toolPluginCandidates,
+        pluginConfig,
+      });
 
     const skillDirs = skillDirsFromEnabledPlugins(
       executablePlugins(),
@@ -697,6 +698,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       // Main session: gating rides the reactor's approval-suspend seam. In
       // headless exec an ask resolves to a deny effect, so the hook blocks.
       reactorGated: true,
+      ...(pluginAuthorize !== undefined ? { pluginAuthorize } : {}),
       permissionsPath: config.permissionsPath,
     });
 

@@ -202,6 +202,33 @@ export async function assembleTUISession(
     correlationAcceptance.settleAll();
   });
 
+  const executablePlugins = () =>
+    pluginState.modules.filter((m) => m.metadataOnly !== true);
+  pluginState.webCandidates = collectWebPlugins(executablePlugins());
+  // Tool plugins are wired in only when enabled AND consented.
+  pluginState.toolCandidates = collectToolPlugins(executablePlugins());
+  // Web and tool plugin resolution are independent, so resolve them
+  // concurrently.
+  const toolPluginDiag = createPluginLoadDiagnostics();
+  const [activeWeb, resolvedToolPlugins] = await Promise.all([
+    resolveWebProviderFromPlugins({
+      candidates: pluginState.webCandidates,
+      pluginConfig: config.settings?.plugins ?? {},
+      webOverride: config.settings?.web,
+    }),
+    resolveToolPlugins({
+      candidates: pluginState.toolCandidates,
+      pluginConfig: config.settings?.plugins ?? {},
+      diagnostics: toolPluginDiag,
+    }),
+  ]);
+  const { plugins: extraToolPlugins, authorize: pluginAuthorize } =
+    resolvedToolPlugins;
+  if (activeWeb !== undefined)
+    setActiveWebProviderBrand(webBrand(activeWeb.name));
+  emitPluginWarningLog(toolPluginDiag);
+  state.standingPluginWarnings.push(...toolPluginDiag.warnings);
+
   const { gate: permissionGate } = await assembleSessionGate({
     cwd: config.cwd,
     sessionId: state.sessionId,
@@ -224,6 +251,7 @@ export async function assembleTUISession(
     auto: config.auto,
     // Main session: gating rides the reactor's approval-suspend seam.
     reactorGated: true,
+    ...(pluginAuthorize !== undefined ? { pluginAuthorize } : {}),
     permissionsPath: config.permissionsPath,
     onGrant: (approval, covers) =>
       emitter.emit("permission.grant", { approval, covers }),
@@ -248,32 +276,6 @@ export async function assembleTUISession(
   const subAgentSessions = createSubAgentSessionStore({
     admission: getProcessAdmissionQueue(),
   });
-
-  const executablePlugins = () =>
-    pluginState.modules.filter((m) => m.metadataOnly !== true);
-  pluginState.webCandidates = collectWebPlugins(executablePlugins());
-  // Tool plugins are wired in only when enabled AND consented.
-  pluginState.toolCandidates = collectToolPlugins(executablePlugins());
-  // Web and tool plugin resolution are independent, so resolve them
-  // concurrently.
-  const toolPluginDiag = createPluginLoadDiagnostics();
-  const [activeWeb, resolvedToolPlugins] = await Promise.all([
-    resolveWebProviderFromPlugins({
-      candidates: pluginState.webCandidates,
-      pluginConfig: config.settings?.plugins ?? {},
-      webOverride: config.settings?.web,
-    }),
-    resolveToolPlugins({
-      candidates: pluginState.toolCandidates,
-      pluginConfig: config.settings?.plugins ?? {},
-      diagnostics: toolPluginDiag,
-    }),
-  ]);
-  const { plugins: extraToolPlugins } = resolvedToolPlugins;
-  if (activeWeb !== undefined)
-    setActiveWebProviderBrand(webBrand(activeWeb.name));
-  emitPluginWarningLog(toolPluginDiag);
-  state.standingPluginWarnings.push(...toolPluginDiag.warnings);
 
   // Descriptors mirror the mutable module list so plugins added by path
   // mid-session appear without a restart.
