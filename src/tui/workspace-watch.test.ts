@@ -53,6 +53,53 @@ describe("watchGitBranch", () => {
     watch.stop();
   });
 
+  test("a throwing onBranch does not stick the guard, so a later refresh looks up again", async () => {
+    let calls = 0;
+    const pending: ((branch: string | null) => void)[] = [];
+    const watch = watchGitBranch({
+      cwd: "/repo",
+      onBranch: () => {
+        throw new Error("paint failed");
+      },
+      fetchBranch: () => {
+        calls += 1;
+        return new Promise((resolve) => {
+          pending.push(resolve);
+        });
+      },
+    });
+    pending[0]?.("main");
+    await flush();
+    expect(calls).toBe(1);
+
+    watch.refresh();
+    expect(calls).toBe(2);
+    watch.stop();
+  });
+
+  test("a follow-up armed before onBranch throws still runs", async () => {
+    let calls = 0;
+    const pending: ((branch: string | null) => void)[] = [];
+    const watch = watchGitBranch({
+      cwd: "/repo",
+      onBranch: () => {
+        throw new Error("paint failed");
+      },
+      fetchBranch: () => {
+        calls += 1;
+        return new Promise((resolve) => {
+          pending.push(resolve);
+        });
+      },
+    });
+    watch.refresh();
+    expect(calls).toBe(1);
+    pending[0]?.("main");
+    await flush();
+    expect(calls).toBe(2);
+    watch.stop();
+  });
+
   test("a null result after a known branch is not reported", async () => {
     const seen: (string | null)[] = [];
     let branch: string | null = "main";

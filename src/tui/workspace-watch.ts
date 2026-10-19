@@ -50,14 +50,22 @@ export function watchGitBranch(input: BranchWatchInput): BranchWatch {
     again = false;
     fetchBranch(input.cwd).then(
       (branch) => {
-        // Null after a real branch is a failed lookup (or detached HEAD, which
-        // shares that null). Keep the suffix; do not clear it.
-        if (!stopped && !(branch === null && shown !== null)) {
-          shown = branch;
-          input.onBranch(branch);
-        }
+        // Release before paint. A throw from onBranch must not stick the
+        // guard or skip a follow-up armed while this lookup was in flight,
+        // and it must not reject this chain.
         inFlight = false;
-        if (!stopped && again) refresh();
+        try {
+          // Null after a real branch is a failed lookup (or detached HEAD,
+          // which shares that null). Keep the suffix; do not clear it.
+          if (!stopped && !(branch === null && shown !== null)) {
+            input.onBranch(branch);
+            shown = branch;
+          }
+        } catch {
+          // The label paint must not stick the lookup or reject this chain.
+        } finally {
+          if (!stopped && again) refresh();
+        }
       },
       () => {
         inFlight = false;
