@@ -254,7 +254,7 @@ jobs:
       - run: "true"
 
   build-and-test:
-    needs: [build, test]
+    needs: [build, test, session-store-perf]
     runs-on: ubuntu-latest
     steps:
       - run: "true"
