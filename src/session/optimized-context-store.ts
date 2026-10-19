@@ -923,6 +923,28 @@ function segmentStatDrifted(
 }
 
 /**
+ * True when `toAdd` names a segment whose saved fingerprint disagrees with the
+ * listing. `git.statusMatrix` treats the same size, inode, and whole mtime
+ * second as clean, so a same-length rewrite in that window is in `toAdd` and
+ * still looks unchanged. Missing published stats are not drift: a fresh store
+ * has not saved a fingerprint yet, and forcing a commit there would republish
+ * an unchanged tree.
+ */
+function toAddHasPublishedSegmentDrift(
+  toAdd: readonly string[],
+  listing: WorktreeListing,
+  published: ReadonlyMap<string, SegmentStat>,
+): boolean {
+  for (const name of toAdd) {
+    const observed = listing.segmentStats.get(name);
+    const saved = published.get(name);
+    if (observed === undefined || saved === undefined) continue;
+    if (segmentStatDrifted(observed, saved)) return true;
+  }
+  return false;
+}
+
+/**
  * One readdir of the session dir answers every worktree-existence check in a
  * single commit, including the lazy listing of the tool-output dir. Contiguous
  * turn and prompt segments are statted once here; that fingerprint is the
@@ -1465,12 +1487,93 @@ export async function createSessionStores(
   // commits stage a tracked segment only when its fingerprint drifted.
   let stageEveryContiguousSegment = true;
   // Fingerprints from the last publish. Segment stats avoid re-reading an
-  // unchanged segment; blob directory stats are the signal that skips the
-  // tool-output walk on a no-op commit.
+  // unchanged segment. Tool-output blobs are remembered per file: a directory
+  // mtime does not move when an existing blob is rewritten in place, and
+  // statusMatrix is not asked to walk that directory on a no-op.
   let publishedSegmentStats = new Map<string, SegmentStat>();
+  let publishedToolBlobs = new Map<string, SegmentStat>();
   let blobDirsObserved = false;
   let toolOutputFingerprint: DirectoryFingerprint | null = null;
   let evidenceFingerprint: DirectoryFingerprint | null = null;
+
+  async function fingerprintToolOutput(
+    names: ReadonlySet<string>,
+    reuse: ReadonlyMap<string, SegmentStat> | null,
+    restat: ReadonlySet<string>,
+  ): Promise<Map<string, SegmentStat>> {
+    const stats = new Map<string, SegmentStat>();
+    await Promise.all(
+      [...names].map(async (name) => {
+        const filepath = `${TOOL_OUTPUT_DIR}/${name}`;
+        if (reuse !== null && !restat.has(filepath)) {
+          const saved = reuse.get(filepath);
+          if (saved !== undefined) {
+            stats.set(filepath, saved);
+            return;
+          }
+        }
+        try {
+          const fileStats = await fs.promises.lstat(path.join(dir, filepath));
+          if (!fileStats.isFile()) return;
+          stats.set(filepath, {
+            bytes: fileStats.size,
+            mtimeMs: fileStats.mtimeMs,
+            ino: fileStats.ino,
+          });
+        } catch (cause) {
+          if (
+            cause instanceof Error &&
+            "code" in cause &&
+            cause.code === "ENOENT"
+          ) {
+            return;
+          }
+          throw cause;
+        }
+      }),
+    );
+    return stats;
+  }
+
+  async function driftedPublishedToolBlobs(): Promise<
+    { filepath: string; present: boolean }[]
+  > {
+    const drifted: { filepath: string; present: boolean }[] = [];
+    await Promise.all(
+      [...publishedToolBlobs].map(async ([filepath, saved]) => {
+        try {
+          const fileStats = await fs.promises.lstat(path.join(dir, filepath));
+          if (!fileStats.isFile()) {
+            drifted.push({ filepath, present: false });
+            return;
+          }
+          if (
+            segmentStatDrifted(
+              {
+                bytes: fileStats.size,
+                mtimeMs: fileStats.mtimeMs,
+                ino: fileStats.ino,
+              },
+              saved,
+            )
+          ) {
+            drifted.push({ filepath, present: true });
+          }
+        } catch (cause) {
+          if (
+            cause instanceof Error &&
+            "code" in cause &&
+            cause.code === "ENOENT"
+          ) {
+            drifted.push({ filepath, present: false });
+            return;
+          }
+          throw cause;
+        }
+      }),
+    );
+    return drifted;
+  }
 
   async function blobDirectoriesNeedWalk(): Promise<boolean> {
     if (!blobDirsObserved) return true;
@@ -1484,10 +1587,30 @@ export async function createSessionStores(
 
   async function rememberPublishedTree(
     listing: WorktreeListing,
+    refreshBlobs: boolean,
+    restatBlobs: ReadonlySet<string>,
   ): Promise<void> {
     publishedSegmentStats = new Map(listing.segmentStats);
-    toolOutputFingerprint = await directoryFingerprint(dir, TOOL_OUTPUT_DIR);
-    evidenceFingerprint = await directoryFingerprint(dir, EVIDENCE_ARCHIVE_DIR);
+    const tool = await directoryFingerprint(dir, TOOL_OUTPUT_DIR);
+    const evidence = await directoryFingerprint(dir, EVIDENCE_ARCHIVE_DIR);
+    // The no-op path already statted known blobs and found them unchanged, so
+    // it must not readdir tool-output. A publish reuses fingerprints whose
+    // directory entry did not move, and restats only new paths and paths this
+    // commit already decided were drifted. Restatting every blob here would
+    // lstat the directory twice on a turn that did not touch tool-output.
+    if (refreshBlobs || !blobDirsObserved) {
+      const directoryMoved = !sameDirectoryFingerprint(
+        tool,
+        toolOutputFingerprint,
+      );
+      publishedToolBlobs = await fingerprintToolOutput(
+        await listing.toolOutputFiles(),
+        directoryMoved || !blobDirsObserved ? null : publishedToolBlobs,
+        restatBlobs,
+      );
+    }
+    toolOutputFingerprint = tool;
+    evidenceFingerprint = evidence;
     blobDirsObserved = true;
   }
   const ownerToken = opts?.ownerId ?? globalThis.crypto.randomUUID();
@@ -2307,6 +2430,10 @@ export async function createSessionStores(
           // (partial.jsonl). Discover extra segments first so a crash that
           // left them untracked cannot skip. A staged unpublished rewrite is
           // still unpublished on disk — skipping would swallow the compact.
+          // Paths written through the store, plus in-place drifts discovered below.
+          // rememberPublishedTree restats these and reuses every other fingerprint
+          // so a turn commit does not lstat tool-output twice.
+          const restatBlobs = new Set<string>(pendingBlobFilepaths);
           if (stagedRewrite === null) {
             const managedFilepaths = [
               ...VENDOR_COMMIT_ROOT_FILES,
@@ -2317,20 +2444,45 @@ export async function createSessionStores(
               ...toAdd,
               ...toRemove,
             ];
-            if (
-              !(await managedPathsDiffer(
+            // A drifted segment fingerprint is staged even when statusMatrix
+            // calls the same size, inode, and whole mtime second clean.
+            // Remembering the new mtime before git.add would hide the bytes
+            // from every later commit.
+            const segmentDrift = toAddHasPublishedSegmentDrift(
+              toAdd,
+              listing,
+              publishedSegmentStats,
+            );
+            let rootsDiffer = segmentDrift;
+            if (!rootsDiffer) {
+              rootsDiffer = await managedPathsDiffer(
                 dir,
                 managedFilepaths,
                 gitCache,
                 await blobDirectoriesNeedWalk(),
-              ))
-            ) {
+              );
+            }
+            // In-place blob rewrites do not move the tool-output directory
+            // mtime or inode, so the directory walk stays off. Stat only the
+            // blobs recorded at the last publish, and only when nothing else
+            // is already forcing a commit (that path git.adds the directory).
+            let toolBlobsDrifted = false;
+            if (!rootsDiffer) {
+              for (const blob of await driftedPublishedToolBlobs()) {
+                toolBlobsDrifted = true;
+                if (blob.present) {
+                  toAdd.push(blob.filepath);
+                  restatBlobs.add(blob.filepath);
+                } else toRemove.push(blob.filepath);
+              }
+            }
+            if (!rootsDiffer && !toolBlobsDrifted) {
               const [head] = await base.log(1);
               if (head !== undefined) {
                 pendingBlobFilepaths.clear();
                 pendingSegmentPaths.clear();
                 stageEveryContiguousSegment = false;
-                await rememberPublishedTree(listing);
+                await rememberPublishedTree(listing, false, restatBlobs);
                 return head;
               }
             }
@@ -2383,7 +2535,7 @@ export async function createSessionStores(
           pendingBlobFilepaths.clear();
           pendingSegmentPaths.clear();
           stageEveryContiguousSegment = false;
-          await rememberPublishedTree(listing);
+          await rememberPublishedTree(listing, true, restatBlobs);
           if (stagedRewrite !== null) {
             liveTurnRefs = stagedRewrite;
             unpublishedRewrite = null;

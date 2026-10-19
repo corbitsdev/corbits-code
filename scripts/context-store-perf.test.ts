@@ -5,11 +5,12 @@ import { createOptimizedContextStore } from "../src/session/optimized-context-st
 import { createTempDir } from "../testkit/temporary-dirs.js";
 
 /**
- * Pins the per-turn slope of fs.promises.access, counted the same way
+ * Pins the slope of fs.promises.access, counted the same way
  * scripts/context-store-perf.ts installCounters counts it (every call, and a
  * separate tally when the path is under .git). Synchronous fs is invisible
  * here, same as that script. Two turn counts keep a fixed overhead from hiding
- * a probe that runs once per turn.
+ * a probe that runs once per turn. The commit path no longer pays one access
+ * per turn, so both slopes stay flat.
  */
 const LOW_TURNS = 4;
 const HIGH_TURNS = 12;
@@ -92,7 +93,7 @@ afterEach(() => {
   totals.gitAccess = 0;
 });
 
-test("fs.promises.access grows by a fixed per-turn slope", async () => {
+test("fs.promises.access slope is flat, not per-turn", async () => {
   installCounters();
   await runScenario(LOW_TURNS);
   const low = { access: totals.access, gitAccess: totals.gitAccess };
@@ -101,6 +102,6 @@ test("fs.promises.access grows by a fixed per-turn slope", async () => {
   await runScenario(HIGH_TURNS);
   const high = { access: totals.access, gitAccess: totals.gitAccess };
   const span = HIGH_TURNS - LOW_TURNS;
-  expect((high.access - low.access) / span).toBe(1);
+  expect((high.access - low.access) / span).toBe(0);
   expect((high.gitAccess - low.gitAccess) / span).toBe(0);
 });
