@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -49,6 +49,73 @@ test("projectKeyFor shares nested dirs under the same git toplevel", async () =>
   expect(projectRootFor(nested)).toBe(projectRootFor(root));
   expect(projectRootFor(root)).toBe(realpathSync(root));
   expect(projectKeyFor(nested)).toBe(projectKeyFor(root));
+});
+
+test("projectRootFor spawns git rev-parse once for the same cwd", async () => {
+  initTemporaryGitRepo(root);
+  await commitReadme(root);
+
+  const traceFile = join(root, "git-trace2-events");
+  const previousTrace = process.env.GIT_TRACE2_EVENT;
+  process.env.GIT_TRACE2_EVENT = traceFile;
+  try {
+    const first = projectRootFor(root);
+    const second = projectRootFor(root);
+    expect(second).toBe(first);
+    expect(first).toBe(realpathSync(root));
+    const spawns = (await readFile(traceFile, "utf8"))
+      .split("\n")
+      .filter(
+        (line) =>
+          line.includes('"event":"start"') && line.includes("rev-parse"),
+      ).length;
+    expect(spawns).toBe(1);
+  } finally {
+    if (previousTrace === undefined) {
+      delete process.env.GIT_TRACE2_EVENT;
+    } else {
+      process.env.GIT_TRACE2_EVENT = previousTrace;
+    }
+  }
+});
+
+test("projectRootFor resolves a directory created after a missing lookup", async () => {
+  initTemporaryGitRepo(root);
+  await commitReadme(root);
+
+  const parent = realpathSync(root);
+  const child = join(parent, "child");
+  expect(projectRootFor(child)).toBe(child);
+  await mkdir(child);
+  expect(projectRootFor(child)).toBe(parent);
+});
+
+test("projectRootFor retries a nested dir after git was unavailable", async () => {
+  initTemporaryGitRepo(root);
+  await commitReadme(root);
+
+  const nested = join(root, "nested");
+  await mkdir(nested);
+  const parent = realpathSync(root);
+  // Bun 1.3 ignores PATH rewrites and does not forward process.env mutations
+  // unless the child is given `env`. A missing GIT_DIR is not enough: git may
+  // keep discovering the work tree. An existing file that is not a git dir
+  // makes rev-parse exit non-zero.
+  const notGitDir = join(root, "not-a-git-dir");
+  await writeFile(notGitDir, "not a git dir\n");
+
+  const previousGitDir = process.env.GIT_DIR;
+  process.env.GIT_DIR = notGitDir;
+  try {
+    expect(projectRootFor(nested)).toBe(realpathSync(nested));
+  } finally {
+    if (previousGitDir === undefined) {
+      delete process.env.GIT_DIR;
+    } else {
+      process.env.GIT_DIR = previousGitDir;
+    }
+  }
+  expect(projectRootFor(nested)).toBe(parent);
 });
 
 test("linked worktrees have distinct project roots and keys from main and each other", async () => {
