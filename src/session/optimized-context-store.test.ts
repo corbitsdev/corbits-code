@@ -742,6 +742,107 @@ describe("createOptimizedContextStore checkpoint", () => {
     expect(new TextDecoder().decode(blob)).toContain(marker);
   });
 
+  test("a same-length rewrite of turns-0001.jsonl inside the same mtime second is in the next commit", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const chunk = "s".repeat(100_000);
+    const turns: ConversationTurn[] = [];
+    const closed = segmentFileName(TURNS_FILE, 1);
+    const tail = segmentFileName(TURNS_FILE, 2);
+    do {
+      turns.push(turn(`${turns.length}-${chunk}`));
+      await store.writeTurns(turns);
+    } while (!fs.existsSync(path.join(dir, tail)) && turns.length < 20);
+    expect(fs.existsSync(path.join(dir, closed))).toBe(true);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "three segments" });
+
+    const closedPath = path.join(dir, closed);
+    const before = fs.statSync(closedPath);
+    const marker = "same-second-rewrite-marker";
+    const original = fs.readFileSync(closedPath, "utf8");
+    const at = original.indexOf("s".repeat(marker.length));
+    expect(at).toBeGreaterThanOrEqual(0);
+    const rewritten =
+      original.slice(0, at) + marker + original.slice(at + marker.length);
+    expect(rewritten.length).toBe(original.length);
+    fs.writeFileSync(closedPath, rewritten);
+    const nudged = nudgedSameSecondMs(before.mtimeMs);
+    fs.utimesSync(closedPath, before.atime, new Date(nudged));
+    const after = fs.statSync(closedPath);
+    // The racy-git window: same inode, same size, same whole mtime second.
+    // statusMatrix then trusts the index oid and misses the new bytes.
+    expect(after.ino).toBe(before.ino);
+    expect(after.size).toBe(before.size);
+    expect(Math.floor(after.mtimeMs / 1000)).toBe(
+      Math.floor(before.mtimeMs / 1000),
+    );
+    expect(after.mtimeMs).not.toBe(before.mtimeMs);
+
+    let secondHash = "";
+    await pinLstatCtime(closedPath, before.ctimeMs, async () => {
+      const second = await store.commit({
+        message: "publish same-second rewrite",
+      });
+      secondHash = second.hash;
+    });
+    expect(secondHash).not.toBe(first.hash);
+    const published = await git.readBlob({
+      fs,
+      dir,
+      oid: secondHash,
+      filepath: closed,
+    });
+    expect(new TextDecoder().decode(published.blob)).toContain(marker);
+
+    const third = await store.commit({ message: "no-op after same-second" });
+    expect(third.hash).toBe(secondHash);
+    const kept = await git.readBlob({
+      fs,
+      dir,
+      oid: third.hash,
+      filepath: closed,
+    });
+    expect(new TextDecoder().decode(kept.blob)).toContain(marker);
+  });
+
+  test("an in-place rewrite of an existing tool-output file is in the next commit", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeBlob(
+      "kept",
+      new TextEncoder().encode("original"),
+      "text/plain",
+    );
+    await store.writeTurns([turn("seed")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "seed blob" });
+
+    const blobName = fs
+      .readdirSync(path.join(dir, "tool-output"))
+      .find((name) => name.startsWith("kept"));
+    if (blobName === undefined) throw new Error("seeded blob missing");
+    const blobPath = path.join(dir, "tool-output", blobName);
+    const before = fs.statSync(blobPath);
+    const dirBefore = fs.statSync(path.join(dir, "tool-output"));
+    fs.writeFileSync(blobPath, "rewritten-in-place");
+    const after = fs.statSync(blobPath);
+    const dirAfter = fs.statSync(path.join(dir, "tool-output"));
+    expect(after.ino).toBe(before.ino);
+    expect(dirAfter.mtimeMs).toBe(dirBefore.mtimeMs);
+    expect(dirAfter.ino).toBe(dirBefore.ino);
+
+    const second = await store.commit({ message: "publish in-place blob" });
+    expect(second.hash).not.toBe(first.hash);
+    const { blob } = await git.readBlob({
+      fs,
+      dir,
+      oid: second.hash,
+      filepath: `tool-output/${blobName}`,
+    });
+    expect(new TextDecoder().decode(blob)).toBe("rewritten-in-place");
+  });
+
   test("a turn commit does not lstat every seeded tool-output blob", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
@@ -788,12 +889,34 @@ describe("createOptimizedContextStore checkpoint", () => {
     await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
     await store.commit({ message: "seed blobs" });
 
-    const lstats = await countPathOps(
-      "lstat",
-      `${path.sep}tool-output${path.sep}`,
-      () => store.commit({ message: "no writes" }),
-    );
-    expect(lstats).toBe(0);
+    const walkedToolOutput: string[][] = [];
+    const originalStatus = git.statusMatrix.bind(git);
+    git.statusMatrix = (async (args) => {
+      const filepaths = args.filepaths ?? [];
+      if (
+        filepaths.some(
+          (filepath) =>
+            filepath === "tool-output" || filepath.startsWith("tool-output/"),
+        )
+      ) {
+        walkedToolOutput.push([...filepaths]);
+      }
+      return originalStatus(args);
+    }) as typeof git.statusMatrix;
+    let lstats = 0;
+    try {
+      lstats = await countPathOps(
+        "lstat",
+        `${path.sep}tool-output${path.sep}`,
+        () => store.commit({ message: "no writes" }),
+      );
+    } finally {
+      git.statusMatrix = originalStatus;
+    }
+    // Known blobs are statted by fingerprint. The directory itself is not
+    // passed to statusMatrix, so children are not walked a second time.
+    expect(walkedToolOutput).toEqual([]);
+    expect(lstats).toBe(blobCount);
   });
 
   test("seeded tool-output does not commit a no-op and a fresh store still heals blob bytes", async () => {
@@ -1764,6 +1887,42 @@ function readTurnsFromFile(fullPath: string): ConversationTurn[] {
     .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as ConversationTurn);
+}
+
+function nudgedSameSecondMs(mtimeMs: number): number {
+  const nudged = mtimeMs + 1;
+  if (Math.floor(nudged / 1000) === Math.floor(mtimeMs / 1000)) return nudged;
+  return mtimeMs - 1;
+}
+
+/**
+ * isomorphic-git compareStats ignores sub-second mtime but still compares
+ * ctime seconds. A real rewrite bumps ctime to "now", which leaves the
+ * same-second window whenever the test crosses a second boundary. Report the
+ * pre-rewrite ctime for this one path so statusMatrix trusts the index oid.
+ */
+async function pinLstatCtime<T>(
+  filePath: string,
+  ctimeMs: number,
+  run: () => Promise<T>,
+): Promise<T> {
+  const original = fs.promises.lstat;
+  fs.promises.lstat = (async (target: fs.PathLike, opts?: fs.StatOptions) => {
+    const stats = await original.call(fs.promises, target, opts);
+    if (typeof target !== "string" || target !== filePath) return stats;
+    const pinned = Object.assign(
+      Object.create(Object.getPrototypeOf(stats)),
+      stats,
+    ) as fs.Stats;
+    pinned.ctimeMs = ctimeMs;
+    pinned.ctime = new Date(ctimeMs);
+    return pinned;
+  }) as typeof fs.promises.lstat;
+  try {
+    return await run();
+  } finally {
+    fs.promises.lstat = original;
+  }
 }
 
 async function countPathOps(
