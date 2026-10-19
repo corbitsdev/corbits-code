@@ -543,7 +543,37 @@ export function createApprovalResume(args: {
         return timedOut;
       });
 
-      const outcome = await args.gate.resolveSuspended(request, stillCurrent);
+      const outcome = await args.gate
+        .resolveSuspended(request, stillCurrent)
+        .catch(async (err: unknown) => {
+          // The surface resolves aborts and timeouts as outcomes, so a throw
+          // is a real failure. A parked call is never retried (it is not a
+          // stall), so reject it now instead of leaving it to the reactor's
+          // own timeout, unless that timeout already answered it.
+          if (!stillCurrent()) {
+            dropParked();
+            throw err;
+          }
+          args.registerParkedCancel?.(undefined);
+          const timedOut =
+            overlayAbort?.signal.reason === APPROVAL_TIMEOUT_RESULT_TEXT ||
+            (await timeoutResultFromHistory(
+              () => parkedAgent.history(),
+              parkedCallId,
+            ));
+          if (!timedOut) {
+            await deliverDecision(
+              decisionMessage(
+                correlationId,
+                "rejected",
+                "approval surface failed",
+              ),
+            ).catch((deliverErr: unknown) => {
+              logger.warn`rejection after a failed approval surface not delivered correlation=${redactedCorrelationId(correlationId)} error=${deliverErr instanceof Error ? deliverErr.name : typeof deliverErr}`;
+            });
+          }
+          throw err;
+        });
       if (!overlayAbort.signal.aborted) overlayAbort.abort();
       // The overlay is gone, but its aborted controller still feeds every
       // permission prompt's signal while registered. A resumed call can prompt
