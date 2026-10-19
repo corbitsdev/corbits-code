@@ -254,10 +254,48 @@ shape.
 
 - `kind: "tool"` plugins export `createToolPlugin(credentials)` and contribute
   posix `ToolPlugin`s, resolved in `src/plugins/tool-plugins.ts` and wired into
-  the toolset in `src/tui/runner.ts` and `tools.ts` (appended last, so they cannot
-  shadow core middleware).
-- A tool plugin is wired in only when **enabled AND consented**. Enabling one in
-  `/plugins` prompts a one-time y/n consent recorded in `settings.plugins[id]`.
+  the toolset by the shared session runners and `src/agent/tools.ts`.
+- The installed-plugin contract is the exported `ToolPlugin` type from
+  `@intx/tools-posix`. In addition to `tools`, `middleware`, and `dispose`, it
+  may provide `authorize?: AuthorizeFn` (the `AuthorizeFn` type is exported by
+  `@intx/agent`). Corbits calls it before a tool invocation as
+  `authorize(resource, action, context)`, with `resource` set to
+  `tool:<canonical-name>`, `action` set to `"invoke"`, and `context` set to the
+  canonical `ToolCall`. Aliases and their arguments are normalized first (for
+  example, `bash` is presented as `run_shell`). The callback returns the
+  exported `AuthzCallResult` shape: an `effect` of `"allow"`, `"ask"`,
+  `"deny"`, or `null`, plus `matchingGrants` and `resolvedBy`; a deny may also
+  include a non-empty `reason`.
+- A tool plugin participates only after its module is trusted and loaded and
+  when it is **enabled AND consented**. Enabling one in `/plugins` prompts a
+  one-time y/n consent recorded in `settings.plugins[id]`; manifest
+  `defaultEnabled` does not activate tool plugins by itself. Disabled,
+  unconsented, and metadata-only untrusted plugins contribute neither
+  middleware nor authorization.
+- Authorization composes conservatively. Across authorizing plugins, deny (and
+  the fail-closed `null` effect) blocks, ask is stronger than allow, and the
+  first result at the strongest effect is retained. Corbits then combines that
+  result with its own `PermissionGate` monotonically: a plugin deny blocks; a
+  plugin ask can strengthen a Corbits allow into an approval request; and a
+  plugin allow cannot override a Corbits deny or ask, standing-grant rules, or
+  any other Corbits guard. Corbits hard denials short-circuit before plugin
+  authorization runs.
+- `null`, a malformed result, or a thrown/rejected callback fails closed as a
+  deny. Exception and validation details are logged only through scrubbed
+  diagnostics and are not exposed as the public denial reason. By contrast, a
+  plugin's explicit non-empty `reason` on an `effect: "deny"` result is used as
+  the public block reason; omit it for the generic denial.
+- A plugin `ask` uses the existing approval flow. Because plugin asks provide
+  no grant scopes, they are **Allow Once** only and cannot create or persist a
+  standing grant. If no interactive approval path is available, the ask is
+  denied. Existing Corbits asks keep their own scopes and persistence behavior.
+- `authorize` is independent of `middleware`: an allowed invocation still runs
+  the existing middleware chain, and tool-result secret scrubbing and
+  truncation remain outermost after installed middleware returns. Installed
+  middleware is still appended after core middleware, so it cannot bypass
+  post-tool redaction. If no active tool plugin provides `authorize`, Corbits
+  does not install a plugin-authorizer wrapper on the permission hot path; the
+  pre-existing gate and middleware behavior is unchanged.
 - Per-kind verify in `/plugins` covers web (trial search) and tool (load check).
 - `plugins/example-tool` is a worked example of a `tool` plugin.
 
