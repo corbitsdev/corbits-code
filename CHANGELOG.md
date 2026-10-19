@@ -20,6 +20,21 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
+## [0.3.41] - 2026-10-19
+
+### What's Changed
+* fix(tui): cap mcp connect so a hung dial cannot block resume by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1507
+* perf(types): import runtime values from runtime-core by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1505
+* perf(permission): defer the grok responses import off reactor boot by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1516
+* fix(agent): compact before the completion budget overflows the window by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1517
+* fix(tui): fire composed option chords on every advertised surface by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1518
+* fix(permission): key worker grants on the dispatched call by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1521
+* fix(session): release a settled approval overlay before delivering by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1520
+* fix(tui): deliver approvals for parked calls in queue-drained turns by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1519
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.40...v0.3.41
+
 ## [0.3.40] - 2026-10-17
 
 ### What's Changed
