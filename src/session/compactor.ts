@@ -903,10 +903,19 @@ export function createPruningCompactor(
     version: "1.9.0",
     async apply(
       turns: ConversationTurn[],
-      _ctx: StrategyContext,
+      ctx: StrategyContext,
     ): Promise<StrategyResult<ConversationTurn[]>> {
       // Prior compacted summaries fold into the next handoff, not frozen.
       const shape = resolveCompactionShape(cfg.compactionShape);
+      // Operator and automatic folds share one human reason string. Keep the
+      // reactor's raw trigger (director: prefix included) on the manifest so
+      // a later reader can tell them apart.
+      const withTrigger = (
+        fields: Record<string, unknown>,
+      ): Record<string, unknown> => ({
+        ...fields,
+        trigger: ctx.trigger,
+      });
 
       if (turns.length <= COMPACT_NOOP_FLOOR) {
         return {
@@ -919,7 +928,7 @@ export function createPruningCompactor(
               ...extraInstructionParameter(cfg),
             },
             reason: "no compaction needed",
-            decisions: { agedImageCount: 0 },
+            decisions: withTrigger({ agedImageCount: 0 }),
           },
         };
       }
@@ -988,14 +997,14 @@ export function createPruningCompactor(
               ...extraInstructionParameter(cfg),
             },
             reason: "no compaction needed",
-            decisions: {
+            decisions: withTrigger({
               tailBudgetTokens: shape.tailBudgetTokens,
               tailTokenEstimate: tail.tailTokenEstimate,
               shortenedToolOutputs: tail.shortenedToolOutputs,
               agedImageCount: aged.agedImageCount,
               supersededReadCount: supersededReads.size,
               liveTokenEstimate: estimateContextTokens(output),
-            },
+            }),
           },
           ...(aged.blobs.length > 0 ? { blobs: aged.blobs } : {}),
         };
@@ -1036,10 +1045,10 @@ export function createPruningCompactor(
                 ...extraInstructionParameter(cfg),
               },
               reason: "summarize failed",
-              decisions: {
+              decisions: withTrigger({
                 summarizeFailed: 1,
                 agedImageCount: aged.agedImageCount,
-              },
+              }),
             },
           };
         }
@@ -1061,10 +1070,10 @@ export function createPruningCompactor(
               ...extraInstructionParameter(cfg),
             },
             reason: "summarize failed",
-            decisions: {
+            decisions: withTrigger({
               summarizeFailed: 1,
               agedImageCount: aged.agedImageCount,
-            },
+            }),
           },
         };
       }
@@ -1090,12 +1099,12 @@ export function createPruningCompactor(
             compactionShape: shape,
           },
           reason: "verify failed — keeping prior context",
-          decisions: {
+          decisions: withTrigger({
             verifyAborted: 1,
             verifyAbortReason: abortReason,
             verifyMissing: misses.map((m) => m.kind),
             agedImageCount: aged.agedImageCount,
-          },
+          }),
         },
       });
       if (verified.aborted && verified.abortReason === "contradiction") {
@@ -1198,7 +1207,7 @@ export function createPruningCompactor(
               ? ` (statistics-only stub: ${summarizeFallback})`
               : ""
           }`,
-          decisions: {
+          decisions: withTrigger({
             summarizedTurnCount: summarizedTurns.length,
             anchorTurnCount: 0,
             recentTurnCount: tailTurns.length,
@@ -1220,7 +1229,7 @@ export function createPruningCompactor(
                 }
               : {}),
             ...verifyDecisions,
-          },
+          }),
         },
         blobs: [...aged.blobs, handoff.blob],
       };
