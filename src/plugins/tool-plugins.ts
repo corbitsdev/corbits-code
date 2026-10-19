@@ -1,3 +1,5 @@
+import type { AuthorizeFn } from "@intx/agent";
+import type { AuthzCallResult } from "@intx/inference";
 import type { ToolPlugin } from "@intx/tools-posix";
 import { collectPluginCandidates, type PluginModule } from "./loader.js";
 import type { PluginConfig } from "../config/settings.js";
@@ -17,6 +19,63 @@ export interface ToolPluginCandidate {
   description?: string;
   credentials: PluginCredentialField[];
   factory: (options: unknown) => ToolPlugin | Promise<ToolPlugin>;
+}
+
+export interface ResolvedToolPlugins {
+  plugins: ToolPlugin[];
+  authorize?: AuthorizeFn;
+}
+
+interface PluginAuthorizer {
+  id: string;
+  authorize: AuthorizeFn;
+}
+
+function effectStrength(effect: AuthzCallResult["effect"]): number {
+  switch (effect) {
+    case "deny":
+    case null:
+      return 2;
+    case "ask":
+      return 1;
+    case "allow":
+      return 0;
+  }
+}
+
+function composePluginAuthorizers(
+  authorizers: readonly PluginAuthorizer[],
+): AuthorizeFn {
+  return async (resource, action, context) => {
+    let strongest: AuthzCallResult | undefined;
+    for (const plugin of authorizers) {
+      let result: AuthzCallResult;
+      try {
+        result = await plugin.authorize(resource, action, context);
+      } catch (err) {
+        result = {
+          effect: "deny",
+          matchingGrants: [],
+          resolvedBy: null,
+          reason: `tool-plugin "${plugin.id}" authorization failed: ${scrubSecrets(err instanceof Error ? err.message : String(err))}`,
+        };
+      }
+      if (result.effect === "deny" || result.effect === null) return result;
+      if (
+        strongest === undefined ||
+        effectStrength(result.effect) > effectStrength(strongest.effect)
+      ) {
+        strongest = result;
+      }
+    }
+    return (
+      strongest ?? {
+        effect: "allow",
+        matchingGrants: [],
+        resolvedBy: null,
+      }
+    );
+  };
 }
 
 export function collectToolPlugins(
@@ -50,24 +109,31 @@ export async function resolveToolPlugins(args: {
   candidates: ToolPluginCandidate[];
   pluginConfig: Record<string, PluginConfig>;
   diagnostics?: PluginLoadDiagnostics;
-}): Promise<ToolPlugin[]> {
+}): Promise<ResolvedToolPlugins> {
   const onWarning = resolvePluginWarningHandler(
     args.diagnostics !== undefined
       ? { diagnostics: args.diagnostics }
       : { onWarning: stderrPluginWarning },
   );
-  const out: ToolPlugin[] = [];
+  const plugins: ToolPlugin[] = [];
+  const authorizers: PluginAuthorizer[] = [];
   for (const cand of args.candidates) {
     if (!isToolPluginActive(args.pluginConfig, cand.id)) continue;
     try {
-      out.push(
-        await cand.factory(args.pluginConfig[cand.id]?.credentials ?? {}),
+      const plugin = await cand.factory(
+        args.pluginConfig[cand.id]?.credentials ?? {},
       );
+      plugins.push(plugin);
+      if (plugin.authorize !== undefined) {
+        authorizers.push({ id: cand.id, authorize: plugin.authorize });
+      }
     } catch (err) {
       onWarning(
         `tool-plugin: failed to start "${cand.id}": ${scrubSecrets(err instanceof Error ? err.message : String(err))}`,
       );
     }
   }
-  return out;
+  return authorizers.length === 0
+    ? { plugins }
+    : { plugins, authorize: composePluginAuthorizers(authorizers) };
 }
