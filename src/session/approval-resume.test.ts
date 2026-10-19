@@ -12,6 +12,7 @@ import type {
   InboundMessage,
 } from "@intx/types/runtime";
 
+import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../permission/decline-markers.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { createExtraDeniedPathMatcher } from "../plugins/secret-guard-plugin.js";
 import {
@@ -1193,10 +1194,9 @@ describe("approval resume retry re-await", () => {
     expect(delivered).toHaveLength(1);
   });
 
-  // Concurrent duplicates share one in-flight rejection (one gate, zero
-  // deliveries), then a retry re-gates and delivers exactly once, and later
-  // retries memoize.
-  test("a shared rejection re-gates once, delivers once, then memoizes", async () => {
+  // Concurrent duplicates share one in-flight gate failure (one gate, one
+  // rejection delivered), and later retries memoize.
+  test("a shared gate failure rejects the parked call once, then memoizes", async () => {
     const gate = Promise.withResolvers<{ allow: boolean }>();
     const { resume, delivered, resolveSuspended } = retryHarness({
       allow: true,
@@ -1211,16 +1211,53 @@ describe("approval resume retry re-await", () => {
     await expect(first).rejects.toBe(failure);
     await expect(second).rejects.toBe(failure);
     expect(resolveSuspended).toHaveBeenCalledTimes(1);
-    expect(delivered).toHaveLength(0);
+    // Nothing retries a parked call, so the failure answers it.
+    expect(delivered).toHaveLength(1);
+    expect(decisionBody(onlyDecision(delivered)).outcome).toBe("rejected");
 
     expect(await resume.handle(suspension("corr-A", "echo alpha"))).toBe(true);
-    expect(resolveSuspended).toHaveBeenCalledTimes(2);
+    expect(resolveSuspended).toHaveBeenCalledTimes(1);
     expect(delivered).toHaveLength(1);
-    expect(decisionBody(onlyDecision(delivered)).outcome).toBe("approved");
-
-    expect(await resume.handle(suspension("corr-A", "echo alpha"))).toBe(true);
-    expect(resolveSuspended).toHaveBeenCalledTimes(2);
-    expect(delivered).toHaveLength(1);
+  });
+  test("a gate failure after the reactor timed the call out delivers nothing", async () => {
+    const delivered: InboundMessage[] = [];
+    let timedOut = false;
+    const failure = new Error("gate exploded");
+    const resume = createApprovalResume({
+      getAgent: () => ({
+        deliver: (message: InboundMessage) => {
+          delivered.push(message);
+        },
+        history: async () =>
+          timedOut
+            ? ([
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "tool_result",
+                      callId: "call-A",
+                      content: [
+                        { type: "text", text: APPROVAL_TIMEOUT_RESULT_TEXT },
+                      ],
+                    },
+                  ],
+                },
+              ] as unknown as Awaited<ReturnType<Agent["history"]>>)
+            : [],
+      }),
+      resolveParkedCallId: () => "call-A",
+      gate: {
+        resolveSuspended: async () => {
+          timedOut = true;
+          throw failure;
+        },
+      } as unknown as PermissionGate,
+    });
+    await expect(
+      resume.handle(suspension("corr-A", "echo alpha")),
+    ).rejects.toBe(failure);
+    expect(delivered).toEqual([]);
   });
 });
 

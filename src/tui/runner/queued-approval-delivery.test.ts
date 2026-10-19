@@ -31,6 +31,7 @@ import {
 import type { PermissionGate } from "../../permission/gate.js";
 import { ASK_DIRECTOR_WAKE_PREFIX } from "../../subagent/fleet-report.js";
 import { withTestRenderer } from "../harness.js";
+import { setShellRunState } from "../shell/chrome.js";
 import { createAppShell } from "../shell/index.js";
 import { shellInternals, type AppShell } from "../shell/internals.js";
 import { createDeliverRouting, createSubmitPath } from "./submit.js";
@@ -244,16 +245,23 @@ const drainWake = (h: ReturnType<typeof harness>): (() => unknown) => {
 
 // A decision that fails after the drained send returned cannot change the
 // drain's result: the wake already reached the agent, and restoring it would
-// resend it. It must be surfaced the way a failed send is instead.
-for (const [name, opts] of [
+// resend it. The failure is surfaced as a notice, the parked call is answered
+// rather than left to the reactor's timeout, and the shell keeps its run state
+// so follow-ups queued behind this turn still drain when it ends.
+for (const [name, opts, decisions] of [
   [
     "the approval surface throws",
     {
       resolveSuspended: () =>
         Promise.reject(new Error("approval overlay failed")),
     },
+    ["approval.denied"],
   ],
-  ["the reactor never accepts the decision", { acceptsDecisions: false }],
+  [
+    "the reactor never accepts the decision",
+    { acceptsDecisions: false },
+    ["approval.granted"],
+  ],
 ] as const) {
   test(`wake-drained turn: surfaces a lost decision when ${name}`, async () => {
     await withTestRenderer(async (r) => {
@@ -265,12 +273,16 @@ for (const [name, opts] of [
       });
       try {
         const h = harness({ ...opts, shell });
+        setShellRunState(shell, "busy");
         const settled = drainWake(h);
         await new Promise((resolve) => setTimeout(resolve, 200));
         expect(h.gateAsked()).toBe(1);
         expect(settled()).toEqual({ status: "accepted" });
-        expect(h.state.runError).toBeDefined();
+        expect(h.delivered.map((m) => m.headers.interchangeType)).toEqual([
+          ...decisions,
+        ]);
         expect(systemRows(shell).length).toBe(1);
+        expect(shell.session.run).toBe("busy");
         expect(await settleWithin(h.sessionOps.awaitTail(), 200)).toBe(
           "settled",
         );
