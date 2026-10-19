@@ -1,7 +1,6 @@
 import type { AuthorizeFn } from "@intx/agent";
 import type { ToolCall } from "@intx/types/runtime";
 import { getLogger } from "@intx/log";
-import { type } from "arktype";
 import { isAbsolute, resolve } from "node:path";
 import type {
   Approval,
@@ -62,6 +61,10 @@ import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import { prepareDispatchedToolCall } from "../agent/tool-aliases.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { scrubSecrets } from "../web/secret-scrub.js";
+import {
+  safePluginDiagnostic,
+  validatePluginAuthorizeResult,
+} from "./plugin-authorize-result.js";
 
 import {
   createMcpToolPermissionRegistry,
@@ -353,36 +356,6 @@ const AUTO_ALLOWED_TOOLS = new Set([
 ]);
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "permission", "plugin-authz"]);
-
-function safePluginDiagnostic(err: unknown): string {
-  try {
-    const diagnostic: unknown = err instanceof Error ? err.message : err;
-    return typeof diagnostic === "string" ? diagnostic : String(diagnostic);
-  } catch {
-    return "[unprintable thrown value]";
-  }
-}
-
-const PluginAuthorizeResult = type({
-  effect: "'allow' | 'ask' | 'deny' | null",
-  matchingGrants: "unknown[]",
-  resolvedBy: "unknown",
-  "reason?": "string",
-});
-
-function materializePluginAuthorizeResult(rawResult: unknown): unknown {
-  const source = rawResult as Record<string, unknown>;
-  const effect = source.effect;
-  const matchingGrants = source.matchingGrants;
-  const resolvedBy = source.resolvedBy;
-  const reason = source.reason;
-  return {
-    effect,
-    matchingGrants,
-    resolvedBy,
-    ...(reason !== undefined ? { reason } : {}),
-  };
-}
 
 export interface PermissionGateOptions {
   // Seed approvals; the gate copies them and never mutates the caller's array.
@@ -1030,13 +1003,16 @@ export function createPermissionGate(
         "invoke",
         call,
       );
-      const result = PluginAuthorizeResult(
-        materializePluginAuthorizeResult(rawResult),
-      );
-      if (result instanceof type.errors) {
-        logger.warn`plugin authorization returned a malformed result: ${scrubSecrets(result.summary)}`;
+      const validated = validatePluginAuthorizeResult(rawResult);
+      if (!validated.ok) {
+        if (validated.kind === "malformed") {
+          logger.warn`plugin authorization returned a malformed result: ${scrubSecrets(validated.diagnostic)}`;
+        } else {
+          logger.warn`plugin authorization failed: ${scrubSecrets(validated.diagnostic)}`;
+        }
         return { kind: "deny", reason: "Plugin authorization failed closed." };
       }
+      const { result } = validated;
       if (result.effect === "deny" || result.effect === null) {
         const publicReason =
           result.effect === "deny" &&
