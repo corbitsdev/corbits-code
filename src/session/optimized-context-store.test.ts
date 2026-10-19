@@ -709,6 +709,39 @@ describe("createOptimizedContextStore checkpoint", () => {
     expect(reads).toBe(0);
   });
 
+  test("an external append to a tracked segment is in the next commit", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const chunk = "s".repeat(100_000);
+    const turns: ConversationTurn[] = [];
+    const closed = segmentFileName(TURNS_FILE, 1);
+    const tail = segmentFileName(TURNS_FILE, 2);
+    do {
+      turns.push(turn(`${turns.length}-${chunk}`));
+      await store.writeTurns(turns);
+    } while (!fs.existsSync(path.join(dir, tail)) && turns.length < 20);
+    expect(fs.existsSync(path.join(dir, closed))).toBe(true);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "three segments" });
+
+    const marker = "external-drift-bytes";
+    fs.appendFileSync(path.join(dir, closed), `${marker}\n`);
+    let secondHash = "";
+    const unchangedReads = await countPathOps("readFile", tail, async () => {
+      const second = await store.commit({ message: "publish drifted segment" });
+      secondHash = second.hash;
+    });
+    expect(unchangedReads).toBe(0);
+    expect(secondHash).not.toBe(first.hash);
+    const { blob } = await git.readBlob({
+      fs,
+      dir,
+      oid: secondHash,
+      filepath: closed,
+    });
+    expect(new TextDecoder().decode(blob)).toContain(marker);
+  });
+
   test("a turn commit does not lstat every seeded tool-output blob", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
@@ -738,6 +771,29 @@ describe("createOptimizedContextStore checkpoint", () => {
     // empty-commit matrix must not stat them again on a turn that already
     // changed a managed file.
     expect(lstats).toBeLessThan(blobCount + blobCount / 2);
+  });
+
+  test("a no-op commit does not lstat every tool-output blob", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const blobCount = 24;
+    for (let index = 0; index < blobCount; index++) {
+      await store.writeBlob(
+        `blob-${index}`,
+        new TextEncoder().encode(`body-${index}`),
+        "text/plain",
+      );
+    }
+    await store.writeTurns([turn("seed")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "seed blobs" });
+
+    const lstats = await countPathOps(
+      "lstat",
+      `${path.sep}tool-output${path.sep}`,
+      () => store.commit({ message: "no writes" }),
+    );
+    expect(lstats).toBe(0);
   });
 
   test("seeded tool-output does not commit a no-op and a fresh store still heals blob bytes", async () => {

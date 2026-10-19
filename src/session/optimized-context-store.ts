@@ -883,20 +883,74 @@ function highestSegmentIndexFromListing(
 }
 
 /**
+ * Size, mtime, and inode of one segment file. Compared to the fingerprint
+ * saved at the last publish so a byte change stages the file and an unchanged
+ * file is not re-read.
+ */
+interface SegmentStat {
+  bytes: number;
+  mtimeMs: number;
+  ino: number;
+}
+
+function segmentStatDrifted(
+  observed: SegmentStat | undefined,
+  published: SegmentStat | undefined,
+): boolean {
+  if (observed === undefined || published === undefined) return true;
+  return (
+    observed.bytes !== published.bytes ||
+    observed.mtimeMs !== published.mtimeMs ||
+    observed.ino !== published.ino
+  );
+}
+
+/**
  * One readdir of the session dir answers every worktree-existence check in a
- * single commit, including the lazy listing of the tool-output dir. Surveyed
- * after the staged writes land, used before the lock releases.
+ * single commit, including the lazy listing of the tool-output dir. Contiguous
+ * turn and prompt segments are statted once here; that fingerprint is the
+ * drift signal, not a content read. Surveyed after the staged writes land,
+ * used before the lock releases.
  */
 interface WorktreeListing {
   top: ReadonlySet<string>;
+  segmentStats: ReadonlyMap<string, SegmentStat>;
   toolOutputFiles: () => Promise<ReadonlySet<string>>;
 }
 
-async function surveyWorktree(dir: string): Promise<WorktreeListing> {
+async function segmentStatsForListing(
+  dir: string,
+  top: ReadonlySet<string>,
+  turnsBaseName: string,
+): Promise<Map<string, SegmentStat>> {
+  const names = [
+    ...contiguousSegmentNamesFromListing(top, turnsBaseName),
+    ...contiguousSegmentNamesFromListing(top, PROMPT_FILE),
+  ];
+  const stats = new Map<string, SegmentStat>();
+  await Promise.all(
+    names.map(async (name) => {
+      const fileStats = await fs.promises.stat(path.join(dir, name));
+      stats.set(name, {
+        bytes: fileStats.size,
+        mtimeMs: fileStats.mtimeMs,
+        ino: fileStats.ino,
+      });
+    }),
+  );
+  return stats;
+}
+
+async function surveyWorktree(
+  dir: string,
+  turnsBaseName: string,
+): Promise<WorktreeListing> {
   const top = new Set(await fs.promises.readdir(dir));
+  const segmentStats = await segmentStatsForListing(dir, top, turnsBaseName);
   let blobListing: Promise<ReadonlySet<string>> | null = null;
   return {
     top,
+    segmentStats,
     toolOutputFiles() {
       blobListing ??= fs.promises
         .readdir(path.join(dir, TOOL_OUTPUT_DIR))
@@ -1100,10 +1154,12 @@ async function restoreTurnSegments(
  *
  * `stageUnchanged` re-adds every contiguous name (disk-as-truth for a rewrite,
  * or the first commit of a store whose pending set may have been lost). After
- * this store has published once, steady-state commits pass false and only
- * stage untracked names here; the writer's modified paths are already pending.
- * Removals stay disk-as-truth either way, so a heal unlink still unstages the
- * same paths snapshot/restore would put back.
+ * this store has published once, steady-state commits stage a tracked segment
+ * only when its listing fingerprint (size, mtime, inode) differs from the
+ * fingerprint saved at the last publish. An unchanged fingerprint is not
+ * passed to `git.add`, so the file is not re-read. Untracked names are still
+ * added. Removals stay disk-as-truth either way, so a heal unlink still
+ * unstages the same paths snapshot/restore would put back.
  */
 async function reconcileSegmentStaging(
   dir: string,
@@ -1113,13 +1169,25 @@ async function reconcileSegmentStaging(
   listing: WorktreeListing,
   tracked: ReadonlySet<string>,
   stageUnchanged: boolean,
+  publishedSegmentStats: ReadonlyMap<string, SegmentStat>,
 ): Promise<void> {
   const contiguous = contiguousSegmentNamesFromListing(listing.top, baseName);
   if (stageUnchanged) {
     for (const name of contiguous) toAdd.push(name);
   } else {
     for (const name of contiguous) {
-      if (!tracked.has(name)) toAdd.push(name);
+      if (!tracked.has(name)) {
+        toAdd.push(name);
+        continue;
+      }
+      if (
+        segmentStatDrifted(
+          listing.segmentStats.get(name),
+          publishedSegmentStats.get(name),
+        )
+      ) {
+        toAdd.push(name);
+      }
     }
   }
 
@@ -1157,13 +1225,16 @@ function extraCommitPaths(paths: readonly string[]): string[] {
  * isomorphic-git applies `filepaths` inside the walk map, after it has already
  * readdir'd a directory and lstat'd each child, so including `tool-output`
  * stats every blob. Root files are checked first; a dirty one skips the
- * directory walk entirely. The directory walk remains the empty-commit
- * backstop, so a blob-only change still commits and a clean tree does not.
+ * directory walk entirely. `walkBlobDirectories` is the separate signal for a
+ * blob-only change: a store that has not yet observed the blob directories,
+ * or whose directory fingerprint (mtime, inode) moved, still walks. A no-op
+ * whose fingerprint is unchanged passes false and does not lstat every blob.
  */
 async function managedPathsDiffer(
   dir: string,
   filepaths: readonly string[],
   cache: GitCache,
+  walkBlobDirectories: boolean,
 ): Promise<boolean> {
   if (filepaths.length === 0) return false;
   const rootFiles: string[] = [];
@@ -1191,6 +1262,7 @@ async function managedPathsDiffer(
   for (const filepath of nestedFiles) {
     if (await nestedWorktreeDiffers(dir, filepath, cache)) return true;
   }
+  if (!walkBlobDirectories) return false;
   for (const filepath of directories) {
     const matrix = await git.statusMatrix({
       ...cachedGit(dir, cache),
@@ -1199,6 +1271,35 @@ async function managedPathsDiffer(
     if (matrix.some(([, head, workdir]) => head !== workdir)) return true;
   }
   return false;
+}
+
+interface DirectoryFingerprint {
+  mtimeMs: number;
+  ino: number;
+}
+
+function sameDirectoryFingerprint(
+  left: DirectoryFingerprint | null,
+  right: DirectoryFingerprint | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return left.mtimeMs === right.mtimeMs && left.ino === right.ino;
+}
+
+async function directoryFingerprint(
+  dir: string,
+  name: string,
+): Promise<DirectoryFingerprint | null> {
+  try {
+    const stats = await fs.promises.lstat(path.join(dir, name));
+    if (!stats.isDirectory()) return null;
+    return { mtimeMs: stats.mtimeMs, ino: stats.ino };
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
+      return null;
+    }
+    throw cause;
+  }
 }
 
 /**
@@ -1344,8 +1445,34 @@ export async function createSessionStores(
   const gitCache: GitCache = {};
   // Full contiguous re-stage until this store has observed a clean or published
   // generation. A fresh process heals disk the same way a rewrite does; later
-  // commits stage only the writer's modified paths plus untracked strays.
+  // commits stage a tracked segment only when its fingerprint drifted.
   let stageEveryContiguousSegment = true;
+  // Fingerprints from the last publish. Segment stats avoid re-reading an
+  // unchanged segment; blob directory stats are the signal that skips the
+  // tool-output walk on a no-op commit.
+  let publishedSegmentStats = new Map<string, SegmentStat>();
+  let blobDirsObserved = false;
+  let toolOutputFingerprint: DirectoryFingerprint | null = null;
+  let evidenceFingerprint: DirectoryFingerprint | null = null;
+
+  async function blobDirectoriesNeedWalk(): Promise<boolean> {
+    if (!blobDirsObserved) return true;
+    const tool = await directoryFingerprint(dir, TOOL_OUTPUT_DIR);
+    const evidence = await directoryFingerprint(dir, EVIDENCE_ARCHIVE_DIR);
+    return (
+      !sameDirectoryFingerprint(tool, toolOutputFingerprint) ||
+      !sameDirectoryFingerprint(evidence, evidenceFingerprint)
+    );
+  }
+
+  async function rememberPublishedTree(
+    listing: WorktreeListing,
+  ): Promise<void> {
+    publishedSegmentStats = new Map(listing.segmentStats);
+    toolOutputFingerprint = await directoryFingerprint(dir, TOOL_OUTPUT_DIR);
+    evidenceFingerprint = await directoryFingerprint(dir, EVIDENCE_ARCHIVE_DIR);
+    blobDirsObserved = true;
+  }
   const ownerToken = opts?.ownerId ?? globalThis.crypto.randomUUID();
   const explicitOwnerId = opts?.ownerId;
   let turnsBaseName = TURNS_FILE;
@@ -2084,7 +2211,7 @@ export async function createSessionStores(
             await writeTurnLog(stagedRewrite);
             invalidateTurnsCache();
           }
-          const listing = await surveyWorktree(dir);
+          const listing = await surveyWorktree(dir, turnsBaseName);
           const toAdd: string[] = [];
           const toRemove: string[] = [];
 
@@ -2101,8 +2228,9 @@ export async function createSessionStores(
           // rewrite or heal, even when pendingSegmentPaths was lost. A rewrite,
           // and the first commit of a store that has not yet published, re-add
           // every contiguous segment so that staging matches snapshot/restore.
-          // Later commits leave unchanged segments unstaged: the writer already
-          // recorded modified paths, and untracked names are still added.
+          // Later commits stage a tracked segment only when its size, mtime, or
+          // inode drifted, so an external append is published and an unchanged
+          // segment is not re-read. Untracked names are still added.
           const tracked = await listIndexPaths(dir, gitCache);
           const stageUnchanged =
             stagedRewrite !== null || stageEveryContiguousSegment;
@@ -2114,6 +2242,7 @@ export async function createSessionStores(
             listing,
             tracked,
             stageUnchanged,
+            publishedSegmentStats,
           );
           await reconcileSegmentStaging(
             dir,
@@ -2123,6 +2252,7 @@ export async function createSessionStores(
             listing,
             tracked,
             stageUnchanged,
+            publishedSegmentStats,
           );
 
           if (listing.top.has(EVIDENCE_ARCHIVE_DIR)) {
@@ -2167,12 +2297,20 @@ export async function createSessionStores(
               ...toAdd,
               ...toRemove,
             ];
-            if (!(await managedPathsDiffer(dir, managedFilepaths, gitCache))) {
+            if (
+              !(await managedPathsDiffer(
+                dir,
+                managedFilepaths,
+                gitCache,
+                await blobDirectoriesNeedWalk(),
+              ))
+            ) {
               const [head] = await base.log(1);
               if (head !== undefined) {
                 pendingBlobFilepaths.clear();
                 pendingSegmentPaths.clear();
                 stageEveryContiguousSegment = false;
+                await rememberPublishedTree(listing);
                 return head;
               }
             }
@@ -2225,6 +2363,7 @@ export async function createSessionStores(
           pendingBlobFilepaths.clear();
           pendingSegmentPaths.clear();
           stageEveryContiguousSegment = false;
+          await rememberPublishedTree(listing);
           if (stagedRewrite !== null) {
             liveTurnRefs = stagedRewrite;
             unpublishedRewrite = null;
