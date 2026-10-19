@@ -685,6 +685,155 @@ describe("createOptimizedContextStore checkpoint", () => {
     expect(tree).not.toContain("untracked-junk.txt");
   });
 
+  test("a later checkpoint does not re-read an unchanged turn segment", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const chunk = "s".repeat(100_000);
+    const turns: ConversationTurn[] = [];
+    const middle = segmentFileName(TURNS_FILE, 1);
+    const tail = segmentFileName(TURNS_FILE, 2);
+    do {
+      turns.push(turn(`${turns.length}-${chunk}`));
+      await store.writeTurns(turns);
+    } while (!fs.existsSync(path.join(dir, tail)) && turns.length < 20);
+    expect(fs.existsSync(path.join(dir, middle))).toBe(true);
+    expect(fs.existsSync(path.join(dir, tail))).toBe(true);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "three segments" });
+
+    turns.push(turn("tail"));
+    await store.writeTurns(turns);
+    const reads = await countPathOps("readFile", middle, () =>
+      store.commit({ message: "append tail" }),
+    );
+    expect(reads).toBe(0);
+  });
+
+  test("an external append to a tracked segment is in the next commit", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const chunk = "s".repeat(100_000);
+    const turns: ConversationTurn[] = [];
+    const closed = segmentFileName(TURNS_FILE, 1);
+    const tail = segmentFileName(TURNS_FILE, 2);
+    do {
+      turns.push(turn(`${turns.length}-${chunk}`));
+      await store.writeTurns(turns);
+    } while (!fs.existsSync(path.join(dir, tail)) && turns.length < 20);
+    expect(fs.existsSync(path.join(dir, closed))).toBe(true);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "three segments" });
+
+    const marker = "external-drift-bytes";
+    fs.appendFileSync(path.join(dir, closed), `${marker}\n`);
+    let secondHash = "";
+    const unchangedReads = await countPathOps("readFile", tail, async () => {
+      const second = await store.commit({ message: "publish drifted segment" });
+      secondHash = second.hash;
+    });
+    expect(unchangedReads).toBe(0);
+    expect(secondHash).not.toBe(first.hash);
+    const { blob } = await git.readBlob({
+      fs,
+      dir,
+      oid: secondHash,
+      filepath: closed,
+    });
+    expect(new TextDecoder().decode(blob)).toContain(marker);
+  });
+
+  test("a turn commit does not lstat every seeded tool-output blob", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const blobCount = 24;
+    for (let index = 0; index < blobCount; index++) {
+      await store.writeBlob(
+        `blob-${index}`,
+        new TextEncoder().encode(`body-${index}`),
+        "text/plain",
+      );
+    }
+    const turns = [turn("seed")];
+    await store.writeTurns(turns);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "seed blobs" });
+
+    const lstats = await countPathOps(
+      "lstat",
+      `${path.sep}tool-output${path.sep}`,
+      async () => {
+        turns.push(turn("next"));
+        await store.writeTurns(turns);
+        await store.commit({ message: "next turn" });
+      },
+    );
+    // Vendor commit still stats each blob once while staging it. The
+    // empty-commit matrix must not stat them again on a turn that already
+    // changed a managed file.
+    expect(lstats).toBeLessThan(blobCount + blobCount / 2);
+  });
+
+  test("a no-op commit does not lstat every tool-output blob", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const blobCount = 24;
+    for (let index = 0; index < blobCount; index++) {
+      await store.writeBlob(
+        `blob-${index}`,
+        new TextEncoder().encode(`body-${index}`),
+        "text/plain",
+      );
+    }
+    await store.writeTurns([turn("seed")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "seed blobs" });
+
+    const lstats = await countPathOps(
+      "lstat",
+      `${path.sep}tool-output${path.sep}`,
+      () => store.commit({ message: "no writes" }),
+    );
+    expect(lstats).toBe(0);
+  });
+
+  test("seeded tool-output does not commit a no-op and a fresh store still heals blob bytes", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeBlob(
+      "kept",
+      new TextEncoder().encode("original"),
+      "text/plain",
+    );
+    await store.writeTurns([turn("seed")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "seed blob" });
+
+    fs.writeFileSync(path.join(dir, "partial.jsonl"), '{"reason":"abort"}\n');
+    const second = await store.commit({ message: "empty with blobs" });
+    expect(second.hash).toBe(first.hash);
+
+    const blobName = fs
+      .readdirSync(path.join(dir, "tool-output"))
+      .find((name) => name.startsWith("kept"));
+    if (blobName === undefined) throw new Error("seeded blob missing");
+    fs.writeFileSync(path.join(dir, "tool-output", blobName), "rewritten");
+    fs.writeFileSync(path.join(dir, "tool-output", "stray.txt"), "stray");
+
+    const crashed = await createOptimizedContextStore(dir);
+    const healed = await crashed.commit({ message: "heal blobs" });
+    expect(healed.hash).not.toBe(first.hash);
+    const tree = await gitLsTree(dir);
+    expect(tree).toContain(`tool-output/${blobName}`);
+    expect(tree).toContain("tool-output/stray.txt");
+    const { blob } = await git.readBlob({
+      fs,
+      dir,
+      oid: healed.hash,
+      filepath: `tool-output/${blobName}`,
+    });
+    expect(new TextDecoder().decode(blob)).toBe("rewritten");
+  });
+
   test("commits an on-disk extra turn segment that is not in HEAD without writeTurns", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
@@ -1615,6 +1764,33 @@ function readTurnsFromFile(fullPath: string): ConversationTurn[] {
     .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as ConversationTurn);
+}
+
+async function countPathOps(
+  op: "readFile" | "lstat",
+  marker: string,
+  run: () => Promise<unknown>,
+): Promise<number> {
+  let hits = 0;
+  const target = fs.promises as unknown as Record<
+    string,
+    (...args: unknown[]) => Promise<unknown>
+  >;
+  const original = target[op];
+  if (original === undefined) {
+    throw new Error(`missing fs.promises.${op}`);
+  }
+  target[op] = (...args: unknown[]) => {
+    const first = args[0];
+    if (typeof first === "string" && first.includes(marker)) hits += 1;
+    return original.apply(fs.promises, args);
+  };
+  try {
+    await run();
+  } finally {
+    target[op] = original;
+  }
+  return hits;
 }
 
 async function gitLsTree(dir: string): Promise<string[]> {

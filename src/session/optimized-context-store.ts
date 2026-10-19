@@ -50,6 +50,21 @@ const OWNER_MARKER_FILE = "session-owner.json";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "session", "context-store"]);
 
+/**
+ * One isomorphic-git cache per session directory. The object is the cache
+ * documented by isomorphic-git: index reads stay memoized, and `isIndexStale`
+ * still reloads `.git/index` when another process (or the vendor store, which
+ * does not share this object) rewrites it. Never reuse one cache across dirs.
+ */
+type GitCache = object;
+
+function cachedGit(
+  dir: string,
+  cache: GitCache,
+): { fs: typeof fs; dir: string; cache: GitCache } {
+  return { fs, dir, cache };
+}
+
 const VENDOR_COMMIT_ROOT_FILES = new Set([
   TURNS_FILE,
   PROMPT_FILE,
@@ -838,8 +853,11 @@ function isCompactionOf(
   return tailProjectsFrom(live, rest);
 }
 
-async function listIndexPaths(dir: string): Promise<Set<string>> {
-  return new Set(await git.listFiles({ fs, dir }));
+async function listIndexPaths(
+  dir: string,
+  cache: GitCache,
+): Promise<Set<string>> {
+  return new Set(await git.listFiles({ ...cachedGit(dir, cache) }));
 }
 
 /**
@@ -882,20 +900,74 @@ function highestSegmentIndexFromListing(
 }
 
 /**
+ * Size, mtime, and inode of one segment file. Compared to the fingerprint
+ * saved at the last publish so a byte change stages the file and an unchanged
+ * file is not re-read.
+ */
+interface SegmentStat {
+  bytes: number;
+  mtimeMs: number;
+  ino: number;
+}
+
+function segmentStatDrifted(
+  observed: SegmentStat | undefined,
+  published: SegmentStat | undefined,
+): boolean {
+  if (observed === undefined || published === undefined) return true;
+  return (
+    observed.bytes !== published.bytes ||
+    observed.mtimeMs !== published.mtimeMs ||
+    observed.ino !== published.ino
+  );
+}
+
+/**
  * One readdir of the session dir answers every worktree-existence check in a
- * single commit, including the lazy listing of the tool-output dir. Surveyed
- * after the staged writes land, used before the lock releases.
+ * single commit, including the lazy listing of the tool-output dir. Contiguous
+ * turn and prompt segments are statted once here; that fingerprint is the
+ * drift signal, not a content read. Surveyed after the staged writes land,
+ * used before the lock releases.
  */
 interface WorktreeListing {
   top: ReadonlySet<string>;
+  segmentStats: ReadonlyMap<string, SegmentStat>;
   toolOutputFiles: () => Promise<ReadonlySet<string>>;
 }
 
-async function surveyWorktree(dir: string): Promise<WorktreeListing> {
+async function segmentStatsForListing(
+  dir: string,
+  top: ReadonlySet<string>,
+  turnsBaseName: string,
+): Promise<Map<string, SegmentStat>> {
+  const names = [
+    ...contiguousSegmentNamesFromListing(top, turnsBaseName),
+    ...contiguousSegmentNamesFromListing(top, PROMPT_FILE),
+  ];
+  const stats = new Map<string, SegmentStat>();
+  await Promise.all(
+    names.map(async (name) => {
+      const fileStats = await fs.promises.stat(path.join(dir, name));
+      stats.set(name, {
+        bytes: fileStats.size,
+        mtimeMs: fileStats.mtimeMs,
+        ino: fileStats.ino,
+      });
+    }),
+  );
+  return stats;
+}
+
+async function surveyWorktree(
+  dir: string,
+  turnsBaseName: string,
+): Promise<WorktreeListing> {
   const top = new Set(await fs.promises.readdir(dir));
+  const segmentStats = await segmentStatsForListing(dir, top, turnsBaseName);
   let blobListing: Promise<ReadonlySet<string>> | null = null;
   return {
     top,
+    segmentStats,
     toolOutputFiles() {
       blobListing ??= fs.promises
         .readdir(path.join(dir, TOOL_OUTPUT_DIR))
@@ -933,8 +1005,9 @@ async function worktreeListingHas(
 async function extraSegmentNamesAtCommit(
   dir: string,
   hash: string,
+  cache: GitCache,
 ): Promise<string[]> {
-  const listing = await git.listFiles({ fs, dir, ref: hash });
+  const listing = await git.listFiles({ ...cachedGit(dir, cache), ref: hash });
   const present = new Set(listing);
   const names: string[] = [];
   for (let index = 1; ; index++) {
@@ -949,8 +1022,13 @@ async function blobTextAtCommit(
   dir: string,
   hash: string,
   filepath: string,
+  cache: GitCache,
 ): Promise<string> {
-  const { blob } = await git.readBlob({ fs, dir, oid: hash, filepath });
+  const { blob } = await git.readBlob({
+    ...cachedGit(dir, cache),
+    oid: hash,
+    filepath,
+  });
   return new TextDecoder().decode(blob);
 }
 
@@ -967,10 +1045,11 @@ function isNotFoundError(cause: unknown): boolean {
 async function turnSegmentNamesAtCommit(
   dir: string,
   hash: string,
+  cache: GitCache,
 ): Promise<string[]> {
   let manifest: string | null = null;
   try {
-    manifest = await blobTextAtCommit(dir, hash, SEGMENT_MANIFEST_FILE);
+    manifest = await blobTextAtCommit(dir, hash, SEGMENT_MANIFEST_FILE, cache);
   } catch (cause) {
     // A commit without the manifest is the pre-manifest normal case; any
     // other read error falls through to the tree walk as well.
@@ -1005,25 +1084,26 @@ async function turnSegmentNamesAtCommit(
       );
     }
   }
-  return extraSegmentNamesAtCommit(dir, hash);
+  return extraSegmentNamesAtCommit(dir, hash, cache);
 }
 
 async function resetIndexPaths(
   dir: string,
   filepaths: readonly string[],
+  cache: GitCache,
 ): Promise<void> {
   for (const filepath of filepaths) {
     try {
-      await git.resetIndex({ fs, dir, filepath });
+      await git.resetIndex({ ...cachedGit(dir, cache), filepath });
     } catch {
       // Not in the index; vendor restore already covers its own paths.
     }
   }
 }
 
-async function headOid(dir: string): Promise<string | null> {
+async function headOid(dir: string, cache: GitCache): Promise<string | null> {
   try {
-    return await git.resolveRef({ fs, dir, ref: "HEAD" });
+    return await git.resolveRef({ ...cachedGit(dir, cache), ref: "HEAD" });
   } catch {
     return null;
   }
@@ -1088,6 +1168,15 @@ async function restoreTurnSegments(
  * unlinked, not re-added. Existence and index checks come from the shared
  * worktree listing and the shared tracked-index listing, so one readdir and
  * one tree walk serve every staged base name in the commit.
+ *
+ * `stageUnchanged` re-adds every contiguous name (disk-as-truth for a rewrite,
+ * or the first commit of a store whose pending set may have been lost). After
+ * this store has published once, steady-state commits stage a tracked segment
+ * only when its listing fingerprint (size, mtime, inode) differs from the
+ * fingerprint saved at the last publish. An unchanged fingerprint is not
+ * passed to `git.add`, so the file is not re-read. Untracked names are still
+ * added. Removals stay disk-as-truth either way, so a heal unlink still
+ * unstages the same paths snapshot/restore would put back.
  */
 async function reconcileSegmentStaging(
   dir: string,
@@ -1096,9 +1185,28 @@ async function reconcileSegmentStaging(
   toRemove: string[],
   listing: WorktreeListing,
   tracked: ReadonlySet<string>,
+  stageUnchanged: boolean,
+  publishedSegmentStats: ReadonlyMap<string, SegmentStat>,
 ): Promise<void> {
   const contiguous = contiguousSegmentNamesFromListing(listing.top, baseName);
-  for (const name of contiguous) toAdd.push(name);
+  if (stageUnchanged) {
+    for (const name of contiguous) toAdd.push(name);
+  } else {
+    for (const name of contiguous) {
+      if (!tracked.has(name)) {
+        toAdd.push(name);
+        continue;
+      }
+      if (
+        segmentStatDrifted(
+          listing.segmentStats.get(name),
+          publishedSegmentStats.get(name),
+        )
+      ) {
+        toAdd.push(name);
+      }
+    }
+  }
 
   // Index 0 is the base name; numbered tails begin at 1. No base still
   // sweeps numbered files.
@@ -1129,18 +1237,125 @@ function extraCommitPaths(paths: readonly string[]): string[] {
  * True when any managed path differs between HEAD and the worktree. Callers
  * must pass only managed paths — never "." or session junk like
  * partial.jsonl.
+ *
+ * Directories are not passed to the same statusMatrix as root files.
+ * isomorphic-git applies `filepaths` inside the walk map, after it has already
+ * readdir'd a directory and lstat'd each child, so including `tool-output`
+ * stats every blob. Root files are checked first; a dirty one skips the
+ * directory walk entirely. `walkBlobDirectories` is the separate signal for a
+ * blob-only change: a store that has not yet observed the blob directories,
+ * or whose directory fingerprint (mtime, inode) moved, still walks. A no-op
+ * whose fingerprint is unchanged passes false and does not lstat every blob.
  */
 async function managedPathsDiffer(
   dir: string,
   filepaths: readonly string[],
+  cache: GitCache,
+  walkBlobDirectories: boolean,
 ): Promise<boolean> {
   if (filepaths.length === 0) return false;
-  const matrix = await git.statusMatrix({
-    fs,
-    dir,
-    filepaths: [...filepaths],
-  });
-  return matrix.some(([, head, workdir]) => head !== workdir);
+  const rootFiles: string[] = [];
+  const nestedFiles: string[] = [];
+  const directories: string[] = [];
+  const seen = new Set<string>();
+  for (const filepath of filepaths) {
+    if (seen.has(filepath)) continue;
+    seen.add(filepath);
+    if (filepath === TOOL_OUTPUT_DIR || filepath === EVIDENCE_ARCHIVE_DIR) {
+      directories.push(filepath);
+    } else if (filepath.includes("/")) {
+      nestedFiles.push(filepath);
+    } else {
+      rootFiles.push(filepath);
+    }
+  }
+  if (rootFiles.length > 0) {
+    const matrix = await git.statusMatrix({
+      ...cachedGit(dir, cache),
+      filepaths: rootFiles,
+    });
+    if (matrix.some(([, head, workdir]) => head !== workdir)) return true;
+  }
+  for (const filepath of nestedFiles) {
+    if (await nestedWorktreeDiffers(dir, filepath, cache)) return true;
+  }
+  if (!walkBlobDirectories) return false;
+  for (const filepath of directories) {
+    const matrix = await git.statusMatrix({
+      ...cachedGit(dir, cache),
+      filepaths: [filepath],
+    });
+    if (matrix.some(([, head, workdir]) => head !== workdir)) return true;
+  }
+  return false;
+}
+
+interface DirectoryFingerprint {
+  mtimeMs: number;
+  ino: number;
+}
+
+function sameDirectoryFingerprint(
+  left: DirectoryFingerprint | null,
+  right: DirectoryFingerprint | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return left.mtimeMs === right.mtimeMs && left.ino === right.ino;
+}
+
+async function directoryFingerprint(
+  dir: string,
+  name: string,
+): Promise<DirectoryFingerprint | null> {
+  try {
+    const stats = await fs.promises.lstat(path.join(dir, name));
+    if (!stats.isDirectory()) return null;
+    return { mtimeMs: stats.mtimeMs, ino: stats.ino };
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
+      return null;
+    }
+    throw cause;
+  }
+}
+
+/**
+ * HEAD-vs-worktree for one file nested under a managed directory, without
+ * walking sibling blobs. Used only after root files already compared clean.
+ */
+async function nestedWorktreeDiffers(
+  dir: string,
+  filepath: string,
+  cache: GitCache,
+): Promise<boolean> {
+  const full = path.join(dir, filepath);
+  let worktree: Uint8Array | null = null;
+  try {
+    const stat = await fs.promises.lstat(full);
+    if (!stat.isFile()) return true;
+    worktree = await fs.promises.readFile(full);
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
+      worktree = null;
+    } else {
+      throw cause;
+    }
+  }
+  const head = await headOid(dir, cache);
+  if (head === null) return worktree !== null;
+  try {
+    const { oid } = await git.readBlob({
+      ...cachedGit(dir, cache),
+      oid: head,
+      filepath,
+    });
+    if (worktree === null) return true;
+    const hashed = await git.hashBlob({ object: worktree });
+    return hashed.oid !== oid;
+  } catch (cause) {
+    if (isNotFoundError(cause)) return worktree !== null;
+    throw cause;
+  }
 }
 
 /**
@@ -1244,6 +1459,37 @@ export async function createSessionStores(
   const base = await createIsogitStore(dir, signer);
   const pendingBlobFilepaths = new Set<string>();
   const pendingSegmentPaths = new Set<string>();
+  const gitCache: GitCache = {};
+  // Full contiguous re-stage until this store has observed a clean or published
+  // generation. A fresh process heals disk the same way a rewrite does; later
+  // commits stage a tracked segment only when its fingerprint drifted.
+  let stageEveryContiguousSegment = true;
+  // Fingerprints from the last publish. Segment stats avoid re-reading an
+  // unchanged segment; blob directory stats are the signal that skips the
+  // tool-output walk on a no-op commit.
+  let publishedSegmentStats = new Map<string, SegmentStat>();
+  let blobDirsObserved = false;
+  let toolOutputFingerprint: DirectoryFingerprint | null = null;
+  let evidenceFingerprint: DirectoryFingerprint | null = null;
+
+  async function blobDirectoriesNeedWalk(): Promise<boolean> {
+    if (!blobDirsObserved) return true;
+    const tool = await directoryFingerprint(dir, TOOL_OUTPUT_DIR);
+    const evidence = await directoryFingerprint(dir, EVIDENCE_ARCHIVE_DIR);
+    return (
+      !sameDirectoryFingerprint(tool, toolOutputFingerprint) ||
+      !sameDirectoryFingerprint(evidence, evidenceFingerprint)
+    );
+  }
+
+  async function rememberPublishedTree(
+    listing: WorktreeListing,
+  ): Promise<void> {
+    publishedSegmentStats = new Map(listing.segmentStats);
+    toolOutputFingerprint = await directoryFingerprint(dir, TOOL_OUTPUT_DIR);
+    evidenceFingerprint = await directoryFingerprint(dir, EVIDENCE_ARCHIVE_DIR);
+    blobDirsObserved = true;
+  }
   const ownerToken = opts?.ownerId ?? globalThis.crypto.randomUUID();
   const explicitOwnerId = opts?.ownerId;
   let turnsBaseName = TURNS_FILE;
@@ -1870,13 +2116,13 @@ export async function createSessionStores(
       // approval records.
       let baseText: string | null = null;
       try {
-        baseText = await blobTextAtCommit(dir, hash, TURNS_FILE);
+        baseText = await blobTextAtCommit(dir, hash, TURNS_FILE, gitCache);
       } catch (cause) {
         if (!isNotFoundError(cause)) throw cause;
       }
       const baseTurns =
         baseText === null ? [] : parseSegmentTurns(baseText, false, TURNS_FILE);
-      const extraNames = await turnSegmentNamesAtCommit(dir, hash);
+      const extraNames = await turnSegmentNamesAtCommit(dir, hash, gitCache);
       if (extraNames.length === 0) return baseTurns;
 
       // Historical commits with orphans still in the tree may be malformed;
@@ -1888,7 +2134,7 @@ export async function createSessionStores(
         parsedExtras = await Promise.all(
           extraNames.map(async (name) =>
             parseSegmentTurns(
-              await blobTextAtCommit(dir, hash, name),
+              await blobTextAtCommit(dir, hash, name, gitCache),
               false,
               name,
             ),
@@ -1905,12 +2151,16 @@ export async function createSessionStores(
             cause: cause instanceof Error ? cause.message : String(cause),
           },
         );
-        const fallbackNames = await extraSegmentNamesAtCommit(dir, hash);
+        const fallbackNames = await extraSegmentNamesAtCommit(
+          dir,
+          hash,
+          gitCache,
+        );
         if (fallbackNames.length === 0) return baseTurns;
         parsedExtras = await Promise.all(
           fallbackNames.map(async (name) =>
             parseSegmentTurns(
-              await blobTextAtCommit(dir, hash, name),
+              await blobTextAtCommit(dir, hash, name, gitCache),
               false,
               name,
             ),
@@ -1969,7 +2219,7 @@ export async function createSessionStores(
         // it must observe HEAD after the commit to detect a landed commit.
         let headWithinLock: Promise<string | null> | undefined;
         const lockedHead = (): Promise<string | null> => {
-          headWithinLock ??= headOid(dir);
+          headWithinLock ??= headOid(dir, gitCache);
           return headWithinLock;
         };
         const headBefore = stagedRewrite === null ? null : await lockedHead();
@@ -1981,7 +2231,7 @@ export async function createSessionStores(
             await writeTurnLog(stagedRewrite);
             invalidateTurnsCache();
           }
-          const listing = await surveyWorktree(dir);
+          const listing = await surveyWorktree(dir, turnsBaseName);
           const toAdd: string[] = [];
           const toRemove: string[] = [];
 
@@ -1995,10 +2245,15 @@ export async function createSessionStores(
           }
 
           // Disk is the source of truth for which segments stay tracked after a
-          // rewrite or heal, even when pendingSegmentPaths was lost. One
-          // shared worktree listing and one index listing serve every staged
-          // base name.
-          const tracked = await listIndexPaths(dir);
+          // rewrite or heal, even when pendingSegmentPaths was lost. A rewrite,
+          // and the first commit of a store that has not yet published, re-add
+          // every contiguous segment so that staging matches snapshot/restore.
+          // Later commits stage a tracked segment only when its size, mtime, or
+          // inode drifted, so an external append is published and an unchanged
+          // segment is not re-read. Untracked names are still added.
+          const tracked = await listIndexPaths(dir, gitCache);
+          const stageUnchanged =
+            stagedRewrite !== null || stageEveryContiguousSegment;
           await reconcileSegmentStaging(
             dir,
             turnsBaseName,
@@ -2006,6 +2261,8 @@ export async function createSessionStores(
             toRemove,
             listing,
             tracked,
+            stageUnchanged,
+            publishedSegmentStats,
           );
           await reconcileSegmentStaging(
             dir,
@@ -2014,6 +2271,8 @@ export async function createSessionStores(
             toRemove,
             listing,
             tracked,
+            stageUnchanged,
+            publishedSegmentStats,
           );
 
           if (listing.top.has(EVIDENCE_ARCHIVE_DIR)) {
@@ -2058,11 +2317,20 @@ export async function createSessionStores(
               ...toAdd,
               ...toRemove,
             ];
-            if (!(await managedPathsDiffer(dir, managedFilepaths))) {
+            if (
+              !(await managedPathsDiffer(
+                dir,
+                managedFilepaths,
+                gitCache,
+                await blobDirectoriesNeedWalk(),
+              ))
+            ) {
               const [head] = await base.log(1);
               if (head !== undefined) {
                 pendingBlobFilepaths.clear();
                 pendingSegmentPaths.clear();
+                stageEveryContiguousSegment = false;
+                await rememberPublishedTree(listing);
                 return head;
               }
             }
@@ -2080,11 +2348,14 @@ export async function createSessionStores(
           // A mid-batch add failure leaves the index unwritten. Only the
           // outer catch calls `resetIndexPaths`.
           if (add.length > 0) {
-            await git.add({ fs, dir, filepath: add });
+            await git.add({ ...cachedGit(dir, gitCache), filepath: add });
           }
           if (remove.length > 0) {
             try {
-              await git.remove({ fs, dir, filepath: remove });
+              await git.remove({
+                ...cachedGit(dir, gitCache),
+                filepath: remove,
+              });
             } catch (cause) {
               // `GitIndex.delete` does not throw when a path is absent, so
               // this is an index lock or write. It aborts before the index
@@ -2094,7 +2365,10 @@ export async function createSessionStores(
                 for (let index = 0; index < remove.length; index++) {
                   const rest = remove.filter((_, other) => other !== index);
                   try {
-                    await git.remove({ fs, dir, filepath: rest });
+                    await git.remove({
+                      ...cachedGit(dir, gitCache),
+                      filepath: rest,
+                    });
                     unstaged = true;
                     break;
                   } catch {
@@ -2108,19 +2382,21 @@ export async function createSessionStores(
           const committed = await base.commit(options, signal);
           pendingBlobFilepaths.clear();
           pendingSegmentPaths.clear();
+          stageEveryContiguousSegment = false;
+          await rememberPublishedTree(listing);
           if (stagedRewrite !== null) {
             liveTurnRefs = stagedRewrite;
             unpublishedRewrite = null;
           }
           return committed;
         } catch (cause) {
-          await resetIndexPaths(dir, extraPaths);
+          await resetIndexPaths(dir, extraPaths, gitCache);
           if (segmentSnapshot !== null) {
             // Restore the published generation unless the commit actually
             // landed despite throwing (a ref write or post-commit check can
             // fail after HEAD moved), in which case the on-disk rewrite
             // already matches HEAD.
-            const headNow = await headOid(dir);
+            const headNow = await headOid(dir, gitCache);
             const landed =
               headBefore !== null && headNow !== null && headNow !== headBefore;
             if (!landed) {
