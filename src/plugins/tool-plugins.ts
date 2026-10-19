@@ -8,6 +8,10 @@ import type { PluginCredentialField } from "./manifest.js";
 import { scrubSecrets } from "../web/secret-scrub.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import {
+  safePluginDiagnostic,
+  validatePluginAuthorizeResult,
+} from "../permission/plugin-authorize-result.js";
+import {
   resolvePluginWarningHandler,
   stderrPluginWarning,
   type PluginLoadDiagnostics,
@@ -35,6 +39,10 @@ interface PluginAuthorizer {
   authorize: AuthorizeFn;
 }
 
+function syntheticDeny(): AuthzCallResult {
+  return { effect: "deny", matchingGrants: [], resolvedBy: null };
+}
+
 function effectStrength(effect: AuthzCallResult["effect"]): number {
   switch (effect) {
     case "deny":
@@ -55,14 +63,20 @@ function composePluginAuthorizers(
     for (const plugin of authorizers) {
       let result: AuthzCallResult;
       try {
-        result = await plugin.authorize(resource, action, context);
+        const rawResult: unknown = await plugin.authorize(
+          resource,
+          action,
+          context,
+        );
+        const validated = validatePluginAuthorizeResult(rawResult);
+        if (!validated.ok) {
+          logger.warn`tool-plugin ${plugin.id} authorization returned a malformed result: ${scrubSecrets(validated.diagnostic)}`;
+          return syntheticDeny();
+        }
+        result = validated.result;
       } catch (err) {
-        logger.warn`tool-plugin ${plugin.id} authorization failed: ${scrubSecrets(err instanceof Error ? err.message : String(err))}`;
-        result = {
-          effect: "deny",
-          matchingGrants: [],
-          resolvedBy: null,
-        };
+        logger.warn`tool-plugin ${plugin.id} authorization failed: ${scrubSecrets(safePluginDiagnostic(err))}`;
+        return syntheticDeny();
       }
       if (result.effect === "deny" || result.effect === null) return result;
       if (
@@ -123,18 +137,31 @@ export async function resolveToolPlugins(args: {
   const authorizers: PluginAuthorizer[] = [];
   for (const cand of args.candidates) {
     if (!isToolPluginActive(args.pluginConfig, cand.id)) continue;
+    let rejectedPlugin: ToolPlugin | undefined;
     try {
       const plugin = await cand.factory(
         args.pluginConfig[cand.id]?.credentials ?? {},
       );
+      rejectedPlugin = plugin;
+      const authorize = plugin.authorize;
       plugins.push(plugin);
-      if (plugin.authorize !== undefined) {
-        authorizers.push({ id: cand.id, authorize: plugin.authorize });
+      if (authorize !== undefined) {
+        authorizers.push({ id: cand.id, authorize });
       }
+      rejectedPlugin = undefined;
     } catch (err) {
       onWarning(
-        `tool-plugin: failed to start "${cand.id}": ${scrubSecrets(err instanceof Error ? err.message : String(err))}`,
+        `tool-plugin: failed to start "${cand.id}": ${scrubSecrets(safePluginDiagnostic(err))}`,
       );
+      if (rejectedPlugin !== undefined) {
+        try {
+          await rejectedPlugin.dispose?.();
+        } catch (disposeErr) {
+          onWarning(
+            `tool-plugin: failed to clean up "${cand.id}" after startup failure: ${scrubSecrets(safePluginDiagnostic(disposeErr))}`,
+          );
+        }
+      }
     }
   }
   return authorizers.length === 0
