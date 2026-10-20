@@ -1,8 +1,8 @@
-// gpt-family workers call run_shell as `shell`. Reactor authz sees that raw
-// wire call; the permission middleware sees DynamicToolRunner's
-// prepareDispatchedToolCall output, whose coerceShellArgs rebuilds the
-// arguments. The authorized retry must match the same envelope at both
-// stages.
+// gpt-family workers call run_shell as `shell` with run_shell's own
+// arguments. Reactor authz sees that raw wire call; the permission
+// middleware sees prepareDispatchedToolCall, which renames `shell` to
+// `run_shell` and leaves cwd, timeout, background, and stop in place.
+// The authorized retry must match the same envelope at both stages.
 import { describe, expect, test } from "bun:test";
 import type { ToolCall } from "@intx/types/runtime";
 
@@ -68,13 +68,21 @@ describe("gpt-family worker authorized retry identity", () => {
     expect(retryAuthz).toEqual({ effect: "allow" });
     expect(store.peek(requestId)?.status).toBe("authorized");
 
-    // 4. Retry, stage 2: DynamicToolRunner coerces the `shell` call onto
-    // run_shell, then the posix middleware runs gateToolCall.
+    // 4. Retry, stage 2: DynamicToolRunner renames `shell` onto run_shell
+    // and keeps the gpt-native arguments, then the posix middleware runs
+    // gateToolCall. The grant still matches the authorized envelope.
     const dispatched = prepareDispatchedToolCall(
       wireCall("call-2"),
       "run_shell",
     );
-    expect(dispatched.arguments).not.toEqual(wireCall("x").arguments);
+    expect(dispatched.name).toBe("run_shell");
+    expect(dispatched.arguments).toEqual(wireCall("x").arguments);
+    expect(dispatched.arguments).toMatchObject({
+      cwd: CWD,
+      timeout: 120000,
+      background: false,
+      stop: "",
+    });
 
     let executed = 0;
     const result = await gateToolCall(
