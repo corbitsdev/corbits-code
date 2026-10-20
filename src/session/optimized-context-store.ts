@@ -1664,8 +1664,13 @@ export async function createSessionStores(
     toolOutputFingerprint = tool;
     evidenceFingerprint = evidence;
     blobDirsObserved = true;
-    publishedEvidenceIndex = await statEvidenceIndex();
-    evidenceIndexObserved = true;
+    // A no-op already compared the index and found it unchanged. Restatting
+    // here would store a fingerprint for bytes appended after that check and
+    // before this return, and the next commit would treat them as published.
+    if (refreshBlobs || !evidenceIndexObserved) {
+      publishedEvidenceIndex = await statEvidenceIndex();
+      evidenceIndexObserved = true;
+    }
   }
   const ownerToken = opts?.ownerId ?? globalThis.crypto.randomUUID();
   const explicitOwnerId = opts?.ownerId;

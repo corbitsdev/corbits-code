@@ -874,6 +874,57 @@ describe("createOptimizedContextStore checkpoint", () => {
     expect(new TextDecoder().decode(blob)).toContain('{"id":"appended"}');
   });
 
+  test("an append during a no-op commit is not remembered as already published", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const indexPath = path.join(dir, "evidence-archive", "index.jsonl");
+    fs.mkdirSync(path.dirname(indexPath));
+    fs.writeFileSync(indexPath, '{"id":"seed"}\n');
+    await store.writeTurns([turn("seed")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "seed evidence index" });
+
+    const evidenceDir = path.join(dir, "evidence-archive");
+    let indexStats = 0;
+    let appended = false;
+    const original = fs.promises.lstat;
+    fs.promises.lstat = (async (target: fs.PathLike, opts?: fs.StatOptions) => {
+      if (typeof target === "string" && target === indexPath) indexStats += 1;
+      // The drift check stats the index. The later directory stat is
+      // rememberPublishedTree, which used to restat the index and store a
+      // fingerprint the no-op never committed.
+      if (
+        typeof target === "string" &&
+        target === evidenceDir &&
+        indexStats >= 1 &&
+        !appended
+      ) {
+        appended = true;
+        fs.appendFileSync(indexPath, '{"id":"during-noop"}\n');
+      }
+      return original.call(fs.promises, target, opts);
+    }) as typeof fs.promises.lstat;
+    let noopHash = "";
+    try {
+      const noop = await store.commit({ message: "no writes" });
+      noopHash = noop.hash;
+    } finally {
+      fs.promises.lstat = original;
+    }
+    expect(appended).toBe(true);
+    expect(noopHash).toBe(first.hash);
+
+    const third = await store.commit({ message: "publish append from no-op window" });
+    expect(third.hash).not.toBe(first.hash);
+    const { blob } = await git.readBlob({
+      fs,
+      dir,
+      oid: third.hash,
+      filepath: "evidence-archive/index.jsonl",
+    });
+    expect(new TextDecoder().decode(blob)).toContain('{"id":"during-noop"}');
+  });
+
   test("an unchanged evidence index is not re-read and a no-op does not walk tool-output", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
