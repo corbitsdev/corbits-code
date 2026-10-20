@@ -120,10 +120,21 @@ export function createDynamicToolRunner(
 
   const agentToolSetDrift = (): AgentToolSetDrift => {
     if (pinned === undefined) return { added: [], removed: [], changed: [] };
+    // The pin holds the same definition objects the live set walks on an idle
+    // tool set. Remember the shape by identity for this call so each schema is
+    // serialized once, not again inside the changed filter.
+    const shapes = new WeakMap<ToolDefinition, string>();
+    const shapeOf = (definition: ToolDefinition): string => {
+      const cached = shapes.get(definition);
+      if (cached !== undefined) return cached;
+      const shape = definitionShape(definition);
+      shapes.set(definition, shape);
+      return shape;
+    };
     const pinnedShapes = new Map(
       pinned.definitions.map((definition) => [
         definition.name,
-        definitionShape(definition),
+        shapeOf(definition),
       ]),
     );
     const live = currentDefinitions();
@@ -136,7 +147,7 @@ export function createDynamicToolRunner(
       changed: live
         .filter((definition) => {
           const before = pinnedShapes.get(definition.name);
-          return before !== undefined && before !== definitionShape(definition);
+          return before !== undefined && before !== shapeOf(definition);
         })
         .map((definition) => definition.name),
     };

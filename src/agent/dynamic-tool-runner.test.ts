@@ -441,4 +441,51 @@ describe("agent tool set pin", () => {
       changed: ["web_fetch"],
     });
   });
+
+  test("drift serializes each tool schema once when pinned and never when unpinned", () => {
+    const count = 4;
+    const tools = Array.from({ length: count }, (_, index) =>
+      stringTool(`tool_${index}`, "ok"),
+    );
+    const runner = createDynamicToolRunner(tools);
+    const stringify = JSON.stringify;
+    const serializationsDuring = (body: () => void): number => {
+      let serializations = 0;
+      JSON.stringify = ((
+        value: unknown,
+        replacer?: Parameters<typeof JSON.stringify>[1],
+        space?: Parameters<typeof JSON.stringify>[2],
+      ) => {
+        serializations += 1;
+        return stringify(value, replacer, space);
+      }) as typeof JSON.stringify;
+      try {
+        body();
+      } finally {
+        JSON.stringify = stringify;
+      }
+      return serializations;
+    };
+
+    expect(
+      serializationsDuring(() => {
+        expect(runner.agentToolSetDrift()).toEqual({
+          added: [],
+          removed: [],
+          changed: [],
+        });
+      }),
+    ).toBe(0);
+
+    runner.pinAgentToolSet();
+    expect(
+      serializationsDuring(() => {
+        expect(runner.agentToolSetDrift()).toEqual({
+          added: [],
+          removed: [],
+          changed: [],
+        });
+      }),
+    ).toBe(count);
+  });
 });
