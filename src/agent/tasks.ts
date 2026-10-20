@@ -9,8 +9,6 @@ function buildTaskStatusSchema() {
   return type("'todo' | 'doing' | 'done' | 'cancelled'");
 }
 const taskStatusSchema = memoSchema(buildTaskStatusSchema);
-export const TaskStatusSchema: ReturnType<typeof buildTaskStatusSchema> =
-  lazyCallable(taskStatusSchema);
 export type TaskStatus = ReturnType<typeof buildTaskStatusSchema>["infer"];
 
 // GLM (and other Claude-shaped) payloads send in_progress; map it at the
