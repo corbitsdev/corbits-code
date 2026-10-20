@@ -1,6 +1,7 @@
-import { realpathSync, statSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { SHELL_PWD_MARKER } from "../branding.js";
+import { cachedStatSync } from "../permission/realpath-cache.js";
 
 export { SHELL_PWD_MARKER };
 
@@ -104,7 +105,7 @@ export function resolvePerCallShellCwd(
 
 export function assertShellCwdUsable(cwd: string): void {
   try {
-    const st = statSync(cwd);
+    const st = cachedStatSync(cwd);
     if (!st.isDirectory()) {
       throw new Error(missingShellCwdMessage(cwd));
     }

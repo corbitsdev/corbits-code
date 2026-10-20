@@ -14,6 +14,7 @@ import {
   wrapCommandWithPwdProbe,
 } from "./persistent-shell-cwd.js";
 import { runGuardedShell } from "../plugins/shell-guard-plugin.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 
 describe("persistent-shell-cwd helpers", () => {
   test("parsePwdProbeOutput strips marker and returns final cwd", async () => {
@@ -63,6 +64,31 @@ describe("resolvePerCallShellCwd", () => {
     expect(
       resolvePerCallShellCwd(root, parent, { allowOutsideSession: true }),
     ).toBe(parent);
+  });
+
+  test("a second resolve of the same cwd realpaths it again", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-resolve-cwd-cache-"));
+    const sub = join(root, "markerdir");
+    await mkdir(sub);
+    const canonical = realpathSync(sub);
+    let walks = 0;
+    await withMockedModuleDuring(
+      "node:fs",
+      (realFS: typeof import("node:fs")) => ({
+        ...realFS,
+        realpathSync: (path: Parameters<typeof realFS.realpathSync>[0]) => {
+          walks++;
+          return realFS.realpathSync(path);
+        },
+      }),
+      async () => {
+        expect(resolvePerCallShellCwd(root, "markerdir")).toBe(canonical);
+        const afterFirst = walks;
+        expect(afterFirst).toBeGreaterThan(0);
+        expect(resolvePerCallShellCwd(root, "markerdir")).toBe(canonical);
+        expect(walks).toBeGreaterThan(afterFirst);
+      },
+    );
   });
 });
 
