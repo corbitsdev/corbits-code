@@ -406,13 +406,46 @@ export function armMarkdownLinks(
   };
 }
 
+const armedChildIdentity = new WeakMap<Renderable, readonly Renderable[]>();
+let codeLinkWalkCount = 0;
+
+/** Subtree walks `armCodeLinks` actually performed. Same child nodes do not count. */
+export function codeLinkArmWalks(): number {
+  return codeLinkWalkCount;
+}
+
+function sameChildIdentity(
+  previous: readonly Renderable[],
+  next: readonly Renderable[],
+): boolean {
+  if (previous.length !== next.length) return false;
+  for (let i = 0; i < previous.length; i += 1) {
+    if (previous[i] !== next[i]) return false;
+  }
+  return true;
+}
+
 /**
  * Fenced code is a Code renderable without markdown's link callbacks.
  * `onHighlight` keeps the tree-sitter groups; `onChunks` is `detectLinks`,
  * so a bare URL becomes an OSC-8 span and survives native wrap. Markdown
  * prose already sets both — do not replace those, or conceal regresses.
+ * OpenTUI can swap the only block for a new CodeRenderable without growing
+ * the child count, so the walk follows child identity, not the count. A
+ * list box can also stay the same object while a fence is inserted under
+ * it; that new code node still needs the walk.
  */
 export function armCodeLinks(node: Renderable): void {
+  const children = node.getChildren();
+  const previous = armedChildIdentity.get(node);
+  if (
+    previous !== undefined &&
+    sameChildIdentity(previous, children) &&
+    !hasUnarmedCode(node)
+  ) {
+    return;
+  }
+  codeLinkWalkCount += 1;
   const walk = (current: Renderable): void => {
     if (current instanceof CodeRenderable) {
       if (current.onHighlight === undefined) {
@@ -425,4 +458,19 @@ export function armCodeLinks(node: Renderable): void {
     for (const child of current.getChildren()) walk(child);
   };
   walk(node);
+  armedChildIdentity.set(node, children);
+}
+
+/** True when a code node under `node` was created without link callbacks. */
+function hasUnarmedCode(node: Renderable): boolean {
+  if (
+    node instanceof CodeRenderable &&
+    (node.onHighlight === undefined || node.onChunks === undefined)
+  ) {
+    return true;
+  }
+  for (const child of node.getChildren()) {
+    if (hasUnarmedCode(child)) return true;
+  }
+  return false;
 }

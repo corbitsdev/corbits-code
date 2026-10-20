@@ -151,6 +151,36 @@ export function transcriptRowOffset(shell: AppShell): number {
   return transcriptMarker(shell) === undefined ? 1 : 2;
 }
 
+interface LayoutChildren {
+  readonly _childrenInLayoutOrder?: readonly BaseRenderable[];
+}
+
+/** Content children in layout order. `getChildren()` copies this array. */
+function transcriptLayoutChildren(shell: AppShell): readonly BaseRenderable[] {
+  const content = shell.transcript.content as unknown as LayoutChildren;
+  return content._childrenInLayoutOrder ?? [];
+}
+
+function laidOutRowOffset(children: readonly BaseRenderable[]): number {
+  const marker = children[1];
+  return marker !== undefined && evictionMarkers.has(marker) ? 2 : 1;
+}
+
+/** How many row nodes are laid out, without copying the child list. */
+export function transcriptLaidOutRowCount(shell: AppShell): number {
+  const children = transcriptLayoutChildren(shell);
+  return Math.max(0, children.length - laidOutRowOffset(children));
+}
+
+/** The row node at a local log index, without copying the child list. */
+export function transcriptLaidOutRow(
+  shell: AppShell,
+  local: number,
+): BaseRenderable | undefined {
+  const children = transcriptLayoutChildren(shell);
+  return children[local + laidOutRowOffset(children)];
+}
+
 /**
  * Rewrite a row's body on its existing paint node, keeping parser block state
  * and styled line/table content. False when the node shape no longer matches
@@ -211,7 +241,7 @@ function retextStreamRowBody(
   gutterNode.width = stringWidth(gutter.content);
   const width = markdownBodyColumns(gutter, layout);
   const content = markdownContent(row);
-  const split = splitAtSettledBlock(content);
+  const split = splitAtSettledBlock(content, width);
 
   // No settled block behind the tail: a lone renderer, same as an unsplit
   // body. A shape change falls through to the caller's rebuild.
@@ -443,7 +473,7 @@ function createMarkdownBody(
 ): MarkdownRenderable | BoxRenderable {
   const width = markdownBodyColumns(gutter, layout);
   const content = markdownContent(row);
-  const split = splitAtSettledBlock(content);
+  const split = splitAtSettledBlock(content, width);
   if (split === null) {
     // Native incremental block stability: only the trailing block is unstable.
     const body = new MarkdownRenderable(ctx, {
