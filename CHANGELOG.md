@@ -20,6 +20,28 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
+## [0.3.43] - 2026-10-20
+
+### What's Changed
+* perf(boot): overlap independent startup file reads by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1535
+* fix(session): commit an in-place evidence index append by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1536
+* perf(boot): defer schema and isogit construction until first use by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1537
+* perf(agent): serialize each tool schema once per drift by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1538
+* test(tui): expose native render stats on the harness by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1541
+* perf(plugins): skip secret scrub passes without a secret shape by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1539
+* perf(tui): stop rejoining streaming markdown on every retext by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1540
+* chore(deps): bump @corbits package pins by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1548
+* fix(agent): keep gpt shell arguments through dispatch by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1542
+* fix(permission): auto-allow read-only control-plane tools by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1545
+* fix(tui): reject a session-queue op that waits on itself by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1544
+* chore(vendor): re-sync the Interchange set and @intx deps to 0.5.0 by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1547
+* feat(plugins): authorize installed tool calls before dispatch by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1543
+* feat(provider): add meta device oauth and api key by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1546
+* fix(tui): stop a finished session op from rejecting the next one by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1549
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.42...v0.3.43
+
 ## [0.3.42] - 2026-10-20
 
 ### What's Changed
