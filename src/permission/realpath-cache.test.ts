@@ -8,10 +8,14 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { realpathSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { tmpdir } from "node:os";
 
-import { UNRESOLVABLE, realpathNearestOr } from "./path-restriction.js";
+import {
+  UNRESOLVABLE,
+  realpathFollowingDangling,
+  realpathNearestOr,
+} from "./path-restriction.js";
 import { resolvePerCallShellCwd } from "../shell/persistent-shell-cwd.js";
 import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 
@@ -22,6 +26,36 @@ afterEach(async () => {
     await rm(scratch, { recursive: true, force: true });
     scratch = "";
   }
+});
+
+test("an existing path uses realpath spelling, including case", async () => {
+  scratch = await mkdtemp(join(tmpdir(), "corbits-realpath-case-"));
+  const dir = join(scratch, "CaseDir");
+  await mkdir(dir);
+  await writeFile(join(dir, ".env"), "x");
+  await writeFile(join(dir, "secret.pem"), "x");
+  const envVariant = join(scratch, "casedir", ".ENV");
+  const pemVariant = join(scratch, "casedir", "secret.PEM");
+  let canonicalEnv: string;
+  let canonicalPem: string;
+  try {
+    canonicalEnv = realpathSync(envVariant);
+    canonicalPem = realpathSync(pemVariant);
+  } catch {
+    // Case-sensitive volumes cannot spell the same inode two ways.
+    return;
+  }
+  expect(canonicalEnv.endsWith(`${sep}.env`)).toBe(true);
+  expect(canonicalPem.endsWith(`${sep}secret.pem`)).toBe(true);
+  expect(realpathNearestOr(envVariant)).toBe(canonicalEnv);
+  expect(realpathNearestOr(pemVariant)).toBe(canonicalPem);
+});
+
+test("a relative single-segment path is not sliced when its dirname is dot", () => {
+  const missing = "secret.pem";
+  const resolved = realpathNearestOr(missing);
+  expect(resolved).toBe(join(realpathSync("."), missing));
+  expect(resolved.endsWith(`${sep}cret.pem`)).toBe(false);
 });
 
 test("a later check of the same path lstats and realpaths again", async () => {
@@ -55,12 +89,37 @@ test("a later check of the same path lstats and realpaths again", async () => {
       const lstatAfterFirst = new Map(lstatCounts);
       const realpathAfterFirst = realpathCalls;
       expect(realpathAfterFirst).toBeGreaterThan(0);
+      expect(lstatAfterFirst.get(file)).toBe(1);
       expect(realpathNearestOr(file)).toBe(canonical);
       expect(realpathCalls).toBeGreaterThan(realpathAfterFirst);
-      for (const ancestor of [scratch, ancestorA, ancestorB]) {
-        expect(lstatAfterFirst.get(ancestor)).toBe(1);
-        expect(lstatCounts.get(ancestor)).toBe(2);
-      }
+      expect(lstatCounts.get(file)).toBe(2);
+    },
+  );
+});
+
+test("lstat of one path is reused inside a single check and not after it", async () => {
+  scratch = await mkdtemp(join(tmpdir(), "corbits-realpath-memo-"));
+  const link = join(scratch, "link");
+  await symlink("missing-target", link);
+  const lstatCounts = new Map<string, number>();
+
+  await withMockedModuleDuring(
+    "node:fs",
+    (realFS: typeof import("node:fs")) => ({
+      ...realFS,
+      lstatSync: (path: Parameters<typeof realFS.lstatSync>[0]) => {
+        const key = String(path);
+        lstatCounts.set(key, (lstatCounts.get(key) ?? 0) + 1);
+        return realFS.lstatSync(path);
+      },
+    }),
+    async () => {
+      expect(realpathFollowingDangling(link)).toBe(
+        join(realpathSync(scratch), "missing-target"),
+      );
+      expect(lstatCounts.get(link)).toBe(1);
+      expect(realpathNearestOr(link)).toBe(UNRESOLVABLE);
+      expect(lstatCounts.get(link)).toBe(2);
     },
   );
 });

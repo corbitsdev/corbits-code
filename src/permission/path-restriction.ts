@@ -32,22 +32,6 @@ const LEGACY_STATE_DIR = ".agent-state";
 // appear in a real path, so it cannot collide with a genuine result.
 export const UNRESOLVABLE = "\0unresolvable\0";
 
-// A single normal path segment. `.`, `..`, a trailing slash, or an empty tail
-// stay on realpathSync so the join cannot diverge from the kernel.
-function existingTail(path: string, parent: string): string | undefined {
-  const tailStart = parent.endsWith(sep) ? parent.length : parent.length + 1;
-  const tail = path.slice(tailStart);
-  if (
-    tail.length === 0 ||
-    tail === "." ||
-    tail === ".." ||
-    tail.includes(sep)
-  ) {
-    return undefined;
-  }
-  return tail;
-}
-
 function realpathOrUnresolvable(path: string): string {
   try {
     return realpathSync(path);
@@ -56,31 +40,32 @@ function realpathOrUnresolvable(path: string): string {
   }
 }
 
+function missingTail(path: string, parent: string): string {
+  // dirname("secret.pem") is ".", and slicing at parent.length + 1 would drop
+  // the first two characters ("cret.pem").
+  if (parent === ".") return path;
+  // Root (e.g. "/") already ends in the separator, so slicing past
+  // parent.length lands on the tail; elsewhere the separator between
+  // parent and tail must be skipped too.
+  const tailStart = parent.endsWith(sep) ? parent.length : parent.length + 1;
+  return path.slice(tailStart);
+}
+
 function resolveNearest(path: string): string {
   const st = lstatMemoized(path);
-  if (st !== undefined && !st.isSymbolicLink()) {
-    const parent = dirname(path);
-    if (parent === path) return realpathOrUnresolvable(path);
-    const tail = existingTail(path, parent);
-    if (tail === undefined) return realpathOrUnresolvable(path);
-    const parentReal = resolveNearest(parent);
-    if (parentReal === UNRESOLVABLE) return UNRESOLVABLE;
-    return join(parentReal, tail);
-  }
-
-  if (st !== undefined && st.isSymbolicLink()) {
+  // An existing node, symlink or not, must match realpathSync spelling. Joining
+  // the requested tail keeps the caller's case (".ENV", "secret.PEM") on a
+  // case-insensitive volume. lstat still distinguishes a missing tail, which
+  // realpath cannot name, from a dangling link.
+  if (st !== undefined) {
     return realpathOrUnresolvable(path);
   }
 
   const parent = dirname(path);
   if (parent === path) return path;
-  // Root (e.g. "/") already ends in the separator, so slicing past
-  // parent.length lands on the tail; elsewhere the separator between
-  // parent and tail must be skipped too.
-  const tailStart = parent.endsWith(sep) ? parent.length : parent.length + 1;
   const parentReal = resolveNearest(parent);
   if (parentReal === UNRESOLVABLE) return UNRESOLVABLE;
-  return join(parentReal, path.slice(tailStart));
+  return join(parentReal, missingTail(path, parent));
 }
 
 // A write/edit target usually does not exist yet, so realpath the nearest
