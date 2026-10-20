@@ -3,7 +3,11 @@ import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { realpathOrOriginal, type RootsProvider } from "./worktree-roots.js";
 import { projectSessionsRoot } from "../session/project-key.js";
-import { enterPathResolution, lstatMemoized } from "./realpath-cache.js";
+import {
+  enterPathResolution,
+  lstatFailureCode,
+  lstatMemoized,
+} from "./realpath-cache.js";
 
 // Paths the agent must not touch without explicit operator approval, even
 // though read tools are otherwise allow-tier and write/edit auto-allow in
@@ -59,6 +63,15 @@ function resolveNearest(path: string): string {
   // realpath cannot name, from a dangling link.
   if (st !== undefined) {
     return realpathOrUnresolvable(path);
+  }
+
+  // ENOTDIR is not absence. `sub/link/../file` lstats as ENOTDIR when `link` is
+  // a symlink to a file, and the missing-tail walk then joins `..` onto that
+  // file (landing on `<cwd>/file`). realpathSync still resolves it to `sub/file`.
+  // When realpath also fails (a missing name under that component), keep walking.
+  if (lstatFailureCode(path) === "ENOTDIR") {
+    const real = realpathOrUnresolvable(path);
+    if (real !== UNRESOLVABLE) return real;
   }
 
   const parent = dirname(path);

@@ -58,6 +58,41 @@ test("a relative single-segment path is not sliced when its dirname is dot", () 
   expect(resolved.endsWith(`${sep}cret.pem`)).toBe(false);
 });
 
+test("dotdot through a symlink to a file matches realpathSync", async () => {
+  scratch = await mkdtemp(join(tmpdir(), "corbits-realpath-dotdot-"));
+  const sub = join(scratch, "sub");
+  await mkdir(sub);
+  await writeFile(join(scratch, "outside-target"), "t");
+  await writeFile(join(sub, "file"), "f");
+  await symlink(join(scratch, "outside-target"), join(sub, "link"));
+  const through = `${join(sub, "link")}${sep}..${sep}file`;
+  const canonical = realpathSync(through);
+  expect(canonical).toBe(realpathSync(join(sub, "file")));
+  expect(realpathNearestOr(through)).toBe(canonical);
+  expect(realpathNearestOr(through)).not.toBe(
+    join(realpathSync(scratch), "file"),
+  );
+});
+
+test("a failed dot lstat is not reused for the symlink it collapses onto", async () => {
+  scratch = await mkdtemp(join(tmpdir(), "corbits-realpath-dot-"));
+  const sub = join(scratch, "sub");
+  await mkdir(sub);
+  const outside = join(scratch, "outside-target");
+  await writeFile(outside, "t");
+  await symlink(outside, join(sub, "link"));
+  const previous = process.cwd();
+  process.chdir(scratch);
+  try {
+    expect(realpathNearestOr("sub/link/.")).toBe(realpathSync("sub/link/."));
+    expect(realpathNearestOr("sub/link/./missing")).toBe(
+      join(realpathSync(outside), "missing"),
+    );
+  } finally {
+    process.chdir(previous);
+  }
+});
+
 test("a later check of the same path lstats and realpaths again", async () => {
   scratch = await mkdtemp(join(tmpdir(), "corbits-realpath-once-"));
   const ancestorA = join(scratch, "a");
