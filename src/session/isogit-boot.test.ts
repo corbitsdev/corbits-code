@@ -38,9 +38,8 @@ test("opening a session constructs isogit storage", async () => {
         },
       }),
       async () => {
-        const { createSessionStores } = await import(
-          "./optimized-context-store.js"
-        );
+        const { createSessionStores } =
+          await import("./optimized-context-store.js");
         await expect(createSessionStores(dir)).rejects.toThrow(
           "session open reached isogit",
         );
