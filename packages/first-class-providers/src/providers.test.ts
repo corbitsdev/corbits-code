@@ -109,7 +109,7 @@ describe("FIRST_CLASS_PROVIDERS", () => {
     expect(api?.auth).toBe("api-key");
     expect(api?.providerId).toBe("meta-api");
     expect(api?.baseURL).toBe("https://api.meta.ai/v1");
-    expect(api?.defaultModel).toBe("muse-spark-1.3");
+    expect(api?.defaultModel).toBe("muse-wonder-1.0");
     expect((api?.models ?? []).length).toBeGreaterThan(0);
     expect(api?.models).toContain(api?.defaultModel);
     expect(api?.authHint).toContain("LLM|");

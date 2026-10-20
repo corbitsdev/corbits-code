@@ -1299,7 +1299,9 @@ describe("runProviderSetup sign-in", () => {
     expect(providerChoiceById("meta-api")?.baseURL).toBe(
       "https://api.meta.ai/v1",
     );
-    expect(providerChoiceById("meta-api")?.defaultModel).toBe("muse-spark-1.3");
+    expect(providerChoiceById("meta-api")?.defaultModel).toBe(
+      "muse-wonder-1.0",
+    );
   });
 
   test("picking the Meta API-key row walks the key path, not the sign-in", async () => {
@@ -1320,7 +1322,7 @@ describe("runProviderSetup sign-in", () => {
     expect(await done).toBe(true);
     expect(seen[0]?.name).toBe("meta-api/default");
     expect(seen[0]?.apiKey).toBe("LLM|test-key");
-    expect(seen[0]?.model).toBe("muse-spark-1.3");
+    expect(seen[0]?.model).toBe("muse-wonder-1.0");
   });
 });
 

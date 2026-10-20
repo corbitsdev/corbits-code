@@ -14,7 +14,7 @@ import {
 describe("Meta OAuth provider projection", () => {
   test("default models lead with the Muse coding model", () => {
     expect(META_DEFAULT_MODELS.length).toBeGreaterThan(1);
-    expect(META_DEFAULT_MODELS[0]).toBe("muse-spark-1.3");
+    expect(META_DEFAULT_MODELS[0]).toBe("muse-wonder-1.0");
   });
 
   const profile: MetaProfile = {

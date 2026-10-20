@@ -110,7 +110,7 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
         auth: "api-key",
         baseURL: META_BASE_URL,
         models: META_DEFAULT_MODELS,
-        defaultModel: "muse-spark-1.3",
+        defaultModel: META_DEFAULT_MODELS[0],
         authHint: "Paste your Meta API key (LLM|...)",
         providerId: META_API_KEY_PROVIDER_ID,
       },
