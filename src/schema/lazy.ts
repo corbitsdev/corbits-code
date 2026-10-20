@@ -1,8 +1,3 @@
-/**
- * Memoized arktype constructors. Importing a module must not build schemas
- * that are only needed when a value is read.
- */
-
 let materializations = 0;
 
 /** How many memoized schemas have been built in this process. */

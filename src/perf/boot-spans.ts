@@ -1,10 +1,5 @@
 import { end, start } from "./index.js";
 
-/**
- * Brackets process boot through first paint. Config I/O sits inside the
- * spans; schema work that used to run at import stays outside them until a
- * value is actually read.
- */
 let bootId: string | undefined;
 let firstPaintId: string | undefined;
 
