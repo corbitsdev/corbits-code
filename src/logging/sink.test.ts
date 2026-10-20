@@ -99,11 +99,129 @@ describe("installFileLogSink", () => {
       const later = lineIndex(active);
       expect(earlier).toBeLessThan(later);
       expect(active).not.toContain(`rotate-line-${earlier}-`);
-      expect(Buffer.byteLength(previous)).toBeLessThanOrEqual(500);
+      // The retained generation is the file that crossed the cap, so it can
+      // pass the cap by the record that crossed it. The active file stays bounded.
+      expect(Buffer.byteLength(previous)).toBeGreaterThan(500);
+      expect(Buffer.byteLength(previous)).toBeLessThanOrEqual(500 + 200);
       expect(Buffer.byteLength(active)).toBeLessThanOrEqual(500);
       expect(previous + active).not.toContain("rotate-line-0-");
       expect(active).toContain("rotate-line-39-");
     } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a second writer flushing one line keeps the other writer's rotated log", () => {
+    const { dir, file } = tempLogFile();
+    try {
+      installFileLogSink(file, { maxBytes: 300 });
+      const first = getLogger(["logging", "share-a"]);
+      first.info("first-marker");
+      first.info("first-marker-b");
+      first.info("short-active");
+      flushFileLogSinkSync();
+      const rotated = `${file}.1`;
+      const marker = fs.readFileSync(rotated, "utf8");
+      const activeBefore = fs.readFileSync(file, "utf8");
+      expect(marker).toContain("first-marker");
+      expect(activeBefore).toContain("short-active");
+      expect(Buffer.byteLength(activeBefore)).toBeLessThan(300);
+
+      installFileLogSink(file, { maxBytes: 300 });
+      getLogger(["logging", "share-b"]).info("b-one");
+      flushFileLogSinkSync();
+
+      expect(fs.readFileSync(rotated, "utf8")).toBe(marker);
+      const active = fs.readFileSync(file, "utf8");
+      expect(active.startsWith(activeBefore)).toBe(true);
+      expect(active).toContain("b-one");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("crossing the cap once keeps the previous active file as .1", () => {
+    const { dir, file } = tempLogFile();
+    try {
+      installFileLogSink(file, { maxBytes: 300 });
+      const first = getLogger(["logging", "cross-a"]);
+      first.info("first-marker");
+      first.info("first-marker-b");
+      first.info("short-active");
+      flushFileLogSinkSync();
+      const rotated = `${file}.1`;
+      const activeBefore = fs.readFileSync(file, "utf8");
+      expect(activeBefore).toContain("short-active");
+
+      installFileLogSink(file, { maxBytes: 300 });
+      const second = getLogger(["logging", "cross-b"]);
+      const wide = `b-wide-${"x".repeat(80)}`;
+      second.info(wide);
+      second.info(`${wide}-2`);
+      flushFileLogSinkSync();
+
+      const kept = fs.readFileSync(rotated, "utf8");
+      expect(kept).toContain("short-active");
+      expect(kept).not.toContain("b-wide-");
+      const active = fs.readFileSync(file, "utf8");
+      expect(active).toContain(wide);
+      expect(active).toContain(`${wide}-2`);
+      expect(Buffer.byteLength(activeBefore)).toBeLessThan(300);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a stale size does not rotate a short file another process just created", () => {
+    const { dir, file } = tempLogFile();
+    try {
+      installFileLogSink(file, { maxBytes: 500 });
+      const logger = getLogger(["logging", "stale"]);
+      logger.info("x".repeat(600));
+      flushFileLogSinkSync();
+      expect(fs.statSync(file).size).toBeGreaterThan(500);
+      expect(fs.existsSync(`${file}.1`)).toBe(false);
+
+      fs.rmSync(file);
+      fs.writeFileSync(file, "short-marker\n");
+      logger.info("one-line");
+      flushFileLogSinkSync();
+
+      expect(fs.existsSync(`${file}.1`)).toBe(false);
+      const active = fs.readFileSync(file, "utf8");
+      expect(active).toContain("short-marker");
+      expect(active).toContain("one-line");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("renaming onto an existing generation still bounds the active file", () => {
+    const { dir, file } = tempLogFile();
+    const renameSync = fs.renameSync.bind(fs);
+    const rename = spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      if (fs.existsSync(to)) {
+        throw Object.assign(new Error("EPERM, rename"), { code: "EPERM" });
+      }
+      return renameSync(from, to);
+    });
+    try {
+      installFileLogSink(file, { maxBytes: 500 });
+      const logger = getLogger(["logging", "eperm"]);
+      for (let i = 0; i < 40; i++) {
+        logger.info(`eperm-line-${i}-xxxxxxxxxxxxxxxxxxxx`);
+      }
+      flushFileLogSinkSync();
+      expect(fs.statSync(`${file}.1`).isFile()).toBe(true);
+      expect(fs.statSync(file).size).toBeLessThanOrEqual(500 + 200);
+      for (let i = 0; i < 10; i++) {
+        logger.info(`eperm-more-${i}-xxxxxxxxxxxxxxxxxxxx`);
+      }
+      flushFileLogSinkSync();
+      expect(fs.statSync(file).size).toBeLessThanOrEqual(500 + 200);
+      expect(fs.readFileSync(file, "utf8").length).toBeGreaterThan(0);
+    } finally {
+      rename.mockRestore();
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
