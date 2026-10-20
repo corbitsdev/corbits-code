@@ -12,7 +12,7 @@
         "@corbits/code-agent-planner": "workspace:*",
         "@corbits/code-agent-reviewer": "workspace:*",
         "@corbits/codex-provider": "0.1.3",
-        "@corbits/meta-provider": "github:corbitsdev/corbits-meta-provider#8c153bf",
+        "@corbits/meta-provider": "0.1.1",
         "@corbits/oauth-core": "0.3.2",
         "@corbits/openai-responses": "0.2.2",
         "@corbits/xai-provider": "0.1.3",
@@ -313,7 +313,7 @@
 
     "@corbits/first-class-providers": ["@corbits/first-class-providers@workspace:packages/first-class-providers"],
 
-    "@corbits/meta-provider": ["@corbits/meta-provider@github:corbitsdev/corbits-meta-provider#8c153bf", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.2.0", "@corbits/openai-responses": "^0.2.0", "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "corbitsdev-corbits-meta-provider-8c153bf", "sha512-dEmnY5EDqpMXJhlCGbYiHOyr1HaQIYRBWPUKbwykb0r3Q7Ljj71yq5sQ5Nw/Yig8KO6iQgERrb/hby5pdZBp7w=="],
+    "@corbits/meta-provider": ["@corbits/meta-provider@0.1.1", "", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.3.0", "@corbits/openai-responses": "^0.2.2", "@intx/inference": "^0.5.0", "@intx/types": "^0.5.0" } }, "sha512-tMuQkSMeR/0w/ctX9SwirXNVEm74XS/K5O5EC4NFYBp5vHn/wlm//ocCNo24dMtrhCH+7rr+orEOh4jIy1+RVg=="],
 
     "@corbits/oauth-core": ["@corbits/oauth-core@0.3.2", "", { "dependencies": { "@intx/db": "^0.5.0", "@intx/hub-api": "^0.5.0", "@intx/hub-common": "^0.5.0", "@intx/types": "^0.5.0", "arktype": "^2.2.3", "drizzle-orm": "^0.45.2", "hono": "^4.11.9" } }, "sha512-2wBKzaWA/hEObDq+yehuHFh6ZsPDRoyGgBBhBiN/gPPWOw+DCCGogTkzTwL0yPPM04NU+RUKEcgBka7M7LVmGw=="],
 
