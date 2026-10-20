@@ -431,12 +431,20 @@ function sameChildIdentity(
  * so a bare URL becomes an OSC-8 span and survives native wrap. Markdown
  * prose already sets both — do not replace those, or conceal regresses.
  * OpenTUI can swap the only block for a new CodeRenderable without growing
- * the child count, so the walk follows child identity, not the count.
+ * the child count, so the walk follows child identity, not the count. A
+ * list box can also stay the same object while a fence is inserted under
+ * it; that new code node still needs the walk.
  */
 export function armCodeLinks(node: Renderable): void {
   const children = node.getChildren();
   const previous = armedChildIdentity.get(node);
-  if (previous !== undefined && sameChildIdentity(previous, children)) return;
+  if (
+    previous !== undefined &&
+    sameChildIdentity(previous, children) &&
+    !hasUnarmedCode(node)
+  ) {
+    return;
+  }
   codeLinkWalkCount += 1;
   const walk = (current: Renderable): void => {
     if (current instanceof CodeRenderable) {
@@ -451,4 +459,18 @@ export function armCodeLinks(node: Renderable): void {
   };
   walk(node);
   armedChildIdentity.set(node, children);
+}
+
+/** True when a code node under `node` was created without link callbacks. */
+function hasUnarmedCode(node: Renderable): boolean {
+  if (
+    node instanceof CodeRenderable &&
+    (node.onHighlight === undefined || node.onChunks === undefined)
+  ) {
+    return true;
+  }
+  for (const child of node.getChildren()) {
+    if (hasUnarmedCode(child)) return true;
+  }
+  return false;
 }

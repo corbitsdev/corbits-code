@@ -3,7 +3,11 @@
  * copy the transcript child list to find the open row.
  */
 import { describe, expect, test } from "bun:test";
-import { CodeRenderable, type BaseRenderable } from "@opentui/core";
+import {
+  CodeRenderable,
+  MarkdownRenderable,
+  type BaseRenderable,
+} from "@opentui/core";
 import { withTestRenderer } from "./harness";
 import { codeLinkArmWalks } from "./code-links";
 import { appendStreamRow, replaceStreamRowAt } from "./shell/chrome";
@@ -139,6 +143,61 @@ describe("streaming retext work", () => {
           if (code === undefined) throw new Error("code node missing");
           expect(code.onChunks).toBeDefined();
           expect(code.onHighlight).toBeDefined();
+          expect(codeLinkArmWalks()).toBeGreaterThan(before);
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("a fence added under a stable list still arms that code node", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, SHELL_OPTS);
+        try {
+          appendStreamRow(shell, {
+            role: "assistant",
+            streaming: true,
+            text: "- intro",
+          });
+          await h.renderOnce();
+          const row = transcriptRowChildren(shell)[0];
+          if (row === undefined) throw new Error("row missing");
+          const markdown = row
+            .getChildren()
+            .find((child) => child instanceof MarkdownRenderable);
+          if (!(markdown instanceof MarkdownRenderable)) {
+            throw new Error("markdown missing");
+          }
+          // OpenTUI keeps one list box and inserts the fence under it. The
+          // first retext arms that box; the fence must still be walked.
+          markdown.internalBlockMode = "top-level";
+          replaceStreamRowAt(shell, 0, {
+            role: "assistant",
+            streaming: true,
+            text: "- intro",
+          });
+          const list = markdown.getChildren()[0];
+          if (list === undefined || list instanceof CodeRenderable) {
+            throw new Error("list box missing");
+          }
+          const before = codeLinkArmWalks();
+          replaceStreamRowAt(shell, 0, {
+            role: "assistant",
+            streaming: true,
+            text: "- intro\n\n  ```\n  https://example.com\n  ```",
+          });
+          expect(markdown.getChildren()[0]).toBe(list);
+          const codes = codeNodes(row);
+          const fence = codes.find(
+            (code) =>
+              code.onChunks === undefined || code.filetype !== "markdown",
+          );
+          expect(fence).toBeDefined();
+          expect(fence?.onChunks).toBeDefined();
+          expect(fence?.onHighlight).toBeDefined();
           expect(codeLinkArmWalks()).toBeGreaterThan(before);
         } finally {
           shell.dispose();
