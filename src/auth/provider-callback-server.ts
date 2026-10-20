@@ -1,4 +1,8 @@
-import { startCallbackServer, type CallbackServer } from "@corbits/oauth-core";
+import {
+  startCallbackServer,
+  type CallbackFailure,
+  type CallbackServer,
+} from "@corbits/oauth-core";
 
 import {
   authorizationDoneHtml,
@@ -7,6 +11,12 @@ import {
 } from "./callback-page.js";
 
 export type { CallbackServer };
+
+function callbackFailureText(failure: CallbackFailure): string {
+  if (failure.providerError !== undefined) return failure.providerError;
+  if (failure.code === "state_mismatch") return "state mismatch";
+  return "no code returned";
+}
 
 export interface ProviderCallbackServerConfig {
   port: number;
@@ -26,7 +36,10 @@ export async function startProviderCallbackServer(
     ...(config.host === undefined ? {} : { host: config.host }),
     path: config.path,
     doneHtml: authorizationDoneHtml(providerLabel, copy),
-    failedHtml: (reason) =>
-      callbackPageHtml({ subject: providerLabel, error: reason }, copy),
+    failedHtml: (failure) =>
+      callbackPageHtml(
+        { subject: providerLabel, error: callbackFailureText(failure) },
+        copy,
+      ),
   });
 }

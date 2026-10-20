@@ -11,10 +11,10 @@
         "@corbits/code-agent-explorer": "workspace:*",
         "@corbits/code-agent-planner": "workspace:*",
         "@corbits/code-agent-reviewer": "workspace:*",
-        "@corbits/codex-provider": "0.1.2",
-        "@corbits/oauth-core": "0.3.0",
-        "@corbits/openai-responses": "0.2.1",
-        "@corbits/xai-provider": "0.1.2",
+        "@corbits/codex-provider": "0.1.3",
+        "@corbits/oauth-core": "0.3.2",
+        "@corbits/openai-responses": "0.2.2",
+        "@corbits/xai-provider": "0.1.3",
         "@intx/agent": "workspace:*",
         "@intx/authz": "workspace:*",
         "@intx/crypto": "0.3.0",
@@ -36,7 +36,7 @@
         "isomorphic-git": "catalog:",
       },
       "devDependencies": {
-        "@corbits/evals": "^0.1.1",
+        "@corbits/evals": "^0.1.2",
         "@intx/inference-testing": "0.3.0",
         "@types/bun": "1.4.3",
         "knip": "^6.41.0",
@@ -306,15 +306,15 @@
 
     "@corbits/code-agent-warden": ["@corbits/code-agent-warden@workspace:agents/warden"],
 
-    "@corbits/codex-provider": ["@corbits/codex-provider@0.1.2", "", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.2.0", "@corbits/openai-responses": "^0.2.0", "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-jIKDuydaAOF1xLC6iZgtSEAIcuaXtGGxsvFUm4ZBH30wDDVZDGIAokPHtROZGlbImQ9ElaoTShDfHSY2iP5kdQ=="],
+    "@corbits/codex-provider": ["@corbits/codex-provider@0.1.3", "", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.3.0", "@corbits/openai-responses": "^0.2.2", "@intx/inference": "^0.5.0", "@intx/types": "^0.5.0" } }, "sha512-q0eehHeGSP0/9uaZKmWeW4dR/eNKC/ZtA3jWhGL6idjMXN46Be0rluAUAORm01ZmIYkz7WfXvy7uTXvR4GYb9Q=="],
 
-    "@corbits/evals": ["@corbits/evals@0.1.1", "", { "dependencies": { "@corbits/system-one": "^0.3.0" }, "peerDependencies": { "@intx/workflow": "^0.4.0" }, "optionalPeers": ["@intx/workflow"] }, "sha512-JjBbLVZn/xtrdQiOr/yglsBfiaa8fAksCaZ+kiu+bRK0MQAhUjUKRmp1G06JouHagAUsAlqhcbagI91gsoEASQ=="],
+    "@corbits/evals": ["@corbits/evals@0.1.2", "", { "dependencies": { "@corbits/system-one": "^0.3.0" }, "peerDependencies": { "@intx/workflow": "^0.5.0" }, "optionalPeers": ["@intx/workflow"] }, "sha512-+4/avYgxR2kBEtvKfoqJxZPbfpsCfLju4pTh5SqP5bn3jfDv7tyG2bEQcWRoynr7YvZ8V+TQtHzaCzJtNAEOzA=="],
 
     "@corbits/first-class-providers": ["@corbits/first-class-providers@workspace:packages/first-class-providers"],
 
-    "@corbits/oauth-core": ["@corbits/oauth-core@0.3.0", "", { "dependencies": { "@intx/db": "^0.4.0", "@intx/hub-api": "^0.4.0", "@intx/hub-common": "^0.4.0", "@intx/types": "^0.4.0", "arktype": "^2.2.3", "drizzle-orm": "^0.45.2", "hono": "^4.11.9" } }, "sha512-Al6l7FXCSDVboMCujr8piMmudQ6W+7wVRZKsZZ8Elpy5BbW4+gRGjrXSdplGILiEl/YedoWi66hGF/DpLUjVoA=="],
+    "@corbits/oauth-core": ["@corbits/oauth-core@0.3.2", "", { "dependencies": { "@intx/db": "^0.5.0", "@intx/hub-api": "^0.5.0", "@intx/hub-common": "^0.5.0", "@intx/types": "^0.5.0", "arktype": "^2.2.3", "drizzle-orm": "^0.45.2", "hono": "^4.11.9" } }, "sha512-2wBKzaWA/hEObDq+yehuHFh6ZsPDRoyGgBBhBiN/gPPWOw+DCCGogTkzTwL0yPPM04NU+RUKEcgBka7M7LVmGw=="],
 
-    "@corbits/openai-responses": ["@corbits/openai-responses@0.2.1", "", { "dependencies": { "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-jhT1opXhFNoeq+Og8n1j3FaXlqxAsJGfNlVTwuN+2+Ee29z15mU4dzJ4JwY6njAOHVXvBk6mgYCGRu+NjU9rmw=="],
+    "@corbits/openai-responses": ["@corbits/openai-responses@0.2.2", "", { "dependencies": { "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": "^0.5.0", "@intx/types": "^0.5.0" } }, "sha512-dp9ZVHUL+EuwveezrJr3EMQc963xBVxUlQg32P+1yUP7TZfR1rT7fwCWIUYDQIfAkeaOFTDfl6y/QRTIi6bVxw=="],
 
     "@corbits/prompt-fragments": ["@corbits/prompt-fragments@workspace:packages/prompt-fragments"],
 
@@ -326,7 +326,7 @@
 
     "@corbits/system-one": ["@corbits/system-one@0.3.1", "", { "dependencies": { "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-YvYaP6CY5VGM7MPJW6JPU4d5uPESMCX1xspddch0NGCBNB4Nz4yAR1JOFz6gYyVy0JyYHqtNYArXwFB5kUetug=="],
 
-    "@corbits/xai-provider": ["@corbits/xai-provider@0.1.2", "", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.2.0", "@corbits/openai-responses": "^0.2.0", "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-4gCSLehuE922UG5DeAQLMA3iaq5MzSEgKNuq2Lb4aJqEYsQ85t8rTmu0DXs+T6mHNq2cbCI9eCF4aXuyv420iA=="],
+    "@corbits/xai-provider": ["@corbits/xai-provider@0.1.3", "", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.3.0", "@corbits/openai-responses": "^0.2.2", "@intx/inference": "^0.5.0", "@intx/types": "^0.5.0" } }, "sha512-/fgvDATeadSabwFq8z/uEuM3TVZjWe7J571logcU26Ce7zwkg/wzUrJeva/JNQOcvqYVmzyCuSLDnNaPbaT8Wg=="],
 
     "@emnapi/core": ["@emnapi/core@1.11.2", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.2", "tslib": "^2.4.0" } }, "sha512-TC8MkTuZUtcTSiFeuC0ksCh9QIJ5+F21MvZ4Wn4ORfYaFJ/0dsiudv5tVkejgwZlwQ39jL9WWDe2lz8x0WglOA=="],
 
@@ -346,13 +346,13 @@
 
     "@intx/crypto": ["@intx/crypto@0.3.0", "", { "dependencies": { "@intx/types": "0.3.0" } }, "sha512-NsRzvkFGb0Pcsm9uLFFSXNl6Cbu+ii6VkYAw81qs9IbZzbAFfsZSUVQaX6EZuPNyJ8KK4KmBtqmioq1mhXsJww=="],
 
-    "@intx/db": ["@intx/db@0.4.0", "", { "dependencies": { "@intx/authz": "0.4.0", "@intx/crypto": "0.4.0", "@intx/hub-common": "0.4.0", "@intx/log": "0.4.0", "@intx/types": "0.4.0", "arktype": "^2.1.29", "drizzle-orm": "^0.45.1", "postgres": "^3.4.8" } }, "sha512-B26emrRrpIAlRygTWs6akVA6V/rN07v4YRxj3iTxzAOJVayIHSmPuPmKxqKN/AsBgLq6H1q94RP9sq05yb4twg=="],
+    "@intx/db": ["@intx/db@0.5.0", "", { "dependencies": { "@intx/authz": "0.5.0", "@intx/crypto": "0.5.0", "@intx/hub-common": "0.5.0", "@intx/log": "0.5.0", "@intx/types": "0.5.0", "arktype": "^2.1.29", "drizzle-orm": "^0.45.1", "postgres": "^3.4.8" } }, "sha512-WIyWnUfNEchuhqAYqCma6ZZdRiRBxvcNyGkdZiGl4Vb1288BrFIjtok+VRA5wftWkFJ4aRpqyfgKcWWseW1G4w=="],
 
     "@intx/harness": ["@intx/harness@workspace:vendor/intx-harness"],
 
-    "@intx/hub-api": ["@intx/hub-api@0.4.0", "", { "dependencies": { "@hono/standard-validator": "^0.2.2", "@intx/agent": "0.4.0", "@intx/authz": "0.4.0", "@intx/crypto": "0.4.0", "@intx/db": "0.4.0", "@intx/hub-common": "0.4.0", "@intx/hub-sessions": "0.4.0", "@intx/log": "0.4.0", "@intx/mime": "0.4.0", "@intx/storage-isogit": "0.4.0", "@intx/types": "0.4.0", "@intx/workflow-deploy": "0.4.0", "arktype": "^2.1.29", "better-auth": "^1.4.18", "drizzle-orm": "^0.45.1", "hono": "^4.11.9", "hono-openapi": "^1.2.0", "isomorphic-git": "^1.27.2", "ssri": "^12.0.0" } }, "sha512-3Txw7Im38BdRujYeRlxgrzCdvOG1v92556AjNa/6WXSwgXt9Mn2fB4RoQrA6oUHcm10Y94WZh3IjaQsXFl7Qvg=="],
+    "@intx/hub-api": ["@intx/hub-api@0.5.0", "", { "dependencies": { "@hono/standard-validator": "^0.2.2", "@intx/agent": "0.5.0", "@intx/authz": "0.5.0", "@intx/crypto": "0.5.0", "@intx/db": "0.5.0", "@intx/hub-common": "0.5.0", "@intx/hub-sessions": "0.5.0", "@intx/log": "0.5.0", "@intx/mime": "0.5.0", "@intx/storage-isogit": "0.5.0", "@intx/types": "0.5.0", "@intx/workflow-deploy": "0.5.0", "arktype": "^2.1.29", "better-auth": "^1.4.18", "drizzle-orm": "^0.45.1", "hono": "^4.11.9", "hono-openapi": "^1.2.0", "isomorphic-git": "^1.27.2", "ssri": "^12.0.0" } }, "sha512-ObyGu0YV9w8g93LA6+a0tjGiI4saM1fwUi7JGiVGRJlQ2imD+iaIE8dyxzUdkeQN/ZmrGIQCdHt1Dg4+c0dQNA=="],
 
-    "@intx/hub-common": ["@intx/hub-common@0.4.0", "", { "dependencies": { "@intx/types": "0.4.0" } }, "sha512-4dcRX3kamqduf1Yil85GVsjXKnAnu6uqSYrAsl4vGpuV6R2DCy7z/PHd+DtIqk6TJrRdW7DtfkNXwSEc3dn2VQ=="],
+    "@intx/hub-common": ["@intx/hub-common@0.5.0", "", { "dependencies": { "@intx/types": "0.5.0" } }, "sha512-riLxc8a9ZkCaEDUxr3DWlrIaZ/WeLZ9HJmXU9MbcM9TEUfMR68F/EiuSGKwQRFDVH9WwRZB82WN6vuGWbAHksA=="],
 
     "@intx/hub-sessions": ["@intx/hub-sessions@0.3.0", "", { "dependencies": { "@intx/agent": "0.3.0", "@intx/crypto": "0.3.0", "@intx/db": "0.3.0", "@intx/hub-common": "0.3.0", "@intx/log": "0.3.0", "@intx/mime": "0.3.0", "@intx/pack-transport": "0.3.0", "@intx/storage-isogit": "0.3.0", "@intx/tool-packaging": "0.3.0", "@intx/types": "0.3.0", "@intx/workflow": "0.3.0", "@intx/workflow-deploy": "0.3.0", "arktype": "^2.1.29", "drizzle-orm": "^0.45.1", "isomorphic-git": "^1.27.2", "tar": "^7.5.1" } }, "sha512-L9B/vuQakvbj4CYrEhbNwu0z/S9/2jBXmaJdxaC1zfakbOiHya4HFW/YAZKAgOi7z0cpxFftsK/RN3Yyrd/+Wg=="],
 
@@ -384,7 +384,7 @@
 
     "@intx/workflow": ["@intx/workflow@0.3.0", "", { "dependencies": { "@intx/agent": "0.3.0", "@intx/inference": "0.3.0", "@intx/types": "0.3.0", "arktype": "^2.1.29" } }, "sha512-vaIqTohNNdCVhvZ4btWbIbpjp3140e5939tQP7t+rSkucTvnn6US+bXho1qUJyNQ577mf3YXHGgBCW8ppsnscA=="],
 
-    "@intx/workflow-deploy": ["@intx/workflow-deploy@0.4.0", "", { "dependencies": { "@intx/agent": "0.4.0", "@intx/tool-packaging": "0.4.0", "@intx/types": "0.4.0", "@intx/workflow": "0.4.0" } }, "sha512-TSLg9lPZvJ+leg2n0I/SWxZjcNQtzsH2oKLD04ptEsBZcbIuMINsQeZBmYV5Brdovy0J/SrWZyrOJ8lc+k/Fdw=="],
+    "@intx/workflow-deploy": ["@intx/workflow-deploy@0.5.0", "", { "dependencies": { "@intx/agent": "0.5.0", "@intx/authz": "0.5.0", "@intx/types": "0.5.0", "@intx/workflow": "0.5.0" } }, "sha512-AtgKPq1BJ79ywp30vuCINbwy0Lajx4KXGyOvt/4M5/Mwu/2KETK2A0JdanEaQIhZqRSvnQ0HezvMm6WC4/noRQ=="],
 
     "@intx/workflow-host": ["@intx/workflow-host@0.3.0", "", { "dependencies": { "@intx/agent": "0.3.0", "@intx/crypto": "0.3.0", "@intx/hub-sessions": "0.3.0", "@intx/inference": "0.3.0", "@intx/log": "0.3.0", "@intx/mail-memory": "0.3.0", "@intx/mime": "0.3.0", "@intx/storage-isogit": "0.3.0", "@intx/types": "0.3.0", "@intx/workflow": "0.3.0", "arktype": "^2.1.29" } }, "sha512-vhujPnhCrf2RensenRPSH63SQZlAvtgwLyZeNWSUHlNJ94g72xzaYAa/eYcc9OHGGdGHVo63OFQ1oS1j3/kORg=="],
 
@@ -1054,11 +1054,11 @@
 
     "@better-auth/core/zod": ["zod@4.5.4", "", {}, "sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA=="],
 
-    "@intx/db/@intx/crypto": ["@intx/crypto@0.4.0", "", { "dependencies": { "@intx/types": "0.4.0" } }, "sha512-4/qWypC90GevbV9u1i/93tn46jsXhj8wE1Pn+awg8/ECpwhHnhPLT5Uy423Arr9eGmRmF6HiMyXcEgH1Z9/Rkw=="],
+    "@intx/db/@intx/crypto": ["@intx/crypto@0.5.0", "", { "dependencies": { "@intx/types": "0.5.0" } }, "sha512-EX5dAQuazYbsqc51d9e9BkIxUEhGf4+9U3S91XHOg+OrHcjYRxZoFzgcrAHIJVK8Mqh0WzKhGTsY1g2r3iW9nw=="],
 
-    "@intx/hub-api/@intx/crypto": ["@intx/crypto@0.4.0", "", { "dependencies": { "@intx/types": "0.4.0" } }, "sha512-4/qWypC90GevbV9u1i/93tn46jsXhj8wE1Pn+awg8/ECpwhHnhPLT5Uy423Arr9eGmRmF6HiMyXcEgH1Z9/Rkw=="],
+    "@intx/hub-api/@intx/crypto": ["@intx/crypto@0.5.0", "", { "dependencies": { "@intx/types": "0.5.0" } }, "sha512-EX5dAQuazYbsqc51d9e9BkIxUEhGf4+9U3S91XHOg+OrHcjYRxZoFzgcrAHIJVK8Mqh0WzKhGTsY1g2r3iW9nw=="],
 
-    "@intx/hub-api/@intx/hub-sessions": ["@intx/hub-sessions@0.4.0", "", { "dependencies": { "@intx/agent": "0.4.0", "@intx/crypto": "0.4.0", "@intx/db": "0.4.0", "@intx/hub-common": "0.4.0", "@intx/log": "0.4.0", "@intx/mime": "0.4.0", "@intx/pack-transport": "0.4.0", "@intx/storage-isogit": "0.4.0", "@intx/tool-packaging": "0.4.0", "@intx/types": "0.4.0", "@intx/workflow": "0.4.0", "@intx/workflow-deploy": "0.4.0", "arktype": "^2.1.29", "drizzle-orm": "^0.45.1", "isomorphic-git": "^1.27.2", "tar": "^7.5.1" } }, "sha512-/3nd/B/gENy3lq+MA2AR95tBu3Rkkh176XM+A8/mNMGnolPBGw+1JBUGGJ8gvdvAfo64dwRcEs3BI/VD7zFlPQ=="],
+    "@intx/hub-api/@intx/hub-sessions": ["@intx/hub-sessions@0.5.0", "", { "dependencies": { "@intx/agent": "0.5.0", "@intx/crypto": "0.5.0", "@intx/db": "0.5.0", "@intx/hub-common": "0.5.0", "@intx/log": "0.5.0", "@intx/mime": "0.5.0", "@intx/pack-transport": "0.5.0", "@intx/storage-isogit": "0.5.0", "@intx/tool-packaging": "0.5.0", "@intx/types": "0.5.0", "@intx/workflow": "0.5.0", "@intx/workflow-deploy": "0.5.0", "arktype": "^2.1.29", "drizzle-orm": "^0.45.1", "isomorphic-git": "^1.27.2", "tar": "^7.5.1" } }, "sha512-CgcXHnGtIw/Rjdhnry2TOSVvKeUh2x+XXvLJ/hrw86hBocvROUOFOykJ3/63Uft0OHPGKXf1D5AFPyc71P2arQ=="],
 
     "@intx/hub-sessions/@intx/db": ["@intx/db@0.3.0", "", { "dependencies": { "@intx/authz": "0.3.0", "@intx/crypto": "0.3.0", "@intx/log": "0.3.0", "@intx/types": "0.3.0", "arktype": "^2.1.29", "drizzle-orm": "^0.45.1", "postgres": "^3.4.8" } }, "sha512-MXNeUVJTftQuSHj5zSUBQsUcFN3wUBs8t6yT6lqjbaNxpT1C7kGx8qXb95WuadZln+krlLhyoUwGMF7EmYvlnw=="],
 
@@ -1066,9 +1066,7 @@
 
     "@intx/hub-sessions/@intx/workflow-deploy": ["@intx/workflow-deploy@0.3.0", "", { "dependencies": { "@intx/agent": "0.3.0", "@intx/tool-packaging": "0.3.0", "@intx/types": "0.3.0", "@intx/workflow": "0.3.0" } }, "sha512-eiCFS+e6DV9UTWFX5eINQCbXHi2w5Wn9SXtAOHZa4PIXOzxXKVJL/uXE/c6TfCVqhrsDdzYwrtt9koi5qmYXCg=="],
 
-    "@intx/workflow-deploy/@intx/tool-packaging": ["@intx/tool-packaging@0.4.0", "", { "dependencies": { "@intx/agent": "0.4.0", "@intx/log": "0.4.0", "@intx/storage-isogit": "0.4.0", "@intx/types": "0.4.0", "arktype": "^2.1.29", "isomorphic-git": "^1.27.2", "npm-package-arg": "^12.0.2", "npm-pick-manifest": "^10.0.0", "npm-registry-fetch": "^19.0.0", "semver": "^7.7.2", "ssri": "^12.0.0", "tar": "^7.5.1" } }, "sha512-eBZIbGUcEBp0ppMCceA1PPd75LvXpUyWitqTIu7AsLxRNlU9gbE1hymWPXnhUKnt3LgSlHUi959Ehd6jG6mR7g=="],
-
-    "@intx/workflow-deploy/@intx/workflow": ["@intx/workflow@0.4.0", "", { "dependencies": { "@intx/agent": "0.4.0", "@intx/inference": "0.4.0", "@intx/types": "0.4.0", "arktype": "^2.1.29" } }, "sha512-F5Is/lyKb4/WguAVYMDXwtI4ddUvqXbg34rcM6hPUOqupJHpbbD9+ZK/6TDfvbCiEgginbTVwMmNj6Fyg8vU+Q=="],
+    "@intx/workflow-deploy/@intx/workflow": ["@intx/workflow@0.5.0", "", { "dependencies": { "@intx/agent": "0.5.0", "@intx/inference": "0.5.0", "@intx/types": "0.5.0", "arktype": "^2.1.29" } }, "sha512-yEIrIWxZ3okiGCXt99MkHdarhVff8fhA90ynrRcaJoLXCYU5zFsmhooLcEzmKUHRWosLalnuhJvpnJIdWed/GA=="],
 
     "@npmcli/agent/lru-cache": ["lru-cache@11.5.2", "", {}, "sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g=="],
 
@@ -1104,11 +1102,11 @@
 
     "type-is/content-type": ["content-type@2.1.0", "", {}, "sha512-mj7UPXE0jaqaOsukNZRUEfEi2AcL7C/vwmwcHV0O97eO1E1pxBZuyjlZrx5seTaNBg1U6+o35wpa35Qfcc+7ag=="],
 
-    "@intx/hub-api/@intx/hub-sessions/@intx/pack-transport": ["@intx/pack-transport@0.4.0", "", { "dependencies": { "@intx/types": "0.4.0" } }, "sha512-I+axd067ZFXaTRtr2zmBXl6/yU253wLc/YWEdXiPiqz06mIspR2BFJMbSXPzV4pM26n+1tv/9E5VNBQtdiYmSA=="],
+    "@intx/hub-api/@intx/hub-sessions/@intx/pack-transport": ["@intx/pack-transport@0.5.0", "", { "dependencies": { "@intx/types": "0.5.0" } }, "sha512-Ogxl3oeDEUDsers5lekhVzw2UyhAVrVAVBYZW3UVy7qBzICTFDBD2trAVkeswdBzVaHnvAx0GCwOrfl6Ji19gA=="],
 
-    "@intx/hub-api/@intx/hub-sessions/@intx/tool-packaging": ["@intx/tool-packaging@0.4.0", "", { "dependencies": { "@intx/agent": "0.4.0", "@intx/log": "0.4.0", "@intx/storage-isogit": "0.4.0", "@intx/types": "0.4.0", "arktype": "^2.1.29", "isomorphic-git": "^1.27.2", "npm-package-arg": "^12.0.2", "npm-pick-manifest": "^10.0.0", "npm-registry-fetch": "^19.0.0", "semver": "^7.7.2", "ssri": "^12.0.0", "tar": "^7.5.1" } }, "sha512-eBZIbGUcEBp0ppMCceA1PPd75LvXpUyWitqTIu7AsLxRNlU9gbE1hymWPXnhUKnt3LgSlHUi959Ehd6jG6mR7g=="],
+    "@intx/hub-api/@intx/hub-sessions/@intx/tool-packaging": ["@intx/tool-packaging@0.5.0", "", { "dependencies": { "@intx/agent": "0.5.0", "@intx/log": "0.5.0", "@intx/storage-isogit": "0.5.0", "@intx/types": "0.5.0", "arktype": "^2.1.29", "isomorphic-git": "^1.27.2", "npm-package-arg": "^12.0.2", "npm-pick-manifest": "^10.0.0", "npm-registry-fetch": "^19.0.0", "semver": "^7.7.2", "ssri": "^12.0.0", "tar": "^7.5.1" } }, "sha512-Jf1XskGsN41q2/mBQNQaf410YeqAXNdXI9+hEP3aq3vmjtSUpNr4juRoRdd9p6otDxMcP9oLLZd8FdfP/dYCrA=="],
 
-    "@intx/hub-api/@intx/hub-sessions/@intx/workflow": ["@intx/workflow@0.4.0", "", { "dependencies": { "@intx/agent": "0.4.0", "@intx/inference": "0.4.0", "@intx/types": "0.4.0", "arktype": "^2.1.29" } }, "sha512-F5Is/lyKb4/WguAVYMDXwtI4ddUvqXbg34rcM6hPUOqupJHpbbD9+ZK/6TDfvbCiEgginbTVwMmNj6Fyg8vU+Q=="],
+    "@intx/hub-api/@intx/hub-sessions/@intx/workflow": ["@intx/workflow@0.5.0", "", { "dependencies": { "@intx/agent": "0.5.0", "@intx/inference": "0.5.0", "@intx/types": "0.5.0", "arktype": "^2.1.29" } }, "sha512-yEIrIWxZ3okiGCXt99MkHdarhVff8fhA90ynrRcaJoLXCYU5zFsmhooLcEzmKUHRWosLalnuhJvpnJIdWed/GA=="],
 
     "cross-spawn/which/isexe": ["isexe@2.0.0", "", {}, "sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw=="],
 
