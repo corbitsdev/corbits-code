@@ -1,23 +1,35 @@
 import { type } from "arktype";
 import type { ToolDefinition } from "@intx/types/runtime";
 
+import { lazyCallable, memoSchema } from "../schema/lazy.js";
+
 // A task is a unit of work the agent registered for itself. The agent owns the
 // list — it adds, renames, cancels, and status-updates items mid-run.
-export const TaskStatusSchema = type("'todo' | 'doing' | 'done' | 'cancelled'");
-export type TaskStatus = typeof TaskStatusSchema.infer;
+function buildTaskStatusSchema() {
+  return type("'todo' | 'doing' | 'done' | 'cancelled'");
+}
+const taskStatusSchema = memoSchema(buildTaskStatusSchema);
+export type TaskStatus = ReturnType<typeof buildTaskStatusSchema>["infer"];
 
 // GLM (and other Claude-shaped) payloads send in_progress; map it at the
 // boundary so stored tasks stay on the todo/doing/done/cancelled enum.
-const TaskStatusInput = type(
-  "'todo' | 'doing' | 'done' | 'cancelled' | 'in_progress'",
-).pipe((s): TaskStatus => (s === "in_progress" ? "doing" : s));
+const taskStatusInput = memoSchema(() =>
+  type("'todo' | 'doing' | 'done' | 'cancelled' | 'in_progress'").pipe(
+    (s): TaskStatus => (s === "in_progress" ? "doing" : s),
+  ),
+);
 
-export const TaskSchema = type({
-  id: "string>0",
-  title: "string>0",
-  status: TaskStatusSchema,
-});
-export type Task = typeof TaskSchema.infer;
+function buildTaskSchema() {
+  return type({
+    id: "string>0",
+    title: "string>0",
+    status: taskStatusSchema(),
+  });
+}
+const taskSchema = memoSchema(buildTaskSchema);
+export const TaskSchema: ReturnType<typeof buildTaskSchema> =
+  lazyCallable(taskSchema);
+export type Task = ReturnType<typeof buildTaskSchema>["infer"];
 
 // A task list has active work while any task is still todo or doing. Terminal
 // tasks (done/cancelled) are resolved, so an all-terminal list is finished.
@@ -27,21 +39,23 @@ export function hasActiveTasks(tasks: Task[]): boolean {
 
 // `create` overwrites the list; `update` patches by id and may append new
 // items (unknown id + title). One multi-purpose tool keeps the schema small.
-const ManageTasksArgsSchema = type({
-  action: "'create' | 'update'",
-  "tasks?": type({
-    id: "string>0",
-    title: "string>0",
-    "status?": TaskStatusInput,
-  }).array(),
-  "updates?": type({
-    id: "string>0",
-    "title?": "string>0",
-    "status?": TaskStatusInput,
-  }).array(),
-});
+const manageTasksArgsSchema = memoSchema(() =>
+  type({
+    action: "'create' | 'update'",
+    "tasks?": type({
+      id: "string>0",
+      title: "string>0",
+      "status?": taskStatusInput(),
+    }).array(),
+    "updates?": type({
+      id: "string>0",
+      "title?": "string>0",
+      "status?": taskStatusInput(),
+    }).array(),
+  }),
+);
 
-export type ManageTasksArgs = typeof ManageTasksArgsSchema.infer;
+export type ManageTasksArgs = ReturnType<typeof manageTasksArgsSchema>["infer"];
 
 export const manageTasksDefinition: ToolDefinition = {
   name: "manage_tasks",
@@ -109,7 +123,7 @@ export const manageTasksDefinition: ToolDefinition = {
 // Clone first: arktype's in_progress→doing morph writes onto the input, and
 // reactor snapshots deep-freeze tool_call.arguments before decide() runs.
 export function parseManageTasksArgs(rawArgs: unknown): ManageTasksArgs | null {
-  const result = ManageTasksArgsSchema(cloneManageTasksInput(rawArgs));
+  const result = manageTasksArgsSchema()(cloneManageTasksInput(rawArgs));
   return result instanceof type.errors ? null : result;
 }
 
@@ -179,7 +193,7 @@ export type ManageTasksRunner = (rawArgs: Record<string, unknown>) => Promise<{
 export function createManageTasksRunner(): ManageTasksRunner {
   let tasks: Task[] = [];
   return async (rawArgs) => {
-    const parsed = ManageTasksArgsSchema(cloneManageTasksInput(rawArgs));
+    const parsed = manageTasksArgsSchema()(cloneManageTasksInput(rawArgs));
     if (parsed instanceof type.errors) {
       return {
         content: `Error: manage_tasks arguments invalid: ${parsed.summary}`,

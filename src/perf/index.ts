@@ -52,6 +52,8 @@ export const SPAN_NAMES = [
   "adapter.request_build",
   "adapter.first_byte",
   "adapter.transport",
+  "boot",
+  "first-paint",
 ] as const;
 
 export type SpanName = (typeof SPAN_NAMES)[number];

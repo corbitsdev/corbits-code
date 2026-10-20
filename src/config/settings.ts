@@ -6,6 +6,8 @@ import { basename, dirname, join, resolve } from "node:path";
 
 import { type } from "arktype";
 
+import { memoSchema } from "../schema/lazy.js";
+
 import { SETTINGS_DIR_NAME } from "../branding.js";
 import { EXA_MCP_SERVER_NAME } from "../mcp/exa.js";
 import {
@@ -16,7 +18,7 @@ import {
 import type { OtelSettings } from "../perf/otel-config.js";
 import type { SessionMode } from "./session-mode.js";
 import { resolveDefaultModel } from "./providers.js";
-import { ProviderInferenceOptionsSchema } from "./provider-inference-options.js";
+import { readProviderInferenceOptionsSchema } from "./provider-inference-options.js";
 import {
   OPENCODE_GO_BASE_URL,
   isOpenCodeGoProvider,
@@ -608,132 +610,145 @@ function isENOENT(err: unknown): boolean {
 // arktype is the single validation vocabulary for config boundaries (see
 // AGENTS.md). The schemas own structural validation; the imperative helpers
 // that remain (transport selection, dual array/object MCP format) are
-// normalization and cross-field business rules, not type checks.
-const ProviderSettingsSchema = type({
-  "name?": "string",
-  baseURL: "string",
-  "apiKey?": "string",
-  models: "string[]",
-  "defaultModel?": "string",
-  "keyless?": "boolean",
-  "free?": "boolean",
-  "bifrostVirtualKey?": "boolean",
-  "anthropic?": "boolean",
-  "opencodeGo?": "boolean",
-  "verified?": "boolean",
-  "reasoningEfforts?": type
-    .enumerated(...REASONING_EFFORTS)
-    .array()
+// normalization and cross-field business rules, not type checks. Built on
+// first read so importing this module does not construct them.
+const providerSettingsSchema = memoSchema(() =>
+  type({
+    "name?": "string",
+    baseURL: "string",
+    "apiKey?": "string",
+    models: "string[]",
+    "defaultModel?": "string",
+    "keyless?": "boolean",
+    "free?": "boolean",
+    "bifrostVirtualKey?": "boolean",
+    "anthropic?": "boolean",
+    "opencodeGo?": "boolean",
+    "verified?": "boolean",
+    "reasoningEfforts?": type
+      .enumerated(...REASONING_EFFORTS)
+      .array()
+      .narrow(
+        (levels, ctx) =>
+          levels.length > 0 || ctx.reject("at least one reasoning effort"),
+      ),
+    "defaultReasoningEffort?": type.enumerated(...REASONING_EFFORTS),
+  })
+    .and(readProviderInferenceOptionsSchema())
     .narrow(
-      (levels, ctx) =>
-        levels.length > 0 || ctx.reject("at least one reasoning effort"),
+      (provider, ctx) =>
+        provider.defaultReasoningEffort === undefined ||
+        provider.reasoningEfforts?.includes(provider.defaultReasoningEffort) ===
+          true ||
+        ctx.reject("a default reasoning effort from the enabled levels"),
     ),
-  "defaultReasoningEffort?": type.enumerated(...REASONING_EFFORTS),
-})
-  .and(ProviderInferenceOptionsSchema)
-  .narrow(
-    (provider, ctx) =>
-      provider.defaultReasoningEffort === undefined ||
-      provider.reasoningEfforts?.includes(provider.defaultReasoningEffort) ===
-        true ||
-      ctx.reject("a default reasoning effort from the enabled levels"),
-  );
+);
 
-const ModelRefSchema = type({
-  provider: "string",
-  model: "string",
-});
+const modelRefSchema = memoSchema(() =>
+  type({
+    provider: "string",
+    model: "string",
+  }),
+);
 
-const SettingsSchema = type({
-  "defaultProvider?": "string",
-  providers: type({ "[string]": ProviderSettingsSchema }),
-  // mcpServers accepts both array and object forms, so it is validated by
-  // normalizeMcpServers rather than expressed structurally here.
-  "mcpServers?": "unknown",
-  // Model tiers were removed; older files may still carry this key. Accepted
-  // and ignored so the file loads, then dropped on next save.
-  "tiers?": "unknown",
-  "plugins?": type({
-    "[string]": type({
-      "enabled?": "boolean",
-      "consented?": "boolean",
-      "credentials?": type({ "[string]": "string" }),
+const settingsSchema = memoSchema(() => {
+  const ProviderSettingsSchema = providerSettingsSchema();
+  const ModelRefSchema = modelRefSchema();
+  return type({
+    "defaultProvider?": "string",
+    providers: type({ "[string]": ProviderSettingsSchema }),
+    // mcpServers accepts both array and object forms, so it is validated by
+    // normalizeMcpServers rather than expressed structurally here.
+    "mcpServers?": "unknown",
+    // Model tiers were removed; older files may still carry this key. Accepted
+    // and ignored so the file loads, then dropped on next save.
+    "tiers?": "unknown",
+    "plugins?": type({
+      "[string]": type({
+        "enabled?": "boolean",
+        "consented?": "boolean",
+        "credentials?": type({ "[string]": "string" }),
+      }),
     }),
-  }),
-  "pluginPaths?": "string[]",
-  "hooks?": type({ "[string]": type({ enabled: "boolean" }) }),
-  "discoverClaudePlugins?": "boolean",
-  "web?": "string",
-  "hiddenCommands?": "string[]",
-  "onboarded?": "boolean",
-  "lastChangelogVersion?": "string",
-  // Legacy disk values still load; product resolve ignores them.
-  "sessionMode?": "'single' | 'orchestrator'",
+    "pluginPaths?": "string[]",
+    "hooks?": type({ "[string]": type({ enabled: "boolean" }) }),
+    "discoverClaudePlugins?": "boolean",
+    "web?": "string",
+    "hiddenCommands?": "string[]",
+    "onboarded?": "boolean",
+    "lastChangelogVersion?": "string",
+    // Legacy disk values still load; product resolve ignores them.
+    "sessionMode?": "'single' | 'orchestrator'",
 
-  "agentModelFallback?": "'active' | 'none'",
-  "shell?": type({
-    "timeoutMs?": "number",
-    "maxTimeoutMs?": "number",
-    "sandbox?": type({
-      "enabled?": "boolean",
-      "network?": type({ "allowedHosts?": "string[]" }),
+    "agentModelFallback?": "'active' | 'none'",
+    "shell?": type({
+      "timeoutMs?": "number",
+      "maxTimeoutMs?": "number",
+      "sandbox?": type({
+        "enabled?": "boolean",
+        "network?": type({ "allowedHosts?": "string[]" }),
+      }),
     }),
-  }),
-  "tools?": type({
-    "timeoutMs?": "number",
-    "maxTimeoutMs?": "number",
-    "waitForApproval?": "boolean",
-  }),
-  "mcp?": type({
-    "timeoutMs?": "number",
-  }),
-  "telemetry?": type({
-    "enabled?": "boolean",
-    "installationId?": "string",
-    "noticeShown?": "boolean",
-  }),
-  "otel?": type({
-    "enabled?": "boolean",
-    "endpoint?": "string",
-    "headers?": "Record<string, string>",
-    "serviceName?": "string",
-    "resourceAttributes?": "Record<string, string>",
-  }),
-  "recentModels?": ModelRefSchema.array(),
-  "favoriteModels?": ModelRefSchema.array(),
-  "showPromptCost?": "boolean",
-  "dangerouslySkipPermissions?": "boolean",
-  "anthropicCachePrompt?": "boolean",
-  "theme?": "'auto' | 'light' | 'dark'",
+    "tools?": type({
+      "timeoutMs?": "number",
+      "maxTimeoutMs?": "number",
+      "waitForApproval?": "boolean",
+    }),
+    "mcp?": type({
+      "timeoutMs?": "number",
+    }),
+    "telemetry?": type({
+      "enabled?": "boolean",
+      "installationId?": "string",
+      "noticeShown?": "boolean",
+    }),
+    "otel?": type({
+      "enabled?": "boolean",
+      "endpoint?": "string",
+      "headers?": "Record<string, string>",
+      "serviceName?": "string",
+      "resourceAttributes?": "Record<string, string>",
+    }),
+    "recentModels?": ModelRefSchema.array(),
+    "favoriteModels?": ModelRefSchema.array(),
+    "showPromptCost?": "boolean",
+    "dangerouslySkipPermissions?": "boolean",
+    "anthropicCachePrompt?": "boolean",
+    "theme?": "'auto' | 'light' | 'dark'",
+  });
 });
 
 // Per-entry MCP shape without the name key. "Exactly one transport" is a
 // cross-field constraint enforced after the structural check.
-const McpEntrySchema = type({
-  "enabled?": "boolean",
-  "type?": "'stdio' | 'http'",
-  "command?": "string",
-  "args?": "string[]",
-  "env?": "Record<string, string>",
-  "url?": "string",
-});
+const mcpEntrySchema = memoSchema(() =>
+  type({
+    "enabled?": "boolean",
+    "type?": "'stdio' | 'http'",
+    "command?": "string",
+    "args?": "string[]",
+    "env?": "Record<string, string>",
+    "url?": "string",
+  }),
+);
 
-const LocalSettingsSchema = type({
-  "provider?": "string",
-  "model?": "string",
-  "reasoningEffort?": type.enumerated(...REASONING_EFFORTS),
-  "mcpServers?": "unknown",
-  // Legacy disk values still load; product resolve ignores them.
-  "sessionMode?": "'single' | 'orchestrator'",
+const localSettingsSchema = memoSchema(() =>
+  type({
+    "provider?": "string",
+    "model?": "string",
+    "reasoningEffort?": type.enumerated(...REASONING_EFFORTS),
+    "mcpServers?": "unknown",
+    // Legacy disk values still load; product resolve ignores them.
+    "sessionMode?": "'single' | 'orchestrator'",
 
-  "env?": "Record<string, string>",
-  "pinnedTools?": "string[]",
-  // Reject any other key so local settings can never smuggle credentials.
-  "+": "reject",
-});
+    "env?": "Record<string, string>",
+    "pinnedTools?": "string[]",
+    // Reject any other key so local settings can never smuggle credentials.
+    "+": "reject",
+  }),
+);
 
 export function isSettings(value: unknown): value is Settings {
-  if (!SettingsSchema.allows(value)) return false;
+  if (!settingsSchema().allows(value)) return false;
   const s = value as Record<string, unknown>;
   if (
     s.mcpServers !== undefined &&
@@ -756,7 +771,7 @@ function isMCPServerConfigEntry(
   name: string,
   value: unknown,
 ): value is Omit<MCPServerSettingsEntry, "name"> {
-  if (!McpEntrySchema.allows(value)) return false;
+  if (!mcpEntrySchema().allows(value)) return false;
   const s = value as Record<string, unknown>;
   if (!hasMcpTransport(s)) {
     return name === EXA_MCP_SERVER_NAME && typeof s.enabled === "boolean";
@@ -831,7 +846,7 @@ export function normalizeMcpServers(
 // Local settings are selection-only for provider/model (no credentials);
 // mcpServers is permitted because MCP configs live in the repo.
 export function isLocalSettings(value: unknown): value is LocalSettings {
-  if (!LocalSettingsSchema.allows(value)) return false;
+  if (!localSettingsSchema().allows(value)) return false;
   const s = value as Record<string, unknown>;
   if (
     s.mcpServers !== undefined &&
@@ -955,16 +970,18 @@ export function healOpenCodeGoProviders(settings: Settings): string[] {
   return healed;
 }
 
-const ClobberedLocalSelectionSchema = type({
-  provider: "string>0",
-  model: "string>0",
-  "+": "reject",
-});
+const clobberedLocalSelectionSchema = memoSchema(() =>
+  type({
+    provider: "string>0",
+    model: "string>0",
+    "+": "reject",
+  }),
+);
 
 function isClobberedLocalSelection(
   value: unknown,
 ): value is { provider: string; model: string } {
-  return ClobberedLocalSelectionSchema.allows(value);
+  return clobberedLocalSelectionSchema().allows(value);
 }
 
 function recoverClobberedOAuthSelection(

@@ -61,6 +61,7 @@ import type { QueueKind } from "../delivery-queue.js";
 import type { ShellOutputFeed } from "../../session/shell-output-feed.js";
 import { openModelPickerOverlay } from "../overlays.js";
 import type { ReconnectScope } from "../connect-scope.js";
+import { endBootSpans } from "../../perf/boot-spans.js";
 import {
   reconnectRecoveryItemId,
   reconnectRecoveryItemLabel,
@@ -387,6 +388,7 @@ export async function mountRunnerHost(
       ? { telemetryNotice: deps.telemetryNotice }
       : {}),
   });
+  endBootSpans();
 
   const pushChrome = (): void => {
     host.setChrome(chromeFromSession(deps.chrome()));

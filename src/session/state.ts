@@ -12,6 +12,8 @@ import { basename, dirname, join } from "node:path";
 import { type } from "arktype";
 import { getLogger } from "@intx/log";
 
+import { memoSchema } from "../schema/lazy.js";
+
 import { sessionDir } from "./index.js";
 import { clearActiveRun, getTestWriteGate, isCrashed } from "./active-run.js";
 import {
@@ -24,37 +26,45 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "session", "state"]);
 
-const ConnectedMcpServerSchema = type({
-  name: "string",
-  toolCount: "number",
-});
+function buildConnectedMcpServerSchema() {
+  return type({
+    name: "string",
+    toolCount: "number",
+  });
+}
+const connectedMcpServerSchema = memoSchema(buildConnectedMcpServerSchema);
 
-export type ConnectedMcpServer = typeof ConnectedMcpServerSchema.infer;
+export type ConnectedMcpServer = ReturnType<
+  typeof buildConnectedMcpServerSchema
+>["infer"];
 
-const RunStateSchema = type({
-  status:
-    "'running' | 'done' | 'failed' | 'cancelled' | 'crashed' | 'interrupted'",
-  turnsUsed: "number",
-  task: "string",
-  startedAt: "number",
-  "finishedAt?": "number",
-  "error?": "string",
-  // "provider:model" in use when the record was written; absent for old
-  // records or renames without prior state.
-  "model?": "string",
-  // MCP servers connected this session, with their tool counts; empty until
-  // the first server finishes connecting.
-  "mcpServers?": ConnectedMcpServerSchema.array(),
-  // Tools promoted on execute; a resume re-activates them before the first
-  // post-resume infer. Omitted by fold prune so a crash cannot restore
-  // dropped schemas.
-  "activatedTools?": "string[]",
-  // Last Anthropic-protocol infer time; a later process folds when this is
-  // TTL-old. Absent for other providers or records written before this field.
-  "lastCacheWriteAt?": "number",
-});
+function buildRunStateSchema() {
+  return type({
+    status:
+      "'running' | 'done' | 'failed' | 'cancelled' | 'crashed' | 'interrupted'",
+    turnsUsed: "number",
+    task: "string",
+    startedAt: "number",
+    "finishedAt?": "number",
+    "error?": "string",
+    // "provider:model" in use when the record was written; absent for old
+    // records or renames without prior state.
+    "model?": "string",
+    // MCP servers connected this session, with their tool counts; empty until
+    // the first server finishes connecting.
+    "mcpServers?": connectedMcpServerSchema().array(),
+    // Tools promoted on execute; a resume re-activates them before the first
+    // post-resume infer. Omitted by fold prune so a crash cannot restore
+    // dropped schemas.
+    "activatedTools?": "string[]",
+    // Last Anthropic-protocol infer time; a later process folds when this is
+    // TTL-old. Absent for other providers or records written before this field.
+    "lastCacheWriteAt?": "number",
+  });
+}
+const runStateSchema = memoSchema(buildRunStateSchema);
 
-export type RunState = typeof RunStateSchema.infer;
+export type RunState = ReturnType<typeof buildRunStateSchema>["infer"];
 
 function statePath(cwd: string, sessionId: string, home?: string): string {
   return join(sessionDir(cwd, sessionId, home), "run.json");
@@ -180,7 +190,7 @@ type ParseRunStateResult =
 
 // Tagged so a valid RunState.error string cannot look like a parse failure.
 function parseRunState(data: unknown): ParseRunStateResult {
-  const result = RunStateSchema(data);
+  const result = runStateSchema()(data);
   return result instanceof type.errors
     ? { ok: false, reason: result.summary }
     : { ok: true, state: result };

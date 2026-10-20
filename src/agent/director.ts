@@ -28,6 +28,7 @@ import { onTurnBoundary } from "./reactor-events.js";
 import { isOperatorOriginated } from "./message-provenance.js";
 import { errorMessage } from "./error-message.js";
 import { type } from "arktype";
+import { lazyCallable, memoSchema } from "../schema/lazy.js";
 import {
   composeDirectedPrompt,
   inferWithEphemeralNudge,
@@ -398,9 +399,13 @@ export const COMPACTION_FOLD_NONCONVERGED_EVENT =
   "custom.compaction.fold_nonconverged";
 export const CREDENTIAL_RECOVERY_INTERCHANGE_TYPE =
   "system.credential.refresh" as const;
-export const ChatTasksChangedDataSchema = type({
-  tasks: TaskSchema.array(),
-});
+export const ChatTasksChangedDataSchema = lazyCallable(
+  memoSchema(() =>
+    type({
+      tasks: TaskSchema.array(),
+    }),
+  ),
+);
 export const ChatToolsActivateDataSchema = type({
   names: "string[]",
 });

@@ -4,32 +4,37 @@ import { join } from "node:path";
 import { type } from "arktype";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 import { GUIDELINE_SUB_BLOCK_IDS } from "../agent/prompts.js";
+import { memoSchema } from "../schema/lazy.js";
 
-const ProfileSchema = type({
-  "profile?": "string",
-  "model?": "string",
-  "systemPromptExtensions?": "string[]",
-  // Guideline sub-block ids to drop from the chat system prompt (see
-  // GUIDELINE_SUB_BLOCK_IDS in agent/prompts.ts). Omitted = full guidelines.
-  // Unknown ids are rejected so a profile typo fails closed at load.
-  "promptSectionOmit?": type.enumerated(...GUIDELINE_SUB_BLOCK_IDS).array(),
-  // Per-call inactivity timeout in milliseconds. If the provider yields no
-  // inference event for this long, the call aborts with "Request timed out".
-  // Default in the inference harness is 120_000 (2 min); tune higher for
-  // reasoning models with long silent-thinking stretches.
-  "inactivityTimeoutMs?": "number >= 1",
-  // Per-call total wall-clock cap in milliseconds. Starts at fetch. Default
-  // in the inference harness is 600_000 (10 min). Backstop for streams that
-  // never terminate.
-  "totalTimeoutMs?": "number >= 1",
-  // Per-call cap for the compaction summary call in milliseconds. Default
-  // 90_000 — well under totalTimeoutMs because compaction runs inline on the
-  // reactor and a stuck summary call freezes the session.
-  "summarizerTimeoutMs?": "number >= 1",
-  "+": "reject",
-});
+function buildProfileSchema() {
+  return type({
+    "profile?": "string",
+    "model?": "string",
+    "systemPromptExtensions?": "string[]",
+    // Guideline sub-block ids to drop from the chat system prompt (see
+    // GUIDELINE_SUB_BLOCK_IDS in agent/prompts.ts). Omitted = full guidelines.
+    // Unknown ids are rejected so a profile typo fails closed at load.
+    "promptSectionOmit?": type.enumerated(...GUIDELINE_SUB_BLOCK_IDS).array(),
+    // Per-call inactivity timeout in milliseconds. If the provider yields no
+    // inference event for this long, the call aborts with "Request timed out".
+    // Default in the inference harness is 120_000 (2 min); tune higher for
+    // reasoning models with long silent-thinking stretches.
+    "inactivityTimeoutMs?": "number >= 1",
+    // Per-call total wall-clock cap in milliseconds. Starts at fetch. Default
+    // in the inference harness is 600_000 (10 min). Backstop for streams that
+    // never terminate.
+    "totalTimeoutMs?": "number >= 1",
+    // Per-call cap for the compaction summary call in milliseconds. Default
+    // 90_000 — well under totalTimeoutMs because compaction runs inline on the
+    // reactor and a stuck summary call freezes the session.
+    "summarizerTimeoutMs?": "number >= 1",
+    "+": "reject",
+  });
+}
 
-export type ProfileConfig = typeof ProfileSchema.infer;
+const profileSchema = memoSchema(buildProfileSchema);
+
+export type ProfileConfig = ReturnType<typeof buildProfileSchema>["infer"];
 
 export function profilesDir(home: string = homedir()): string {
   return join(home, SETTINGS_DIR_NAME, "profiles");
@@ -49,7 +54,7 @@ function isENOENT(err: unknown): boolean {
 }
 
 function validateProfileConfig(value: unknown, path: string): ProfileConfig {
-  const result = ProfileSchema(value);
+  const result = profileSchema()(value);
   if (result instanceof type.errors) {
     throw new Error(`Invalid profile at ${path}: ${result.summary}`);
   }

@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 import { type } from "arktype";
 
+import { lazyCallable, memoSchema } from "../schema/lazy.js";
+
 import { defaultAgentsPlugin as defaultPlugin } from "./default-agents.js";
 import { isDirectorId } from "./directors/registry.js";
 import { REASONING_EFFORTS } from "./profile-types.js";
@@ -16,45 +18,50 @@ export type {
 } from "./profile-types.js";
 import type { AgentProfile } from "./profile-types.js";
 
+function buildAgentProfileSchema() {
+  const CapabilityFilterSchema = type({
+    mode: "'exclude' | 'allow'",
+    tools: "string[]",
+  });
+
+  // Reasoning-effort schema derived from the canonical array. arktype's `type()`
+  // is statically typed for literal strings; a computed string requires a cast
+  // through `unknown`. The schema is exercised by src/plugins/data-only-agent
+  // and the runtime ReasoningEffort re-export, so drift is caught.
+  const reasoningEffortLiteral = REASONING_EFFORTS.map((e) => `'${e}'`).join(
+    " | ",
+  );
+  const ReasoningEffortSchema = type(
+    reasoningEffortLiteral as unknown as "'none'",
+  );
+
+  const InferenceLegSchema = type({
+    provider: "string>0",
+    model: "string>0",
+    "reasoningEffort?": ReasoningEffortSchema,
+  });
+
+  const InferenceSpecSchema = type({
+    "mode?": "'pin' | 'prefer'",
+    order: InferenceLegSchema.array(),
+  });
+
+  return type({
+    id: "string",
+    "description?": "string",
+    "inference?": InferenceSpecSchema,
+    "capabilities?": CapabilityFilterSchema,
+    "systemPromptRole?": "string",
+    "systemPromptPath?": "string",
+    "orchestrator?": "boolean",
+  });
+}
+
+const agentProfileSchema = memoSchema(buildAgentProfileSchema);
+
 // Exported so agent-kind plugins can validate contributed profiles.
-export { AgentProfileSchema };
-
-const CapabilityFilterSchema = type({
-  mode: "'exclude' | 'allow'",
-  tools: "string[]",
-});
-
-// Reasoning-effort schema derived from the canonical array. arktype's `type()`
-// is statically typed for literal strings; a computed string requires a cast
-// through `unknown`. The schema is exercised by src/plugins/data-only-agent
-// and the runtime ReasoningEffort re-export, so drift is caught.
-const reasoningEffortLiteral = REASONING_EFFORTS.map((e) => `'${e}'`).join(
-  " | ",
-);
-const ReasoningEffortSchema = type(
-  reasoningEffortLiteral as unknown as "'none'",
-);
-
-const InferenceLegSchema = type({
-  provider: "string>0",
-  model: "string>0",
-  "reasoningEffort?": ReasoningEffortSchema,
-});
-
-const InferenceSpecSchema = type({
-  "mode?": "'pin' | 'prefer'",
-  order: InferenceLegSchema.array(),
-});
-
-const AgentProfileSchema = type({
-  id: "string",
-  "description?": "string",
-  "inference?": InferenceSpecSchema,
-  "capabilities?": CapabilityFilterSchema,
-  "systemPromptRole?": "string",
-  "systemPromptPath?": "string",
-  "orchestrator?": "boolean",
-});
+export const AgentProfileSchema: ReturnType<typeof buildAgentProfileSchema> =
+  lazyCallable(agentProfileSchema);
 
 function isENOENT(err: unknown): boolean {
   return (
