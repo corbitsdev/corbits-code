@@ -93,6 +93,24 @@ test("a failed dot lstat is not reused for the symlink it collapses onto", async
   }
 });
 
+test("a dot segment does not reuse the dangling symlink lstat", async () => {
+  scratch = await mkdtemp(join(tmpdir(), "corbits-realpath-dang-dot-"));
+  const sub = join(scratch, "sub");
+  await mkdir(sub);
+  await symlink("missing-target", join(sub, "dang"));
+  const previous = process.cwd();
+  process.chdir(scratch);
+  try {
+    const target = join(process.cwd(), "sub", "missing-target");
+    expect(realpathFollowingDangling("sub/dang/.")).toBe(target);
+    expect(realpathFollowingDangling("sub/dang/./missing")).toBe(
+      join(target, "missing"),
+    );
+  } finally {
+    process.chdir(previous);
+  }
+});
+
 test("a later check of the same path lstats and realpaths again", async () => {
   scratch = await mkdtemp(join(tmpdir(), "corbits-realpath-once-"));
   const ancestorA = join(scratch, "a");

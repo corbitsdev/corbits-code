@@ -25,19 +25,22 @@ export function enterPathResolution<T>(fn: () => T): T {
   }
 }
 
-function cacheKey(path: string): string {
-  return isAbsolute(path) ? path : resolve(path);
-}
-
-// `path.resolve` drops `.` and `..`, so `sub/link/.` and `sub/link` share a key.
-// A failed lstat of the dotted path is not "absent" for the symlink it collapses
-// onto (`..` through a symlink is a different node than the lexical parent).
-function failureCollapsesOntoAnotherPath(path: string): boolean {
-  if (isAbsolute(path)) return false;
+function hasDotSegment(path: string): boolean {
   for (const segment of path.split(sep)) {
     if (segment === "." || segment === "..") return true;
   }
   return false;
+}
+
+function cacheKey(path: string): string {
+  // path.resolve drops `.` and `..`, so a successful lstat of `sub/dang` would
+  // be reused for `sub/dang/.`. That path is not the symlink: readlink of the
+  // dotted form throws, and a failed lstat of it must not be stored as absence
+  // of `sub/dang` either. Absolute paths are already uncollapsed.
+  if (!isAbsolute(path) && hasDotSegment(path)) {
+    return `${resolve(".")}${sep}${path}`;
+  }
+  return isAbsolute(path) ? path : resolve(path);
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -58,12 +61,7 @@ function readLstat(path: string): LstatMemoEntry {
   } catch (error) {
     entry = { stats: undefined, code: errorCode(error) };
   }
-  if (
-    memo !== undefined &&
-    !(entry.stats === undefined && failureCollapsesOntoAnotherPath(path))
-  ) {
-    memo.set(key, entry);
-  }
+  memo?.set(key, entry);
   return entry;
 }
 
