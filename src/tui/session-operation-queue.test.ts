@@ -437,3 +437,87 @@ test("a self-wait does not leave the queued op's rejection unhandled", async () 
     process.off("unhandledRejection", onRejection);
   }
 });
+
+test("a microtask detached from a finished op body is not a self-wait", async () => {
+  const log: string[] = [];
+  const { enqueue, awaitTail } = createSessionOperationQueue();
+  let detached: Promise<void> = Promise.resolve();
+
+  const outer = enqueue(async () => {
+    detached = (async () => {
+      await Promise.resolve();
+      await enqueue(async () => {
+        log.push("inner");
+      });
+      log.push("detached:ok");
+    })();
+    log.push("outer:end");
+  });
+
+  await outer;
+  await detached;
+  await awaitTail();
+  expect(log).toEqual(["outer:end", "inner", "detached:ok"]);
+});
+
+test("queueMicrotask after the op body returns is not a self-wait", async () => {
+  const log: string[] = [];
+  const { enqueue, awaitTail } = createSessionOperationQueue();
+  let done: Promise<void> = Promise.resolve();
+
+  const outer = enqueue(async () => {
+    done = new Promise((resolve, reject) => {
+      queueMicrotask(() => {
+        void enqueue(async () => {
+          log.push("inner");
+        }).then(resolve, reject);
+      });
+    });
+    log.push("outer:end");
+  });
+
+  await outer;
+  await done;
+  await awaitTail();
+  expect(log).toEqual(["outer:end", "inner"]);
+});
+
+test("an outside waiter is not rejected while the enqueuing op is blocked", async () => {
+  const log: string[] = [];
+  const { enqueue, awaitTail } = createSessionOperationQueue();
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let inner: Promise<void> | undefined;
+
+  const outer = enqueue(async () => {
+    inner = enqueue(async () => {
+      log.push("inner");
+    });
+    await gate;
+    log.push("outer:end");
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+  if (inner === undefined) throw new Error("inner missing");
+  let observed = "pending";
+  const waiting = inner.then(
+    () => {
+      observed = "resolved";
+    },
+    (err: unknown) => {
+      observed =
+        err instanceof SessionOperationSelfWaitError ? "self-wait" : "error";
+    },
+  );
+  await Promise.resolve();
+  expect(observed).toBe("pending");
+  release();
+  await outer;
+  await waiting;
+  await awaitTail();
+  expect(observed).toBe("resolved");
+  expect(log).toEqual(["outer:end", "inner"]);
+});

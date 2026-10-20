@@ -461,11 +461,26 @@ export function createSessionOperationQueue(): SessionOperationQueue {
   // the await.
   let nextId = 0;
   let activeId = 0;
+  // Body promise of the op in `activeId`. Unset during that op's first
+  // synchronous turn, before `run` returns.
+  let activeResult: Promise<void> | undefined;
 
   // True only when this continuation is the op that is running right now.
   // A detached continuation still carries its parent's id; that must not
   // match a later op's activeId.
   const inThisOp = (): boolean => runningSessionOp.getStore() === activeId;
+
+  // The body promise can be fulfilled while `activeId` is still set: `finally`
+  // clears the id on a later microtask. A continuation in that gap is not the
+  // op waiting on itself.
+  const bodyStillRunning = (): boolean => {
+    if (activeResult === undefined) return true;
+    try {
+      return Bun.peek(activeResult) === activeResult;
+    } catch {
+      return false;
+    }
+  };
 
   const execute = (op: () => Promise<void>): Promise<void> => {
     const id = ++nextId;
@@ -474,11 +489,18 @@ export function createSessionOperationQueue(): SessionOperationQueue {
     try {
       result = runningSessionOp.run(id, op);
     } catch (err) {
-      if (activeId === id) activeId = 0;
+      if (activeId === id) {
+        activeId = 0;
+        activeResult = undefined;
+      }
       throw err;
     }
+    activeResult = result;
     return Promise.resolve(result).finally(() => {
-      if (activeId === id) activeId = 0;
+      if (activeId === id) {
+        activeId = 0;
+        activeResult = undefined;
+      }
     });
   };
 
@@ -493,7 +515,10 @@ export function createSessionOperationQueue(): SessionOperationQueue {
     tail = scheduled;
     if (!inThisOp()) return scheduled;
     const enqueuedDuring = activeId;
-    return observeUnlessSelfWait(scheduled, () => activeId === enqueuedDuring);
+    return observeUnlessSelfWait(
+      scheduled,
+      () => inThisOp() && activeId === enqueuedDuring && bodyStillRunning(),
+    );
   };
 
   const awaitTail = (): Promise<void> => {
@@ -503,7 +528,10 @@ export function createSessionOperationQueue(): SessionOperationQueue {
     // deadlocks the same way as awaiting enqueue.
     if (!inThisOp()) return drained;
     const awaitedDuring = activeId;
-    return observeUnlessSelfWait(drained, () => activeId === awaitedDuring);
+    return observeUnlessSelfWait(
+      drained,
+      () => inThisOp() && activeId === awaitedDuring && bodyStillRunning(),
+    );
   };
 
   return { enqueue, awaitTail };
