@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { configureSync } from "@intx/log";
 
@@ -93,6 +93,45 @@ function adoptActive(current: FileSinkState): void {
   }
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function leftoverTarget(current: FileSinkState): string | null {
+  if (!fs.existsSync(current.path)) return current.path;
+  const rotated = `${current.path}.1`;
+  if (!fs.existsSync(rotated)) return rotated;
+  return null;
+}
+
+/**
+ * A crash in the old rotate window leaves the only copy as
+ * `corbits.log.<pid>.<n>.rotating`, with the active name and `.1` gone.
+ * Put that file back under the lock before this flush decides to rotate.
+ */
+function adoptLeftoverRotation(current: FileSinkState): void {
+  let names: string[];
+  try {
+    names = fs.readdirSync(dirname(current.path));
+  } catch {
+    return;
+  }
+  const base = basename(current.path);
+  const pattern = new RegExp(
+    `^${escapeRegExp(base)}\\.\\d+\\.\\d+\\.rotating$`,
+  );
+  const leftovers = names.filter((name) => pattern.test(name)).sort();
+  for (const name of leftovers) {
+    const target = leftoverTarget(current);
+    if (target === null) return;
+    try {
+      fs.renameSync(join(dirname(current.path), name), target);
+    } catch {
+      // Leave the leftover. Never delete the only copy.
+    }
+  }
+}
+
 let rotateCounter = 0;
 
 function restoreRotated(temp: string, active: string): void {
@@ -108,23 +147,47 @@ function restoreRotated(temp: string, active: string): void {
 }
 
 function rotateActive(current: FileSinkState): boolean {
-  // Rename aside first. Windows throws EPERM when the destination exists, so
-  // publishing onto `.1` directly stops rotation forever once a generation is
-  // there. Remove `.1` only after the bytes have left the active name, then
-  // publish the temp. A failure must not truncate the only copy.
+  // Windows throws EPERM when the destination exists, so never rename onto
+  // `.1`. Move `.1` aside, publish the temp onto that name, then delete the
+  // aside. A kill after the aside rename still leaves both copies on disk.
+  // A thrown error puts the temp back and does not truncate the active file.
   const temp = `${current.path}.${String(process.pid)}.${String((rotateCounter += 1))}.rotating`;
+  const rotated = `${current.path}.1`;
+  const aside = `${temp}.aside`;
   try {
     fs.renameSync(current.path, temp);
   } catch {
     return false;
   }
-  const rotated = `${current.path}.1`;
+  let movedAside = false;
   try {
-    fs.rmSync(rotated, { force: true });
+    if (fs.existsSync(rotated)) {
+      const info = fs.lstatSync(rotated);
+      if (!info.isFile()) {
+        restoreRotated(temp, current.path);
+        return false;
+      }
+      fs.renameSync(rotated, aside);
+      movedAside = true;
+    }
     fs.renameSync(temp, rotated);
   } catch {
+    if (movedAside && !fs.existsSync(rotated)) {
+      try {
+        fs.renameSync(aside, rotated);
+      } catch {
+        // The previous generation stays in the aside file.
+      }
+    }
     restoreRotated(temp, current.path);
     return false;
+  }
+  if (movedAside) {
+    try {
+      fs.rmSync(aside);
+    } catch {
+      // The published `.1` is the copy that matters. Leave the aside.
+    }
   }
   current.size = 0;
   current.dev = 0;
@@ -200,25 +263,21 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function readLockClaim(lockPath: string): string | null {
+function readLockClaim(
+  lockPath: string,
+):
+  | { readonly status: "ok"; readonly claim: string }
+  | { readonly status: "missing" }
+  | { readonly status: "error" } {
   try {
-    return fs.readFileSync(lockPath, "utf8");
-  } catch {
-    return null;
+    return { status: "ok", claim: fs.readFileSync(lockPath, "utf8") };
+  } catch (err) {
+    if (isErrno(err, "ENOENT")) return { status: "missing" };
+    return { status: "error" };
   }
 }
 
-function holderDead(lockPath: string): boolean {
-  const claim = readLockClaim(lockPath);
-  if (claim === null) return true;
-  const pid = Number(claim.split(":")[0]?.trim());
-  if (!Number.isInteger(pid) || pid <= 0) {
-    try {
-      return Date.now() - fs.statSync(lockPath).mtimeMs > LOCK_WAIT_MS;
-    } catch (err) {
-      return isErrno(err, "ENOENT");
-    }
-  }
+function isDeadPid(pid: number): boolean {
   // This process does not hold the lock unless a flush is on the stack.
   // The same pid then means a previous crash left the file behind.
   if (pid === process.pid) return sinkLockDepth === 0;
@@ -227,6 +286,53 @@ function holderDead(lockPath: string): boolean {
     return false;
   } catch (err) {
     return isErrno(err, "ESRCH") || isErrno(err, "EINVAL");
+  }
+}
+
+function isDeadClaim(lockPath: string, claim: string): boolean {
+  const pid = Number(claim.split(":")[0]?.trim());
+  if (!Number.isInteger(pid) || pid <= 0) {
+    try {
+      return Date.now() - fs.statSync(lockPath).mtimeMs > LOCK_WAIT_MS;
+    } catch {
+      return false;
+    }
+  }
+  return isDeadPid(pid);
+}
+
+function reclaimDeadLock(lockPath: string, deadClaim: string): void {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(lockPath, "r");
+    const buf = Buffer.alloc(256);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    if (buf.toString("utf8", 0, n) !== deadClaim) return;
+    const fdStat = fs.fstatSync(fd);
+    const pathStat = fs.statSync(lockPath);
+    if (pathStat.dev !== fdStat.dev || pathStat.ino !== fdStat.ino) return;
+    const grave = `${lockPath}.${String(process.pid)}.${String(lockClaimCounter)}.reclaim`;
+    fs.renameSync(lockPath, grave);
+    const graveStat = fs.statSync(grave);
+    if (graveStat.dev !== fdStat.dev || graveStat.ino !== fdStat.ino) {
+      try {
+        if (!fs.existsSync(lockPath)) fs.renameSync(grave, lockPath);
+      } catch {
+        // Do not delete the winner's lock.
+      }
+      return;
+    }
+    fs.unlinkSync(grave);
+  } catch {
+    // Lost the race. Do not unlink the lock by name.
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // Already closed.
+      }
+    }
   }
 }
 
@@ -242,12 +348,10 @@ function acquireSinkLock(
       return { fd, claim };
     } catch (err) {
       if (!isErrno(err, "EEXIST")) return null;
-      if (holderDead(lockPath)) {
-        try {
-          if (readLockClaim(lockPath) !== null) fs.unlinkSync(lockPath);
-        } catch {
-          // The holder released it between the check and the unlink.
-        }
+      const read = readLockClaim(lockPath);
+      if (read.status === "missing") continue;
+      if (read.status === "ok" && isDeadClaim(lockPath, read.claim)) {
+        reclaimDeadLock(lockPath, read.claim);
         continue;
       }
       if (Date.now() >= deadline) return null;
@@ -261,7 +365,10 @@ function releaseSinkLock(
   held: { fd: number; claim: string },
 ): void {
   try {
-    if (readLockClaim(lockPath) === held.claim) fs.unlinkSync(lockPath);
+    const read = readLockClaim(lockPath);
+    if (read.status === "ok" && read.claim === held.claim) {
+      fs.unlinkSync(lockPath);
+    }
   } catch {
     // Already gone.
   }
@@ -272,18 +379,20 @@ function releaseSinkLock(
   }
 }
 
-function withSinkLock(lockPath: string, body: () => void): void {
+function withSinkLock(lockPath: string, body: () => void): boolean {
   if (sinkLockDepth > 0) {
     body();
-    return;
+    return true;
   }
   const held = acquireSinkLock(lockPath);
+  if (held === null) return false;
   sinkLockDepth += 1;
   try {
     body();
+    return true;
   } finally {
     sinkLockDepth -= 1;
-    if (held !== null) releaseSinkLock(lockPath, held);
+    releaseSinkLock(lockPath, held);
   }
 }
 
@@ -301,10 +410,12 @@ export function flushFileLogSinkSync(): void {
   if (current.buffer.length === 0) return;
   const lines = current.buffer;
   current.buffer = [];
-  withSinkLock(`${current.path}.lock`, () => {
+  const locked = withSinkLock(`${current.path}.lock`, () => {
+    adoptLeftoverRotation(current);
     adoptActive(current);
     writeLines(current, lines);
   });
+  if (!locked) current.buffer = [...lines, ...current.buffer];
 }
 
 function enqueue(record: LogRecord): void {

@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,14 @@ import {
 function tempLogFile(): { dir: string; file: string } {
   const dir = fs.mkdtempSync(join(tmpdir(), "corbits-sink-test-"));
   return { dir, file: join(dir, "corbits.log") };
+}
+
+function liveLockHolder(): ChildProcess {
+  const holder = spawn("sleep", ["30"], { stdio: "ignore" });
+  if (holder.pid === undefined) {
+    throw new Error("lock holder did not start");
+  }
+  return holder;
 }
 
 describe("corbitsLogFilePath", () => {
@@ -222,6 +231,129 @@ describe("installFileLogSink", () => {
       expect(fs.readFileSync(file, "utf8").length).toBeGreaterThan(0);
     } finally {
       rename.mockRestore();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a crash after .1 is removed restores the rotating temp on the next flush", () => {
+    const { dir, file } = tempLogFile();
+    try {
+      const temp = `${file}.${process.pid}.7.rotating`;
+      const marker = "crashed-rotation-bytes\n";
+      fs.writeFileSync(temp, marker);
+      installFileLogSink(file, { maxBytes: 10_000 });
+      getLogger(["logging", "recover"]).info("after-crash");
+      flushFileLogSinkSync();
+      const active = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+      const rotated = fs.existsSync(`${file}.1`)
+        ? fs.readFileSync(`${file}.1`, "utf8")
+        : "";
+      expect(`${active}${rotated}`).toContain("crashed-rotation-bytes");
+      expect(fs.existsSync(temp)).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a second reclaimer does not delete the lock a winner just created", () => {
+    const { dir, file } = tempLogFile();
+    const holder = liveLockHolder();
+    const lockPath = `${file}.lock`;
+    const realRead = fs.readFileSync.bind(fs);
+    let lied = false;
+    try {
+      installFileLogSink(file, { maxBytes: 300 });
+      const first = getLogger(["logging", "reclaim-a"]);
+      first.info("first-marker");
+      first.info("first-marker-b");
+      first.info("short-active");
+      flushFileLogSinkSync();
+      const rotated = `${file}.1`;
+      const marker = fs.readFileSync(rotated, "utf8");
+      fs.writeFileSync(lockPath, "999999:dead");
+      const hooked = spyOn(fs, "readFileSync").mockImplementation(((
+        path: fs.PathOrFileDescriptor,
+      ) => {
+        if (String(path) === lockPath && !lied) {
+          lied = true;
+          fs.writeFileSync(lockPath, `${holder.pid}:winner`);
+          return "999999:dead";
+        }
+        return realRead(path, "utf8");
+      }) as unknown as typeof fs.readFileSync);
+      try {
+        getLogger(["logging", "reclaim-b"]).info(`b-wide-${"x".repeat(80)}`);
+        flushFileLogSinkSync();
+        expect(fs.readFileSync(rotated, "utf8")).toBe(marker);
+        expect(fs.readFileSync(lockPath, "utf8")).toContain("winner");
+      } finally {
+        hooked.mockRestore();
+      }
+    } finally {
+      holder.kill();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a flush that cannot acquire the lock does not rotate", () => {
+    const { dir, file } = tempLogFile();
+    const holder = liveLockHolder();
+    try {
+      installFileLogSink(file, { maxBytes: 300 });
+      const first = getLogger(["logging", "lock-a"]);
+      first.info("first-marker");
+      first.info("first-marker-b");
+      first.info("short-active");
+      flushFileLogSinkSync();
+      const rotated = `${file}.1`;
+      const marker = fs.readFileSync(rotated, "utf8");
+      const activeBefore = fs.readFileSync(file, "utf8");
+      fs.writeFileSync(`${file}.lock`, `${holder.pid}:held`);
+      getLogger(["logging", "lock-b"]).info(`b-wide-${"x".repeat(80)}`);
+      flushFileLogSinkSync();
+      expect(fs.readFileSync(rotated, "utf8")).toBe(marker);
+      expect(fs.readFileSync(file, "utf8")).toBe(activeBefore);
+    } finally {
+      holder.kill();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a lock that cannot be read is not stolen", () => {
+    const { dir, file } = tempLogFile();
+    const holder = liveLockHolder();
+    const lockPath = `${file}.lock`;
+    const realRead = fs.readFileSync.bind(fs);
+    try {
+      installFileLogSink(file, { maxBytes: 300 });
+      const first = getLogger(["logging", "lock-read-a"]);
+      first.info("first-marker");
+      first.info("first-marker-b");
+      first.info("short-active");
+      flushFileLogSinkSync();
+      const rotated = `${file}.1`;
+      const marker = fs.readFileSync(rotated, "utf8");
+      const activeBefore = fs.readFileSync(file, "utf8");
+      fs.writeFileSync(lockPath, `${holder.pid}:held`);
+      const hooked = spyOn(fs, "readFileSync").mockImplementation(((
+        path: fs.PathOrFileDescriptor,
+      ) => {
+        if (String(path) === lockPath) {
+          throw Object.assign(new Error("EIO"), { code: "EIO" });
+        }
+        return realRead(path, "utf8");
+      }) as unknown as typeof fs.readFileSync);
+      try {
+        getLogger(["logging", "lock-read-b"]).info(`b-wide-${"x".repeat(80)}`);
+        flushFileLogSinkSync();
+      } finally {
+        hooked.mockRestore();
+      }
+      expect(fs.readFileSync(rotated, "utf8")).toBe(marker);
+      expect(fs.readFileSync(file, "utf8")).toBe(activeBefore);
+      expect(fs.readFileSync(lockPath, "utf8")).toContain("held");
+    } finally {
+      holder.kill();
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
