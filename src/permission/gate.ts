@@ -514,6 +514,15 @@ function coercePolicyCall(rawCall: ToolCall): ToolCall {
   return prepareDispatchedToolCall(named, named.name);
 }
 
+// The authorizer sees a copy. Mutating that copy must not change the call
+// policy already checked or the call the tool executes.
+function isolatedAuthorizeCall(call: ToolCall): ToolCall {
+  return {
+    ...call,
+    arguments: structuredClone(call.arguments),
+  };
+}
+
 function callForIdentity(rawCall: ToolCall): ToolCall {
   try {
     return coercePolicyCall(rawCall);
@@ -997,11 +1006,11 @@ export function createPermissionGate(
     const normal = await decideNormally(rawCall);
     if (normal.kind === "deny") return normal;
     try {
-      const call = coercePolicyCall(rawCall);
+      const policyCall = coercePolicyCall(rawCall);
       const rawResult: unknown = await options.pluginAuthorize?.(
-        `tool:${call.name}`,
+        `tool:${policyCall.name}`,
         "invoke",
-        call,
+        isolatedAuthorizeCall(policyCall),
       );
       const validated = validatePluginAuthorizeResult(rawResult);
       if (!validated.ok) {
@@ -1027,7 +1036,7 @@ export function createPermissionGate(
         };
       }
       if (normal.kind === "ask" || result.effect === "allow") return normal;
-      return pluginAskDecision(call);
+      return pluginAskDecision(policyCall);
     } catch (err) {
       logger.warn`plugin authorization failed: ${scrubSecrets(safePluginDiagnostic(err))}`;
       return { kind: "deny", reason: "Plugin authorization failed closed." };
