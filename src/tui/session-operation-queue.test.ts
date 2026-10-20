@@ -521,3 +521,44 @@ test("an outside waiter is not rejected while the enqueuing op is blocked", asyn
   expect(observed).toBe("resolved");
   expect(log).toEqual(["outer:end", "inner"]);
 });
+
+async function settleOrTimeout(promise: Promise<unknown>): Promise<string> {
+  return Promise.race([
+    promise.then(
+      () => "resolved",
+      (err: unknown) =>
+        err instanceof SessionOperationSelfWaitError ? "self-wait" : "error",
+    ),
+    new Promise<string>((resolve) => setTimeout(() => resolve("timeout"), 200)),
+  ]);
+}
+
+test("a non-async callback that returns enqueue rejects and the queue drains", async () => {
+  const log: string[] = [];
+  const { enqueue, awaitTail } = createSessionOperationQueue();
+
+  const outer = enqueue(() => {
+    log.push("outer");
+    return enqueue(async () => {
+      log.push("inner");
+    });
+  });
+
+  expect(await settleOrTimeout(outer)).toBe("self-wait");
+  expect(await settleOrTimeout(awaitTail())).toBe("resolved");
+  expect(log).toEqual(["outer", "inner"]);
+});
+
+test("a non-async callback that returns awaitTail rejects and the queue drains", async () => {
+  const log: string[] = [];
+  const { enqueue, awaitTail } = createSessionOperationQueue();
+
+  const outer = enqueue(() => {
+    log.push("outer");
+    return awaitTail();
+  });
+
+  expect(await settleOrTimeout(outer)).toBe("self-wait");
+  expect(await settleOrTimeout(awaitTail())).toBe("resolved");
+  expect(log).toEqual(["outer"]);
+});

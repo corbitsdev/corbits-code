@@ -504,6 +504,12 @@ export function createSessionOperationQueue(): SessionOperationQueue {
     });
   };
 
+  // `observed === activeResult` is the adoption of a thenable returned from
+  // the op. That `.then` runs after AsyncLocalStorage.run returns.
+  const isSelfWait = (during: number, observed: object): boolean =>
+    activeId === during &&
+    (observed === activeResult || (inThisOp() && bodyStillRunning()));
+
   const enqueue = (op: () => Promise<void>): Promise<void> => {
     // `tail.then(op, op)` — a failed op must not wedge the chain. The
     // returned promise is not that tail: a self-wait rejection has to
@@ -515,9 +521,8 @@ export function createSessionOperationQueue(): SessionOperationQueue {
     tail = scheduled;
     if (!inThisOp()) return scheduled;
     const enqueuedDuring = activeId;
-    return observeUnlessSelfWait(
-      scheduled,
-      () => inThisOp() && activeId === enqueuedDuring && bodyStillRunning(),
+    return observeUnlessSelfWait(scheduled, (observed) =>
+      isSelfWait(enqueuedDuring, observed),
     );
   };
 
@@ -528,9 +533,8 @@ export function createSessionOperationQueue(): SessionOperationQueue {
     // deadlocks the same way as awaiting enqueue.
     if (!inThisOp()) return drained;
     const awaitedDuring = activeId;
-    return observeUnlessSelfWait(
-      drained,
-      () => inThisOp() && activeId === awaitedDuring && bodyStillRunning(),
+    return observeUnlessSelfWait(drained, (observed) =>
+      isSelfWait(awaitedDuring, observed),
     );
   };
 
@@ -545,7 +549,7 @@ export function createSessionOperationQueue(): SessionOperationQueue {
  */
 function observeUnlessSelfWait(
   forward: Promise<void>,
-  stillRunning: () => boolean,
+  stillRunning: (observed: object) => boolean,
 ): Promise<void> {
   let reported: SessionOperationSelfWaitError | undefined;
   let guarded = false;
@@ -583,7 +587,7 @@ function observeUnlessSelfWait(
     ): Promise<undefined>;
   } = {
     then(onFulfilled, onRejected) {
-      if (stillRunning()) {
+      if (stillRunning(thenable)) {
         guardUnobserved();
         return reject().then(onFulfilled, onRejected);
       }
