@@ -9,6 +9,7 @@ import {
   resetPricingMetadataRefreshForTests,
   schedulePricingMetadataRefresh,
   seedPricingMetadataFromCache,
+  pricingCacheReadCountForTests,
 } from "./cost/pricing-metadata.js";
 import { modelReasoningCapability } from "./provider/reasoning-effort.js";
 import { contextWindowFor } from "./provider/context-window.js";
@@ -61,6 +62,33 @@ describe("pricing-metadata", () => {
       await seedPricingMetadataFromCache({ cachePath });
       expect(modelReasoningCapability("m")).toBe(false);
       expect(contextWindowFor("m")).toBe(32_000);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a second seed reuses the in-process cache instead of reading again", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-pricing-once-"));
+    try {
+      const cachePath = join(dir, "cache.json");
+      await writePricingCache(
+        {
+          timestamp: 3,
+          models: {
+            m: {
+              inputPricePerToken: 1,
+              outputPricePerToken: 2,
+              cacheReadPricePerToken: 0,
+            },
+          },
+        },
+        cachePath,
+      );
+      resetPricingMetadataRefreshForTests();
+      await seedPricingMetadataFromCache({ cachePath });
+      await seedPricingMetadataFromCache({ cachePath });
+      expect(pricingCacheReadCountForTests()).toBe(1);
+      expect(getActivePricingCache()?.timestamp).toBe(3);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -986,7 +986,22 @@ function recoverClobberedOAuthSelection(
   };
 }
 
+let settingsDocumentReads = 0;
+let bootGlobalSettings: { path: string; settings: Settings | null } | undefined;
+
+/** How many times settings JSON has been read from disk. */
+export function settingsDocumentReadCountForTests(): number {
+  return settingsDocumentReads;
+}
+
+/** Test-only: clear the boot settings snapshot and the read counter. */
+export function resetSettingsDocumentReadCountForTests(): void {
+  settingsDocumentReads = 0;
+  bootGlobalSettings = undefined;
+}
+
 async function loadSettingsJSON(path: string): Promise<unknown | null> {
+  settingsDocumentReads += 1;
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
@@ -999,6 +1014,37 @@ async function loadSettingsJSON(path: string): Promise<unknown | null> {
   } catch {
     throw new Error(`Invalid JSON in settings file: ${path}`);
   }
+}
+
+/** Read a settings file once so boot can overlap the disk read with other I/O. */
+export async function readSettingsDocument(
+  path: string,
+): Promise<unknown | null> {
+  return loadSettingsJSON(path);
+}
+
+/**
+ * Remember the on-disk settings document loadConfig just resolved so startup
+ * telemetry does not read settings.json again. The value is the persisted
+ * document, not the OAuth overlay.
+ */
+export function rememberBootGlobalSettings(
+  path: string,
+  settings: Settings | null,
+): void {
+  bootGlobalSettings = {
+    path,
+    settings: settings === null ? null : structuredClone(settings),
+  };
+}
+
+function takeBootGlobalSettings(path: string): Settings | null | undefined {
+  if (bootGlobalSettings === undefined || bootGlobalSettings.path !== path) {
+    return undefined;
+  }
+  const settings = bootGlobalSettings.settings;
+  bootGlobalSettings = undefined;
+  return settings;
 }
 
 function settingsSchemaError(path: string): Error {
@@ -1160,10 +1206,13 @@ export async function loadSettings(path: string): Promise<Settings | null> {
 export async function loadSettingsRecoveringClobberedOAuthSelection(
   path: string,
   recoverableOAuthProviders: Record<string, ProviderSettings>,
-  options: { persist: boolean },
+  options: { persist: boolean; parsedDocument?: { value: unknown | null } },
 ): Promise<Settings | null> {
-  const parsed = await loadSettingsJSON(path);
-  if (parsed === null) return null;
+  const parsed =
+    options.parsedDocument !== undefined
+      ? options.parsedDocument.value
+      : await loadSettingsJSON(path);
+  if (parsed === null || parsed === undefined) return null;
   if (isClobberedLocalSelection(parsed)) {
     const recovered = recoverClobberedOAuthSelection(
       parsed,
@@ -1466,9 +1515,18 @@ export async function markLastChangelogVersion(
 }
 
 // Ensure a persisted telemetry installationId exists, generating one on first
-// use. Reads on-disk settings fresh (same rationale as markOnboarded).
-export async function ensureTelemetrySettings(path: string): Promise<Settings> {
-  const onDisk = await loadSettings(path);
+// use. Callers that already loaded this path at boot pass reuseBootSnapshot so
+// the file is not read again. The snapshot is the persisted document, never the
+// OAuth overlay. Other callers still read disk (same rationale as markOnboarded).
+export async function ensureTelemetrySettings(
+  path: string,
+  options?: { reuseBootSnapshot?: boolean },
+): Promise<Settings> {
+  const cached =
+    options?.reuseBootSnapshot === true
+      ? takeBootGlobalSettings(path)
+      : undefined;
+  const onDisk = cached !== undefined ? cached : await loadSettings(path);
   const base: Settings = onDisk ?? { providers: {} };
   // Read-then-write, not read-then-lock: concurrent first launches could each
   // generate a different installationId and the second save wins. Accepted —

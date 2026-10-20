@@ -24,7 +24,10 @@ import {
   setProviderContextWindowOverrides,
   setReservedCompletionTokens,
 } from "../provider/context-window.js";
-import { bootstrapPricingMetadata } from "../cost/pricing-metadata.js";
+import {
+  bootstrapPricingMetadata,
+  startPricingCacheRead,
+} from "../cost/pricing-metadata.js";
 import {
   defaultPricingCachePath,
   type PricingFetcherOptions,
@@ -89,6 +92,8 @@ import {
   loadLocalSettingsResult,
   type SettingsLoadDiagnostic,
   loadSettingsRecoveringClobberedOAuthSelection,
+  readSettingsDocument,
+  rememberBootGlobalSettings,
   resolveLocalSettingsPath,
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
@@ -1075,21 +1080,6 @@ export async function loadConfig(
     positional.push(arg);
   }
 
-  if (permissionsPath !== undefined) {
-    try {
-      await loadPermissionsFile(permissionsPath);
-    } catch (err) {
-      throw new CliUserError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  const pricingCachePath = defaultPricingCachePath();
-
-  await bootstrapPricingMetadata({
-    cachePath: pricingCachePath,
-    ...options.pricing,
-  });
-
   // Resolve both settings targets from the same active source. The local schema
   // must never be read from or written to the active global-schema target.
   const effectiveSettingsPath =
@@ -1106,22 +1096,74 @@ export async function loadConfig(
   // unauthenticated. Only the programmatic `globalSettingsPath` test override
   // (never a CLI flag) opts out — tests want no home-directory reads.
   const useOAuthProfiles = options.globalSettingsPath === undefined;
-  const [codexProfiles, xaiProfiles]: [CodexProfile[], XaiProfile[]] =
+
+  // These files do not decide precedence for each other. Overlap the reads,
+  // then apply results in the previous order: permissions error, pricing
+  // install, OAuth error, settings warnings, local settings, profile.
+  const permissionsTask: Promise<void> =
+    permissionsPath !== undefined
+      ? loadPermissionsFile(permissionsPath).then(
+          () => undefined,
+          (err: unknown) => {
+            throw new CliUserError(
+              err instanceof Error ? err.message : String(err),
+            );
+          },
+        )
+      : Promise.resolve();
+  const pricingOptions: PricingFetcherOptions = {
+    cachePath: defaultPricingCachePath(),
+    ...options.pricing,
+  };
+  startPricingCacheRead(pricingOptions.cachePath);
+  const oauthTask: Promise<readonly [CodexProfile[], XaiProfile[]]> =
     useOAuthProfiles
-      ? await Promise.all([listCodexProfiles(), listXaiProfiles()])
-      : [[], []];
+      ? Promise.all([listCodexProfiles(), listXaiProfiles()])
+      : Promise.resolve([[], []]);
+  const settingsPath = configPath ?? effectiveSettingsPath;
+  const settingsDocumentTask = readSettingsDocument(settingsPath);
+  const localTask =
+    localSettingsFile === null
+      ? Promise.resolve({
+          settings: null,
+          diagnostics: [] as SettingsLoadDiagnostic[],
+        })
+      : loadLocalSettingsResult(localSettingsFile);
+  const profileTask = resolveProfile(cwd, profileFlag);
+
+  const [
+    permissionsResult,
+    oauthResult,
+    settingsDocumentResult,
+    localResultSettled,
+    profileResult,
+  ] = await Promise.allSettled([
+    permissionsTask,
+    oauthTask,
+    settingsDocumentTask,
+    localTask,
+    profileTask,
+  ]);
+
+  if (permissionsResult.status === "rejected") throw permissionsResult.reason;
+  await bootstrapPricingMetadata(pricingOptions);
+  if (oauthResult.status === "rejected") throw oauthResult.reason;
+  if (settingsDocumentResult.status === "rejected") {
+    throw settingsDocumentResult.reason;
+  }
+
+  const [codexProfiles, xaiProfiles] = oauthResult.value;
   let projectedOAuthProviders = {
     ...codexProvidersAsSettings(codexProfiles),
     ...xaiProvidersAsSettings(xaiProfiles),
   };
+  const parsedDocument = { value: settingsDocumentResult.value };
   const settings =
     configPath !== undefined
       ? await loadSettingsRecoveringClobberedOAuthSelection(
           configPath,
           projectedOAuthProviders,
-          {
-            persist: false,
-          },
+          { persist: false, parsedDocument },
         ).then((s) => {
           if (s === null)
             throw new Error(`--config file not found or empty: ${configPath}`);
@@ -1130,8 +1172,15 @@ export async function loadConfig(
       : await loadSettingsRecoveringClobberedOAuthSelection(
           effectiveSettingsPath,
           projectedOAuthProviders,
-          { persist: true },
+          { persist: true, parsedDocument },
         );
+  // --config does not load the global file, so do not reuse that document for
+  // the later global telemetry read. Do not overlap that read with the heal
+  // write above: both target settings.json and the later read must see the
+  // persisted document, which is what this snapshot is.
+  if (configPath === undefined) {
+    rememberBootGlobalSettings(effectiveSettingsPath, settings);
+  }
 
   // True when the value came from settings, not this invocation's
   // --dangerously-skip-permissions flag (Config.skipPermissionsFromSettings).
@@ -1156,14 +1205,12 @@ export async function loadConfig(
   // supplies provider definitions, .corbits/settings.json supplies the
   // provider/model selection; CLI --provider/--model override both. Fail open
   // on unknown/invalid local keys — never crash startup.
-  const localResult =
-    localSettingsFile === null
-      ? { settings: null, diagnostics: [] }
-      : await loadLocalSettingsResult(localSettingsFile);
+  if (localResultSettled.status === "rejected") throw localResultSettled.reason;
+  if (profileResult.status === "rejected") throw profileResult.reason;
+  const localResult = localResultSettled.value;
   const local = localResult.settings;
   const settingsDiagnostics = localResult.diagnostics;
-
-  const profile = await resolveProfile(cwd, profileFlag);
+  const profile = profileResult.value;
 
   // Apply profile as a fallback layer: profile.model fills in when neither CLI
   // nor local settings specify a model. This sits below local in precedence.

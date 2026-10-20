@@ -214,6 +214,22 @@ async function readPluginMetadataOnly(
 // plugin-shaped (the manifest may be an inline export).
 const PLUGIN_JS_ENTRY_CANDIDATES = ["src/index.ts", "index.ts", "index.js"];
 
+/** First existing JS entry in candidate order. Stats overlap; the list order wins. */
+async function firstExistingJsEntry(dir: string): Promise<string | undefined> {
+  const found = await Promise.all(
+    PLUGIN_JS_ENTRY_CANDIDATES.map(async (candidate) => {
+      const candidatePath = join(dir, candidate);
+      try {
+        await stat(candidatePath);
+        return candidatePath;
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+  return found.find((candidatePath) => candidatePath !== undefined);
+}
+
 /**
  * No-import probe for add-by-path: reports whether `entryPath` is loadable
  * without executing plugin code, returning a metadata-only stub when
@@ -282,19 +298,14 @@ export async function loadPluginEntryMetadata(
     };
   }
   // JS entry: manifest may be an inline export, knowable only by importing
-  // after the trust grant.
-  for (const candidate of PLUGIN_JS_ENTRY_CANDIDATES) {
-    try {
-      await stat(join(abs, candidate));
-      return {
-        dir: abs,
-        origin: opts.origin,
-        pluginPath: abs,
-        metadataOnly: true,
-      };
-    } catch {
-      // Candidate missing; try the next index filename.
-    }
+  // after the trust grant. Candidate order is the winner, not stat completion.
+  if ((await firstExistingJsEntry(abs)) !== undefined) {
+    return {
+      dir: abs,
+      origin: opts.origin,
+      pluginPath: abs,
+      metadataOnly: true,
+    };
   }
   return null;
 }
@@ -336,16 +347,8 @@ export async function loadPluginEntry(
     const info = await stat(entryPath);
     if (info.isDirectory()) {
       pluginDir = entryPath;
-      for (const candidate of PLUGIN_JS_ENTRY_CANDIDATES) {
-        const candidatePath = join(entryPath, candidate);
-        try {
-          await stat(candidatePath);
-          target = candidatePath;
-          break;
-        } catch {
-          // Candidate missing; try the next index filename.
-        }
-      }
+      const jsEntry = await firstExistingJsEntry(entryPath);
+      if (jsEntry !== undefined) target = jsEntry;
       // No JS entry — fall back to a data-only plugin (markdown agents/commands).
       if (target === entryPath) {
         // Pass diagnostics so loadDataOnlyPlugin prefers the collector over
@@ -589,31 +592,51 @@ export async function expandPluginPath(
       const containRoot = resolve(
         opts.containRoot ?? defaultContainRoot(marketplaceRoot),
       );
+      const judged = await Promise.all(
+        (parsed as { plugins: unknown[] }).plugins.map(
+          async (
+            p,
+          ): Promise<
+            | { skip: ExpandPluginPathSkip }
+            | { candidate: { source: string; resolved: string } }
+          > => {
+            if (typeof p !== "object" || p === null) {
+              return { skip: { source: "", reason: "invalid-entry" } };
+            }
+            const src = (p as { source?: unknown }).source;
+            if (typeof src !== "string" || src.length === 0) {
+              return {
+                skip: {
+                  source: typeof src === "string" ? src : "",
+                  reason: "invalid-entry",
+                },
+              };
+            }
+            // Absolute `source` would jump any relative contain check.
+            if (isAbsolute(src)) {
+              return { skip: { source: src, reason: "absolute" } };
+            }
+            const resolved = resolve(marketplaceRoot, src);
+            if (!(await pathContainedUnder(resolved, containRoot))) {
+              return {
+                skip: {
+                  source: src,
+                  reason: "outside-contain-root",
+                  resolved,
+                },
+              };
+            }
+            return { candidate: { source: src, resolved } };
+          },
+        ),
+      );
       const candidates: { source: string; resolved: string }[] = [];
-      for (const p of (parsed as { plugins: unknown[] }).plugins) {
-        if (typeof p !== "object" || p === null) {
-          report({ source: "", reason: "invalid-entry" });
+      for (const item of judged) {
+        if ("skip" in item) {
+          report(item.skip);
           continue;
         }
-        const src = (p as { source?: unknown }).source;
-        if (typeof src !== "string" || src.length === 0) {
-          report({
-            source: typeof src === "string" ? src : "",
-            reason: "invalid-entry",
-          });
-          continue;
-        }
-        // Absolute `source` would jump any relative contain check.
-        if (isAbsolute(src)) {
-          report({ source: src, reason: "absolute" });
-          continue;
-        }
-        const resolved = resolve(marketplaceRoot, src);
-        if (!(await pathContainedUnder(resolved, containRoot))) {
-          report({ source: src, reason: "outside-contain-root", resolved });
-          continue;
-        }
-        candidates.push({ source: src, resolved });
+        candidates.push(item.candidate);
       }
       const existing = await Promise.all(
         candidates.map((c) => pathExists(c.resolved)),
@@ -641,18 +664,21 @@ export async function expandPluginPath(
   // plugin (marketplace checkout without marketplace.json). Expand only when
   // the root has no single-plugin markers, so a normal plugin dir containing
   // a `plugins/` folder is never mis-expanded.
-  const hasPluginsSubdir = await pathExists(join(marketplaceRoot, "plugins"));
-  const rootIsPlugin =
-    (await pathExists(join(marketplaceRoot, "agents"))) ||
-    (await pathExists(join(marketplaceRoot, "skills"))) ||
-    (await pathExists(join(marketplaceRoot, "commands"))) ||
-    (await pathExists(join(marketplaceRoot, "command"))) ||
-    (await pathExists(join(marketplaceRoot, "manifest.json"))) ||
-    (await pathExists(
-      join(marketplaceRoot, ".claude-plugin", "plugin.json"),
-    )) ||
-    (await pathExists(join(marketplaceRoot, "index.ts"))) ||
-    (await pathExists(join(marketplaceRoot, "src", "index.ts")));
+  const markerExists = await Promise.all(
+    [
+      "plugins",
+      "agents",
+      "skills",
+      "commands",
+      "command",
+      "manifest.json",
+      join(".claude-plugin", "plugin.json"),
+      "index.ts",
+      join("src", "index.ts"),
+    ].map((rel) => pathExists(join(marketplaceRoot, rel))),
+  );
+  const hasPluginsSubdir = markerExists[0] === true;
+  const rootIsPlugin = markerExists.slice(1).some(Boolean);
   if (hasPluginsSubdir && !rootIsPlugin) {
     const containRoot = resolve(
       opts.containRoot ?? defaultContainRoot(marketplaceRoot),
@@ -666,20 +692,29 @@ export async function expandPluginPath(
       // plugins/ vanished between the existence probe and readdir.
       return [marketplaceRoot];
     }
+    const directoryEntries = entries.filter((entry) => entry.isDirectory());
+    const checks = await Promise.all(
+      directoryEntries.map(async (entry) => {
+        const child = join(marketplaceRoot, "plugins", entry.name);
+        const [exists, contained] = await Promise.all([
+          pathExists(child),
+          pathContainedUnder(child, containRoot),
+        ]);
+        return { child, exists, contained };
+      }),
+    );
     const dirs: string[] = [];
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const child = join(marketplaceRoot, "plugins", entry.name);
-      if (!(await pathExists(child))) continue;
-      if (!(await pathContainedUnder(child, containRoot))) {
+    for (const check of checks) {
+      if (!check.exists) continue;
+      if (!check.contained) {
         report({
-          source: child,
+          source: check.child,
           reason: "outside-contain-root",
-          resolved: child,
+          resolved: check.child,
         });
         continue;
       }
-      dirs.push(child);
+      dirs.push(check.child);
     }
     if (dirs.length > 0) return dirs;
   }
@@ -730,31 +765,72 @@ async function scanPluginsDir(
     return [];
   }
 
-  const results: PluginModule[] = [];
-  for (const entry of entries) {
-    // Each entry may itself be a marketplace — expand before loading; skipped
-    // members route into `diagnostics` when the caller has one.
-    const dirs = await expandPluginPath(join(dir, entry), {
-      onSkip: resolveExpandSkip(diagnostics),
-    });
-    for (const d of dirs) {
-      const abs = resolve(d);
-      if (
-        originRequiresTrust(origin) &&
-        isTrusted !== undefined &&
-        !isTrusted(abs)
-      ) {
-        const meta = await readPluginMetadataOnly(abs, origin, onWarning);
-        if (meta !== null) results.push(meta);
-        continue;
-      }
-      const plugin = await loadPluginEntry(d, {
-        cwd,
-        origin,
-        ...(diagnostics !== undefined ? { diagnostics } : {}),
-        ...(telemetry !== undefined ? { telemetry } : {}),
+  const prepared = await Promise.all(
+    entries.map(async (entry) => {
+      const skips: ExpandPluginPathSkip[] = [];
+      const dirs = await expandPluginPath(join(dir, entry), {
+        onSkip: (skip) => {
+          skips.push(skip);
+        },
       });
-      if (plugin !== null) results.push(plugin);
+      const dirOutcomes = await Promise.all(
+        dirs.map(async (d) => {
+          const warnings: string[] = [];
+          const localDiagnostics: PluginLoadDiagnostics = { warnings: [] };
+          const reports: { origin: string; identity: string }[] = [];
+          const abs = resolve(d);
+          if (
+            originRequiresTrust(origin) &&
+            isTrusted !== undefined &&
+            !isTrusted(abs)
+          ) {
+            const meta = await readPluginMetadataOnly(abs, origin, (msg) => {
+              warnings.push(msg);
+            });
+            return {
+              plugin: meta,
+              warnings,
+              reports,
+            };
+          }
+          const plugin = await loadPluginEntry(d, {
+            cwd,
+            origin,
+            diagnostics: localDiagnostics,
+            ...(telemetry !== undefined ? { telemetry } : {}),
+            pluginLoadReporter: (
+              _reportedTelemetry,
+              reportedOrigin,
+              identity,
+            ) => {
+              reports.push({ origin: reportedOrigin, identity });
+            },
+          });
+          return {
+            plugin,
+            warnings: [...warnings, ...localDiagnostics.warnings],
+            reports,
+          };
+        }),
+      );
+      return { skips, dirOutcomes };
+    }),
+  );
+
+  const onSkip = resolveExpandSkip(diagnostics);
+  const results: PluginModule[] = [];
+  for (const outcome of prepared) {
+    for (const skip of outcome.skips) onSkip(skip);
+    for (const dirOutcome of outcome.dirOutcomes) {
+      for (const warning of dirOutcome.warnings) onWarning(warning);
+      for (const report of dirOutcome.reports) {
+        runtimePluginLoadReporter(
+          telemetry ?? NOOP_TELEMETRY,
+          report.origin,
+          report.identity,
+        );
+      }
+      if (dirOutcome.plugin !== null) results.push(dirOutcome.plugin);
     }
   }
   return results;
