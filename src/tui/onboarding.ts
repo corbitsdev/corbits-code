@@ -12,6 +12,7 @@ import {
   telemetryFirstRunPending,
 } from "../telemetry/first-run.js";
 import { getTelemetry } from "../telemetry/singleton.js";
+import { catalogRowsForMetaOAuthGuard } from "./provider/oauth.js";
 import { runProviderSetup } from "./provider/setup.js";
 import { runWelcome } from "./welcome.js";
 
@@ -46,7 +47,7 @@ export async function runOnboarding(
 
   const submitted = await runProviderSetup({
     showTelemetryNotice,
-    existingProviderNames: Object.keys(existing?.providers ?? {}),
+    existingProviderNames: catalogRowsForMetaOAuthGuard(existing?.providers),
     onSubmit: buildProviderSubmitHandler(
       settingsPath,
       existing,

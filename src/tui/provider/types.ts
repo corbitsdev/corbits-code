@@ -30,6 +30,15 @@ import type { SetupStep } from "./steps.js";
 
 export type OAuthKind = FirstClassOAuthProvider;
 
+/** Catalog row the Meta OAuth slug guard can tell from an API key. */
+export type ExistingProviderRef =
+  | string
+  | {
+      readonly name: string;
+      readonly apiKey?: string;
+      readonly metaProfile?: string;
+    };
+
 /**
  * A selectable provider. Preset rows carry everything the settings write needs
  * except the key; the custom row carries nothing and opens the manual form.
@@ -158,7 +167,7 @@ export interface ProviderSetupConfig {
   /** Prefill the OAuth account-name step with the profile slug being re-keyed. */
   readonly initialOAuthProfile?: string;
   /** Existing catalog keys, for suggested slugs and collision confirms on the API-key path. */
-  readonly existingProviderNames?: readonly string[];
+  readonly existingProviderNames?: readonly ExistingProviderRef[];
 }
 
 /** Mutable state shared by the setup surface and its extracted flows. */
@@ -168,7 +177,7 @@ export interface SetupState {
   readonly externalRenderer: boolean;
   readonly clipboard: ClipboardPort;
   readonly choices: readonly ProviderChoice[];
-  readonly existingProviderNames: readonly string[];
+  readonly existingProviderNames: readonly ExistingProviderRef[];
   readonly values: ProviderFormValues;
   readonly margin: number;
   choice: ProviderChoice | null;

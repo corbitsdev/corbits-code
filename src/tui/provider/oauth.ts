@@ -19,6 +19,7 @@ import {
 } from "../../auth/meta/verification-uri.js";
 import type {
   AccountNameFlow,
+  ExistingProviderRef,
   LoginFlow,
   OAuthKind,
   OAuthLoginStart,
@@ -82,17 +83,38 @@ export function suggestOAuthProfileSlug(existing: readonly string[]): string {
   return `default-${String(n)}`;
 }
 
+function providerNameList(rows: readonly ExistingProviderRef[]): string[] {
+  return rows.map((row) => (typeof row === "string" ? row : row.name));
+}
+
 // `meta/<slug>` and `meta-api/<slug>` are one namespace: signing in under a
 // slug that already names an API-key row is rejected.
 export function suggestMetaOAuthProfileSlug(
   authProfiles: readonly string[],
-  existingProviderNames: readonly string[],
+  existingProviderNames: readonly ExistingProviderRef[],
 ): string {
+  const names = providerNameList(existingProviderNames);
   return suggestOAuthProfileSlug([
     ...authProfiles,
-    ...instanceSlugsForKind("meta", existingProviderNames),
-    ...instanceSlugsForKind("meta-api", existingProviderNames),
+    ...instanceSlugsForKind("meta", names),
+    ...instanceSlugsForKind("meta-api", names),
   ]);
+}
+
+/** Settings rows for the slug guard. A keyless `meta/<slug>` is not an API key. */
+export function catalogRowsForMetaOAuthGuard(
+  providers: Readonly<Record<string, { readonly apiKey?: string }>> | undefined,
+): ExistingProviderRef[] {
+  const rows: ExistingProviderRef[] = [];
+  for (const [name, provider] of Object.entries(providers ?? {})) {
+    const apiKey = provider.apiKey;
+    if (typeof apiKey === "string" && apiKey.length > 0) {
+      rows.push({ name, apiKey });
+    } else {
+      rows.push({ name });
+    }
+  }
+  return rows;
 }
 
 /** True when `slug` names an API-key row, not an OAuth profile. */
@@ -422,7 +444,10 @@ export function createAccountNameFlow(
     }
     applySuggestion(
       suggestOAuthProfileSlug(
-        instanceSlugsForKind(state.choice.id, state.existingProviderNames),
+        instanceSlugsForKind(
+          state.choice.id,
+          providerNameList(state.existingProviderNames),
+        ),
       ),
     );
   };
@@ -442,7 +467,7 @@ export function createAccountNameFlow(
       state.values.name = resolveApiKeyInstanceName(
         state.choice.id,
         slug,
-        state.existingProviderNames,
+        providerNameList(state.existingProviderNames),
       );
     }
     state.stepIndex += 1;
@@ -502,7 +527,10 @@ export function createAccountNameFlow(
       return;
     }
     handleNames(
-      instanceSlugsForKind(state.choice.id, state.existingProviderNames),
+      instanceSlugsForKind(
+        state.choice.id,
+        providerNameList(state.existingProviderNames),
+      ),
     );
   };
 

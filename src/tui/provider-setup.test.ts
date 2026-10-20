@@ -43,6 +43,7 @@ import {
   LOGIN_TIMEOUT_MESSAGE,
   suggestOAuthProfileSlug,
   suggestMetaOAuthProfileSlug,
+  catalogRowsForMetaOAuthGuard,
   metaOAuthSlugBlockedByApiKey,
   validateOAuthProfileSlug,
 } from "./provider/oauth.js";
@@ -344,6 +345,22 @@ describe("provider setup pure helpers", () => {
     expect(suggestMetaOAuthProfileSlug([], [])).toBe("default");
     expect(metaOAuthSlugBlockedByApiKey("work", ["meta/work"])).toBe(true);
     expect(metaOAuthSlugBlockedByApiKey("work", ["meta-api/work"])).toBe(true);
+    expect(metaOAuthSlugBlockedByApiKey("work", [{ name: "meta/work" }])).toBe(
+      false,
+    );
+    expect(
+      catalogRowsForMetaOAuthGuard({
+        "meta/work": {},
+      }),
+    ).toEqual([{ name: "meta/work" }]);
+    expect(
+      metaOAuthSlugBlockedByApiKey(
+        "work",
+        catalogRowsForMetaOAuthGuard({
+          "meta/work": { apiKey: "LLM|pasted" },
+        }),
+      ),
+    ).toBe(true);
     const authProfiles: readonly string[] = [];
     const existingProviderNames = ["meta-api/default"];
     const suggested = suggestMetaOAuthProfileSlug(
