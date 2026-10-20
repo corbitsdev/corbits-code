@@ -24,7 +24,11 @@ export function memoSchema<T>(build: () => T): () => T {
  * instead of passing this object into `type()`.
  */
 export function lazyCallable<T extends object>(load: () => T): T {
-  return new Proxy(function lazySchema() {} as unknown as T, {
+  function lazySchema(this: unknown, ...args: unknown[]) {
+    const schema = load() as (...args: unknown[]) => unknown;
+    return Reflect.apply(schema, this, args);
+  }
+  return new Proxy(lazySchema as unknown as T, {
     apply(_target, thisArg, argArray) {
       const schema = load() as (...args: unknown[]) => unknown;
       return Reflect.apply(schema, thisArg, argArray);
