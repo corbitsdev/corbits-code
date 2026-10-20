@@ -863,7 +863,9 @@ describe("createOptimizedContextStore checkpoint", () => {
     expect(dirAfter.mtimeMs).toBe(dirBefore.mtimeMs);
     expect(dirAfter.ino).toBe(dirBefore.ino);
 
-    const second = await store.commit({ message: "publish evidence index append" });
+    const second = await store.commit({
+      message: "publish evidence index append",
+    });
     expect(second.hash).not.toBe(first.hash);
     const { blob } = await git.readBlob({
       fs,
@@ -914,7 +916,9 @@ describe("createOptimizedContextStore checkpoint", () => {
     expect(appended).toBe(true);
     expect(noopHash).toBe(first.hash);
 
-    const third = await store.commit({ message: "publish append from no-op window" });
+    const third = await store.commit({
+      message: "publish append from no-op window",
+    });
     expect(third.hash).not.toBe(first.hash);
     const { blob } = await git.readBlob({
       fs,

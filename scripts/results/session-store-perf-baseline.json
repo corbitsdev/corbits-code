@@ -12,14 +12,14 @@
     "turnCount": 200,
     "wallMs": 814,
     "loadedTurns": 250,
-    "totalFsOps": 15736,
+    "totalFsOps": 15936,
     "gitPathFsOps": 7717,
     "fsOps": {
       "readFile": 7878,
       "mkdir": 246,
       "writeFile": 1274,
       "stat": 2580,
-      "lstat": 2948,
+      "lstat": 3148,
       "readdir": 611,
       "access": 1,
       "open": 198
@@ -33,7 +33,7 @@
     },
     "perTurn": {
       "wallMs": 4.07,
-      "fsOps": 78.68
+      "fsOps": 79.68
     }
   },
   "turnPersistenceCensus": {
