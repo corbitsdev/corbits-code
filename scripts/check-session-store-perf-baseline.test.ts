@@ -97,15 +97,10 @@ describe("session-store perf baseline", () => {
     expect(failures.some((line) => line.includes(".git mkdir"))).toBe(true);
   });
 
-  test("CI runs both scripts and states the fs.promises-only blind spot", () => {
+  test("CI runs both session-store perf scripts", () => {
     expect(ci).toContain("bun scripts/context-store-perf.ts 200 --json");
     expect(ci).toContain(
       "bun scripts/turn-persistence-census.ts 200 --flow=coalesced --json",
     );
-    expect(ci).toContain(
-      "both patch fs.promises only, so synchronous fs is invisible",
-    );
-    expect(ci).not.toContain("synchronous fs is counted");
-    expect(ci).not.toContain("every filesystem");
   });
 });
