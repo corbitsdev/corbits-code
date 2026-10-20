@@ -638,9 +638,8 @@ const providerSettingsSchema = memoSchema(() =>
     .narrow(
       (provider, ctx) =>
         provider.defaultReasoningEffort === undefined ||
-        provider.reasoningEfforts?.includes(
-          provider.defaultReasoningEffort,
-        ) === true ||
+        provider.reasoningEfforts?.includes(provider.defaultReasoningEffort) ===
+          true ||
         ctx.reject("a default reasoning effort from the enabled levels"),
     ),
 );
