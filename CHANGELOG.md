@@ -20,6 +20,23 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
+## [0.3.42] - 2026-10-20
+
+### What's Changed
+* feat(session): record the compaction trigger on fold records by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1525
+* fix(tui): stop the idle git branch poll by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1506
+* fix(session): stop per-turn access probes on the base log by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1527
+* ci(session): gate session-store fs.promises counts against a baseline by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1509
+* perf(session): memoize project root lookups by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1502
+* perf(session): stop re-hashing unchanged segments on each commit by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1511
+* fix(session): commit same-second and in-place session edits by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1528
+* fix(permission): resolve existing paths like realpathSync by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1532
+* fix(logging): rotate the shared log without dropping the other writer by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1533
+* test(session): stop pinning the perf-baseline CI comment by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1531
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.41...v0.3.42
+
 ## [0.3.41] - 2026-10-19
 
 ### What's Changed
