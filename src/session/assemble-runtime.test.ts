@@ -17,6 +17,7 @@ import { syncRunStateHandle, type RunStateHandle } from "./active-run.js";
 import {
   commitIdlePromotionPrune,
   createAdvertisedToolset,
+  assembleSessionGate,
   loadSessionLocalSettings,
   type ChatAgentWiring,
 } from "./assemble-runtime.js";
@@ -836,4 +837,36 @@ describe("assembleChatAgent", () => {
       },
     );
   });
+});
+
+test("assembleSessionGate forwards the optional plugin authorizer", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "session-gate-plugin-"));
+  try {
+    const { gate } = await assembleSessionGate({
+      cwd,
+      sessionId: "session",
+      requestApproval: async () => ({ allow: false }),
+      getActiveProviderModel: () => "openai:gpt-5",
+      interactive: true,
+      skipPermissions: true,
+      reactorGated: true,
+      pluginAuthorize: async () => ({
+        effect: "deny",
+        matchingGrants: [],
+        resolvedBy: null,
+        reason: "session guard",
+      }),
+    });
+    const verdict = await gate.authorizeCall({
+      id: "read",
+      name: "read_file",
+      arguments: { path: "README.md" },
+    });
+    expect(verdict).toMatchObject({
+      effect: "deny",
+      publicReason: "session guard",
+    });
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });

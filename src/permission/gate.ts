@@ -1,4 +1,6 @@
+import type { AuthorizeFn } from "@intx/agent";
 import type { ToolCall } from "@intx/types/runtime";
+import { getLogger } from "@intx/log";
 import { isAbsolute, resolve } from "node:path";
 import type {
   Approval,
@@ -57,6 +59,12 @@ import { getSubAgentIdentity } from "../subagent/identity-context.js";
 import { PRODUCT_MUTATION_TOOLS } from "../agent/product-mutation-tools.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import { prepareDispatchedToolCall } from "../agent/tool-aliases.js";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import { scrubSecrets } from "../web/secret-scrub.js";
+import {
+  safePluginDiagnostic,
+  validatePluginAuthorizeResult,
+} from "./plugin-authorize-result.js";
 
 import {
   createMcpToolPermissionRegistry,
@@ -345,6 +353,8 @@ const AUTO_ALLOWED_TOOLS = new Set([
   "resume_agent",
 ]);
 
+const logger = getLogger([LOG_NAMESPACE_ROOT, "permission", "plugin-authz"]);
+
 export interface PermissionGateOptions {
   // Seed approvals; the gate copies them and never mutates the caller's array.
   approvals: Approval[];
@@ -402,11 +412,12 @@ export interface PermissionGateOptions {
   reactorGated: boolean;
   // Ask/settle event log (approval-log.ts). Defaults to a no-op.
   approvalLog?: ApprovalLog;
+  pluginAuthorize?: AuthorizeFn | undefined;
 }
 
 export type AuthorizeVerdict =
   | { effect: "allow" }
-  | { effect: "deny"; reason: string }
+  | { effect: "deny"; reason: string; publicReason?: string | undefined }
   | { effect: "ask"; request: PermissionRequest };
 
 export interface PermissionGate {
@@ -499,6 +510,15 @@ function withCanonicalToolName(call: ToolCall): ToolCall {
 function coercePolicyCall(rawCall: ToolCall): ToolCall {
   const named = withCanonicalToolName(rawCall);
   return prepareDispatchedToolCall(named, named.name);
+}
+
+// The authorizer sees a copy. Mutating that copy must not change the call
+// policy already checked or the call the tool executes.
+function isolatedAuthorizeCall(call: ToolCall): ToolCall {
+  return {
+    ...call,
+    arguments: structuredClone(call.arguments),
+  };
 }
 
 function callForIdentity(rawCall: ToolCall): ToolCall {
@@ -659,7 +679,7 @@ export function createPermissionGate(
   // the middleware and reactor seams need no re-derivation.
   type GateDecision =
     | { kind: "allow" }
-    | { kind: "deny"; reason: string }
+    | { kind: "deny"; reason: string; publicReason?: string | undefined }
     | {
         kind: "ask";
         request: PermissionRequest;
@@ -667,7 +687,7 @@ export function createPermissionGate(
         segmentCount: number;
       };
 
-  const decide = async (rawCall: ToolCall): Promise<GateDecision> => {
+  const decideNormally = async (rawCall: ToolCall): Promise<GateDecision> => {
     let call: ToolCall;
     try {
       call = coercePolicyCall(rawCall);
@@ -700,7 +720,6 @@ export function createPermissionGate(
         return { kind: "deny", reason: block.reason };
       }
     }
-    if (skipPermissions) return { kind: "allow" };
     // Sub-agent calls run under ALS identity (identity-context.ts); the
     // process cwd is the worktree, so every relative-path judgment below uses
     // it.
@@ -716,6 +735,7 @@ export function createPermissionGate(
     const cachedDenial = denialMemory.isDenied(stableId);
     if (cachedDenial !== undefined)
       return { kind: "deny", reason: cachedDenial };
+    if (skipPermissions) return { kind: "allow" };
 
     // Hard-deny workspace escapes here, before allow and before ask.
     // Workers sandbox against their own cwd's roots, not the session listing.
@@ -983,6 +1003,87 @@ export function createPermissionGate(
     return { kind: "allow" };
   };
 
+  const pluginAskDecision = (call: ToolCall): GateDecision => {
+    const request = buildRequests(call)[0];
+    if (request === undefined) {
+      return {
+        kind: "deny",
+        reason: "Plugin authorization could not build an approval request.",
+      };
+    }
+    const identity = getSubAgentIdentity();
+    if (!interactive || requestApproval === undefined) {
+      recordAutoDecision(request.tool, "non-interactive", "deny");
+      const reason = `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run interactively or narrow the action.`;
+      denialMemory.record(
+        denialFingerprint(call, identity?.cwd ?? resolvedCwd),
+        reason,
+      );
+      options.onHeadlessDeny?.(reason);
+      return { kind: "deny", reason };
+    }
+    return {
+      kind: "ask",
+      request: {
+        ...request,
+        cwd: identity?.cwd ?? resolvedCwd,
+        scopes: [],
+        ...(identity !== undefined ? { agentLabel: identity.description } : {}),
+      },
+      anySecret: false,
+      segmentCount:
+        request.tool === "run_shell"
+          ? splitChainedCommand(request.subject).filter(
+              (segment) => !isShellCommentOnly(segment),
+            ).length
+          : 0,
+    };
+  };
+
+  const decideWithPlugin = async (rawCall: ToolCall): Promise<GateDecision> => {
+    const normal = await decideNormally(rawCall);
+    if (normal.kind === "deny") return normal;
+    try {
+      const policyCall = coercePolicyCall(rawCall);
+      const rawResult: unknown = await options.pluginAuthorize?.(
+        `tool:${policyCall.name}`,
+        "invoke",
+        isolatedAuthorizeCall(policyCall),
+      );
+      const validated = validatePluginAuthorizeResult(rawResult);
+      if (!validated.ok) {
+        if (validated.kind === "malformed") {
+          logger.warn`plugin authorization returned a malformed result: ${scrubSecrets(validated.diagnostic)}`;
+        } else {
+          logger.warn`plugin authorization failed: ${scrubSecrets(validated.diagnostic)}`;
+        }
+        return { kind: "deny", reason: "Plugin authorization failed closed." };
+      }
+      const { result } = validated;
+      if (result.effect === "deny" || result.effect === null) {
+        const publicReason =
+          result.effect === "deny" &&
+          result.reason !== undefined &&
+          result.reason.trim().length > 0
+            ? result.reason
+            : undefined;
+        return {
+          kind: "deny",
+          reason: publicReason ?? "Plugin authorization denied this tool call.",
+          ...(publicReason !== undefined ? { publicReason } : {}),
+        };
+      }
+      if (normal.kind === "ask" || result.effect === "allow") return normal;
+      return pluginAskDecision(policyCall);
+    } catch (err) {
+      logger.warn`plugin authorization failed: ${scrubSecrets(safePluginDiagnostic(err))}`;
+      return { kind: "deny", reason: "Plugin authorization failed closed." };
+    }
+  };
+
+  const decide =
+    options.pluginAuthorize === undefined ? decideNormally : decideWithPlugin;
+
   // Resolve an `ask` decision with the operator: log, wait, settle, and mint
   // any grant the outcome carries (never for secret-path shell); undefined
   // when no outcome arrived.
@@ -1012,7 +1113,18 @@ export function createPermissionGate(
       throw new Error("ask decision resolved without requestApproval wiring");
     }
     try {
-      outcome = await prompt(request);
+      const prompted = await prompt(request);
+      if (
+        prompted !== undefined &&
+        prompted.allow &&
+        prompted.persist !== undefined &&
+        request.scopes.length === 0
+      ) {
+        const { persist: _persist, ...allowOnce } = prompted;
+        outcome = allowOnce;
+      } else {
+        outcome = prompted;
+      }
     } finally {
       finishApprovalWait(telemetry, waitSpanId, request.tool, outcome);
       ask.settle(classifyOutcome(outcome));
@@ -1079,7 +1191,13 @@ export function createPermissionGate(
       case "allow":
         return { effect: "allow" };
       case "deny":
-        return { effect: "deny", reason: decision.reason };
+        return {
+          effect: "deny",
+          reason: decision.reason,
+          ...(decision.publicReason !== undefined
+            ? { publicReason: decision.publicReason }
+            : {}),
+        };
       case "ask":
         return { effect: "ask", request: decision.request };
     }

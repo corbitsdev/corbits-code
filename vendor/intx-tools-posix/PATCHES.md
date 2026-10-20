@@ -46,3 +46,15 @@ is empty), so the entry carried byte-identically.
 intx-inference). **Removal path:** the same upstream PR that adds the
 paged-read-file guarantee to `@intx/inference` would also own the
 description wording; drop this entry with it.
+
+## plugin-ts-authorize
+
+`plugin.ts` — Extends `ToolPlugin` with an optional `AuthorizeFn` from
+`@intx/agent`, allowing installed tool plugins to participate in the standard
+Interchange authorization contract. Corbits composes active plugin callbacks in
+`src/plugins/tool-plugins.ts`; resolver behavior is covered by
+`src/plugins/tool-plugins.test.ts`.
+
+**Disposition:** Promotion candidate; re-carry until upstream exposes the same
+optional contract. **Removal path:** drop this patch when the upstream
+`ToolPlugin` includes `authorize?: AuthorizeFn`.

@@ -491,3 +491,76 @@ test("denied shell call blocks with a policy error", async () => {
     expect(outcome.reason).toMatch(/Denied by policy/);
   }
 });
+
+test("reactor bridge exposes only explicit plugin deny reasons", async () => {
+  const make = (
+    pluginAuthorize: Parameters<
+      typeof createPermissionGate
+    >[0]["pluginAuthorize"],
+  ) =>
+    createReactorAuthorize(
+      createPermissionGate({
+        approvals: [],
+        interactive: true,
+        skipPermissions: true,
+        reactorGated: true,
+        requestApproval: async () => ({ allow: false }),
+        pluginAuthorize,
+      }),
+    );
+  const deny = {
+    effect: "deny" as const,
+    matchingGrants: [],
+    resolvedBy: null,
+    reason: "guard policy",
+  };
+  expect(
+    await make(async () => deny)(
+      "tool:read_file",
+      "invoke",
+      namedCall("read_file"),
+    ),
+  ).toMatchObject({ reason: "guard policy" });
+  expect(
+    await make(async () => {
+      throw new Error("token=private-value-123456789");
+    })("tool:read_file", "invoke", namedCall("read_file")),
+  ).not.toHaveProperty("reason");
+  const ordinary = createReactorAuthorize(
+    createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: false,
+      reactorGated: true,
+      requestApproval: async () => ({ allow: false }),
+    }),
+  );
+  expect(await ordinary("tool:write_file", "invoke", call)).not.toHaveProperty(
+    "reason",
+  );
+});
+
+test("reactor bridge marks only zero-scope asks as allow-once", async () => {
+  const pluginPolicy = createPermissionGate({
+    approvals: [],
+    interactive: true,
+    skipPermissions: true,
+    reactorGated: true,
+    requestApproval: async () => ({ allow: false }),
+    pluginAuthorize: async () => ({
+      effect: "ask",
+      matchingGrants: [],
+      resolvedBy: null,
+    }),
+  });
+  expect(
+    await createReactorAuthorize(pluginPolicy)(
+      "tool:read_file",
+      "invoke",
+      namedCall("read_file"),
+    ),
+  ).toMatchObject({ effect: "ask", approvalMode: "allow-once" });
+  expect(
+    await createReactorAuthorize(gate())("tool:write_file", "invoke", call),
+  ).not.toHaveProperty("approvalMode");
+});

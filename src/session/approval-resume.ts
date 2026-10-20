@@ -50,6 +50,7 @@ export const APPROVAL_DROPPED_NOTICE =
 const ApprovalSnapshotShape = type({
   name: "string",
   "arguments?": "Record<string, unknown>",
+  "approvalMode?": "'allow-once'",
 });
 
 export interface ApprovalResume {
@@ -243,6 +244,7 @@ export function requestFromApprovalSnapshot(
   if (builtRequest === undefined) return null;
   const cwd = extras.cwd;
   const request = cwd === undefined ? builtRequest : { ...builtRequest, cwd };
+  if (parsed.approvalMode === "allow-once") return { ...request, scopes: [] };
   if (request.tool !== "run_shell") return request;
   const secret = inspectShellSecretReference(
     request.subject,
@@ -316,6 +318,7 @@ export async function resolveSuspendedApprovalFromStore(
   if (
     parked.name !== parsedPersisted.name ||
     parked.name !== parsedCaptured.name ||
+    parsedPersisted.approvalMode !== parsedCaptured.approvalMode ||
     // The persisted copy is redacted at rest, so its compare still accepts the
     // canonical scrub when that copy is fully redacted. The re-dispatch
     // snapshot is compared raw: different credential values are a mismatch

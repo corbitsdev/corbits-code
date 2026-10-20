@@ -66,6 +66,33 @@ function fileSnapshot(name: string): ApprovalSnapshot {
   };
 }
 
+describe("requestFromApprovalSnapshot approval mode", () => {
+  test("marked snapshots force allow-once scopes", () => {
+    expect(
+      requestFromApprovalSnapshot(
+        { ...fileSnapshot("write_file"), approvalMode: "allow-once" },
+        "corr",
+      )?.scopes,
+    ).toEqual([]);
+  });
+
+  test("unmarked snapshots preserve reconstructed scopes", () => {
+    expect(
+      requestFromApprovalSnapshot(fileSnapshot("write_file"), "corr")?.scopes
+        .length,
+    ).toBeGreaterThan(0);
+  });
+
+  test("malformed markers fail snapshot parsing", () => {
+    expect(
+      requestFromApprovalSnapshot(
+        { ...fileSnapshot("write_file"), approvalMode: "plugin" } as never,
+        "corr",
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("requestFromApprovalSnapshot aliased file tools", () => {
   test("parked default.write_file resume is file-scoped like write_file", () => {
     const write = requestFromApprovalSnapshot(
@@ -485,6 +512,19 @@ describe("persisted suspended approval proof", () => {
     expect(
       await resolveSuspendedApprovalFromStore(storeWith([mismatch]), result),
     ).toEqual({ ok: false, code: "snapshot-mismatch" });
+    const allowOnceOperation: PendingOperation = {
+      ...operation,
+      approvalSnapshot: {
+        ...shellSnapshot("echo same"),
+        approvalMode: "allow-once",
+      },
+    };
+    expect(
+      await resolveSuspendedApprovalFromStore(
+        storeWith([allowOnceOperation]),
+        result,
+      ),
+    ).toEqual({ ok: false, code: "snapshot-mismatch" });
     expect(
       await resolveSuspendedApprovalFromStore(
         storeWith([operation, operation]),
@@ -721,6 +761,25 @@ describe("suspended approval recovery", () => {
     expect(outcome.code).toBe("unverified-snapshot-mismatch");
     expect(JSON.stringify(outcome)).not.toContain("secret");
     expect(mismatch.delivered).toEqual([]);
+  });
+
+  test("an omitted allow-once marker replay never reaches approval settlement", async () => {
+    const allowOnceOperation: PendingOperation = {
+      ...operation,
+      approvalSnapshot: {
+        ...shellSnapshot("echo same"),
+        approvalMode: "allow-once",
+      },
+    };
+    const replay = recovery({ gate: "allow", pending: [allowOnceOperation] });
+    replay.recovery.capture(result, () => true);
+
+    expect(await replay.recovery.tryResumeOnce()).toEqual({
+      handled: false,
+      code: "unverified-snapshot-mismatch",
+    });
+    expect(replay.gateCalls()).toBe(0);
+    expect(replay.delivered).toEqual([]);
   });
 
   test("a failed resume attempt refuses with the underlying cause, not an opaque error", async () => {

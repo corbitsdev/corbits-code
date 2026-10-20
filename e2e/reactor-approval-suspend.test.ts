@@ -1,9 +1,19 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
+import type { AuthorizeFn } from "@intx/agent";
 import type { ToolCall } from "@intx/types/runtime";
 
 import { createPermissionGate } from "../src/permission/gate.js";
 import { createReactorAuthorize } from "../src/permission/reactor-authorize.js";
+import type { PermissionRequest } from "../src/permission/types.js";
+import type { PluginModule } from "../src/plugins/loader.js";
+import {
+  collectToolPlugins,
+  resolveToolPlugins,
+} from "../src/plugins/tool-plugins.js";
 import {
   createApprovalResume,
   resolveParkedCallIdFromStore,
@@ -12,6 +22,7 @@ import {
 import {
   closeIntegrationSession,
   openIntegrationSession,
+  runUntilDone,
   runUntilSuspended,
   toolDoneEvents,
 } from "./integration-harness.js";
@@ -65,6 +76,208 @@ async function waitForAsk(
 }
 
 describe("integration — reactor approval suspend/resume", () => {
+  test.serial(
+    "installed tool-plugin authorization asks before read dispatch and denies without dispatch",
+    async () => {
+      const authorizationCalls: {
+        resource: string;
+        action: string;
+        context: unknown;
+      }[] = [];
+      const pluginAuthorize: AuthorizeFn = async (
+        resource,
+        action,
+        context,
+      ) => {
+        authorizationCalls.push({ resource, action, context });
+        const path =
+          typeof context === "object" &&
+          context !== null &&
+          "arguments" in context &&
+          typeof context.arguments === "object" &&
+          context.arguments !== null &&
+          "path" in context.arguments &&
+          typeof context.arguments.path === "string"
+            ? context.arguments.path
+            : "";
+        if (path.endsWith("deny.txt")) {
+          return {
+            effect: "deny",
+            reason: "installed guard blocked deny.txt",
+            matchingGrants: [],
+            resolvedBy: null,
+          };
+        }
+        return {
+          effect: "ask",
+          matchingGrants: [],
+          resolvedBy: null,
+        };
+      };
+      const installedGuard: PluginModule = {
+        manifest: {
+          id: "installed-guard",
+          name: "Installed guard",
+          kind: "tool",
+        },
+        createToolPlugin: () => ({ authorize: pluginAuthorize }),
+      };
+      const resolved = await resolveToolPlugins({
+        candidates: collectToolPlugins([installedGuard]),
+        pluginConfig: {
+          "installed-guard": { enabled: true, consented: true },
+        },
+      });
+      const authorize = defined(resolved.authorize, "resolved authorizer");
+
+      const approvalRequests: PermissionRequest[] = [];
+      let approve: (() => void) | undefined;
+      const askCwd = await mkdtemp(join(tmpdir(), "corbits-plugin-ask-"));
+      const askGate = createPermissionGate({
+        approvals: [],
+        cwd: askCwd,
+        interactive: true,
+        skipPermissions: false,
+        reactorGated: true,
+        pluginAuthorize: authorize,
+        requestApproval: (request) => {
+          approvalRequests.push(request);
+          return new Promise((resolve) => {
+            approve = () => resolve({ allow: true });
+          });
+        },
+      });
+      const askSession = await openIntegrationSession({
+        permissionGate: askGate,
+        authorize: createReactorAuthorize(askGate),
+        cwd: askCwd,
+      });
+      try {
+        const askPath = join(askSession.cwd, "ask.txt");
+        await writeFile(askPath, "plugin ask content");
+        askSession.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [{ name: "read_file", args: { path: askPath } }],
+        });
+        askSession.harness.scenario.replyOnce("anthropic", {
+          text: "Read after approval.",
+        });
+
+        const turn = await runUntilSuspended(
+          askSession,
+          "Read ask.txt after authorization.",
+        );
+        expect(turn.result.type).toBe("suspended");
+        if (turn.result.type !== "suspended") return;
+        expect(turn.result.approvalSnapshot?.approvalMode).toBe("allow-once");
+        expect(
+          turn.events.filter(
+            (event) =>
+              event.type === "tool.start" || event.type === "tool.done",
+          ),
+        ).toHaveLength(0);
+        expect(approvalRequests).toHaveLength(0);
+
+        const resume = createApprovalResume({
+          getAgent: () => askSession.agent,
+          resolveParkedCallId: (correlationId) =>
+            resolveParkedCallIdFromStore(askSession.storage, correlationId),
+          gate: askGate,
+        });
+        const handling = resume.handle(turn.result);
+        for (let i = 0; i < 100 && approvalRequests.length === 0; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        expect(approvalRequests).toHaveLength(1);
+        expect(defined(approvalRequests[0]).scopes).toEqual([]);
+        defined(approve, "approval resolver")();
+        expect(await handling).toBe(true);
+        expect(await turn.reply()).toBe("Read after approval.");
+
+        expect(approvalRequests).toHaveLength(1);
+        expect(
+          turn.events.filter(
+            (event) =>
+              event.type === "tool.start" &&
+              event.data.call.name === "read_file",
+          ),
+        ).toHaveLength(1);
+        const askDone = toolDoneEvents(turn.events);
+        expect(askDone).toHaveLength(1);
+        expect(defined(askDone[0]).data.result.content).toContain(
+          "plugin ask content",
+        );
+        expect(authorizationCalls).toHaveLength(2);
+        for (const call of authorizationCalls) {
+          expect(call).toEqual({
+            resource: "tool:read_file",
+            action: "invoke",
+            context: expect.objectContaining({
+              name: "read_file",
+              arguments: { path: askPath },
+            }),
+          });
+        }
+      } finally {
+        await closeIntegrationSession(askSession);
+      }
+
+      const denyRequests: unknown[] = [];
+      const denyCwd = await mkdtemp(join(tmpdir(), "corbits-plugin-deny-"));
+      const denyGate = createPermissionGate({
+        approvals: [],
+        cwd: denyCwd,
+        interactive: true,
+        skipPermissions: false,
+        reactorGated: true,
+        pluginAuthorize: authorize,
+        requestApproval: async (request) => {
+          denyRequests.push(request);
+          return { allow: true };
+        },
+      });
+      const denySession = await openIntegrationSession({
+        permissionGate: denyGate,
+        authorize: createReactorAuthorize(denyGate),
+        cwd: denyCwd,
+      });
+      try {
+        const denyPath = join(denySession.cwd, "deny.txt");
+        await writeFile(denyPath, "content must not dispatch");
+        denySession.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [{ name: "read_file", args: { path: denyPath } }],
+        });
+        denySession.harness.scenario.replyOnce("anthropic", {
+          text: "Read was blocked.",
+        });
+
+        const turn = await runUntilDone(denySession, "Try to read deny.txt.");
+        expect(
+          turn.events.filter((event) => event.type === "tool.start"),
+        ).toHaveLength(0);
+        const denyDone = toolDoneEvents(turn.events);
+        expect(denyDone).toHaveLength(1);
+        const denied = defined(denyDone[0]).data.result;
+        expect(denied.isError).toBe(true);
+        expect(denied.content).toContain(
+          "Denied by policy: installed guard blocked deny.txt",
+        );
+        expect(denied.content).not.toContain("content must not dispatch");
+        expect(denyRequests).toHaveLength(0);
+        expect(authorizationCalls).toHaveLength(3);
+        expect(defined(authorizationCalls[2])).toEqual({
+          resource: "tool:read_file",
+          action: "invoke",
+          context: expect.objectContaining({
+            name: "read_file",
+            arguments: { path: denyPath },
+          }),
+        });
+      } finally {
+        await closeIntegrationSession(denySession);
+      }
+    },
+  );
+
   test.serial(
     "ask-tier call suspends with a correlationId, resumes on approval, and re-dispatches without re-asking",
     async () => {

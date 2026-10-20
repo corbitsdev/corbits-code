@@ -111,6 +111,19 @@ path:** the `@corbits/openai-responses` release whose dist imports
 `@intx/types/format-safety-rating`; drop this entry and the re-export
 lines in the same change.
 
+## runtime-core-ts-approval-mode
+
+`runtime-core.ts` — `ApprovalSnapshot` accepts the optional generic
+`approvalMode: "allow-once"` marker. Old snapshots remain valid and unchanged;
+marked snapshots let a host reconstruct an approval request without persistable
+scopes after a durable suspension resumes.
+
+**Disposition:** Promotion candidate. Companion to `authz-ts-approval-mode` in
+`@intx/inference`. **Removal path:** upstream support for equivalent generic
+allow-once provenance in the approval snapshot contract. **Re-carry:** preserve
+the single literal value and optionality so malformed modes fail parsing while
+unmarked historical snapshots remain backward compatible.
+
 ## runtime-ts-auth-recovery-context
 
 `mediated-credential.ts` and `runtime.ts` — credential material can atomically

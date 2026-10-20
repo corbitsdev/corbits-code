@@ -720,6 +720,8 @@ export const ApprovalSnapshot = type({
   description: "string",
   inputSchema: "Record<string, unknown>",
   arguments: "Record<string, unknown>",
+  // Locally patched — see vendor/intx-types/PATCHES.md#runtime-core-ts-approval-mode
+  "approvalMode?": "'allow-once'",
 });
 export type ApprovalSnapshot = typeof ApprovalSnapshot.infer;
 

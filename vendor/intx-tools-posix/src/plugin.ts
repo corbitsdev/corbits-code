@@ -1,3 +1,4 @@
+import type { AuthorizeFn } from "@intx/agent";
 import type { ToolCall, ToolResult, ToolDefinition } from "@intx/types/runtime";
 
 export type ToolHandler = (
@@ -15,6 +16,8 @@ export interface ExtraTool {
 export interface ToolPlugin {
   tools?: ExtraTool[];
   middleware?: Middleware;
+  // Locally patched — see vendor/intx-tools-posix/PATCHES.md#plugin-ts-authorize
+  authorize?: AuthorizeFn;
   dispose?(): Promise<void>;
 }
 
