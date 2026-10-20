@@ -461,11 +461,26 @@ export function createSessionOperationQueue(): SessionOperationQueue {
   // the await.
   let nextId = 0;
   let activeId = 0;
+  // Body promise of the op in `activeId`. Unset during that op's first
+  // synchronous turn, before `run` returns.
+  let activeResult: Promise<void> | undefined;
 
   // True only when this continuation is the op that is running right now.
   // A detached continuation still carries its parent's id; that must not
   // match a later op's activeId.
   const inThisOp = (): boolean => runningSessionOp.getStore() === activeId;
+
+  // The body promise can be fulfilled while `activeId` is still set: `finally`
+  // clears the id on a later microtask. A continuation in that gap is not the
+  // op waiting on itself.
+  const bodyStillRunning = (): boolean => {
+    if (activeResult === undefined) return true;
+    try {
+      return Bun.peek(activeResult) === activeResult;
+    } catch {
+      return false;
+    }
+  };
 
   const execute = (op: () => Promise<void>): Promise<void> => {
     const id = ++nextId;
@@ -474,13 +489,26 @@ export function createSessionOperationQueue(): SessionOperationQueue {
     try {
       result = runningSessionOp.run(id, op);
     } catch (err) {
-      if (activeId === id) activeId = 0;
+      if (activeId === id) {
+        activeId = 0;
+        activeResult = undefined;
+      }
       throw err;
     }
+    activeResult = result;
     return Promise.resolve(result).finally(() => {
-      if (activeId === id) activeId = 0;
+      if (activeId === id) {
+        activeId = 0;
+        activeResult = undefined;
+      }
     });
   };
+
+  // `observed === activeResult` is the adoption of a thenable returned from
+  // the op. That `.then` runs after AsyncLocalStorage.run returns.
+  const isSelfWait = (during: number, observed: object): boolean =>
+    activeId === during &&
+    (observed === activeResult || (inThisOp() && bodyStillRunning()));
 
   const enqueue = (op: () => Promise<void>): Promise<void> => {
     // `tail.then(op, op)` — a failed op must not wedge the chain. The
@@ -493,7 +521,9 @@ export function createSessionOperationQueue(): SessionOperationQueue {
     tail = scheduled;
     if (!inThisOp()) return scheduled;
     const enqueuedDuring = activeId;
-    return observeUnlessSelfWait(scheduled, () => activeId === enqueuedDuring);
+    return observeUnlessSelfWait(scheduled, (observed) =>
+      isSelfWait(enqueuedDuring, observed),
+    );
   };
 
   const awaitTail = (): Promise<void> => {
@@ -503,7 +533,9 @@ export function createSessionOperationQueue(): SessionOperationQueue {
     // deadlocks the same way as awaiting enqueue.
     if (!inThisOp()) return drained;
     const awaitedDuring = activeId;
-    return observeUnlessSelfWait(drained, () => activeId === awaitedDuring);
+    return observeUnlessSelfWait(drained, (observed) =>
+      isSelfWait(awaitedDuring, observed),
+    );
   };
 
   return { enqueue, awaitTail };
@@ -517,7 +549,7 @@ export function createSessionOperationQueue(): SessionOperationQueue {
  */
 function observeUnlessSelfWait(
   forward: Promise<void>,
-  stillRunning: () => boolean,
+  stillRunning: (observed: object) => boolean,
 ): Promise<void> {
   let reported: SessionOperationSelfWaitError | undefined;
   let guarded = false;
@@ -555,7 +587,7 @@ function observeUnlessSelfWait(
     ): Promise<undefined>;
   } = {
     then(onFulfilled, onRejected) {
-      if (stillRunning()) {
+      if (stillRunning(thenable)) {
         guardUnobserved();
         return reject().then(onFulfilled, onRejected);
       }
