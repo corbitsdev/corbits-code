@@ -56,3 +56,19 @@ export const AUTO_ALLOW_READ_TOOLS: ReadonlySet<string> = new Set([
   ),
   "manage_tasks",
 ]);
+
+/**
+ * Read-only control-plane lookups. They read this agent's own catalogs or
+ * worker records and cannot change the workspace or grant authority, so
+ * classifyTool allows them in every mode, including non-auto interactive
+ * sessions that are not yolo. Mutating and authority-granting control-plane
+ * verbs are absent on purpose. gate.ts lists every control-plane verb and
+ * its non-auto, non-yolo effect next to that allow.
+ * SECURITY-RELEVANT: a name added here never prompts.
+ */
+export const READ_ONLY_CONTROL_PLANE_TOOLS: ReadonlySet<string> = new Set([
+  "tool_search",
+  "search_agents",
+  "list_agents",
+  "read_agent_trace",
+]);
