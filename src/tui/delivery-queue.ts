@@ -8,11 +8,16 @@
  * submit kind, not a QueueKind — tests/API only.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { AgentClosedError } from "@intx/agent";
-import type { PendingImageAttachment } from "./image-attachments.js";
-import type { ProductHostDeliver } from "./product-host.js";
+import { getLogger } from "@intx/log";
+
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { ASK_DIRECTOR_WAKE_PREFIX } from "../subagent/fleet-report.js";
 import { MAILBOX_MAIL_WAKE_PREFIX } from "../subagent/mailbox-mail-drive.js";
+import type { PendingImageAttachment } from "./image-attachments.js";
+import type { ProductHostDeliver } from "./product-host.js";
 
 export type AgentDeliveryNotDeliveredReason =
   | "agent-closed"
@@ -421,6 +426,24 @@ export function drainSteersOnly(state: SessionQueueState): {
   return { state: current, drained };
 }
 
+const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
+
+/**
+ * Id of the op whose body is on this continuation. A detached promise
+ * inherits the spawning op's id, so the store stays set after that op
+ * settles. That is not a self-wait: the deadlock is awaiting the FIFO
+ * from inside the op that is running right now, not merely calling
+ * enqueue while some later op is running.
+ */
+const runningSessionOp = new AsyncLocalStorage<number>();
+
+export class SessionOperationSelfWaitError extends Error {
+  constructor() {
+    super("session operation waited on work it queued behind itself");
+    this.name = "SessionOperationSelfWaitError";
+  }
+}
+
 // Serial promise chain for session-scoped operations; failures do not
 // block the tail.
 
@@ -433,16 +456,113 @@ export interface SessionOperationQueue {
 
 export function createSessionOperationQueue(): SessionOperationQueue {
   let tail: Promise<void> = Promise.resolve();
+  // Id of the op that has not settled, or 0. Cleared in `finally` only for
+  // that id, so a later op's run cannot be mistaken for the one that queued
+  // the await.
+  let nextId = 0;
+  let activeId = 0;
+
+  // True only when this continuation is the op that is running right now.
+  // A detached continuation still carries its parent's id; that must not
+  // match a later op's activeId.
+  const inThisOp = (): boolean => runningSessionOp.getStore() === activeId;
+
+  const execute = (op: () => Promise<void>): Promise<void> => {
+    const id = ++nextId;
+    activeId = id;
+    let result: Promise<void>;
+    try {
+      result = runningSessionOp.run(id, op);
+    } catch (err) {
+      if (activeId === id) activeId = 0;
+      throw err;
+    }
+    return Promise.resolve(result).finally(() => {
+      if (activeId === id) activeId = 0;
+    });
+  };
 
   const enqueue = (op: () => Promise<void>): Promise<void> => {
-    tail = tail.then(op, op);
-    return tail;
+    // `tail.then(op, op)` — a failed op must not wedge the chain. The
+    // returned promise is not that tail: a self-wait rejection has to
+    // stay off it, or the op queued behind this one never runs.
+    const scheduled = tail.then(
+      () => execute(op),
+      () => execute(op),
+    );
+    tail = scheduled;
+    if (!inThisOp()) return scheduled;
+    const enqueuedDuring = activeId;
+    return observeUnlessSelfWait(scheduled, () => activeId === enqueuedDuring);
   };
 
-  return {
-    enqueue,
-    awaitTail: () => tail.catch(() => undefined),
+  const awaitTail = (): Promise<void> => {
+    const drained = tail.catch(() => undefined);
+    // Outside an op this is the real tail, even if another op is in
+    // flight. Inside, the tail includes the running op, so awaiting it
+    // deadlocks the same way as awaiting enqueue.
+    if (!inThisOp()) return drained;
+    const awaitedDuring = activeId;
+    return observeUnlessSelfWait(drained, () => activeId === awaitedDuring);
   };
+
+  return { enqueue, awaitTail };
+}
+
+/**
+ * Await observes via `.then`. Reject that observation while the enqueuing
+ * op is still the running op; if it is observed only after that op has
+ * settled, forward to the scheduled promise. `void enqueue()` never calls
+ * `.then`, so a fire-and-forget enqueue stays a normal queued op.
+ */
+function observeUnlessSelfWait(
+  forward: Promise<void>,
+  stillRunning: () => boolean,
+): Promise<void> {
+  let reported: SessionOperationSelfWaitError | undefined;
+  let guarded = false;
+  const reject = (): Promise<undefined> => {
+    if (reported === undefined) {
+      reported = new SessionOperationSelfWaitError();
+      tuiLogger.warn(reported.message);
+    }
+    return Promise.reject(reported);
+  };
+  // The self-wait thenable never forwards to `forward`, so a later
+  // rejection of that promise (the tail, when nothing was queued after
+  // it) would be unhandled. Attach a handler only on that path. A real
+  // waiter that observes `forward` after the op settles still hears the
+  // rejection; this handler does not replace theirs.
+  const guardUnobserved = (): void => {
+    if (guarded) return;
+    guarded = true;
+    forward.then(
+      () => undefined,
+      () => undefined,
+    );
+  };
+  // Not a native Promise: Bun's await does not call an overridden
+  // `Promise.prototype.then`, so the self-wait check has to live on the
+  // thenable `await` actually invokes.
+  const thenable: {
+    then(
+      onFulfilled?:
+        | ((value: undefined) => undefined | PromiseLike<undefined>)
+        | null,
+      onRejected?:
+        | ((reason: unknown) => undefined | PromiseLike<undefined>)
+        | null,
+    ): Promise<undefined>;
+  } = {
+    then(onFulfilled, onRejected) {
+      if (stillRunning()) {
+        guardUnobserved();
+        return reject().then(onFulfilled, onRejected);
+      }
+      return forward.then(() => undefined).then(onFulfilled, onRejected);
+    },
+  };
+  return thenable as Promise<void>;
 }
 
 /**
