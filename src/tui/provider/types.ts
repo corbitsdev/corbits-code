@@ -13,7 +13,9 @@ import type {
 import type { FirstClassOAuthProvider } from "../../../packages/first-class-providers/src/index.js";
 import type { CodexTokens } from "../../auth/codex/store.js";
 import type { AuthProfile } from "../../auth/store.js";
+import type { MetaOAuthTokens } from "../../auth/meta/store.js";
 import type { XaiTokens } from "../../auth/xai/store.js";
+import type { ClipboardPort } from "../copy-path.js";
 import type {
   discoverOllamaModels as discoverOllamaModelsRequest,
   OllamaDiscoveryState,
@@ -28,12 +30,23 @@ import type { SetupStep } from "./steps.js";
 
 export type OAuthKind = FirstClassOAuthProvider;
 
+/** Catalog row the Meta OAuth slug guard can tell from an API key. */
+export type ExistingProviderRef =
+  | string
+  | {
+      readonly name: string;
+      readonly apiKey?: string;
+      readonly metaProfile?: string;
+    };
+
 /**
  * A selectable provider. Preset rows carry everything the settings write needs
  * except the key; the custom row carries nothing and opens the manual form.
  */
 export interface ProviderChoice {
   readonly id: string;
+  /** Second row is unreachable if this collapses to the shared catalog id. */
+  readonly rowId: string;
   readonly label: string;
   readonly baseURL: string;
   readonly models: readonly string[];
@@ -75,7 +88,7 @@ export type SubmitPhase = "testing" | "saving";
 
 export interface OAuthResult {
   readonly kind: OAuthKind;
-  readonly tokens: CodexTokens | XaiTokens;
+  readonly tokens: CodexTokens | XaiTokens | MetaOAuthTokens;
   readonly commit: () => Promise<void>;
   /** Settings/catalog name the stored profile projects to. */
   readonly providerName: string;
@@ -107,7 +120,7 @@ export type ProviderSetupSubmit = (
 export interface OAuthLoginStart {
   readonly authorizeUrl: string;
   readonly completed: Promise<{
-    readonly profile: AuthProfile<CodexTokens | XaiTokens>;
+    readonly profile: AuthProfile<CodexTokens | XaiTokens | MetaOAuthTokens>;
     readonly commit: () => Promise<void>;
   }>;
   readonly cancel: () => void;
@@ -117,6 +130,12 @@ export type OAuthLoginStarter = (input: {
   readonly kind: OAuthKind;
   readonly profile: string;
   readonly signal: AbortSignal;
+  /** Device-flow only: called when the verification URI + user code are ready. */
+  readonly notify?: (event: {
+    readonly type: "device_code";
+    readonly verificationUri: string;
+    readonly userCode: string;
+  }) => void;
 }) => Promise<OAuthLoginStart>;
 
 /** Fetches the names of already-authorized profiles for a provider kind. */
@@ -130,6 +149,7 @@ export interface ProviderSetupConfig {
   readonly showTelemetryNotice: boolean;
   /** Renderer factory override for headless mounting in tests. */
   readonly createRenderer?: () => Promise<CliRenderer>;
+  readonly clipboard?: ClipboardPort;
   /** Login driver override so tests need neither a browser nor a port. */
   readonly startLogin?: OAuthLoginStarter;
   /** Profile lister override so tests need no auth-store files on disk. */
@@ -147,7 +167,7 @@ export interface ProviderSetupConfig {
   /** Prefill the OAuth account-name step with the profile slug being re-keyed. */
   readonly initialOAuthProfile?: string;
   /** Existing catalog keys, for suggested slugs and collision confirms on the API-key path. */
-  readonly existingProviderNames?: readonly string[];
+  readonly existingProviderNames?: readonly ExistingProviderRef[];
 }
 
 /** Mutable state shared by the setup surface and its extracted flows. */
@@ -155,8 +175,9 @@ export interface SetupState {
   readonly config: ProviderSetupConfig;
   readonly renderer: CliRenderer;
   readonly externalRenderer: boolean;
+  readonly clipboard: ClipboardPort;
   readonly choices: readonly ProviderChoice[];
-  readonly existingProviderNames: readonly string[];
+  readonly existingProviderNames: readonly ExistingProviderRef[];
   readonly values: ProviderFormValues;
   readonly margin: number;
   choice: ProviderChoice | null;
@@ -178,6 +199,12 @@ export interface SetupState {
   loginAbort: AbortController | null;
   loginHandle: OAuthLoginStart | null;
   loginTimer: ReturnType<typeof setTimeout> | null;
+  statusFlash: string | null;
+  statusFlashTimer: ReturnType<typeof setTimeout> | null;
+  deviceCode: {
+    verificationUri: string;
+    userCode: string;
+  } | null;
   // Lets the provider step report an abandoned sign-in instead of a silent list.
   loginCancelled: boolean;
   // Bumped per start/abandon so a late resolution never moves the screen.

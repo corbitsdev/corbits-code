@@ -9,10 +9,17 @@ import {
   OAUTH_SURFACES,
   resolveApiKeyInstanceName,
 } from "./choices.js";
+import { writeClipboard } from "../copy-path.js";
+import { RUNTIME_FLASH_MS } from "../runtime-notices.js";
 import { OAUTH_PROFILE_HINT } from "./form.js";
 import { startRamp, stopRamp } from "./surface.js";
+import {
+  isPinnedMetaVerificationUri,
+  REJECTED_META_VERIFICATION_URI,
+} from "../../auth/meta/verification-uri.js";
 import type {
   AccountNameFlow,
+  ExistingProviderRef,
   LoginFlow,
   OAuthKind,
   OAuthLoginStart,
@@ -76,6 +83,74 @@ export function suggestOAuthProfileSlug(existing: readonly string[]): string {
   return `default-${String(n)}`;
 }
 
+function providerNameList(rows: readonly ExistingProviderRef[]): string[] {
+  return rows.map((row) => (typeof row === "string" ? row : row.name));
+}
+
+// `meta/<slug>` and `meta-api/<slug>` are one namespace: signing in under a
+// slug that already names an API-key row is rejected.
+export function suggestMetaOAuthProfileSlug(
+  authProfiles: readonly string[],
+  existingProviderNames: readonly ExistingProviderRef[],
+): string {
+  const names = providerNameList(existingProviderNames);
+  return suggestOAuthProfileSlug([
+    ...authProfiles,
+    ...instanceSlugsForKind("meta", names),
+    ...instanceSlugsForKind("meta-api", names),
+  ]);
+}
+
+/** Settings rows for the slug guard. A keyless `meta/<slug>` is not an API key. */
+export function catalogRowsForMetaOAuthGuard(
+  providers: Readonly<Record<string, { readonly apiKey?: string }>> | undefined,
+): ExistingProviderRef[] {
+  const rows: ExistingProviderRef[] = [];
+  for (const [name, provider] of Object.entries(providers ?? {})) {
+    const apiKey = provider.apiKey;
+    if (typeof apiKey === "string" && apiKey.length > 0) {
+      rows.push({ name, apiKey });
+    } else {
+      rows.push({ name });
+    }
+  }
+  return rows;
+}
+
+/** True when `slug` names an API-key row, not an OAuth profile. */
+export function metaOAuthSlugBlockedByApiKey(
+  slug: string,
+  rows: readonly (
+    | string
+    | {
+        readonly name: string;
+        readonly apiKey?: string;
+        readonly metaProfile?: string;
+      }
+  )[],
+  authProfiles: readonly string[] = [],
+): boolean {
+  if (authProfiles.includes(slug)) return false;
+  for (const row of rows) {
+    if (typeof row !== "string" && row.metaProfile === slug) return false;
+  }
+  const names = rows.map((row) => (typeof row === "string" ? row : row.name));
+  if (instanceSlugsForKind("meta-api", names).includes(slug)) return true;
+  for (const row of rows) {
+    const name = typeof row === "string" ? row : row.name;
+    if (!instanceSlugsForKind("meta", [name]).includes(slug)) continue;
+    if (typeof row !== "string" && row.metaProfile !== undefined) continue;
+    if (
+      typeof row !== "string" &&
+      (typeof row.apiKey !== "string" || row.apiKey.length === 0)
+    ) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
 /**
  * Real lister, imported lazily per kind so mounting the surface never touches
  * the auth-store files in a test that injects its own lister.
@@ -86,6 +161,10 @@ export const defaultProfileLister = async (
   if (kind === "codex") {
     const { listCodexProfiles } = await import("../../config/oauth-stores.js");
     return (await listCodexProfiles()).map((p) => p.name);
+  }
+  if (kind === "meta") {
+    const { listMetaProfiles } = await import("../../config/oauth-stores.js");
+    return (await listMetaProfiles()).map((p) => p.name);
   }
   const { listXaiProfiles } = await import("../../config/oauth-stores.js");
   return (await listXaiProfiles()).map((p) => p.name);
@@ -121,15 +200,29 @@ export const defaultLoginStarter = async ({
   kind,
   profile,
   signal,
+  notify,
 }: {
   readonly kind: OAuthKind;
   readonly profile: string;
   readonly signal: AbortSignal;
+  readonly notify?: (event: {
+    readonly type: "device_code";
+    readonly verificationUri: string;
+    readonly userCode: string;
+  }) => void;
 }) => {
   const { productCallbackCopy } = await import("../../branding.js");
   if (kind === "codex") {
     const { startCodexLogin } = await import("../../auth/codex/login.js");
     return startCodexLogin({ profile, signal, copy: productCallbackCopy });
+  }
+  if (kind === "meta") {
+    const { startMetaLogin } = await import("../../auth/meta/login.js");
+    return startMetaLogin({
+      profile,
+      signal,
+      ...(notify !== undefined ? { notify } : {}),
+    });
   }
   const { startXaiLogin } = await import("../../auth/xai/login.js");
   return startXaiLogin({ profile, signal, copy: productCallbackCopy });
@@ -163,6 +256,7 @@ export function createLoginFlow(
     state.loginAbort = null;
     state.loginHandle?.cancel();
     state.loginHandle = null;
+    state.deviceCode = null;
   };
 
   /** Denial, transport failure, or the deadline — all land the operator here. */
@@ -173,6 +267,7 @@ export function createLoginFlow(
     state.loginStatus = "failed";
     state.loginError = message;
     state.loginURL = null;
+    state.deviceCode = null;
     surface.paint();
   };
 
@@ -210,6 +305,7 @@ export function createLoginFlow(
     state.loginStatus = "pending";
     state.loginError = null;
     state.loginCancelled = false;
+    state.deviceCode = null;
     const abort = new AbortController();
     state.loginAbort = abort;
     // A browser round-trip that never comes back must still give the screen
@@ -226,6 +322,34 @@ export function createLoginFlow(
         kind,
         profile: state.values.oauthProfile,
         signal: abort.signal,
+        notify: (event) => {
+          if (event.type !== "device_code") return;
+          if (attempt !== state.loginAttempt) return;
+          if (!isPinnedMetaVerificationUri(event.verificationUri)) {
+            failLogin(attempt, REJECTED_META_VERIFICATION_URI);
+            return;
+          }
+          state.deviceCode = {
+            verificationUri: event.verificationUri,
+            userCode: event.userCode,
+          };
+          const flash = (message: string): void => {
+            state.statusFlash = message;
+            if (state.statusFlashTimer !== null)
+              clearTimeout(state.statusFlashTimer);
+            state.statusFlashTimer = setTimeout(() => {
+              if (state.statusFlash === message) state.statusFlash = null;
+              state.statusFlashTimer = null;
+              surface.paintStatus();
+            }, RUNTIME_FLASH_MS);
+            surface.paintStatus();
+          };
+          writeClipboard(state.clipboard, event.verificationUri, {
+            onSuccess: () => flash("verification link copied to clipboard"),
+            onFailure: () => flash("copy failed — copy the url above"),
+          });
+          surface.paint();
+        },
       })
       .then(
         (handle) => {
@@ -263,6 +387,7 @@ export function createLoginFlow(
     state.loginURL = null;
     state.loginError = null;
     state.loginResult = null;
+    state.deviceCode = null;
     hooks.back();
     state.loginCancelled = wasPending;
     surface.paint();
@@ -295,10 +420,10 @@ export function createAccountNameFlow(
     surface.input.focus();
     if (state.choice === null || state.choice.custom) return;
     const attempt = (state.oauthNameAttempt += 1);
-    const applySuggestion = (names: readonly string[]): void => {
+    const applySuggestion = (slug: string): void => {
       if (state.settled || attempt !== state.oauthNameAttempt) return;
       if (state.values.oauthProfile.trim().length === 0) {
-        state.values.oauthProfile = suggestOAuthProfileSlug(names);
+        state.values.oauthProfile = slug;
         surface.input.value = state.values.oauthProfile;
         surface.paint();
       }
@@ -307,11 +432,23 @@ export function createAccountNameFlow(
       state
         .listOAuthProfiles(state.choice.oauth)
         .catch((): readonly string[] => [])
-        .then(applySuggestion);
+        .then((names) => {
+          const kind = state.choice?.oauth;
+          applySuggestion(
+            kind === "meta"
+              ? suggestMetaOAuthProfileSlug(names, state.existingProviderNames)
+              : suggestOAuthProfileSlug(names),
+          );
+        });
       return;
     }
     applySuggestion(
-      instanceSlugsForKind(state.choice.id, state.existingProviderNames),
+      suggestOAuthProfileSlug(
+        instanceSlugsForKind(
+          state.choice.id,
+          providerNameList(state.existingProviderNames),
+        ),
+      ),
     );
   };
 
@@ -330,7 +467,7 @@ export function createAccountNameFlow(
       state.values.name = resolveApiKeyInstanceName(
         state.choice.id,
         slug,
-        state.existingProviderNames,
+        providerNameList(state.existingProviderNames),
       );
     }
     state.stepIndex += 1;
@@ -363,6 +500,16 @@ export function createAccountNameFlow(
     const attempt = (state.oauthNameAttempt += 1);
     const handleNames = (names: readonly string[]): void => {
       if (state.settled || attempt !== state.oauthNameAttempt) return;
+      if (
+        state.choice?.oauth === "meta" &&
+        metaOAuthSlugBlockedByApiKey(slug, state.existingProviderNames, names)
+      ) {
+        state.oauthProfileError = "that name is an API key";
+        state.oauthProfileConfirmPending = false;
+        state.confirmedSlug = null;
+        surface.paint();
+        return;
+      }
       if (names.includes(slug)) {
         state.oauthProfileError = null;
         state.oauthProfileConfirmPending = true;
@@ -380,7 +527,10 @@ export function createAccountNameFlow(
       return;
     }
     handleNames(
-      instanceSlugsForKind(state.choice.id, state.existingProviderNames),
+      instanceSlugsForKind(
+        state.choice.id,
+        providerNameList(state.existingProviderNames),
+      ),
     );
   };
 

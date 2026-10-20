@@ -28,6 +28,7 @@ import {
   normalizeProviderEfforts,
 } from "../../provider/reasoning-effort.js";
 import { ProviderInferenceOptionsSchema } from "../../config/provider-inference-options.js";
+import { assignMetaOAuthProviderRow } from "../../config/meta-api-key.js";
 
 const CustomInferenceInputsSchema = type({
   contextWindow: "string",
@@ -154,18 +155,13 @@ export function buildProviderSubmitHandler(
       }
       setPhase("saving");
       await oauth.commit();
-      await persistSettings((base) => ({
-        ...base,
-        defaultProvider: oauth.providerName,
-        providers: {
-          ...base.providers,
-          [oauth.providerName]: {
-            baseURL: trimmedBaseURL,
-            models: [selectedModel],
-            defaultModel: selectedModel,
-          },
-        },
-      }));
+      await persistSettings((base) =>
+        assignMetaOAuthProviderRow(base, oauth.providerName, {
+          baseURL: trimmedBaseURL,
+          models: [selectedModel],
+          defaultModel: selectedModel,
+        }),
+      );
       await persistConnectedSelection(
         localSettingsFile,
         oauth.providerName,

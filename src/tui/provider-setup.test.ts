@@ -42,6 +42,9 @@ import {
   LOGIN_CANCELLED_MESSAGE,
   LOGIN_TIMEOUT_MESSAGE,
   suggestOAuthProfileSlug,
+  suggestMetaOAuthProfileSlug,
+  catalogRowsForMetaOAuthGuard,
+  metaOAuthSlugBlockedByApiKey,
   validateOAuthProfileSlug,
 } from "./provider/oauth.js";
 import { runProviderSetup } from "./provider/setup.js";
@@ -98,6 +101,7 @@ function stagedLoginStarter(
   opts: {
     onStart?: (input: StagedLoginInput) => void;
     deniedStarts?: number;
+    emitDeviceCode?: boolean;
   } = {},
 ): {
   start: OAuthLoginStarter;
@@ -124,6 +128,13 @@ function stagedLoginStarter(
     start: async (input) => {
       events.starts.push(input);
       opts.onStart?.(input);
+      if (opts.emitDeviceCode === true && events.starts.length === 1) {
+        input.notify?.({
+          type: "device_code",
+          verificationUri: "https://auth.meta.com/device?code=ABCD-1234",
+          userCode: "ABCD-1234",
+        });
+      }
       input.signal.addEventListener("abort", () => {
         events.aborted = true;
       });
@@ -329,6 +340,59 @@ describe("provider setup pure helpers", () => {
     expect(suggestOAuthProfileSlug(["default", "default-2"])).toBe("default-3");
   });
 
+  test("a Meta OAuth slug skips an API-key row instead of replacing it", () => {
+    expect(suggestMetaOAuthProfileSlug([], ["meta/default"])).toBe("default-2");
+    expect(suggestMetaOAuthProfileSlug([], [])).toBe("default");
+    expect(metaOAuthSlugBlockedByApiKey("work", ["meta/work"])).toBe(true);
+    expect(metaOAuthSlugBlockedByApiKey("work", ["meta-api/work"])).toBe(true);
+    expect(metaOAuthSlugBlockedByApiKey("work", [{ name: "meta/work" }])).toBe(
+      false,
+    );
+    expect(
+      catalogRowsForMetaOAuthGuard({
+        "meta/work": {},
+      }),
+    ).toEqual([{ name: "meta/work" }]);
+    expect(
+      metaOAuthSlugBlockedByApiKey(
+        "work",
+        catalogRowsForMetaOAuthGuard({
+          "meta/work": { apiKey: "LLM|pasted" },
+        }),
+      ),
+    ).toBe(true);
+    const authProfiles: readonly string[] = [];
+    const existingProviderNames = ["meta-api/default"];
+    const suggested = suggestMetaOAuthProfileSlug(
+      authProfiles,
+      existingProviderNames,
+    );
+    expect(suggested).not.toBe("default");
+    expect(
+      metaOAuthSlugBlockedByApiKey(
+        suggested,
+        existingProviderNames,
+        authProfiles,
+      ),
+    ).toBe(false);
+  });
+
+  test("an existing Meta OAuth profile is not treated as an API key", () => {
+    expect(metaOAuthSlugBlockedByApiKey("work", ["meta/work"], ["work"])).toBe(
+      false,
+    );
+    expect(
+      metaOAuthSlugBlockedByApiKey("work", [
+        { name: "meta/work", apiKey: "identity-token", metaProfile: "work" },
+      ]),
+    ).toBe(false);
+    expect(
+      metaOAuthSlugBlockedByApiKey("work", [
+        { name: "meta/work", apiKey: "LLM|pasted" },
+      ]),
+    ).toBe(true);
+  });
+
   test("the pick-list ends with custom and every known provider is launchable", () => {
     const choices = providerChoices();
     expect(choices.at(-1)?.id).toBe(CUSTOM_CHOICE_ID);
@@ -349,7 +413,7 @@ describe("provider setup pure helpers", () => {
       { name: "codex/default" },
     ]);
     expect(rows.map((r) => r.id)).toContain(CUSTOM_CHOICE_ID);
-    expect(rows.map((r) => r.id)).toEqual(choices.map((c) => c.id));
+    expect(rows.map((r) => r.id)).toEqual(choices.map((c) => c.rowId));
     const openai = rows.find((r) => r.id === "openai");
     const codex = rows.find((r) => r.id === "codex");
     const custom = rows.find((r) => r.id === CUSTOM_CHOICE_ID);
@@ -485,6 +549,20 @@ async function mountConfig(
   return { done, harness };
 }
 
+function recordingClipboard(): {
+  clipboard: { writeText: (t: string) => void; writes: string[] };
+} {
+  const writes: string[] = [];
+  return {
+    clipboard: {
+      writes,
+      writeText: (text: string) => {
+        writes.push(text);
+      },
+    },
+  };
+}
+
 async function mountSetup(
   onSubmit: ProviderSetupSubmit = async () => undefined,
   showTelemetryNotice = false,
@@ -597,6 +675,7 @@ async function mountLogin(opts: {
   onSubmit?: ProviderSetupSubmit;
   loginTimeoutMs?: number;
   listOAuthProfiles?: OAuthProfileLister;
+  clipboard?: ProviderSetupConfig["clipboard"];
 }): Promise<{ done: Promise<boolean>; harness: Harness }> {
   return mountConfig({
     onSubmit: opts.onSubmit ?? (async () => undefined),
@@ -605,6 +684,7 @@ async function mountLogin(opts: {
     ...(opts.loginTimeoutMs !== undefined
       ? { loginTimeoutMs: opts.loginTimeoutMs }
       : {}),
+    ...(opts.clipboard !== undefined ? { clipboard: opts.clipboard } : {}),
   });
 }
 
@@ -1036,6 +1116,23 @@ describe("runProviderSetup sign-in", () => {
     expect(await done).toBe(false);
   });
 
+  test("a suggested Meta name skips an existing API-key slug", async () => {
+    const { start } = stagedLoginStarter();
+    const { done, harness } = await mountConfig({
+      startLogin: start,
+      listOAuthProfiles: async () => [],
+      existingProviderNames: ["meta-api/default"],
+    });
+    await pickRow(harness, PROVIDER_IDS, "meta");
+    await flush(harness);
+    const frame = harness.captureCharFrame();
+    expect(frame).toContain("step 2 of 4");
+    expect(frame).toContain("default-2");
+    expect(frame.replaceAll("default-2", "")).not.toContain("default");
+    harness.pressKey("Ctrl+C");
+    expect(await done).toBe(false);
+  });
+
   test("reusing a connected account's name asks to confirm before re-authorizing it", async () => {
     const seenProfiles: string[] = [];
     const { start } = stagedLoginStarter({
@@ -1188,6 +1285,61 @@ describe("runProviderSetup sign-in", () => {
     expect(harness.captureCharFrame()).toContain("step 2 of 4");
     harness.pressKey("Ctrl+C");
     expect(await done).toBe(false);
+  });
+
+  test("the Meta device flow copies the verification URI to the clipboard", async () => {
+    const rec = recordingClipboard();
+    const { start } = stagedLoginStarter({ emitDeviceCode: true });
+    const { done, harness } = await mountLogin({
+      start,
+      clipboard: rec.clipboard,
+    });
+    await pickRow(harness, PROVIDER_IDS, "meta");
+    await nameOAuthAccount(harness);
+    const frame = harness.captureCharFrame();
+    expect(frame).toContain("https://auth.meta.com/device?code=ABCD-1234");
+    expect(frame).toContain("ABCD-1234");
+    expect(rec.clipboard.writes).toEqual([
+      "https://auth.meta.com/device?code=ABCD-1234",
+    ]);
+    harness.pressKey("Ctrl+C");
+    expect(await done).toBe(false);
+  });
+
+  test("the Meta chooser exposes two arrow-navigable rows with distinct ids", () => {
+    const metaRows = providerChoiceRows(providerChoices()).filter((r) =>
+      r.label.includes("Meta"),
+    );
+    expect(metaRows.map((r) => r.id)).toEqual(["meta", "meta-api"]);
+    expect(providerChoiceById("meta")?.oauth).toBe("meta");
+    expect(providerChoiceById("meta-api")?.oauth).toBeNull();
+    expect(providerChoiceById("meta-api")?.baseURL).toBe(
+      "https://api.meta.ai/v1",
+    );
+    expect(providerChoiceById("meta-api")?.defaultModel).toBe(
+      "muse-wonder-1.0",
+    );
+  });
+
+  test("picking the Meta API-key row walks the key path, not the sign-in", async () => {
+    const seen: ProviderFormValues[] = [];
+    const { done, harness } = await mountSetup(async (values) => {
+      seen.push({ ...values });
+    });
+    await pickRow(harness, PROVIDER_IDS, "meta-api");
+    await flush(harness);
+    expect(harness.captureCharFrame()).toContain("step 2 of 4");
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    type(harness, "LLM|test-key");
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    expect(await done).toBe(true);
+    expect(seen[0]?.name).toBe("meta-api/default");
+    expect(seen[0]?.apiKey).toBe("LLM|test-key");
+    expect(seen[0]?.model).toBe("muse-wonder-1.0");
   });
 });
 

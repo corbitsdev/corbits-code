@@ -8,6 +8,7 @@ import type { Settings } from "../../config/settings.js";
 import { getTelemetry } from "../../telemetry/singleton.js";
 import { runProviderSetup } from "./setup.js";
 import type { ProviderSetupConfig } from "./types.js";
+import { catalogRowsForMetaOAuthGuard } from "./oauth.js";
 import {
   buildProviderSubmitHandler,
   type PersistProviderSettings,
@@ -59,7 +60,9 @@ export async function connectProviderInline(
     ...(input.initialOAuthProfile !== undefined
       ? { initialOAuthProfile: input.initialOAuthProfile }
       : {}),
-    existingProviderNames: Object.keys(input.existing?.providers ?? {}),
+    existingProviderNames: catalogRowsForMetaOAuthGuard(
+      input.existing?.providers,
+    ),
     ...(input.createRenderer !== undefined
       ? { createRenderer: input.createRenderer }
       : {}),
