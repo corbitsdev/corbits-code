@@ -13,6 +13,7 @@ import {
 } from "./config/settings.js";
 import { flushFileLogSinkSync, installFileLogSink } from "./logging/sink.js";
 import { flushPerfToOtel } from "./perf/index.js";
+import { startBootSpans } from "./perf/boot-spans.js";
 import { createTelemetry, telemetryDisabledByEnv } from "./telemetry/index.js";
 import { getTelemetry, setTelemetry } from "./telemetry/singleton.js";
 import {
@@ -36,6 +37,7 @@ export async function mainWithRunners(
   argv: readonly string[],
   runners: Runners,
 ): Promise<number> {
+  startBootSpans();
   // Must run first: @intx/log installs a console sink on import, and
   // loadConfig can log (e.g. healed settings). This replaces that default so
   // nothing — including vendored loggers — reaches the terminal the TUI owns.

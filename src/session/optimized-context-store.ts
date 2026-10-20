@@ -2,10 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { type } from "arktype";
 import git from "isomorphic-git";
-import {
-  createIsogitStore,
-  type CommitSigner,
-} from "@intx/storage-isogit/node";
+import type { CommitSigner } from "@intx/storage-isogit/node";
+import { loadIsogitNode } from "./isogit-node.js";
 import {
   ContentBlock,
   ConnectorThreadState,
@@ -1478,6 +1476,7 @@ export async function createSessionStores(
   opts?: SessionStoreOptions,
 ): Promise<SessionStores> {
   const signer = opts?.signer ?? (await loadOrCreateCommitSigner(dir));
+  const { createIsogitStore } = await loadIsogitNode();
   const base = await createIsogitStore(dir, signer);
   const pendingBlobFilepaths = new Set<string>();
   const pendingSegmentPaths = new Set<string>();
