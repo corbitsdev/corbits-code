@@ -46,6 +46,7 @@ const METADATA_FILE = "metadata.json";
 const TOKEN_USAGE_SIDECAR_FILE = "token-usage.jsonl";
 const TOOL_OUTPUT_DIR = "tool-output";
 const EVIDENCE_ARCHIVE_DIR = "evidence-archive";
+const EVIDENCE_INDEX_FILE = `${EVIDENCE_ARCHIVE_DIR}/index.jsonl`;
 const OWNER_MARKER_FILE = "session-owner.json";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "session", "context-store"]);
@@ -1489,9 +1490,13 @@ export async function createSessionStores(
   // Fingerprints from the last publish. Segment stats avoid re-reading an
   // unchanged segment. Tool-output blobs are remembered per file: a directory
   // mtime does not move when an existing blob is rewritten in place, and
-  // statusMatrix is not asked to walk that directory on a no-op.
+  // statusMatrix is not asked to walk that directory on a no-op. The evidence
+  // index is one file: an in-place append does not move the archive directory,
+  // so it is fingerprinted on its own and is not a reason to walk tool-output.
   let publishedSegmentStats = new Map<string, SegmentStat>();
   let publishedToolBlobs = new Map<string, SegmentStat>();
+  let publishedEvidenceIndex: SegmentStat | undefined;
+  let evidenceIndexObserved = false;
   let blobDirsObserved = false;
   let toolOutputFingerprint: DirectoryFingerprint | null = null;
   let evidenceFingerprint: DirectoryFingerprint | null = null;
@@ -1575,6 +1580,53 @@ export async function createSessionStores(
     return drifted;
   }
 
+  async function statEvidenceIndex(): Promise<SegmentStat | undefined> {
+    try {
+      const fileStats = await fs.promises.lstat(
+        path.join(dir, EVIDENCE_INDEX_FILE),
+      );
+      if (!fileStats.isFile()) return undefined;
+      return {
+        bytes: fileStats.size,
+        mtimeMs: fileStats.mtimeMs,
+        ino: fileStats.ino,
+      };
+    } catch (cause) {
+      if (
+        cause instanceof Error &&
+        "code" in cause &&
+        cause.code === "ENOENT"
+      ) {
+        return undefined;
+      }
+      throw cause;
+    }
+  }
+
+  // In-place appends do not move the archive directory. Compare the one index
+  // file saved at the last publish. Absent before and after is not drift, and
+  // a match is not read. A store that has not published yet leaves this to the
+  // directory walk.
+  async function driftedPublishedEvidenceIndex(): Promise<{
+    filepath: string;
+    present: boolean;
+  } | null> {
+    if (!evidenceIndexObserved) return null;
+    const observed = await statEvidenceIndex();
+    if (observed === undefined) {
+      return publishedEvidenceIndex === undefined
+        ? null
+        : { filepath: EVIDENCE_INDEX_FILE, present: false };
+    }
+    if (
+      publishedEvidenceIndex === undefined ||
+      segmentStatDrifted(observed, publishedEvidenceIndex)
+    ) {
+      return { filepath: EVIDENCE_INDEX_FILE, present: true };
+    }
+    return null;
+  }
+
   async function blobDirectoriesNeedWalk(): Promise<boolean> {
     if (!blobDirsObserved) return true;
     const tool = await directoryFingerprint(dir, TOOL_OUTPUT_DIR);
@@ -1612,6 +1664,8 @@ export async function createSessionStores(
     toolOutputFingerprint = tool;
     evidenceFingerprint = evidence;
     blobDirsObserved = true;
+    publishedEvidenceIndex = await statEvidenceIndex();
+    evidenceIndexObserved = true;
   }
   const ownerToken = opts?.ownerId ?? globalThis.crypto.randomUUID();
   const explicitOwnerId = opts?.ownerId;
@@ -2466,7 +2520,10 @@ export async function createSessionStores(
             // mtime or inode, so the directory walk stays off. Stat only the
             // blobs recorded at the last publish, and only when nothing else
             // is already forcing a commit (that path git.adds the directory).
+            // The evidence index is the same kind of in-place append, and it
+            // is one file: stat it, do not walk tool-output to notice it.
             let toolBlobsDrifted = false;
+            let evidenceIndexDrifted = false;
             if (!rootsDiffer) {
               for (const blob of await driftedPublishedToolBlobs()) {
                 toolBlobsDrifted = true;
@@ -2475,8 +2532,14 @@ export async function createSessionStores(
                   restatBlobs.add(blob.filepath);
                 } else toRemove.push(blob.filepath);
               }
+              const index = await driftedPublishedEvidenceIndex();
+              if (index !== null) {
+                evidenceIndexDrifted = true;
+                if (index.present) toAdd.push(index.filepath);
+                else toRemove.push(index.filepath);
+              }
             }
-            if (!rootsDiffer && !toolBlobsDrifted) {
+            if (!rootsDiffer && !toolBlobsDrifted && !evidenceIndexDrifted) {
               const [head] = await base.log(1);
               if (head !== undefined) {
                 pendingBlobFilepaths.clear();

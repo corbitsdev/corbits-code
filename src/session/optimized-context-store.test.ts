@@ -843,6 +843,88 @@ describe("createOptimizedContextStore checkpoint", () => {
     expect(new TextDecoder().decode(blob)).toBe("rewritten-in-place");
   });
 
+  test("an in-place append of evidence-archive/index.jsonl is in the next commit", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const indexDir = path.join(dir, "evidence-archive");
+    fs.mkdirSync(indexDir);
+    const indexPath = path.join(indexDir, "index.jsonl");
+    fs.writeFileSync(indexPath, '{"id":"seed"}\n');
+    await store.writeTurns([turn("seed")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "seed evidence index" });
+
+    const before = fs.statSync(indexPath);
+    const dirBefore = fs.statSync(indexDir);
+    fs.appendFileSync(indexPath, '{"id":"appended"}\n');
+    const after = fs.statSync(indexPath);
+    const dirAfter = fs.statSync(indexDir);
+    expect(after.ino).toBe(before.ino);
+    expect(dirAfter.mtimeMs).toBe(dirBefore.mtimeMs);
+    expect(dirAfter.ino).toBe(dirBefore.ino);
+
+    const second = await store.commit({ message: "publish evidence index append" });
+    expect(second.hash).not.toBe(first.hash);
+    const { blob } = await git.readBlob({
+      fs,
+      dir,
+      oid: second.hash,
+      filepath: "evidence-archive/index.jsonl",
+    });
+    expect(new TextDecoder().decode(blob)).toContain('{"id":"appended"}');
+  });
+
+  test("an unchanged evidence index is not re-read and a no-op does not walk tool-output", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const blobCount = 24;
+    for (let index = 0; index < blobCount; index++) {
+      await store.writeBlob(
+        `blob-${index}`,
+        new TextEncoder().encode(`body-${index}`),
+        "text/plain",
+      );
+    }
+    const indexDir = path.join(dir, "evidence-archive");
+    fs.mkdirSync(indexDir);
+    fs.writeFileSync(path.join(indexDir, "index.jsonl"), '{"id":"seed"}\n');
+    await store.writeTurns([turn("seed")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "seed evidence and blobs" });
+
+    const walkedToolOutput: string[][] = [];
+    const originalStatus = git.statusMatrix.bind(git);
+    git.statusMatrix = (async (args) => {
+      const filepaths = args.filepaths ?? [];
+      if (
+        filepaths.some(
+          (filepath) =>
+            filepath === "tool-output" || filepath.startsWith("tool-output/"),
+        )
+      ) {
+        walkedToolOutput.push([...filepaths]);
+      }
+      return originalStatus(args);
+    }) as typeof git.statusMatrix;
+    let reads = 0;
+    let lstats = 0;
+    try {
+      reads = await countPathOps("readFile", "index.jsonl", () =>
+        store.commit({ message: "no writes" }),
+      );
+      lstats = await countPathOps(
+        "lstat",
+        `${path.sep}tool-output${path.sep}`,
+        () => store.commit({ message: "still no writes" }),
+      );
+    } finally {
+      git.statusMatrix = originalStatus;
+    }
+    expect(reads).toBe(0);
+    expect(walkedToolOutput).toEqual([]);
+    expect(lstats).toBe(blobCount);
+  });
+
   test("a turn commit does not lstat every seeded tool-output blob", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
