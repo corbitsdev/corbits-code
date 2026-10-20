@@ -56,4 +56,38 @@ describe("withTestRenderer", () => {
       expect(ctrlC.ctrl).toBe(true);
     });
   });
+
+  test("surfaces native stats and advances nativeFrameCount across renderOnce", async () => {
+    await withTestRenderer(
+      async (h) => {
+        expect(typeof h.waitForVisualIdle).toBe("function");
+        expect(typeof h.externalOutput.take).toBe("function");
+        expect(h.externalOutput.take()).toEqual([]);
+
+        const before = h.getNativeStats();
+        expect(typeof before.nativeLastFrameTime).toBe("number");
+        expect(typeof before.nativeAverageFrameTime).toBe("number");
+        expect(typeof before.cellsUpdated).toBe("number");
+        expect(typeof before.averageCellsUpdated).toBe("number");
+
+        const box = new BoxRenderable(h.renderer, {
+          id: "stats",
+          width: "100%",
+          height: "100%",
+        });
+        box.add(
+          new TextRenderable(h.renderer, {
+            content: "native-stats",
+          }),
+        );
+        h.root.add(box);
+
+        await h.renderOnce();
+        const after = h.getNativeStats();
+        expect(after.nativeFrameCount).toBeGreaterThan(before.nativeFrameCount);
+        await h.waitForVisualIdle();
+      },
+      { width: 40, height: 10 },
+    );
+  });
 });
