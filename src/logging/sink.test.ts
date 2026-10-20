@@ -255,6 +255,56 @@ describe("installFileLogSink", () => {
     }
   });
 
+  test("an aside left after a crash is restored even when the buffer is empty", () => {
+    const { dir, file } = tempLogFile();
+    try {
+      installFileLogSink(file, { maxBytes: 10_000 });
+      const aside = `${file}.${process.pid}.1.rotating.aside`;
+      const marker = "aside-generation\n";
+      fs.writeFileSync(aside, marker);
+      flushFileLogSinkSync();
+      const active = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+      const rotated = fs.existsSync(`${file}.1`)
+        ? fs.readFileSync(`${file}.1`, "utf8")
+        : "";
+      expect(`${active}${rotated}`).toContain("aside-generation");
+      expect(fs.existsSync(aside)).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a busy lock retries the flush without rotating first", async () => {
+    const { dir, file } = tempLogFile();
+    const holder = liveLockHolder();
+    try {
+      installFileLogSink(file, { maxBytes: 300 });
+      const first = getLogger(["logging", "retry-a"]);
+      first.info("first-marker");
+      first.info("first-marker-b");
+      first.info("short-active");
+      flushFileLogSinkSync();
+      const rotated = `${file}.1`;
+      const marker = fs.readFileSync(rotated, "utf8");
+      const activeBefore = fs.readFileSync(file, "utf8");
+      fs.writeFileSync(`${file}.lock`, `${holder.pid}:held`);
+      getLogger(["logging", "retry-b"]).info("retry-line");
+      await Promise.resolve();
+      expect(fs.readFileSync(rotated, "utf8")).toBe(marker);
+      expect(fs.readFileSync(file, "utf8")).toBe(activeBefore);
+      fs.rmSync(`${file}.lock`);
+      await Promise.resolve();
+      const active = fs.readFileSync(file, "utf8");
+      const kept = fs.existsSync(rotated)
+        ? fs.readFileSync(rotated, "utf8")
+        : "";
+      expect(`${active}${kept}`).toContain("retry-line");
+    } finally {
+      holder.kill();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a second reclaimer does not delete the lock a winner just created", () => {
     const { dir, file } = tempLogFile();
     const holder = liveLockHolder();

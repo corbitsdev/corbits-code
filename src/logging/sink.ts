@@ -105,27 +105,53 @@ function leftoverTarget(current: FileSinkState): string | null {
 }
 
 /**
- * A crash in the old rotate window leaves the only copy as
- * `corbits.log.<pid>.<n>.rotating`, with the active name and `.1` gone.
- * Put that file back under the lock before this flush decides to rotate.
+ * A crash leaves the only copies as `*.rotating` (the active bytes) and
+ * `*.rotating.aside` (the previous generation). Put both back before this
+ * flush rotates, even when there is nothing queued. A finished publish that
+ * died before deleting the aside can drop that aside once `.1` is present,
+ * so a restarted counter cannot rename over it.
  */
 function adoptLeftoverRotation(current: FileSinkState): void {
+  const dir = dirname(current.path);
   let names: string[];
   try {
-    names = fs.readdirSync(dirname(current.path));
+    names = fs.readdirSync(dir);
   } catch {
     return;
   }
   const base = basename(current.path);
-  const pattern = new RegExp(
+  const rotatingRe = new RegExp(
     `^${escapeRegExp(base)}\\.\\d+\\.\\d+\\.rotating$`,
   );
-  const leftovers = names.filter((name) => pattern.test(name)).sort();
-  for (const name of leftovers) {
+  const asideRe = new RegExp(
+    `^${escapeRegExp(base)}\\.\\d+\\.\\d+\\.rotating\\.aside$`,
+  );
+  const rotatings = names.filter((name) => rotatingRe.test(name)).sort();
+  for (const name of names.filter((entry) => asideRe.test(entry)).sort()) {
+    const from = join(dir, name);
+    const rotated = `${current.path}.1`;
+    if (!fs.existsSync(rotated)) {
+      try {
+        fs.renameSync(from, rotated);
+      } catch {
+        // Leave the aside. Never delete the only copy.
+      }
+      continue;
+    }
+    const sibling = name.slice(0, -".aside".length);
+    if (!rotatings.includes(sibling) && !fs.existsSync(join(dir, sibling))) {
+      try {
+        fs.rmSync(from);
+      } catch {
+        // Leave it so a later rotate cannot replace this path.
+      }
+    }
+  }
+  for (const name of rotatings) {
     const target = leftoverTarget(current);
     if (target === null) return;
     try {
-      fs.renameSync(join(dirname(current.path), name), target);
+      fs.renameSync(join(dir, name), target);
     } catch {
       // Leave the leftover. Never delete the only copy.
     }
@@ -147,10 +173,10 @@ function restoreRotated(temp: string, active: string): void {
 }
 
 function rotateActive(current: FileSinkState): boolean {
-  // Windows throws EPERM when the destination exists, so never rename onto
-  // `.1`. Move `.1` aside, publish the temp onto that name, then delete the
-  // aside. A kill after the aside rename still leaves both copies on disk.
-  // A thrown error puts the temp back and does not truncate the active file.
+  // Publish the active bytes under `*.rotating` first, which the next flush
+  // adopts. Only then move `.1` to `*.rotating.aside` (also adopted). Never
+  // rename onto an existing aside: that would replace a generation a crash
+  // left behind. A thrown error puts the temp back and does not truncate.
   const temp = `${current.path}.${String(process.pid)}.${String((rotateCounter += 1))}.rotating`;
   const rotated = `${current.path}.1`;
   const aside = `${temp}.aside`;
@@ -161,6 +187,10 @@ function rotateActive(current: FileSinkState): boolean {
   }
   let movedAside = false;
   try {
+    if (fs.existsSync(aside)) {
+      restoreRotated(temp, current.path);
+      return false;
+    }
     if (fs.existsSync(rotated)) {
       const info = fs.lstatSync(rotated);
       if (!info.isFile()) {
@@ -186,7 +216,7 @@ function rotateActive(current: FileSinkState): boolean {
     try {
       fs.rmSync(aside);
     } catch {
-      // The published `.1` is the copy that matters. Leave the aside.
+      // `.1` already holds the new generation. Leave the aside.
     }
   }
   current.size = 0;
@@ -336,25 +366,30 @@ function reclaimDeadLock(lockPath: string, deadClaim: string): void {
   }
 }
 
-function acquireSinkLock(
-  lockPath: string,
-): { fd: number; claim: string } | null {
+type SinkLock =
+  | { readonly acquired: true; readonly fd: number; readonly claim: string }
+  | { readonly acquired: false; readonly retry: boolean };
+
+function acquireSinkLock(lockPath: string): SinkLock {
   const deadline = Date.now() + LOCK_WAIT_MS;
   const claim = `${String(process.pid)}:${String((lockClaimCounter += 1))}`;
   for (;;) {
     try {
       const fd = fs.openSync(lockPath, "wx", 0o600);
       fs.writeSync(fd, claim);
-      return { fd, claim };
+      return { acquired: true, fd, claim };
     } catch (err) {
-      if (!isErrno(err, "EEXIST")) return null;
+      if (!isErrno(err, "EEXIST")) return { acquired: false, retry: false };
       const read = readLockClaim(lockPath);
-      if (read.status === "missing") continue;
-      if (read.status === "ok" && isDeadClaim(lockPath, read.claim)) {
-        reclaimDeadLock(lockPath, read.claim);
+      if (
+        read.status === "missing" ||
+        (read.status === "ok" && isDeadClaim(lockPath, read.claim))
+      ) {
+        if (read.status === "ok") reclaimDeadLock(lockPath, read.claim);
+        if (Date.now() >= deadline) return { acquired: false, retry: true };
         continue;
       }
-      if (Date.now() >= deadline) return null;
+      if (Date.now() >= deadline) return { acquired: false, retry: true };
       sleepSync(LOCK_POLL_MS);
     }
   }
@@ -379,21 +414,34 @@ function releaseSinkLock(
   }
 }
 
-function withSinkLock(lockPath: string, body: () => void): boolean {
+function withSinkLock(
+  lockPath: string,
+  body: () => void,
+): "ok" | "busy" | "error" {
   if (sinkLockDepth > 0) {
     body();
-    return true;
+    return "ok";
   }
   const held = acquireSinkLock(lockPath);
-  if (held === null) return false;
+  if (!held.acquired) return held.retry ? "busy" : "error";
   sinkLockDepth += 1;
   try {
     body();
-    return true;
+    return "ok";
   } finally {
     sinkLockDepth -= 1;
     releaseSinkLock(lockPath, held);
   }
+}
+
+function scheduleDrain(current: FileSinkState): void {
+  if (current.drainScheduled || current.buffer.length === 0) return;
+  current.drainScheduled = true;
+  const scheduled = current;
+  queueMicrotask(() => {
+    if (state !== scheduled) return;
+    flushFileLogSinkSync();
+  });
 }
 
 /**
@@ -407,28 +455,25 @@ export function flushFileLogSinkSync(): void {
   const current = state;
   if (current === null) return;
   current.drainScheduled = false;
-  if (current.buffer.length === 0) return;
   const lines = current.buffer;
   current.buffer = [];
-  const locked = withSinkLock(`${current.path}.lock`, () => {
+  const outcome = withSinkLock(`${current.path}.lock`, () => {
     adoptLeftoverRotation(current);
+    if (lines.length === 0) return;
     adoptActive(current);
     writeLines(current, lines);
   });
-  if (!locked) current.buffer = [...lines, ...current.buffer];
+  if (outcome !== "ok") {
+    current.buffer = [...lines, ...current.buffer];
+    if (outcome === "busy") scheduleDrain(current);
+  }
 }
 
 function enqueue(record: LogRecord): void {
   const current = state;
   if (current === null) return;
   current.buffer.push(formatRecord(record));
-  if (current.drainScheduled) return;
-  current.drainScheduled = true;
-  const scheduled = current;
-  queueMicrotask(() => {
-    if (state !== scheduled) return;
-    flushFileLogSinkSync();
-  });
+  scheduleDrain(current);
 }
 
 interface FileLogSinkOptions {
