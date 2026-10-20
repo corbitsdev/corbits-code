@@ -33,6 +33,33 @@ itself keeps its export); the vendored-side safety of that removal is
 recorded in docs/VENDORING.md. The tree now types off the same
 `4cc6972` pin as the coupled `@intx/types`/`@intx/inference` trio.
 
+### 2026-10-19 re-sync to `aa7b78ee` (npm `0.5.0`, CL-10918)
+
+`git diff --name-only 4cc6972 aa7b78ee -- packages/storage-isogit` is the real
+drift of this release: `README.md`, `package.json`, `commit-helpers.ts`, new
+`commit-helpers.test.ts`, `node.ts`, new `node-durability.ts`, `runtime.ts`,
+`runtime.test.ts`, `store.ts`, `store.test.ts`. Upstream's conversation
+checkpoints now stage the context files and the tool-output directory in one
+index update, and the new `node-durability.ts` carries the fsync boundary that
+commit publication relies on; the whole set was adopted verbatim, and the
+`README.md` gained the matching tool-output paragraph.
+
+Adoption touched `store.ts`, the one file this ledger patches, so that file
+was three-way merged (ours / base `4cc6972` / theirs `aa7b78ee`) rather than
+copied. The merge is verified by the post-sync divergence shape:
+`bin/vendor-patch-diff intx-storage-isogit` prints the same shape as the pre-sync tree: 2 files, 73 +, 1 −
+as the pre-sync tree, i.e. the only remaining difference from upstream is the
+ledgered content below.
+
+- **`store-ts-load-errors` — KEEP.** `git grep -c loadErrors aa7b78ee --
+  packages/storage-isogit` returns no hits, so upstream still does not read
+  back the durable error sequence, and `vendor/intx-types` still declares
+  `AuditStore.loadErrors` (see that package's ledger). The coupled trio moves
+  together per `docs/VENDORING.md`.
+- `package.json`: published-npm `@intx/log` dependency, `@intx/mime`
+  dependency and `@intx/crypto` devDependency move `0.3.0` → `0.5.0`, kept
+  aligned with the root pins so the lockfile nests no second copy.
+
 ## store-ts-load-errors
 
 `store.ts` — Implements `AuditStore.loadErrors` by reading

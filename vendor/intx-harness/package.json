@@ -16,7 +16,7 @@
     "@intx/types": "workspace:*"
   },
   "devDependencies": {
-    "@intx/inference-testing": "0.3.0",
+    "@intx/inference-testing": "0.5.0",
     "@intx/mime": "workspace:*",
     "@intx/storage-isogit": "workspace:*",
     "arktype": "catalog:"

@@ -230,6 +230,30 @@ copied verbatim.
   diff (1324 + / 230 − for this package), i.e. no patch content lost and
   no unledgered divergence gained.
 
+### 2026-10-19 re-sync to `aa7b78ee` (npm `0.5.0`, CL-10918)
+
+`git diff --name-only 4cc6972 aa7b78e -- packages/inference` in the upstream
+monorepo lists `packages/inference/package.json` only: the release commit
+bumps the upstream `version` field and touches no source. The vendored tree
+therefore needs no re-carried content, and `bin/vendor-patch-diff` prints the
+identical +/− line multiset as before the sync (20 files, 1432 +, 235 −), i.e. no
+patch content lost and no unledgered divergence gained. Every entry above re-ratifies
+unchanged; none is upstream-absorbed (re-grepped against `aa7b78e`:
+`isStreamTerminal`, `isPollOnlyPendingBatch`, `ephemeralTurns`, `loadErrors`,
+`turnsRevision`/`deepFreeze`, `isCommitting`, `MAX_LINE_LENGTH`, and the
+`role`/`tool_calls` null-delta tolerances are all still absent upstream).
+
+- `package.json`: the two published-npm `@intx/*` entries (`@intx/log`
+  dependency, `@intx/mime` devDependency) move `0.3.0` → `0.5.0`, the first
+  release that carries the exports those entries consume. `@intx/types` stays
+  `workspace:` so the coupled trio resolves to one source tree, and the local
+  `version: 0.2.2` placeholder stays per `docs/VENDORING.md`.
+- New seam kept in mind for the next sync: `0.4.0` gained
+  `ProviderAdapter.manifest`/`CompletionRequest.signal`, which upstream's
+  `provider/inference-dependencies.ts` consumes from `@intx/types`
+  (`adapter-manifest.ts`) rather than from this package's barrel — unchanged
+  at `0.5.0`, so the vendored `index.ts` needs no new alias.
+
 ## adapter-ts-stream-terminal-detector
 
 `adapter.ts` — Adds `StreamTerminalDetector`/`ProviderAdapter.isStreamTerminal`.

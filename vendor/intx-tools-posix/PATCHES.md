@@ -13,6 +13,18 @@ never been ledgered. It is ledgered here now rather than silently
 dropped, and the `docs/VENDORING.md` table records the tree as patched
 from this sync onward.
 
+### 2026-10-19 re-sync to `aa7b78ee` (npm `0.5.0`, CL-10918)
+
+`git diff --name-only 4cc6972 aa7b78ee -- packages/tools-posix` lists only
+`package.json` (upstream's own `version` field, which this repo does not
+mirror), so the tree is unchanged by this release and `bin/vendor-patch-diff`
+prints the same shape as the pre-sync tree: 2 files, 13 +, 1 −.
+
+- **`registry-ts-read-file-paging-description` — KEEP.** The `read_file`
+  description at `aa7b78ee` still omits the page-and-continue contract that
+  the coupled `size-cap-ts-paged-read-file` patch in `@intx/inference`
+  depends on.
+
 ## registry-ts-read-file-paging-description
 
 `registry.ts` — The `read_file` tool description documents the
