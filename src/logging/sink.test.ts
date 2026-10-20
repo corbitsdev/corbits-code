@@ -408,6 +408,33 @@ describe("installFileLogSink", () => {
     }
   });
 
+  test("a reinstall while the log lock is held keeps queued lines", async () => {
+    const { dir, file } = tempLogFile();
+    const holder = liveLockHolder();
+    try {
+      installFileLogSink(file, { maxBytes: 10_000 });
+      fs.writeFileSync(`${file}.lock`, `${holder.pid}:held`);
+      getLogger(["logging", "reinstall"]).info("keep-me");
+      installFileLogSink(file, { maxBytes: 10_000 });
+      const before = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+      const rotatedBefore = fs.existsSync(`${file}.1`)
+        ? fs.readFileSync(`${file}.1`, "utf8")
+        : "";
+      expect(`${before}${rotatedBefore}`).not.toContain("keep-me");
+      fs.rmSync(`${file}.lock`);
+      await Promise.resolve();
+      flushFileLogSinkSync();
+      const active = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+      const rotated = fs.existsSync(`${file}.1`)
+        ? fs.readFileSync(`${file}.1`, "utf8")
+        : "";
+      expect(`${active}${rotated}`).toContain("keep-me");
+    } finally {
+      holder.kill();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a failed rotation keeps already-written records in the active file", () => {
     const { dir, file } = tempLogFile();
     try {

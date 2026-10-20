@@ -500,20 +500,30 @@ export function installFileLogSink(
   options?: FileLogSinkOptions,
 ): void {
   // A later install must not drop lines still queued for the previous path.
+  // A busy lock puts them back and queues a retry on that state; replacing
+  // state makes the retry return. Carry the lines onto the state that will
+  // own them and schedule that retry.
   flushFileLogSinkSync();
+  const carried = state === null ? [] : state.buffer;
+  if (state !== null) {
+    state.buffer = [];
+    state.drainScheduled = false;
+  }
   fs.mkdirSync(dirname(path), { recursive: true });
   const requested = options?.maxBytes;
   const initial = statActive(path);
-  state = {
+  const next: FileSinkState = {
     path,
     maxBytes:
       requested !== undefined && requested > 0 ? requested : LOG_MAX_BYTES,
-    buffer: [],
+    buffer: [...carried],
     size: initial.size,
     dev: initial.dev,
     ino: initial.ino,
     drainScheduled: false,
   };
+  state = next;
+  scheduleDrain(next);
   if (!exitHookInstalled) {
     exitHookInstalled = true;
     process.on("exit", flushFileLogSinkSync);
