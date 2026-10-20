@@ -59,7 +59,10 @@ import {
   metaProfilesToCatalogEntries,
   metaProvidersAsSettings,
 } from "./meta-providers.js";
-import { separateCollidingMetaApiKeys } from "./meta-api-key.js";
+import {
+  providerAfterMetaApiKeySeparation,
+  separateCollidingMetaApiKeys,
+} from "./meta-api-key.js";
 import { customReasoningSettings } from "./providers.js";
 import { CODEX_BASE_URL } from "../auth/codex/constants.js";
 import { XAI_BASE_URL } from "../auth/xai/constants.js";
@@ -114,6 +117,7 @@ import {
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
   saveGlobalSettings,
+  saveLocalSettings,
   hasMcpTransport,
   isExaMCPPreset,
   type MCPServerSettingsEntry,
@@ -1307,7 +1311,26 @@ export async function loadConfig(
   if (localResultSettled.status === "rejected") throw localResultSettled.reason;
   if (profileResult.status === "rejected") throw profileResult.reason;
   const localResult = localResultSettled.value;
-  const local = localResult.settings;
+  const storedLocal = localResult.settings;
+  const separatedLocalProvider = providerAfterMetaApiKeySeparation(
+    storedLocal?.provider,
+    separatedMeta.renames,
+  );
+  const local =
+    storedLocal !== null &&
+    separatedLocalProvider !== undefined &&
+    separatedLocalProvider !== storedLocal.provider
+      ? { ...storedLocal, provider: separatedLocalProvider }
+      : storedLocal;
+  if (local !== storedLocal && local !== null && localSettingsFile !== null) {
+    try {
+      await saveLocalSettings(localSettingsFile, local);
+    } catch {
+      process.stderr.write(
+        `settings: failed to persist Meta API-key separation for ${localSettingsFile}; continuing with in-memory settings.\n`,
+      );
+    }
+  }
   const settingsDiagnostics = localResult.diagnostics;
   const profile = profileResult.value;
 

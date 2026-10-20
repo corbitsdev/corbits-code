@@ -54,6 +54,11 @@ function remapProviderRefs(
   );
 }
 
+export interface MetaApiKeyRename {
+  readonly from: string;
+  readonly to: string;
+}
+
 /**
  * Move a hand-saved Meta API key off `meta/<slug>` when that slug is an OAuth
  * profile. The key keeps its secret under `meta-api/<slug>`; `meta/<slug>`
@@ -62,9 +67,13 @@ function remapProviderRefs(
 export function separateCollidingMetaApiKeys(
   settings: Settings | null,
   oauthSlugs: readonly string[],
-): { settings: Settings | null; changed: boolean } {
+): {
+  settings: Settings | null;
+  changed: boolean;
+  renames: readonly MetaApiKeyRename[];
+} {
   if (settings === null || oauthSlugs.length === 0) {
-    return { settings, changed: false };
+    return { settings, changed: false, renames: [] };
   }
   const slugs = new Set(oauthSlugs);
   let providers: Record<string, ProviderSettings> = {
@@ -74,6 +83,7 @@ export function separateCollidingMetaApiKeys(
   let recentModels = settings.recentModels;
   let favoriteModels = settings.favoriteModels;
   let changed = false;
+  const renames: MetaApiKeyRename[] = [];
   for (const [name, provider] of Object.entries(settings.providers)) {
     if (!isMetaProviderName(name) || !hasApiKey(provider)) continue;
     const slug = metaProfileFromProviderName(name);
@@ -89,9 +99,10 @@ export function separateCollidingMetaApiKeys(
     if (defaultProvider === name) defaultProvider = relocated;
     recentModels = remapProviderRefs(recentModels, name, relocated);
     favoriteModels = remapProviderRefs(favoriteModels, name, relocated);
+    renames.push({ from: name, to: relocated });
     changed = true;
   }
-  if (!changed) return { settings, changed: false };
+  if (!changed) return { settings, changed: false, renames: [] };
   return {
     settings: {
       ...settings,
@@ -101,7 +112,18 @@ export function separateCollidingMetaApiKeys(
       ...(favoriteModels !== undefined ? { favoriteModels } : {}),
     },
     changed: true,
+    renames,
   };
+}
+
+/** Project-local `provider` follows a key that moved to `meta-api/<slug>`. */
+export function providerAfterMetaApiKeySeparation(
+  provider: string | undefined,
+  renames: readonly MetaApiKeyRename[],
+): string | undefined {
+  if (provider === undefined) return undefined;
+  const rename = renames.find((entry) => entry.from === provider);
+  return rename === undefined ? provider : rename.to;
 }
 
 /**
