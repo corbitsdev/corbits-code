@@ -1,14 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { installFileLogSink } from "../logging/sink.js";
 import { generateSessionId, sessionDir } from "../session/index.js";
 import { loadSeededApprovals } from "../session/runtime-assembly.js";
@@ -276,7 +269,7 @@ describe("migratePersistedApprovalStores", () => {
     expect(await readJson(projectStorePath())).toEqual({ approvals: [] });
   });
 
-  test("EACCES writing the backup leaves live bytes unchanged", async () => {
+  test("a backup write failure leaves live bytes unchanged", async () => {
     const path = sessionStorePath();
     const original = {
       approvals: [
@@ -286,16 +279,12 @@ describe("migratePersistedApprovalStores", () => {
     };
     await writeFile(path, JSON.stringify(original));
     const liveBytes = await readFile(path, "utf-8");
-    const dir = dirname(path);
-    await chmod(dir, 0o555);
-    try {
-      const result = await migratePersistedApprovalStores(cwd, sessionId, home);
-      expect(result.purged).toBe(0);
-      expect(result.backups).toEqual([]);
-      expect(await readFile(path, "utf-8")).toBe(liveBytes);
-    } finally {
-      await chmod(dir, 0o755);
-    }
+    await mkdir(`${backupPath(path)}.${process.pid}.tmp`);
+
+    const result = await migratePersistedApprovalStores(cwd, sessionId, home);
+    expect(result.purged).toBe(0);
+    expect(result.backups).toEqual([]);
+    expect(await readFile(path, "utf-8")).toBe(liveBytes);
   });
 
   test("per-file migration failures surface once as a single summary warn", async () => {
@@ -315,12 +304,10 @@ describe("migratePersistedApprovalStores", () => {
         approvals: [{ tool: "update_plan", pattern: "plan *" }],
       }),
     );
-    // Read-only store dirs make the backup step fail, so both stores skip
-    // untouched while the global path (absent) stays a clean no-op.
-    const sessionStoreDir = dirname(sessionStorePath());
-    const projectStoreDir = join(cwd, ".corbits");
-    await chmod(sessionStoreDir, 0o555);
-    await chmod(projectStoreDir, 0o555);
+    // Directory entries at the deterministic temp paths make both backup
+    // writes fail while the global path (absent) stays a clean no-op.
+    await mkdir(`${backupPath(sessionStorePath())}.${process.pid}.tmp`);
+    await mkdir(`${backupPath(projectStorePath())}.${process.pid}.tmp`);
     try {
       const result = await migratePersistedApprovalStores(cwd, sessionId, home);
       expect(result.purged).toBe(0);
@@ -333,7 +320,11 @@ describe("migratePersistedApprovalStores", () => {
 
       const lines = (await readFile(join(logDir, "corbits.log"), "utf8"))
         .split("\n")
-        .filter((line) => line.includes("Skipped approval-store migration"));
+        .filter(
+          (line) =>
+            line.includes("Skipped approval-store migration") &&
+            (line.includes(cwd) || line.includes(home)),
+        );
       // One summary warn for the whole migration, not one per failing store.
       expect(lines).toHaveLength(1);
       const summary = lines[0];
@@ -342,8 +333,6 @@ describe("migratePersistedApprovalStores", () => {
       expect(summary).toContain(sessionStorePath());
       expect(summary).toContain(projectStorePath());
     } finally {
-      await chmod(sessionStoreDir, 0o755);
-      await chmod(projectStoreDir, 0o755);
       await rm(logDir, { recursive: true, force: true });
     }
   });
