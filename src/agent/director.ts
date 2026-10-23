@@ -1290,9 +1290,12 @@ export function createChatDirector(
   return new ChatDirectorImpl(systemPrompt, toolDefinitions, {
     ...rest,
     // `provider` is raw {providerName, model} input; the constructor wants
-    // the resolved ModelFamilyPolicy.
+    // the resolved ModelFamilyPolicy. ChatDirector is always the primary
+    // orchestrator, so leaf-only residuals are withheld.
     modelFamilyPolicy:
-      provider !== undefined ? resolveModelFamilyPolicy(provider) : undefined,
+      provider !== undefined
+        ? resolveModelFamilyPolicy({ ...provider, orchestrator: true })
+        : undefined,
     // Seed the live source id (replaces getProviderId), refreshed on every
     // inference completion so /model switches remap retry stamping.
     sessionProviderName: provider?.providerName,

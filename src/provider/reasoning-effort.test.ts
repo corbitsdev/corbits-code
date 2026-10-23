@@ -127,23 +127,29 @@ describe("supportedEfforts", () => {
     expect(supportedEfforts("deepseek-v3")).toEqual(["low", "medium", "high"]);
   });
 
-  // Every catalog Muse Spark id reaches supportedEfforts unnormalized; two
-  // ids pin the family rule.
-  test.each(["muse-spark-1.3-contributor", "muse-spark-1.3-contributor-free"])(
-    "Muse Spark id %s supports minimal through high",
-    (model) => {
-      expect(supportedEfforts(model)).toEqual([
-        "minimal",
-        "low",
-        "medium",
-        "high",
-      ]);
-      expect(defaultEffortForModel(model)).toBe("low");
-    },
-  );
+  // Every catalog Muse id reaches supportedEfforts unnormalized; spark and
+  // wonder ids pin the family rule.
+  test.each([
+    "muse-spark-1.3-contributor",
+    "muse-spark-1.3-contributor-free",
+    "muse-wonder-1.0",
+  ])("Muse id %s supports minimal through high", (model) => {
+    expect(supportedEfforts(model)).toEqual([
+      "minimal",
+      "low",
+      "medium",
+      "high",
+    ]);
+    expect(defaultEffortForModel(model)).toBe("low");
+  });
 
-  test("a model merely containing muse-spark is not matched", () => {
+  test("a model merely containing muse- is not matched", () => {
     expect(supportedEfforts("not-muse-spark-1.3")).toEqual([
+      "low",
+      "medium",
+      "high",
+    ]);
+    expect(supportedEfforts("not-muse-wonder-1.0")).toEqual([
       "low",
       "medium",
       "high",
@@ -175,11 +181,13 @@ describe("validateEffort", () => {
     expect(validateEffort("grok-4.5", "xhigh").ok).toBe(false);
   });
 
-  test("accepts minimal on Muse Spark and rejects none", () => {
-    expect(validateEffort("muse-spark-1.3-contributor", "minimal")).toEqual({
-      ok: true,
-    });
-    expect(validateEffort("muse-spark-1.3-contributor", "none").ok).toBe(false);
+  test("accepts minimal on Muse models and rejects none", () => {
+    for (const model of ["muse-spark-1.3-contributor", "muse-wonder-1.0"]) {
+      expect(validateEffort(model, "minimal")).toEqual({
+        ok: true,
+      });
+      expect(validateEffort(model, "none").ok).toBe(false);
+    }
   });
 
   test("rejects medium on glm-5.3 family", () => {

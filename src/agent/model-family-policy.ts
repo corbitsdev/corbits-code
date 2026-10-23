@@ -38,7 +38,7 @@ export interface ModelFamilyPolicy {
    * not self-terminate a tool loop. Appended at the tail to keep the cached
    * prompt prefix intact.
    */
-  toolDisciplineRules?: string;
+  toolDisciplineRules?: string | undefined;
   /**
    * Provider-family residual appended once to the leaf system prompt
    * (tool-budget text for grok, XML task_guidance for claude, narrate
@@ -224,7 +224,13 @@ export function resolveModelFamilyPolicy(input: {
         ...KIMI_POLICY,
       };
     case "muse":
-      return { family, ...MUSE_POLICY };
+      return {
+        family,
+        ...MUSE_POLICY,
+        toolDisciplineRules: orchestrator
+          ? undefined
+          : MUSE_POLICY.toolDisciplineRules,
+      };
     case "claude":
       // Like grok's finish-bias, task_guidance only makes sense on leaf
       // workers — orchestrators get the permissive default.

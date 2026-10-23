@@ -88,7 +88,7 @@ const MUSE_SPARK_EFFORTS: readonly ReasoningEffort[] = DEFAULT_EFFORTS;
 // and nothing normalizes the model string first. Mirrors the grok/kimi checks
 // in src/subagent/provider-family.ts.
 function isMuseSparkModel(model: string): boolean {
-  return /^muse-spark/i.test(model.trim());
+  return /^muse-/i.test(model.trim());
 }
 
 // grok-4.6/4.7 accept xhigh (CODEX_EFFORTS); grok-4.5 and composer stay on
