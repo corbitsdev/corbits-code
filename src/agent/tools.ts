@@ -628,6 +628,7 @@ export async function createAgentToolset(
           sessions: fleetSessions,
           fleetRecords,
           permissionGate: args.permissionGate,
+          approvalPrompted: true,
         }),
       );
       // Exec-primary opt-in only; TUI primary and nested orchestrators
