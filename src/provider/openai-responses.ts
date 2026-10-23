@@ -3,6 +3,7 @@ import {
   type ResponsesQuirks,
 } from "@corbits/openai-responses";
 import type { AdapterFactory } from "@intx/inference";
+import { withArgumentsFromDone } from "./codex-responses.js";
 import { OPENCODE_SESSION_ID_OPTION } from "./opencode-session.js";
 
 export const OPENAI_RESPONSES_PROVIDER = "openai-responses";
@@ -24,5 +25,7 @@ export const hostQuirks: ResponsesQuirks = {
   reasoning: { summary: "auto" },
 };
 
-export const createOpenAIResponsesAdapter: AdapterFactory =
-  responsesAdapterFactory(hostQuirks);
+const baseFactory = responsesAdapterFactory(hostQuirks);
+
+export const createOpenAIResponsesAdapter: AdapterFactory = (source) =>
+  withArgumentsFromDone(baseFactory(source));

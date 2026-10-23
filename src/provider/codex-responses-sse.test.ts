@@ -7,6 +7,11 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createCodexResponsesAdapter } from "./codex-responses.js";
+import { createOpenAIResponsesAdapter } from "./openai-responses.js";
+import { createGrokResponsesAdapter } from "./grok-responses.js";
+import { createInferenceDependencies } from "./inference-dependencies.js";
+import { META_PROVIDER } from "@corbits/meta-provider";
+import type { ProviderAdapter } from "@intx/inference";
 import type { InferenceEvent, LastCycleSource } from "@intx/types/runtime";
 import { defined } from "../../testkit/defined.js";
 import { ProtocolMismatchError } from "@intx/inference";
@@ -29,8 +34,10 @@ function loadFixture(name: string): object[] {
 }
 
 /** Parse a full fixture stream with one adapter instance (shared indexer). */
-function parseFixture(name: string): InferenceEvent[] {
-  const adapter = createCodexResponsesAdapter(SOURCE);
+function parseFixture(
+  name: string,
+  adapter: ProviderAdapter = createCodexResponsesAdapter(SOURCE),
+): InferenceEvent[] {
   const out: InferenceEvent[] = [];
   for (const event of loadFixture(name)) {
     out.push(...adapter.parseResponse(JSON.stringify(event)));
@@ -212,24 +219,58 @@ describe("codex-sse fixtures (golden parse)", () => {
     expect(String(error)).toMatch(/fixture stream error \(sanitized\)/);
   });
 
-  test("parallel calls whose arguments arrive only on done still carry their arguments", () => {
-    const out = parseFixture("parallel-tools-arguments-on-done.json");
+  test("parallel calls whose arguments arrive only on done still carry their arguments across all Responses adapters", async () => {
+    const deps = await createInferenceDependencies();
+    const adapters: [string, ProviderAdapter][] = [
+      ["codex-responses", createCodexResponsesAdapter(SOURCE)],
+      [
+        "openai-responses",
+        createOpenAIResponsesAdapter({
+          sourceId: "go/fixture",
+          provider: "openai-responses",
+          model: "gpt-fixture",
+        }),
+      ],
+      [
+        "grok-responses",
+        createGrokResponsesAdapter({
+          sourceId: "xai/fixture",
+          provider: "grok-responses",
+          model: "grok-fixture",
+        }),
+      ],
+      [
+        "meta-responses",
+        deps.adapters.resolve({
+          sourceId: "meta/fixture",
+          provider: META_PROVIDER,
+          model: "llama-fixture",
+        }),
+      ],
+    ];
 
-    expect(eventTypes(out)).toEqual([
-      "inference.tool_call.start",
-      "inference.tool_call.delta",
-      "inference.tool_call.start",
-      "inference.tool_call.delta",
-      "inference.usage",
-    ]);
-    expect(out[1]).toMatchObject({
-      type: "inference.tool_call.delta",
-      data: { callId: "0", argumentFragment: '{"path":"a.txt"}', index: 0 },
-    });
-    expect(out[3]).toMatchObject({
-      type: "inference.tool_call.delta",
-      data: { callId: "1", argumentFragment: '{"path":"b.txt"}', index: 1 },
-    });
+    for (const [label, adapter] of adapters) {
+      const out = parseFixture(
+        "parallel-tools-arguments-on-done.json",
+        adapter,
+      );
+
+      expect(eventTypes(out), label).toEqual([
+        "inference.tool_call.start",
+        "inference.tool_call.delta",
+        "inference.tool_call.start",
+        "inference.tool_call.delta",
+        "inference.usage",
+      ]);
+      expect(out[1], label).toMatchObject({
+        type: "inference.tool_call.delta",
+        data: { callId: "0", argumentFragment: '{"path":"a.txt"}', index: 0 },
+      });
+      expect(out[3], label).toMatchObject({
+        type: "inference.tool_call.delta",
+        data: { callId: "1", argumentFragment: '{"path":"b.txt"}', index: 1 },
+      });
+    }
   });
 
   test("lifecycle envelopes alone produce no InferenceEvents", () => {
