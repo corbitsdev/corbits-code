@@ -20,6 +20,15 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
+## [0.3.44] - 2026-10-23
+
+### What's Changed
+* fix(prompts): integrate cumulative operator context in dispatch card by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1552
+* fix(prompts): synthesize requirements in planner card by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1553
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.43...v0.3.44
+
 ## [0.3.43] - 2026-10-20
 
 ### What's Changed
