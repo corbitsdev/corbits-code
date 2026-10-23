@@ -28,6 +28,8 @@ test("dispatch card is spawn-first with no parallelization cap", () => {
   expect(prompt).toMatch(/first assistant turn/i);
   expect(prompt).toMatch(/same turn/i);
   expect(prompt).toMatch(/same live job/i);
+  expect(prompt).toMatch(/reply with no tool calls ends the turn/i);
+  expect(prompt).toMatch(/standalone status/i);
   expect(prompt).not.toMatch(/Latest operator turn is law/i);
   expect(prompt).not.toMatch(/Do not duplicate a live worker/i);
   expect(prompt).not.toMatch(/diagnostic fleet/i);
