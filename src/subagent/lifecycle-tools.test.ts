@@ -1287,6 +1287,186 @@ describe("send_input", () => {
       resolution: "declined",
     });
   });
+
+  test("a resolution with no pending escalation is ignored and the message is delivered as plain input", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+    const worker = startSession(sessions, { description: "worker" });
+    sessions.markRunning(worker.id);
+    const delivered: string[] = [];
+    sessions.registerDeliver(worker.id, (message) => {
+      delivered.push(message);
+    });
+
+    // Filler a field-filling model sent after approve_worker_call had
+    // already answered the worker's only ask.
+    const fillers = [
+      { questionId: "", kind: "director_answer", answer: "" },
+      {
+        questionId: "ask-2",
+        kind: "director_answer",
+        answer: "Additional requirement applies after rebase.",
+      },
+      {
+        questionId: "none",
+        kind: "unavailable",
+        answer: "No escalation; normal task update only.",
+      },
+    ];
+    for (const resolution of fillers) {
+      const result = await callTool(sendInput, {
+        target: worker.id,
+        message: "also require the PR checklist",
+        interrupt: false,
+        resolution,
+      });
+      expect(result).toEqual({
+        agent_id: worker.id,
+        status: "running",
+        resolution_ignored: "no pending escalation",
+      });
+    }
+    expect(delivered).toEqual(
+      fillers.map(() => "also require the PR checklist"),
+    );
+  });
+
+  test("an interrupt carrying a resolution with no pending escalation interrupts as a plain interrupt would", async () => {
+    let interrupted = false;
+    const followups: string[] = [];
+    const { sessions, fleetRecords, worker } = liveLane({
+      interrupt: () => {
+        interrupted = true;
+      },
+      followup: async (message) => {
+        followups.push(message);
+        return "queued turn finished";
+      },
+      deliver: () => {
+        throw new Error("interrupt:true should not soft-deliver");
+      },
+    });
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+
+    const result = await callTool(sendInput, {
+      target: worker.id,
+      message: "patch only the test",
+      interrupt: true,
+      resolution: {
+        questionId: "none",
+        kind: "unavailable",
+        answer: "No escalation; normal task update only.",
+      },
+    });
+    expect(result).toEqual({
+      agent_id: worker.id,
+      status: "interrupted",
+      resolution_ignored: "no pending escalation",
+    });
+    expect(interrupted).toBe(true);
+    sessions.attachReport(worker.id, "salvage", { stopReason: "interrupted" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(followups).toEqual(["patch only the test"]);
+  });
+
+  test("an interrupt carrying a resolution is refused while an ask is pending", async () => {
+    let interrupted = false;
+    const { sessions, fleetRecords, worker } = liveLane({
+      interrupt: () => {
+        interrupted = true;
+      },
+      followup: async () => "unused",
+    });
+    sessions.registerAsk(worker.id, {
+      question: "which file?",
+      questionId: "ask-1",
+      assessment: assessedAsk,
+      resolve: () => {
+        throw new Error("should not resolve");
+      },
+      reject: () => undefined,
+    });
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+
+    const result = await callFleetToolRaw(sendInput, {
+      target: worker.id,
+      message: "use branch X",
+      interrupt: true,
+      resolution: {
+        questionId: "ask-1",
+        kind: "director_answer",
+        answer: "use branch X",
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("cannot interrupt");
+    expect(interrupted).toBe(false);
+    expect(sessions.hasPendingAsk(worker.id)).toBe(true);
+  });
+
+  test("an interrupt carrying a malformed resolution while an ask is pending reports the interrupt conflict", async () => {
+    let interrupted = false;
+    const { sessions, fleetRecords, worker } = liveLane({
+      interrupt: () => {
+        interrupted = true;
+      },
+      followup: async () => "unused",
+    });
+    sessions.registerAsk(worker.id, {
+      question: "which file?",
+      questionId: "ask-1",
+      assessment: assessedAsk,
+      resolve: () => {
+        throw new Error("should not resolve");
+      },
+      reject: () => undefined,
+    });
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+
+    const result = await callFleetToolRaw(sendInput, {
+      target: worker.id,
+      message: "use branch X",
+      interrupt: true,
+      resolution: { questionId: "", kind: "not_a_kind", answer: "" },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("cannot interrupt");
+    expect(result.content).not.toContain("resolution invalid");
+    expect(interrupted).toBe(false);
+    expect(sessions.hasPendingAsk(worker.id)).toBe(true);
+  });
+
+  test("an unusable resolution against a pending ask names the plain-message alternative", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+    const worker = startSession(sessions, { description: "worker" });
+    sessions.markRunning(worker.id);
+    sessions.registerAsk(worker.id, {
+      question: "which file?",
+      questionId: "ask-1",
+      assessment: assessedAsk,
+      resolve: () => undefined,
+      reject: () => undefined,
+    });
+
+    for (const resolution of [
+      { questionId: "", kind: "director_answer", answer: "" },
+      { questionId: "ask-0", kind: "declined", answer: "No." },
+    ]) {
+      const result = await callFleetToolRaw(sendInput, {
+        target: worker.id,
+        message: "No.",
+        resolution,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Omit resolution to answer with a plain message.",
+      );
+    }
+    expect(sessions.hasPendingAsk(worker.id)).toBe(true);
+  });
 });
 
 describe("nested lifecycle authority", () => {
