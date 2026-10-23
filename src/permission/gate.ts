@@ -292,6 +292,7 @@ function isRequestCoveredByApprovals(
   rootsProvider?: RootsProvider,
   isExtraDenied: (value: string) => boolean = () => false,
 ): boolean {
+  if (UNGRANTABLE_TOOLS.has(request.tool)) return false;
   const scoped = approvals.filter((a) =>
     grantScopeMatches(
       a,
@@ -353,7 +354,14 @@ const AUTO_ALLOWED_TOOLS = new Set([
   "resume_agent",
 ]);
 
+// No saved approval covers these; they prompt on every use.
+// approve_worker_call's prompt also answers the worker's frozen call, so a
+// standing grant would let the parent model approve worker calls with no
+// operator involved.
+const UNGRANTABLE_TOOLS = new Set(["approve_worker_call"]);
+
 const logger = getLogger([LOG_NAMESPACE_ROOT, "permission", "plugin-authz"]);
+const gateLogger = getLogger([LOG_NAMESPACE_ROOT, "permission", "gate"]);
 
 export interface PermissionGateOptions {
   // Seed approvals; the gate copies them and never mutates the caller's array.
@@ -422,6 +430,10 @@ export type AuthorizeVerdict =
 
 export interface PermissionGate {
   evaluate: (call: ToolCall) => Promise<GateVerdict>;
+  // A worker's frozen call once the operator approved approve_worker_call's
+  // prompt, which showed it: an ordinary ask is answered, a forced ask still
+  // prompts, and a deny still blocks.
+  evaluateApprovedWorkerCall: (call: ToolCall) => Promise<GateVerdict>;
   // Reactor-path policy: evaluate()'s decision as the vendored before-tool
   // authz hook's effect.
   authorizeCall: (call: ToolCall) => Promise<AuthorizeVerdict>;
@@ -676,7 +688,9 @@ export function createPermissionGate(
 
   // Non-blocking policy decision for one tool call — every gate rule resolved
   // without waiting on an operator. `ask` carries the fully-built request so
-  // the middleware and reactor seams need no re-derivation.
+  // the middleware and reactor seams need no re-derivation. `forced` marks an
+  // ask no standing grant could answer (a guarded path or payload, or a plugin
+  // policy ask), so the operator must see this exact call.
   type GateDecision =
     | { kind: "allow" }
     | { kind: "deny"; reason: string; publicReason?: string | undefined }
@@ -685,6 +699,7 @@ export function createPermissionGate(
         request: PermissionRequest;
         anySecret: boolean;
         segmentCount: number;
+        forced: boolean;
       };
 
   const decideNormally = async (rawCall: ToolCall): Promise<GateDecision> => {
@@ -806,7 +821,8 @@ export function createPermissionGate(
     //   close_agent — permanently close a worker.
     //   resume_agent — send a completed or interrupted worker its next turn.
     //
-    // Ask in auto and non-auto. Not in AUTO_ALLOWED_TOOLS; grants authority:
+    // Ask in auto and non-auto, on every use. Not in AUTO_ALLOWED_TOOLS, and
+    // in UNGRANTABLE_TOOLS; grants authority:
     //   approve_worker_call — authorize one pending worker-denied call.
     //
     // Worker sessions do not use this prompt. submit_result, ask_director,
@@ -879,6 +895,7 @@ export function createPermissionGate(
 
         let needsOperator = false;
         let anySecret = false;
+        let guarded = false;
         let mismatchNotice: string | undefined;
         for (const segment of segments) {
           // A secret-path reference or restricted target always requires the
@@ -893,6 +910,7 @@ export function createPermissionGate(
           );
           if (guard !== undefined) {
             if (guard.kind !== "restricted") anySecret = true;
+            guarded = true;
             needsOperator = true;
             // A standing grant may still cover this segment while the
             // pre-grant guard forces an ask — record why for the prompt.
@@ -973,6 +991,7 @@ export function createPermissionGate(
           request: requestForOperator,
           anySecret,
           segmentCount: segments.length,
+          forced: guarded,
         };
       }
 
@@ -987,7 +1006,8 @@ export function createPermissionGate(
         workspace: grantWorkspace(),
       });
       if (alreadyApproved) {
-        continue;
+        if (!UNGRANTABLE_TOOLS.has(request.tool)) continue;
+        gateLogger.warn`ignoring a saved approval for ${request.tool}; it prompts on every use`;
       }
 
       if (!interactive || requestApproval === undefined) {
@@ -998,7 +1018,13 @@ export function createPermissionGate(
         return { kind: "deny", reason };
       }
 
-      return { kind: "ask", request, anySecret: false, segmentCount: 0 };
+      return {
+        kind: "ask",
+        request,
+        anySecret: false,
+        segmentCount: 0,
+        forced: restricted,
+      };
     }
     return { kind: "allow" };
   };
@@ -1037,6 +1063,7 @@ export function createPermissionGate(
               (segment) => !isShellCommentOnly(segment),
             ).length
           : 0,
+      forced: true,
     };
   };
 
@@ -1073,7 +1100,8 @@ export function createPermissionGate(
           ...(publicReason !== undefined ? { publicReason } : {}),
         };
       }
-      if (normal.kind === "ask" || result.effect === "allow") return normal;
+      if (result.effect === "allow") return normal;
+      if (normal.kind === "ask") return { ...normal, forced: true };
       return pluginAskDecision(policyCall);
     } catch (err) {
       logger.warn`plugin authorization failed: ${scrubSecrets(safePluginDiagnostic(err))}`;
@@ -1088,7 +1116,7 @@ export function createPermissionGate(
   // any grant the outcome carries (never for secret-path shell); undefined
   // when no outcome arrived.
   const resolveInteractiveAsk = async (
-    decision: Extract<GateDecision, { kind: "ask" }>,
+    decision: Omit<Extract<GateDecision, { kind: "ask" }>, "forced">,
     stillCurrent?: () => boolean,
   ) => {
     const { request, anySecret, segmentCount } = decision;
@@ -1156,8 +1184,25 @@ export function createPermissionGate(
   // Middleware path: blocking evaluation for tool-runner consumers whose calls
   // never pass through the reactor. Reactor-gated gates use executionVerdict
   // instead, so ask never re-prompts.
-  const evaluate = async (rawCall: ToolCall): Promise<GateVerdict> => {
+  const evaluate = async (rawCall: ToolCall): Promise<GateVerdict> =>
+    verdictForDecision(rawCall, await decide(rawCall));
+
+  // The operator already approved this call through approve_worker_call's
+  // prompt, which showed it, so an ordinary ask is answered. A forced ask
+  // still prompts on its own; that is the conservative trade for sensitive
+  // and restricted targets.
+  const evaluateApprovedWorkerCall = async (
+    rawCall: ToolCall,
+  ): Promise<GateVerdict> => {
     const decision = await decide(rawCall);
+    if (decision.kind === "ask" && !decision.forced) return { allowed: true };
+    return verdictForDecision(rawCall, decision);
+  };
+
+  const verdictForDecision = async (
+    rawCall: ToolCall,
+    decision: GateDecision,
+  ): Promise<GateVerdict> => {
     if (decision.kind === "allow") return { allowed: true };
     if (decision.kind === "deny")
       return { allowed: false, reason: decision.reason };
@@ -1351,6 +1396,7 @@ export function createPermissionGate(
 
   return {
     evaluate,
+    evaluateApprovedWorkerCall,
     authorizeCall,
     executionVerdict,
     resolveSuspended,

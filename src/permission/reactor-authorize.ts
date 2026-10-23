@@ -157,6 +157,7 @@ function denyWorkerCallWithEnvelope(
   if (sessionId === undefined) return { effect: "deny", reason: baseReason };
   const store = options?.store ?? getProcessWorkerGrantStore();
   const identity = workerCallIdentity(sessionId, call, cwd);
+  const workerLabel = getSubAgentIdentity()?.description;
   const existing = store.pendingMatch(
     identity.sessionId,
     identity.canonicalTool,
@@ -174,6 +175,7 @@ function denyWorkerCallWithEnvelope(
         args: identity.args,
         cwd: identity.cwd,
         workerSessionId: identity.sessionId,
+        ...(workerLabel !== undefined ? { workerLabel } : {}),
         ...(options?.workspaceRoot !== undefined
           ? { workspaceRoot: options.workspaceRoot }
           : {}),
@@ -315,6 +317,9 @@ export function workerPermissionGate(
 ): PermissionGate {
   return {
     evaluate: (call) => evaluateWorkerCall(gate, call, grantOptions),
+    // A worker has no operator prompt of its own to stand in for one.
+    evaluateApprovedWorkerCall: (call) =>
+      evaluateWorkerCall(gate, call, grantOptions),
     authorizeCall: (call) => authorizeWorkerCall(gate, call, grantOptions),
     executionVerdict: (call) =>
       executionVerdictWorkerCall(gate, call, grantOptions),

@@ -141,6 +141,11 @@ export interface LifecycleToolDeps {
 
 export type ApproveWorkerCallToolDeps = LifecycleToolDeps & {
   permissionGate: PermissionGate;
+  // True only where approve_worker_call itself always prompts the operator
+  // (the top-level parent), so that prompt answers the frozen call's ordinary
+  // ask. A nested orchestrator's approve_worker_call runs without a prompt,
+  // so its frozen call must prompt instead.
+  approvalPrompted?: boolean;
 };
 
 /** close_agent always terminalizes the wait mailbox — no silent skip. */
@@ -739,7 +744,10 @@ export function createApproveWorkerCallTool(
           try {
             verdict = await runWithSubAgentIdentity(
               { description: session.description, cwd: validatedEnvelope.cwd },
-              () => deps.permissionGate.evaluate(frozenCall),
+              () =>
+                deps.approvalPrompted === true
+                  ? deps.permissionGate.evaluateApprovedWorkerCall(frozenCall)
+                  : deps.permissionGate.evaluate(frozenCall),
             );
           } catch {
             return lifecycleResult(
