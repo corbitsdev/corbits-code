@@ -70,6 +70,22 @@ describe("openai-responses buildRequest", () => {
     ) as Record<string, unknown>;
     expect(body).not.toHaveProperty("prompt_cache_key");
   });
+
+  test("serializes reasoning.effort from providerOptions.reasoning_effort", () => {
+    const body = JSON.parse(
+      adapter().buildRequest([userTurn("hi")], "gpt-5.6-luna", {
+        providerOptions: { reasoning_effort: "low" },
+      }).body,
+    ) as Record<string, unknown>;
+    expect(body["reasoning"]).toEqual({ summary: "auto", effort: "low" });
+  });
+
+  test("omits reasoning.effort when providerOptions.reasoning_effort is absent", () => {
+    const body = JSON.parse(
+      adapter().buildRequest([userTurn("hi")], "gpt-5.6-luna", {}).body,
+    ) as Record<string, unknown>;
+    expect(body["reasoning"]).toEqual({ summary: "auto" });
+  });
 });
 
 describe("openai-responses promotion cache safety", () => {

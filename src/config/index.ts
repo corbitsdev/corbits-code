@@ -575,6 +575,9 @@ export function buildGoSource(fields: {
         providerOptions: {
           [OPENAI_SESSION_ID_OPTION]: fields.sessionId,
           [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
+          ...(fields.reasoningEffort !== undefined
+            ? { reasoning_effort: fields.reasoningEffort }
+            : {}),
         },
       },
     };
@@ -642,6 +645,9 @@ export function buildZenSource(fields: {
         providerOptions: {
           [OPENAI_SESSION_ID_OPTION]: fields.sessionId,
           [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
+          ...(fields.reasoningEffort !== undefined
+            ? { reasoning_effort: fields.reasoningEffort }
+            : {}),
         },
       },
     };

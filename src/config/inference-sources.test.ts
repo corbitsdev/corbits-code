@@ -820,6 +820,66 @@ describe("reasoning effort on the wire", () => {
     );
   });
 
+  test("forwards reasoning effort on OpenCode Go and Zen openai-responses sources", () => {
+    const catalogEntries: ProviderCatalogEntry[] = [
+      {
+        name: "opencode-go",
+        baseURL: "https://opencode.ai/zen/go/v1",
+        apiKey: "sk-go",
+        models: ["muse-spark-1.3-contributor", "grok-4.6", "gpt-5.6-luna"],
+        opencodeGo: true,
+      },
+      {
+        name: ZEN_PROVIDER_ID,
+        baseURL: ZEN_DEFAULT_BASE_URL,
+        apiKey: "zen-key",
+        models: [
+          "muse-spark-1.3-contributor-free",
+          "muse-spark-1.3",
+          "grok-4.6",
+          "gpt-5.6-luna",
+        ],
+      },
+    ];
+    for (const [provider, models] of [
+      [
+        "opencode-go",
+        ["muse-spark-1.3-contributor", "grok-4.6", "gpt-5.6-luna"],
+      ],
+      [
+        ZEN_PROVIDER_ID,
+        [
+          "muse-spark-1.3-contributor-free",
+          "muse-spark-1.3",
+          "grok-4.6",
+          "gpt-5.6-luna",
+        ],
+      ],
+    ] as const) {
+      for (const model of models) {
+        const withEffort = buildInferenceSourceForRef(
+          { provider, model, reasoningEffort: "low" },
+          { sessionId: "s1", catalog: catalogEntries },
+          undefined,
+        );
+        expect(withEffort?.provider).toBe(OPENAI_RESPONSES_PROVIDER);
+        expect(withEffort?.defaults?.providerOptions).toMatchObject({
+          reasoning_effort: "low",
+        });
+
+        const unset = buildInferenceSourceForRef(
+          { provider, model },
+          { sessionId: "s1", catalog: catalogEntries },
+          undefined,
+        );
+        expect(unset?.provider).toBe(OPENAI_RESPONSES_PROVIDER);
+        expect(unset?.defaults?.providerOptions).not.toHaveProperty(
+          "reasoning_effort",
+        );
+      }
+    }
+  });
+
   test("a hand-edited first-class row does not leak the operator ladder", () => {
     // The ladder override is a custom-OpenAI-compatible-provider concept. A
     // first-class row (OpenCode Go here) that somehow carries reasoningEfforts
