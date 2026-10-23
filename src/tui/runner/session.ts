@@ -718,12 +718,10 @@ export async function assembleTUISession(
     computeAdvertised,
     inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
     totalTimeoutMs: config.totalTimeoutMs,
-    // Seed the idle-with-fleet allowance (fleet lanes may appear mid-session;
-    // the fleet-wake publisher keeps it live). No onTasksChange /
-    // requestContinuation / getLiveFleetCount closures: task/tool updates and
-    // compaction re-entry arrive as reactor events in the stream sink, and
-    // the publisher drives the allowance via setAllowIdleWithFleet.
-    allowIdleWithFleet: true,
+    // Zero workers run at session assembly; the fleet-wake publisher only fires
+    // on count transitions, so seeding true would suppress the open-task nudge
+    // before any worker ever spawns.
+    allowIdleWithFleet: false,
     clearDenials: () => permissionGate.clearDenials(),
     getProvider: () => state.config,
     directorHolder,
