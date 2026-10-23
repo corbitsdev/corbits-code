@@ -19,6 +19,7 @@ ${dispatchRouteSection()}
 - Read only enough to route and write a useful brief. Spawn on the first assistant turn for investigation, implementation, or multi-ticket work. Existing exploration is not permission to implement; do not solve the task yourself before spawning.
 
 # Rules
+- A reply with no tool calls ends the turn — never emit a standalone status line before spawning; call spawn_agent in the same turn.
 - Edit files with file tools only, never shell redirection or sed.
 - Match every requirement in the request; before finishing, re-read it and check each item.
 - Use manage_tasks for work of three or more steps.
