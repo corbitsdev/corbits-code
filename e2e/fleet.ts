@@ -32,10 +32,44 @@ export const WaitAgentsResult = type({
     "error?": "string",
     "question?": "string",
     "question_id?": "string",
+    "grant_request_id?": "string",
     "report?": "string",
   }).array(),
   timed_out: "boolean",
 });
+
+/**
+ * A scenario has to approve the grant while it builds the parent's next reply,
+ * before `runUntilDone` hands back any events, so the id comes from the
+ * inference request body, where the provider nests each tool result as a
+ * JSON string.
+ */
+export function waitAgentsGrantRequestId(body: string): string | undefined {
+  const payload = JSON.parse(body) as unknown;
+  for (const content of serializedContents(payload)) {
+    const result = WaitAgentsResult(content);
+    if (result instanceof type.errors) continue;
+    const grantRequestId = result.results.find(
+      (lane) => lane.grant_request_id !== undefined,
+    )?.grant_request_id;
+    if (grantRequestId !== undefined) return grantRequestId;
+  }
+  return undefined;
+}
+
+function serializedContents(value: unknown): unknown[] {
+  if (typeof value === "string") {
+    try {
+      return [JSON.parse(value)];
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(value)) return value.flatMap(serializedContents);
+  if (value !== null && typeof value === "object")
+    return Object.values(value).flatMap(serializedContents);
+  return [];
+}
 
 /** Every wait_agents tool result in the event stream, in call order. */
 export function waitAgentsResults(
