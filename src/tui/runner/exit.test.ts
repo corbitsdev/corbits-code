@@ -590,10 +590,9 @@ function rebuildManageTasksEvent(): ReactorInboundEvent {
 /**
  * The services surface every rebuild path touches: holder swap, fleet store,
  * workflow reattach, recorder reset, and a buildAgent that mints a fresh
- * director from the static `allowIdleWithFleet: true` seed — the same seed
- * the TUI session assembly uses (fleet lanes may appear mid-session). The
- * rotation-only stubs (buildSessionSources, hostHolder, the resetters) are
- * inert on interrupt/reload paths.
+ * director from the static `allowIdleWithFleet: false` seed — the same seed
+ * the TUI session assembly uses. The rotation-only stubs (buildSessionSources,
+ * hostHolder, the resetters) are inert on interrupt/reload paths.
  */
 function wireRebuildServices(
   services: RunnerServices,
@@ -639,7 +638,7 @@ function wireRebuildServices(
   services.hostHolder = {} as unknown as RunnerServices["hostHolder"];
   services.buildAgent = (async () => {
     directorHolder.instance = createChatDirector("base", [], {
-      allowIdleWithFleet: true,
+      allowIdleWithFleet: false,
     });
     return agent;
   }) as unknown as RunnerServices["buildAgent"];
@@ -661,7 +660,7 @@ async function expectOpenTaskNudge(director: ChatDirector): Promise<void> {
   expect(list.some((action) => action.type === "infer")).toBe(true);
 }
 
-describe("rebuild re-syncs idle-with-fleet while drained", () => {
+describe("rebuild re-syncs idle-with-fleet", () => {
   test("seed then fleet-0 does not leave idle-with-fleet stuck true", async () => {
     const store = createSubAgentSessionStore();
     const director = createChatDirector("base", [], {
@@ -672,6 +671,36 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
       subAgentSessions: store,
     });
     await expectOpenTaskNudge(director);
+  });
+
+  test("resyncIdleWithFleetFlag promotes false seed to true when a fleet lane is running", async () => {
+    const store = createSubAgentSessionStore();
+    store.start({
+      id: "lane-1",
+      description: "work",
+      agentId: "coder",
+      brief: "implement",
+    });
+    const director = createChatDirector("base", [], {
+      allowIdleWithFleet: false,
+    });
+    resyncIdleWithFleetFlag({
+      directorHolder: { instance: director },
+      subAgentSessions: store,
+    });
+    await director.decide(
+      rebuildManageTasksEvent(),
+      stubReactorState,
+      stubReactorCapabilities,
+    );
+    const actions = await director.decide(
+      stubTextTurnEvent(),
+      stubReactorState,
+      stubReactorCapabilities,
+    );
+    const list = Array.isArray(actions) ? actions : [actions];
+    expect(list.some((action) => action.type === "infer")).toBe(false);
+    expect(list.some((action) => action.type === "reply")).toBe(true);
   });
 
   test("first assemble with a drained fleet does not leave idle-with-fleet stuck true", async () => {
@@ -840,8 +869,6 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const directorHolder: RunnerServices["directorHolder"] = {};
     const agent = recordingAgent([]);
     const { state, services } = stubSendLifecycle(agent);
-    // Every rebuild mints a fresh director from the static true seed (fleet
-    // lanes may appear mid-session).
     wireRebuildServices(services, directorHolder, agent, store);
     const fleetEvents: unknown[] = [];
     services.emitter.on("event", (event: { type: string }) => {
@@ -852,13 +879,11 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
       expectOpenTaskNudge(
         defined(directorHolder.instance, "directorHolder.instance"),
       );
-    // Drained fleet: the idle reload rebuilds onto the static true seed.
     state.pendingReload = true;
     defined(state.reloadIfIdle, "reloadIfIdle")();
     await services.sessionOps.awaitTail();
     expect(state.fatalBuildError).toBeNull();
     await nudges();
-    // The interrupt rebuild inherits the same seed.
     defined(state.interrupt, "interrupt")();
     await services.sessionOps.awaitTail();
     expect(state.fatalBuildError).toBeNull();

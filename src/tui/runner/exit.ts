@@ -152,9 +152,9 @@ type AgentBuildReason =
   | "interrupt"
   | "session-rotation";
 
-// Directors seed allowIdleWithFleet=true because fleet lanes may appear
-// mid-session. Rebuilds re-sync from the live count: the publisher only
-// fires on a count change, so a session that never sees 0→1→0 keeps the seed.
+// Rebuilds mint a fresh director from the static false seed while the
+// fleet-wake publisher only fires on count transitions, so a rebuild while
+// workers are already running would otherwise lose the live allowance.
 export function resyncIdleWithFleetFlag(
   services: Pick<RunnerServices, "directorHolder" | "subAgentSessions">,
 ): void {
