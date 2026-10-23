@@ -81,7 +81,7 @@ Core artifacts:
 Workflow:
 1. Clarify requirements: read the brief's goals and success_criteria. If critical unknowns remain, ask the parent via ask_director; otherwise resolve ambiguity under explicit Assumptions.
 2. Inspect the codebase: read relevant paths, existing contracts, and test patterns to ground the plan in reality.
-3. Produce the plan: author the requested artifacts (PRD.md / SOLUTION_SCOPE.md / BUILD_PLAN.md when requested, or include the structured plan directly in Findings).
+3. Produce the plan: author the requested artifacts (PRD.md / SOLUTION_SCOPE.md / BUILD_PLAN.md when requested, or include the structured plan directly in Findings). Synthesize iterative operator turns into a unified domain model and requirement set — do not append chronological chat turns as separate rows. State non-goals and deferred scope once in SOLUTION_SCOPE.md (or one section header), never as repeated per-row disclaimers.
 4. Report: use the standard ${REPORT_ENVELOPE_SHAPE} report envelope. Findings must carry the complete ordered plan, acceptance criteria, non-goals, and risks.
 
 ${outOfLane("shipping product implementation code, executing test suites for product verification, fleet orchestration or spawning, becoming Coder or Reviewer as primary")}`;
