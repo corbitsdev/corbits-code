@@ -90,17 +90,30 @@ describe("resolveModelFamilyPolicy", () => {
     }
   });
 
-  test("muse spark carries tool-discipline rules; other families do not", () => {
-    const muse = resolveModelFamilyPolicy({
-      providerName: "opencode-go/acme",
-      model: "muse-spark-1.3-contributor",
-    });
+  test("muse leaves carry tool-discipline rules; muse orchestrators and other families do not", () => {
+    for (const model of [
+      "muse-spark-1.3-contributor",
+      "muse-wonder-1.0",
+    ] as const) {
+      const leaf = resolveModelFamilyPolicy({
+        providerName: "meta-api",
+        model,
+        orchestrator: false,
+      });
+      const orchestrator = resolveModelFamilyPolicy({
+        providerName: "meta-api",
+        model,
+        orchestrator: true,
+      });
+      expect(leaf.family).toBe("muse");
+      expect(leaf.toolDisciplineRules?.length).toBeGreaterThan(0);
+      expect(orchestrator.family).toBe("muse");
+      expect(orchestrator.toolDisciplineRules).toBeUndefined();
+    }
     const base = resolveModelFamilyPolicy({
       providerName: "anthropic",
       model: "claude-sonnet-4",
     });
-    expect(muse.family).toBe("muse");
-    expect(muse.toolDisciplineRules?.length).toBeGreaterThan(0);
     expect(base.toolDisciplineRules).toBeUndefined();
   });
 

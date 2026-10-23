@@ -6,6 +6,7 @@ import {
   isDeepSeekLeafProvider,
   isGptProvider,
   isKimiLeafProvider,
+  isMuseSparkLeafProvider,
   isXaiGrokLeafProvider,
   shouldApplyGrokAntiThrash,
 } from "./provider-family.js";
@@ -67,6 +68,21 @@ describe("isKimiLeafProvider", () => {
   );
 });
 
+describe("isMuseSparkLeafProvider", () => {
+  test.each<[ProviderRow, boolean]>([
+    [
+      { providerName: "opencode-go", model: "muse-spark-1.3-contributor" },
+      true,
+    ],
+    [{ providerName: "meta-api", model: "muse-wonder-1.0" }, true],
+    [{ providerName: "meta/default", model: "MUSE-WONDER-1.0" }, true],
+    [{ providerName: "meta-api", model: "not-muse-wonder-1.0" }, false],
+    [{ providerName: "meta-api" }, false],
+  ])("matches %j -> %s", (row, expected) => {
+    expect(isMuseSparkLeafProvider(row)).toBe(expected);
+  });
+});
+
 describe("detectModelFamily", () => {
   test.each<[ProviderRow, ReturnType<typeof detectModelFamily>]>([
     [{ providerName: "xai/default", model: "grok-4.5" }, "grok"],
@@ -74,6 +90,11 @@ describe("detectModelFamily", () => {
     [{ providerName: "xai/default", model: "grok-4.7" }, "grok"],
     [{ providerName: "moonshot", model: "kimi-k2" }, "kimi"],
     [{ providerName: "opencode-go", model: "kimi-k3" }, "kimi"],
+    [
+      { providerName: "opencode-go", model: "muse-spark-1.3-contributor" },
+      "muse",
+    ],
+    [{ providerName: "meta-api", model: "muse-wonder-1.0" }, "muse"],
     [{ providerName: "anthropic", model: "claude-sonnet-4" }, "claude"],
     [{ providerName: "openai-compat", model: "claude-opus-4-6" }, "claude"],
     [{ providerName: "openai", model: "gpt-5.6" }, "gpt"],

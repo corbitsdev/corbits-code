@@ -2656,7 +2656,43 @@ describe("chatDirector spacer echo", () => {
 // them AFTER super(), so the base director kept sending the original and
 // the feature was a silent no-op.
 describe("tool-discipline rules on the wire", () => {
-  async function promptSentFor(model: string): Promise<string | undefined> {
+  async function subAgentPromptSentFor(
+    model: string,
+    orchestrator = false,
+  ): Promise<string | undefined> {
+    const { SubAgentDirector } = await import("../subagent/nudge-director.js");
+    const { resolveModelFamilyPolicy } =
+      await import("./model-family-policy.js");
+    const policy = resolveModelFamilyPolicy({
+      providerName: "opencode-go",
+      model,
+      orchestrator,
+    });
+    const director = new SubAgentDirector(
+      "BASE PROMPT",
+      [],
+      undefined,
+      undefined,
+      Date.now,
+      false,
+      false,
+      undefined,
+      policy.toolDisciplineRules,
+    );
+    const event = {
+      type: "message.received",
+      message: { role: "user", content: "hi" },
+    } as unknown as ReactorInboundEvent;
+    const actions = actionsArray(
+      await director.decide(event, mockState, stubReactorCapabilities),
+    );
+    const infer = actions.find((a) => a.type === "infer") as
+      | { options?: ExtendedInferenceOptions }
+      | undefined;
+    return infer?.options?.systemPrompt;
+  }
+
+  async function chatPromptSentFor(model: string): Promise<string | undefined> {
     const director = createChatDirector("BASE PROMPT", [], {
       provider: { providerName: "opencode-go", model },
     });
@@ -2665,7 +2701,7 @@ describe("tool-discipline rules on the wire", () => {
       message: { role: "user", content: "hi" },
     } as unknown as ReactorInboundEvent;
     const actions = actionsArray(
-      await director.decide(event, stubReactorState, stubReactorCapabilities),
+      await director.decide(event, mockState, stubReactorCapabilities),
     );
     const infer = actions.find((a) => a.type === "infer") as
       | { options?: ExtendedInferenceOptions }
@@ -2673,13 +2709,23 @@ describe("tool-discipline rules on the wire", () => {
     return infer?.options?.systemPrompt;
   }
 
-  test("a Muse Spark session appends rules at the tail, leaving the base prefix intact", async () => {
-    const prompt = await promptSentFor("muse-spark-1.3-contributor");
-    expect(prompt?.startsWith("BASE PROMPT")).toBe(true);
-    expect(prompt?.length ?? 0).toBeGreaterThan("BASE PROMPT".length);
+  test("a Muse leaf appends rules at the tail, leaving the base prefix intact", async () => {
+    for (const model of ["muse-spark-1.3-contributor", "muse-wonder-1.0"]) {
+      const prompt = await subAgentPromptSentFor(model, false);
+      expect(prompt?.startsWith("BASE PROMPT")).toBe(true);
+      expect(prompt?.length ?? 0).toBeGreaterThan("BASE PROMPT".length);
+    }
+  });
+
+  test("a Muse orchestrator and primary ChatDirector withhold leaf tool-discipline rules", async () => {
+    for (const model of ["muse-spark-1.3-contributor", "muse-wonder-1.0"]) {
+      expect(await subAgentPromptSentFor(model, true)).toBe("BASE PROMPT");
+      expect(await chatPromptSentFor(model)).toBe("BASE PROMPT");
+    }
   });
 
   test("a family with no rules sends the prompt untouched", async () => {
-    expect(await promptSentFor("claude-sonnet-4")).toBe("BASE PROMPT");
+    expect(await subAgentPromptSentFor("claude-sonnet-4")).toBe("BASE PROMPT");
+    expect(await chatPromptSentFor("claude-sonnet-4")).toBe("BASE PROMPT");
   });
 });

@@ -43,12 +43,13 @@ export function isKimiLeafProvider(input: {
   return false;
 }
 
-/** True when the provider/model is the OpenCode Go Muse Spark family. */
+// Model-id prefix match: the family ships across OpenCode Go, Zen, and Meta
+// catalogs under muse-spark and muse-wonder ids without a shared provider name.
 export function isMuseSparkLeafProvider(input: {
   providerName: string;
   model?: string;
 }): boolean {
-  return input.model !== undefined && /^muse-spark/i.test(input.model.trim());
+  return input.model !== undefined && /^muse-/i.test(input.model.trim());
 }
 
 /** True when the provider/model is Anthropic's Claude family. */
