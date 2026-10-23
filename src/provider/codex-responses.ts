@@ -58,11 +58,12 @@ const FunctionCallItemDone = type({
   item: { type: "'function_call'", call_id: "string", arguments: "string" },
 });
 
-// With parallel calls on, some Codex backends send a call's arguments only on
-// output_item.done and never as deltas. The packaged parser reads deltas
-// alone, so without this replay the harness assembles those calls as `{}`
-// (CL-10582).
-function withArgumentsFromDone(adapter: ProviderAdapter): ProviderAdapter {
+// With parallel calls on, some Responses backends send a call's arguments only
+// on output_item.done and never as deltas. The packaged parser reads deltas
+// alone, so without this replay the harness assembles those calls as `{}`.
+export function withArgumentsFromDone(
+  adapter: ProviderAdapter,
+): ProviderAdapter {
   let indexByCallId = new Map<string, number>();
   let streamedIndices = new Set<number>();
   return {

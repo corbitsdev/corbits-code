@@ -13,6 +13,7 @@ import * as openaiResponses from "./openai-responses.js";
 import * as anthropicSession from "./anthropic-session-adapter.js";
 import {
   CODEX_RESPONSES_PROVIDER,
+  withArgumentsFromDone,
   withCodexContentTypeRepair,
 } from "./codex-responses.js";
 import { GROK_RESPONSES_PROVIDER } from "./grok-responses.js";
@@ -95,7 +96,11 @@ const localModules: Record<string, unknown> = {
   "opencode-go-adapter": opencodeGo,
   "codex-responses": codexResponses,
   "grok-responses": grokResponses,
-  "meta-responses": { createMetaResponsesAdapter },
+  "meta-responses": {
+    createMetaResponsesAdapter: (
+      ...args: Parameters<typeof createMetaResponsesAdapter>
+    ) => withArgumentsFromDone(createMetaResponsesAdapter(...args)),
+  },
   "bifrost-adapter": bifrostAdapter,
   "deepseek-v4-adapter": deepseekV4,
   "openai-responses": openaiResponses,
