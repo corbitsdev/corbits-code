@@ -13,6 +13,8 @@ test("chat system prompt keeps the routing, spawn-brief, and rules sections", ()
     "success_criteria",
     "do_not",
     "report_focus",
+    "send_input",
+    "interrupt_agent",
   ]) {
     expect(prompt).toContain(field);
   }
@@ -26,6 +28,7 @@ test("dispatch card is spawn-first with no parallelization cap", () => {
   expect(prompt).toMatch(/first assistant turn/i);
   expect(prompt).toMatch(/same turn/i);
   expect(prompt).toMatch(/same live job/i);
+  expect(prompt).not.toMatch(/Latest operator turn is law/i);
   expect(prompt).not.toMatch(/Do not duplicate a live worker/i);
   expect(prompt).not.toMatch(/diagnostic fleet/i);
   expect(prompt).not.toMatch(/single explorer worker/i);
