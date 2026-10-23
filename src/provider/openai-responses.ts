@@ -21,7 +21,7 @@ export const hostQuirks: ResponsesQuirks = {
   },
   systemPrompt: { role: "system", shape: "string" },
   contentShape: "flat",
-  reasoning: { summary: "auto" },
+  reasoning: { summary: "auto", effortOption: "reasoning_effort" },
 };
 
 export const createOpenAIResponsesAdapter: AdapterFactory =
