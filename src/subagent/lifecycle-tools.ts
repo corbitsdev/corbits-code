@@ -448,6 +448,8 @@ export function createInterruptAgentTool(
   });
 }
 
+const OMIT_RESOLUTION_HINT = "Omit resolution to answer with a plain message.";
+
 const SendInputArgs = type({
   target: "string",
   message: "string",
@@ -477,7 +479,7 @@ export const sendInputToolDefinition: ToolDefinition = {
       resolution: {
         type: "object",
         description:
-          "Optional explicit pending-escalation resolution (questionId, kind, answer). It never grants or retries a tool. The message is delivered together with the structured answer.",
+          "Optional explicit pending-escalation resolution (questionId, kind, answer). Omit it unless answering a pending ask_director; with no ask pending it is ignored and the message is delivered as plain input. It never grants or retries a tool. The message is delivered together with the structured answer.",
         properties: {
           questionId: {
             type: "string",
@@ -534,7 +536,11 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
             `(got ${message.length}).`,
         );
       }
-      if (parsed.resolution !== undefined) {
+      // Field-filling models send a resolution on every call. With no ask
+      // pending it has nothing to answer, so the message goes out as plain
+      // input instead of failing on filler.
+      const pending = deps.sessions.peekAsk(target);
+      if (parsed.resolution !== undefined && pending !== undefined) {
         if (parsed.interrupt === true) {
           return lifecycleResult(
             call.id,
@@ -545,20 +551,13 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
         if (resolution instanceof Error) {
           return lifecycleResult(
             call.id,
-            `Error: send_input resolution invalid: ${resolution.message}`,
-          );
-        }
-        const pending = deps.sessions.peekAsk(target);
-        if (pending === undefined) {
-          return lifecycleResult(
-            call.id,
-            `Error: no pending escalation for "${target}".`,
+            `Error: send_input resolution invalid: ${resolution.message} ${OMIT_RESOLUTION_HINT}`,
           );
         }
         if (pending.questionId !== resolution.questionId) {
           return lifecycleResult(
             call.id,
-            `Error: send_input resolution questionId mismatch: pending ask is "${pending.questionId}", resolution names "${resolution.questionId}".`,
+            `Error: send_input resolution questionId mismatch: pending ask is "${pending.questionId}", resolution names "${resolution.questionId}". ${OMIT_RESOLUTION_HINT}`,
           );
         }
         // SF6: deliver the parent's message together with the structured
@@ -629,7 +628,13 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
       }
       return lifecycleResult(
         call.id,
-        fleetJson({ agent_id: target, status: outcome.status }),
+        fleetJson({
+          agent_id: target,
+          status: outcome.status,
+          ...(parsed.resolution !== undefined
+            ? { resolution_ignored: "no pending escalation" }
+            : {}),
+        }),
       );
     },
   });

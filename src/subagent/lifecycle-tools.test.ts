@@ -1287,6 +1287,81 @@ describe("send_input", () => {
       resolution: "declined",
     });
   });
+
+  test("a resolution with no pending escalation is ignored and the message is delivered as plain input", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+    const worker = startSession(sessions, { description: "worker" });
+    sessions.markRunning(worker.id);
+    const delivered: string[] = [];
+    sessions.registerDeliver(worker.id, (message) => {
+      delivered.push(message);
+    });
+
+    // Filler a field-filling model sent after approve_worker_call had
+    // already answered the worker's only ask.
+    const fillers = [
+      { questionId: "", kind: "director_answer", answer: "" },
+      {
+        questionId: "ask-2",
+        kind: "director_answer",
+        answer: "Additional requirement applies after rebase.",
+      },
+      {
+        questionId: "none",
+        kind: "unavailable",
+        answer: "No escalation; normal task update only.",
+      },
+    ];
+    for (const resolution of fillers) {
+      const result = await callTool(sendInput, {
+        target: worker.id,
+        message: "also require the PR checklist",
+        interrupt: false,
+        resolution,
+      });
+      expect(result).toEqual({
+        agent_id: worker.id,
+        status: "running",
+        resolution_ignored: "no pending escalation",
+      });
+    }
+    expect(delivered).toEqual(
+      fillers.map(() => "also require the PR checklist"),
+    );
+  });
+
+  test("an unusable resolution against a pending ask names the plain-message alternative", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+    const worker = startSession(sessions, { description: "worker" });
+    sessions.markRunning(worker.id);
+    sessions.registerAsk(worker.id, {
+      question: "which file?",
+      questionId: "ask-1",
+      assessment: assessedAsk,
+      resolve: () => undefined,
+      reject: () => undefined,
+    });
+
+    for (const resolution of [
+      { questionId: "", kind: "director_answer", answer: "" },
+      { questionId: "ask-0", kind: "declined", answer: "No." },
+    ]) {
+      const result = await callFleetToolRaw(sendInput, {
+        target: worker.id,
+        message: "No.",
+        resolution,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Omit resolution to answer with a plain message.",
+      );
+    }
+    expect(sessions.hasPendingAsk(worker.id)).toBe(true);
+  });
 });
 
 describe("nested lifecycle authority", () => {
