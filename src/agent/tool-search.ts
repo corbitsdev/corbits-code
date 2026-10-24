@@ -438,18 +438,19 @@ function isEmptyInputSchema(schema: unknown): boolean {
   );
 }
 
+const InputSchemaProperties = type({ properties: "Record<string, unknown>" });
+
+function schemaProperties(schema: unknown): Record<string, unknown> {
+  const parsed = InputSchemaProperties(schema);
+  return parsed instanceof type.errors ? {} : parsed.properties;
+}
+
 function compactInputSchema(schema: unknown): string | undefined {
   if (isEmptyInputSchema(schema)) return undefined;
   const json = JSON.stringify(schema);
   if (json.length <= TOOL_SEARCH_SCHEMA_MAX) return json;
   const obj = schema as Record<string, unknown>;
-  const properties = obj.properties;
-  const keys =
-    properties !== undefined &&
-    typeof properties === "object" &&
-    properties !== null
-      ? Object.keys(properties)
-      : [];
+  const keys = Object.keys(schemaProperties(schema));
   const required = Array.isArray(obj.required) ? obj.required : [];
   const stub = JSON.stringify({ properties: keys, required });
   if (stub.length <= TOOL_SEARCH_SCHEMA_MAX) return stub;

@@ -628,6 +628,47 @@ describe("createToolSearchTool", () => {
     );
   });
 
+  async function schemaCardLine(
+    inputSchema: Record<string, unknown>,
+  ): Promise<string | undefined> {
+    const def: ToolDefinition = {
+      name: "mcp__linear__big",
+      description: "Linear issue with a large schema",
+      inputSchema,
+    };
+    const tool = createToolSearchTool({
+      search: () => [def.name],
+      lookup: () => def,
+    });
+    const out = await call(tool, { query: "linear" });
+    return out
+      .split("\n")
+      .find((line) => line.startsWith("  {"))
+      ?.trim();
+  }
+
+  test("an oversized input schema's card lists its property names", async () => {
+    const line = await schemaCardLine({
+      type: "object",
+      properties: {
+        alpha: { type: "string", description: "x".repeat(400) },
+        beta: { type: "string", description: "y".repeat(400) },
+      },
+      required: [],
+    });
+    expect(line).toBe('{"properties":["alpha","beta"],"required":[]}');
+  });
+
+  test("an oversized card lists no property names when properties is not an object", async () => {
+    const line = await schemaCardLine({
+      type: "object",
+      properties: null,
+      description: "z".repeat(TOOL_SEARCH_SCHEMA_MAX),
+      required: ["alpha"],
+    });
+    expect(line).toBe('{"properties":[],"required":["alpha"]}');
+  });
+
   test("search does not promote matches and keeps description lines short", async () => {
     const tool = createToolSearchTool({
       search: (q) => linearIndex.search(q),
