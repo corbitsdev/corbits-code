@@ -112,6 +112,33 @@ const linearCatalog: ToolDefinition[] = [
 
 const linearIndex = createToolIndex(() => linearCatalog);
 
+// Trimmed from the live Linear MCP catalog: release-named tools competing with
+// list_issues, the only one that lists a release's issues.
+const linearReleaseCatalog: ToolDefinition[] = [
+  mcpDef(
+    "mcp__linear__list_issues",
+    '[linear] List issues in the user\'s Linear workspace, including active Triage Intelligence suggestions for issues in triage. For issues assigned to me, use "me" as the assignee. For issues created by me, use "me" as the creator. Use "null" for no assignee.',
+  ),
+  mcpDef(
+    "mcp__linear__get_release",
+    "[linear] Retrieve details of a release by ID or slug.",
+  ),
+  mcpDef(
+    "mcp__linear__get_release_note",
+    "[linear] Retrieve release notes by ID or slug, including markdown content.",
+  ),
+  mcpDef(
+    "mcp__linear__list_release_notes",
+    "[linear] List release notes in the workspace, optionally filtered by pipeline or covered release.",
+  ),
+  mcpDef(
+    "mcp__linear__list_release_pipelines",
+    "[linear] List release pipelines in the workspace.",
+  ),
+];
+
+const linearReleaseIndex = createToolIndex(() => linearReleaseCatalog);
+
 const wideCatalog: ToolDefinition[] = Array.from({ length: 12 }, (_, i) =>
   mcpDef(
     `mcp__linear__op_${String(i).padStart(2, "0")}`,
@@ -310,6 +337,13 @@ describe("createToolIndex", () => {
     expect(ranked).toContain("mcp__linear__save_issue");
     expect(ranked.length).toBeGreaterThanOrEqual(1);
     expect(ranked.length).toBeLessThanOrEqual(2);
+  });
+
+  test("a word repeated in the query does not bury the tool that answers it", () => {
+    const ranked = linearReleaseIndex.search(
+      "Linear list issues filtered by release ID or release slug",
+    );
+    expect(ranked).toContain("mcp__linear__list_issues");
   });
 });
 
