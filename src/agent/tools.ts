@@ -833,11 +833,9 @@ export async function createAgentToolset(
           if (queryTokens.length === 0) return false;
           for (const [serverName, state] of reconnectingServers) {
             for (const tool of state.tools) {
+              const definition = reconnectStubDefinition(serverName, tool);
               const score = scoreLexical(
-                lexicalFields(
-                  mcpToolName(serverName, tool.name),
-                  `[${serverName}] ${tool.description}`,
-                ),
+                lexicalFields(definition.name, definition.description),
                 queryTokens,
                 rawQuery,
               );
@@ -1031,6 +1029,15 @@ export async function createAgentToolset(
   }
   const reconnectingServers = new Map<string, McpReconnectState>();
 
+  const reconnectStubDefinition = (
+    serverName: string,
+    tool: McpReconnectTool,
+  ): ToolDefinition => ({
+    name: mcpToolName(serverName, tool.name),
+    description: `[${serverName}] ${tool.description}`,
+    inputSchema: tool.inputSchema,
+  });
+
   const mountReconnectingStubs = (
     name: string,
     tools: readonly McpReconnectTool[],
@@ -1039,11 +1046,7 @@ export async function createAgentToolset(
     dynamicRunner.addTools(
       tools.map((tool): AgentTool => ({
         kind: "full",
-        definition: {
-          name: mcpToolName(name, tool.name),
-          description: `[${name}] ${tool.description}`,
-          inputSchema: tool.inputSchema,
-        },
+        definition: reconnectStubDefinition(name, tool),
         handler: async (call: ToolCall) => ({
           callId: call.id,
           content: MCP_RECONNECTING_TOOL_ERROR,
