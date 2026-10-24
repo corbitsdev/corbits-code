@@ -840,7 +840,13 @@ function fitOverlayListToHost(shell: AppShell, hostH: number): void {
   const hasAnswer = overlayAnswerState(shell) !== null;
   const perItem = overlayRowsPerItem(shell.overlayKind);
   const hasItems = shell.overlayItems.length > 0;
-  const choiceWant = hasItems ? perItem : 0;
+  // A decision's first choice is Reject, so reserving one choice can leave
+  // the only approving choice scrolled out of view under a tall body.
+  const choiceWant = !hasItems
+    ? 0
+    : isDecisionOverlay(shell.overlayKind)
+      ? shell.overlayItems.length * perItem
+      : perItem;
   const choiceMin = hasItems ? 1 : 0;
   let bodyCount = shell.overlayBodyLines.length;
   const chromeOf = (n: number): number =>
