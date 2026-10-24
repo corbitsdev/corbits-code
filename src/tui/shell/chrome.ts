@@ -830,8 +830,9 @@ export function paintPromptBorder(shell: AppShell): void {
   shell.promptBottomRule.content = new StyledText(ruleChunks(shell, bottom));
 }
 
-/** Shrink overlay body and list to fit the host; on a short terminal,
- * drop context first so one choice stays answerable. */
+/** Shrink overlay body and list to fit the host, dropping context before
+ * choices: a decision overlay keeps every choice on screen, any other overlay
+ * keeps one, and a host too short for every choice still keeps one. */
 function fitOverlayListToHost(shell: AppShell, hostH: number): void {
   const list = shell.overlayList;
   if (!list || hostH <= 0) return;
@@ -840,7 +841,13 @@ function fitOverlayListToHost(shell: AppShell, hostH: number): void {
   const hasAnswer = overlayAnswerState(shell) !== null;
   const perItem = overlayRowsPerItem(shell.overlayKind);
   const hasItems = shell.overlayItems.length > 0;
-  const choiceWant = hasItems ? perItem : 0;
+  // A decision's first choice is Reject, so reserving one choice can leave
+  // the only approving choice scrolled out of view under a tall body.
+  const choiceWant = !hasItems
+    ? 0
+    : isDecisionOverlay(shell.overlayKind)
+      ? shell.overlayItems.length * perItem
+      : perItem;
   const choiceMin = hasItems ? 1 : 0;
   let bodyCount = shell.overlayBodyLines.length;
   const chromeOf = (n: number): number =>
