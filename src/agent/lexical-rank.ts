@@ -30,7 +30,10 @@ export function scoreLexical(
   const name = fields.name.toLowerCase();
   const blob = fields.blob.toLowerCase();
   let total = 0;
-  for (const token of queryTokens) {
+  // A model repeats a word because its sentence needs it ("release ID or
+  // release slug"), not to weight it; counting each copy multiplies the
+  // bonus for every tool that matches that one word.
+  for (const token of new Set(queryTokens)) {
     if (fields.nameTokens.includes(token)) total += 3;
     else if (fields.blobTokens.has(token)) total += 1;
     else if (name.includes(token)) total += 0.75;
