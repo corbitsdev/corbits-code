@@ -16,6 +16,9 @@ dist/
 .claude/scheduled_tasks.lock
 tmp/
 *.tsbuildinfo
+# Copy of the bun executable `bun build --compile` leaves in the directory it
+# runs from; build:bin and scripts/release.sh both compile from the repo root
+/*.bun-build
 .claire
 .worktrees
 .tmp*
