@@ -380,6 +380,8 @@ const { MCP_RECONNECTING_TOOL_ERROR, isDegradedMcpState } =
   await import("../mcp/plugin.js");
 const { mcpNotice } = await import("../tui/runtime-notices.js");
 const { mcpReconnectDelayMs } = await import("./tools.js");
+const { TOOL_SEARCH_PENDING_WAIT_MS, TOOL_SEARCH_RECONNECT_WAIT_MS } =
+  await import("./tool-search.js");
 
 // connectMCPServer is mocked; tests simulate a dead transport by invoking the
 // onDisconnect hook the real client wires to transport.onclose.
@@ -772,6 +774,71 @@ describe("unintentional disconnect and automatic reconnect", () => {
       jest.useRealTimers();
       await toolset.dispose();
     }
+  });
+
+  const widgetTool = {
+    name: "list",
+    description: "List widgets",
+    inputSchema: { type: "object", required: ["q"] },
+  };
+
+  test("reconnect stubs keep the server's name, description, and schema", async () => {
+    mock.connectedTools = [widgetTool];
+    const toolset = await makeToolset();
+    try {
+      await toolset.connectMCPServer(acme, callbacks([]));
+      killTransport();
+      const stub = toolset.dynamicRunner
+        .currentDefinitions()
+        .find((d) => d.name === "mcp__acme__list");
+      expect(stub).toEqual({
+        name: "mcp__acme__list",
+        description: "[acme] List widgets",
+        inputSchema: widgetTool.inputSchema,
+      });
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  // Resolves to whether tool_search was still waiting once the tier-1 miss
+  // wait elapsed, i.e. whether a retained tool matched the query.
+  async function searchWaitsForRedial(query: string): Promise<boolean> {
+    mock.connectedTools = [widgetTool];
+    const toolset = await makeToolset();
+    jest.useFakeTimers();
+    try {
+      await toolset.connectMCPServer(acme, callbacks([]));
+      mock.mode = "deferred";
+      killTransport();
+      await advanceUntil(() => mock.connectOptions.length === 2);
+      let settled = false;
+      const search = toolset.dynamicRunner
+        .run(
+          { id: "s1", name: "tool_search", arguments: { query } },
+          new AbortController().signal,
+        )
+        .then(() => {
+          settled = true;
+        });
+      await advanceAndFlush(TOOL_SEARCH_PENDING_WAIT_MS);
+      const waiting = !settled;
+      await advanceAndFlush(TOOL_SEARCH_RECONNECT_WAIT_MS);
+      await search;
+      return waiting;
+    } finally {
+      mock.releaseDeferredConnect?.();
+      jest.useRealTimers();
+      await toolset.dispose();
+    }
+  }
+
+  test("tool_search waits for a redial whose retained tool matches by description", async () => {
+    expect(await searchWaitsForRedial("widgets")).toBe(true);
+  });
+
+  test("tool_search does not wait for a redial whose retained tools do not match", async () => {
+    expect(await searchWaitsForRedial("zebra")).toBe(false);
   });
 });
 
