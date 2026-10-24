@@ -6,6 +6,7 @@ import { type } from "arktype";
 import type { SkillSummary } from "../extensions/skills.js";
 import {
   lexicalFields,
+  NO_LEXICAL_PARAMS,
   rankAndCut,
   scoreLexical,
   tokenizeLexical,
@@ -67,7 +68,7 @@ function scoreSkill(
   rawQuery: string,
 ): number {
   return scoreLexical(
-    lexicalFields(skill.name, skill.description),
+    lexicalFields(skill.name, skill.description, NO_LEXICAL_PARAMS),
     queryTokens,
     rawQuery,
   );

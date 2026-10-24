@@ -118,22 +118,63 @@ const linearReleaseCatalog: ToolDefinition[] = [
   mcpDef(
     "mcp__linear__list_issues",
     '[linear] List issues in the user\'s Linear workspace, including active Triage Intelligence suggestions for issues in triage. For issues assigned to me, use "me" as the assignee. For issues created by me, use "me" as the creator. Use "null" for no assignee.',
+    {
+      assignee: {
+        type: ["string", "null"],
+        description: 'User ID, name, email, or "me"',
+      },
+      cycle: { type: "string", description: "Cycle name, number, or ID" },
+      label: { type: "string", description: "Label name or ID" },
+      project: {
+        type: "string",
+        description: "Project name, ID, identifier (e.g., P-ENG-123), or slug",
+      },
+      release: { type: "string", description: "Release ID or slug" },
+      state: { type: "string", description: "State type, name, or ID" },
+      team: { type: "string", description: "Team name or ID" },
+    },
   ),
   mcpDef(
     "mcp__linear__get_release",
     "[linear] Retrieve details of a release by ID or slug.",
+    {
+      id: { type: "string", description: "Release ID or slug" },
+      includeReleaseNotes: {
+        type: "boolean",
+        description: "Include associated release notes",
+      },
+    },
   ),
   mcpDef(
     "mcp__linear__get_release_note",
     "[linear] Retrieve release notes by ID or slug, including markdown content.",
+    {
+      id: { type: "string", description: "Release notes ID or slug" },
+      includeReleases: {
+        type: "boolean",
+        description: "Include associated releases",
+      },
+    },
   ),
   mcpDef(
     "mcp__linear__list_release_notes",
     "[linear] List release notes in the workspace, optionally filtered by pipeline or covered release.",
+    {
+      pipeline: {
+        type: "string",
+        description: "Release pipeline ID, slug, or exact name",
+      },
+      query: { type: "string", description: "Search release notes title" },
+      release: { type: "string", description: "Release ID or slug" },
+    },
   ),
   mcpDef(
     "mcp__linear__list_release_pipelines",
     "[linear] List release pipelines in the workspace.",
+    {
+      query: { type: "string", description: "Search pipeline name" },
+      team: { type: "string", description: "Team name or ID" },
+    },
   ),
 ];
 
@@ -340,10 +381,115 @@ describe("createToolIndex", () => {
   });
 
   test("a word repeated in the query does not bury the tool that answers it", () => {
-    const ranked = linearReleaseIndex.search(
+    // Parameters stripped so only counting the repeated word once keeps
+    // list_issues above the cut.
+    const namesOnlyIndex = createToolIndex(() =>
+      linearReleaseCatalog.map((def) => ({ ...def, inputSchema: {} })),
+    );
+    const ranked = namesOnlyIndex.search(
       "Linear list issues filtered by release ID or release slug",
     );
     expect(ranked).toContain("mcp__linear__list_issues");
+  });
+
+  test("a release filter lifts list_issues above the tools named for releases", () => {
+    expect(linearReleaseIndex.search("linear issues release filter")[0]).toBe(
+      "mcp__linear__list_issues",
+    );
+  });
+
+  test("a release filter narrows a release query to the tool that takes it", () => {
+    expect(linearReleaseIndex.search("issues for release")).toEqual([
+      "mcp__linear__list_issues",
+    ]);
+  });
+
+  // Identical names and descriptions apart from the filter they take, with
+  // the cycle tool first so catalog order alone would rank it ahead.
+  const recordsCatalog: ToolDefinition[] = [
+    mcpDef("mcp__acme__list_records_v1", "List records", {
+      cycle: { type: "string", description: "Cycle name, number, or ID" },
+    }),
+    mcpDef("mcp__acme__list_records_v2", "List records", {
+      release: { type: "string", description: "Release ID or slug" },
+    }),
+  ];
+  const recordsIndex = createToolIndex(() => recordsCatalog);
+
+  test("a parameter name lifts the tool that takes it", () => {
+    expect(recordsIndex.search("list records by release")[0]).toBe(
+      "mcp__acme__list_records_v2",
+    );
+  });
+
+  test("a word inside a camelCase parameter name lifts the tool that takes it", () => {
+    // Undescribed boolean flags, a common JSON Schema shape, so only the key
+    // carries the word; the closed flag comes first so catalog order alone
+    // would rank it ahead.
+    const flagsIndex = createToolIndex(() => [
+      mcpDef("mcp__acme__list_records_v1", "List records", {
+        includeClosed: { type: "boolean" },
+      }),
+      mcpDef("mcp__acme__list_records_v2", "List records", {
+        includeArchived: { type: "boolean" },
+      }),
+    ]);
+    expect(flagsIndex.search("list records archived")[0]).toBe(
+      "mcp__acme__list_records_v2",
+    );
+  });
+
+  test("a word in a parameter description lifts the tool that takes it", () => {
+    expect(recordsIndex.search("list records by slug")[0]).toBe(
+      "mcp__acme__list_records_v2",
+    );
+  });
+
+  test("a query matching only parameter text is a miss", () => {
+    expect(recordsIndex.search("release")).toEqual([]);
+  });
+
+  test("a tool named for the query keeps a parameter-only match off the shortlist", () => {
+    const ranked = linearReleaseIndex.search("linear release");
+    expect(ranked).toContain("mcp__linear__get_release");
+    expect(ranked).not.toContain("mcp__linear__list_issues");
+  });
+
+  test("a parameter shared across tools does not displace the tool named for it", () => {
+    const teamIndex = createToolIndex(() => [
+      ...linearReleaseCatalog,
+      mcpDef(
+        "mcp__linear__list_teams",
+        "[linear] List teams in the user's Linear workspace, including their parent IDs and hierarchy names",
+        { query: { type: "string", description: "Search query" } },
+      ),
+    ]);
+    expect(teamIndex.search("linear team")[0]).toBe("mcp__linear__list_teams");
+  });
+
+  test("a malformed input schema still scores on name and description", () => {
+    const malformedIndex = createToolIndex(() => [
+      {
+        name: "mcp__acme__null_props",
+        description: "Archive widgets",
+        inputSchema: { type: "object", properties: null },
+      },
+      {
+        name: "mcp__acme__numeric_description",
+        description: "Archive gadgets",
+        inputSchema: {
+          type: "object",
+          properties: { release: { type: "string", description: 42 } },
+        },
+      },
+    ]);
+    expect(malformedIndex.search("archive")).toEqual([
+      "mcp__acme__null_props",
+      "mcp__acme__numeric_description",
+    ]);
+    expect(malformedIndex.search("archive release")[0]).toBe(
+      "mcp__acme__numeric_description",
+    );
   });
 });
 

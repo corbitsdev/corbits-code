@@ -5,6 +5,7 @@ import { type } from "arktype";
 import { scrubSecretShapedContent } from "../plugins/tool-result-secret-scrub.js";
 import {
   lexicalFields,
+  NO_LEXICAL_PARAMS,
   rankAndCut,
   scoreLexical,
   tokenizeLexical,
@@ -35,7 +36,7 @@ export function createAgentIndex(
     rawQuery: string,
   ): number =>
     scoreLexical(
-      lexicalFields(profile.id, profileSearchText(profile)),
+      lexicalFields(profile.id, profileSearchText(profile), NO_LEXICAL_PARAMS),
       queryTokens,
       rawQuery,
     ) +

@@ -112,14 +112,11 @@ import { searchSkillCatalog } from "./skill-search.js";
 import {
   createToolIndex,
   createToolSearchTool,
+  scoreToolDefinition,
   TOOL_SEARCH_PENDING_WAIT_MS,
   toolSearchDefinition,
 } from "./tool-search.js";
-import {
-  lexicalFields,
-  scoreLexical,
-  tokenizeLexical,
-} from "./lexical-rank.js";
+import { tokenizeLexical } from "./lexical-rank.js";
 import { createSearchAgentsTool } from "./agent-search.js";
 import { createReadAgentTraceTool } from "../subagent/trace-tool.js";
 import { errorMessage } from "./error-message.js";
@@ -833,9 +830,8 @@ export async function createAgentToolset(
           if (queryTokens.length === 0) return false;
           for (const [serverName, state] of reconnectingServers) {
             for (const tool of state.tools) {
-              const definition = reconnectStubDefinition(serverName, tool);
-              const score = scoreLexical(
-                lexicalFields(definition.name, definition.description),
+              const score = scoreToolDefinition(
+                reconnectStubDefinition(serverName, tool),
                 queryTokens,
                 rawQuery,
               );
