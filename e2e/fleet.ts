@@ -32,10 +32,43 @@ export const WaitAgentsResult = type({
     "error?": "string",
     "question?": "string",
     "question_id?": "string",
+    "grant_request_id?": "string",
     "report?": "string",
   }).array(),
   timed_out: "boolean",
 });
+
+/** Extract the public worker-grant correlation from serialized tool output. */
+export function waitAgentsGrantRequestId(body: string): string | undefined {
+  const payload = JSON.parse(body) as unknown;
+  const contents = serializedContents(payload);
+  for (const content of contents) {
+    try {
+      const result = WaitAgentsResult.assert(content);
+      const grantRequestId = result.results.find(
+        (lane) => lane.grant_request_id !== undefined,
+      )?.grant_request_id;
+      if (grantRequestId !== undefined) return grantRequestId;
+    } catch {
+      // Request messages that are not wait_agents results are irrelevant here.
+    }
+  }
+  return undefined;
+}
+
+function serializedContents(value: unknown): unknown[] {
+  if (typeof value === "string") {
+    try {
+      return [JSON.parse(value)];
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(value)) return value.flatMap(serializedContents);
+  if (value !== null && typeof value === "object")
+    return Object.values(value).flatMap(serializedContents);
+  return [];
+}
 
 /** Every wait_agents tool result in the event stream, in call order. */
 export function waitAgentsResults(
