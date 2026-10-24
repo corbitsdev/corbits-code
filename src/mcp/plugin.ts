@@ -18,6 +18,7 @@ import {
   type MCPClient,
   type MCPContentBlock,
 } from "./client.js";
+import { stripPlaceholderArguments } from "./placeholder-args.js";
 import { mcpToolName } from "./tool-name.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
@@ -107,9 +108,11 @@ export function mcpClientTools(
         signal: AbortSignal,
       ): Promise<ToolResult> => {
         try {
+          // Some models pad every optional field with empty values; one the
+          // property schema rejects (customView minLength) fails the call.
           const envelope = await client.callResult(
             tool.name,
-            call.arguments,
+            stripPlaceholderArguments(call.arguments, tool.inputSchema),
             signal,
           );
           const authorizedBlocks = applyPolicyToBlocks(envelope.blocks);
