@@ -305,6 +305,22 @@ export const TOOL_SEARCH_DESC_MAX = 160;
 export const TOOL_SEARCH_SCHEMA_MAX = 600;
 export const TOOL_SEARCH_SCHEMA_CARDS = 5;
 
+export function scoreToolDefinition(
+  def: ToolDefinition,
+  queryTokens: readonly string[],
+  rawQuery: string,
+): number {
+  const properties = schemaProperties(def.inputSchema);
+  return scoreLexical(
+    lexicalFields(def.name, def.description, {
+      names: Object.keys(properties),
+      blob: Object.values(properties).map(propertyDescription).join(" "),
+    }),
+    queryTokens,
+    rawQuery,
+  );
+}
+
 export function createToolIndex(
   getDefs: () => readonly ToolDefinition[],
   advertisedNames: readonly string[] = ADVERTISED_TOOL_NAMES,
@@ -312,17 +328,6 @@ export function createToolIndex(
   // tools.
   allow?: readonly string[] | undefined,
 ): ToolIndex {
-  const score = (
-    def: ToolDefinition,
-    queryTokens: string[],
-    rawQuery: string,
-  ): number =>
-    scoreLexical(
-      lexicalFields(def.name, def.description ?? ""),
-      queryTokens,
-      rawQuery,
-    );
-
   return {
     search(query: string, limit = TOOL_SEARCH_MAX_RESULTS): string[] {
       const rawQuery = query.toLowerCase().trim();
@@ -342,7 +347,7 @@ export function createToolIndex(
         );
       return rankAndCut(
         candidates,
-        (def) => score(def, queryTokens, rawQuery),
+        (def) => scoreToolDefinition(def, queryTokens, rawQuery),
         limit,
         TOOL_SEARCH_SCORE_RATIO,
       ).map((def) => def.name);
@@ -443,6 +448,13 @@ const InputSchemaProperties = type({ properties: "Record<string, unknown>" });
 function schemaProperties(schema: unknown): Record<string, unknown> {
   const parsed = InputSchemaProperties(schema);
   return parsed instanceof type.errors ? {} : parsed.properties;
+}
+
+const PropertyDescription = type({ description: "string" });
+
+function propertyDescription(property: unknown): string {
+  const parsed = PropertyDescription(property);
+  return parsed instanceof type.errors ? "" : parsed.description;
 }
 
 function compactInputSchema(schema: unknown): string | undefined {

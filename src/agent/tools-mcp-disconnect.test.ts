@@ -779,7 +779,13 @@ describe("unintentional disconnect and automatic reconnect", () => {
   const widgetTool = {
     name: "list",
     description: "List widgets",
-    inputSchema: { type: "object", required: ["q"] },
+    inputSchema: {
+      type: "object",
+      properties: {
+        region: { type: "string", description: "Warehouse region" },
+      },
+      required: ["region"],
+    },
   };
 
   test("reconnect stubs keep the server's name, description, and schema", async () => {
@@ -835,6 +841,10 @@ describe("unintentional disconnect and automatic reconnect", () => {
 
   test("tool_search waits for a redial whose retained tool matches by description", async () => {
     expect(await searchWaitsForRedial("widgets")).toBe(true);
+  });
+
+  test("tool_search does not wait for a redial whose retained tool matches only by parameter", async () => {
+    expect(await searchWaitsForRedial("region")).toBe(false);
   });
 
   test("tool_search does not wait for a redial whose retained tools do not match", async () => {

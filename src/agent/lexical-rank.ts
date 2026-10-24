@@ -1,7 +1,12 @@
 // One shared dependency-free lexical ranker behind tool_search,
 // search_agents, and skill_search. Exact name-token hits weigh most, then
-// blob-token hits, then raw-substring matches (so "linear" finds
-// mcp__linear__* even though it is not a whole token there).
+// blob-token hits, then a raw name substring (so "linear" finds
+// mcp__linear__* even though it is not a whole token there), then a raw blob
+// substring. Parameter name and description tokens (tool_search only) weigh
+// less than a name substring and only boost an item that already matches by
+// name or blob: a filter makes the tool that carries it rank higher, but a
+// query that matches nothing except parameter text stays a miss, so
+// tool_search still waits for servers that are connecting.
 export function tokenizeLexical(text: string): string[] {
   return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
 }
@@ -11,15 +16,59 @@ export interface LexicalFields {
   readonly blob: string;
   readonly nameTokens: readonly string[];
   readonly blobTokens: ReadonlySet<string>;
+  readonly paramNameTokens: ReadonlySet<string>;
+  readonly paramBlobTokens: ReadonlySet<string>;
 }
 
-export function lexicalFields(name: string, blob: string): LexicalFields {
+interface LexicalParams {
+  readonly names: readonly string[];
+  readonly blob: string;
+}
+
+export const NO_LEXICAL_PARAMS: LexicalParams = { names: [], blob: "" };
+
+// JSON Schema keys are usually camelCase, and an undescribed flag such as
+// `includeArchived` carries its word only inside the key.
+function splitCamelCase(key: string): string {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z])([A-Z][a-z])/g, "$1 $2");
+}
+
+export function lexicalFields(
+  name: string,
+  blob: string,
+  params: LexicalParams,
+): LexicalFields {
   return {
     name,
     blob,
     nameTokens: tokenizeLexical(name),
     blobTokens: new Set(tokenizeLexical(blob)),
+    paramNameTokens: new Set(
+      tokenizeLexical(params.names.map(splitCamelCase).join(" ")),
+    ),
+    paramBlobTokens: new Set(tokenizeLexical(params.blob)),
   };
+}
+
+function directTokenScore(
+  fields: LexicalFields,
+  name: string,
+  blob: string,
+  token: string,
+): number {
+  if (fields.nameTokens.includes(token)) return 3;
+  if (fields.blobTokens.has(token)) return 1;
+  if (name.includes(token)) return 0.75;
+  if (blob.includes(token)) return 0.25;
+  return 0;
+}
+
+function paramTokenScore(fields: LexicalFields, token: string): number {
+  if (fields.paramNameTokens.has(token)) return 0.5;
+  if (fields.paramBlobTokens.has(token)) return 0.25;
+  return 0;
 }
 
 export function scoreLexical(
@@ -29,18 +78,17 @@ export function scoreLexical(
 ): number {
   const name = fields.name.toLowerCase();
   const blob = fields.blob.toLowerCase();
-  let total = 0;
+  let matched = name.includes(rawQuery) ? 1 : 0;
+  let total = matched;
   // A model repeats a word because its sentence needs it ("release ID or
   // release slug"), not to weight it; counting each copy multiplies the
   // bonus for every tool that matches that one word.
   for (const token of new Set(queryTokens)) {
-    if (fields.nameTokens.includes(token)) total += 3;
-    else if (fields.blobTokens.has(token)) total += 1;
-    else if (name.includes(token)) total += 0.75;
-    else if (blob.includes(token)) total += 0.25;
+    const direct = directTokenScore(fields, name, blob, token);
+    matched += direct;
+    total += Math.max(direct, paramTokenScore(fields, token));
   }
-  if (name.includes(rawQuery)) total += 1;
-  return total;
+  return matched > 0 ? total : 0;
 }
 
 // One shared rank→filter→sort→slice→map cut behind tool_search,
