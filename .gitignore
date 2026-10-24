@@ -16,6 +16,8 @@ dist/
 .claude/scheduled_tasks.lock
 tmp/
 *.tsbuildinfo
+# Copy of the bun executable `bun build --compile` leaves in the cwd
+*.bun-build
 .claire
 .worktrees
 .tmp*
