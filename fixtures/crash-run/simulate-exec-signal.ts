@@ -65,7 +65,14 @@ await withMockedModuleDuring(
     } as unknown as Config;
     void runExec(config);
     await waitForRunningRunJson();
-    const handle = getActiveRun();
+    // runExec registers the handle in saveState's continuation, which can run
+    // after this poller has already seen the renamed run.json on disk.
+    const deadline = Date.now() + 5_000;
+    let handle = getActiveRun();
+    while (handle === null && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      handle = getActiveRun();
+    }
     if (handle === null) {
       throw new Error("runExec did not register an active-run handle");
     }
