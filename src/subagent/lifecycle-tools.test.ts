@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   createCloseAgentTool,
@@ -1494,6 +1497,55 @@ describe("approve_worker_call", () => {
       grants.clear();
     },
   );
+
+  test("an ordinary denied call reaches the operator once, through the approve_worker_call prompt", async () => {
+    const grants = getProcessWorkerGrantStore();
+    grants.clear();
+    // The gate's path checks resolve against cwd, so it must exist.
+    const cwd = mkdtempSync(join(tmpdir(), "worker-approval-one-prompt-"));
+    const sessions = createSubAgentSessionStore();
+    const { session, envelope } = pendingDeniedAsk(sessions, {
+      id: "worker-one-prompt",
+      cwd,
+      command: "printf changed > generated.txt",
+    });
+    const prompts: string[] = [];
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      requestApproval: async (request) => {
+        prompts.push(request.tool);
+        return { allow: true };
+      },
+    });
+    const call = {
+      id: "approve-once",
+      name: "approve_worker_call",
+      arguments: {
+        target: session.id,
+        question_id: `${session.id}-question`,
+        request_id: envelope.requestId,
+      },
+    };
+
+    expect(await gate.evaluate(call)).toEqual({ allowed: true });
+    const approved = await callTool(
+      createApproveWorkerCallTool({
+        sessions,
+        permissionGate: gate,
+        approvalPrompted: true,
+      }),
+      call.arguments,
+    );
+
+    expect(approved.status).toBe("authorized");
+    expect(prompts).toEqual(["approve_worker_call"]);
+    grants.clear();
+    rmSync(cwd, { recursive: true, force: true });
+  });
 
   test("an in-flight allowed retry cannot leave an authorized replay", async () => {
     const grants = getProcessWorkerGrantStore();
