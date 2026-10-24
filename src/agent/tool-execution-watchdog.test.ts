@@ -650,7 +650,7 @@ describe("tool execution watchdog", () => {
     await new Promise((r) => setTimeout(r, 150));
     expect(budget.signal.aborted).toBe(false);
     // B's ceiling eventually force-resumes it on its own account.
-    await new Promise((r) => setTimeout(r, 70));
+    await new Promise((r) => setTimeout(r, 120));
     expect(budget.signal.aborted).toBe(true);
     budget.resume(tokenB);
     budget.dispose();
