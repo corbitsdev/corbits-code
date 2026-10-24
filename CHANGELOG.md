@@ -20,6 +20,19 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
+## [0.3.45] - 2026-10-24
+
+### What's Changed
+* fix(provider): recover parallel call arguments on done for all responses by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1556
+* fix(agent): match muse-wonder models and scope muse rules to leaves by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1557
+* fix(prompts): forbid tool-less status announcements in dispatch card by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1558
+* fix(tui): seed allowIdleWithFleet false at session startup by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1560
+* fix(provider): wire reasoningEffort through OpenCode Go and Zen responses by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1555
+* test: make settings laziness and approval migration tests deterministic by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1551
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.44...v0.3.45
+
 ## [0.3.44] - 2026-10-23
 
 ### What's Changed
