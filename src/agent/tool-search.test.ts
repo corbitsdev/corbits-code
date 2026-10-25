@@ -467,6 +467,68 @@ describe("createToolIndex", () => {
     expect(teamIndex.search("linear team")[0]).toBe("mcp__linear__list_teams");
   });
 
+  // Trimmed from the live Linear MCP catalog and sorted by name, so five
+  // tools that carry the singular "issue" come ahead of list_issues.
+  const linearIssueCatalog: ToolDefinition[] = [
+    mcpDef(
+      "mcp__linear__create_issue_label",
+      "[linear] Create a new Linear issue label. Deprecated: use `save_issue_label`, which can also update labels.",
+    ),
+    mcpDef(
+      "mcp__linear__get_issue",
+      "[linear] Retrieve detailed information about an issue by ID, including attachments, git branch name, and active Triage Intelligence suggestions when the issue is in triage.",
+    ),
+    mcpDef(
+      "mcp__linear__get_issue_status",
+      "[linear] Retrieve detailed information about an issue status in Linear by name or ID",
+    ),
+    mcpDef(
+      "mcp__linear__list_comments",
+      "[linear] List comments on a Linear issue, project, initiative, document, project milestone, or project/initiative status update.",
+    ),
+    mcpDef(
+      "mcp__linear__list_issue_labels",
+      "[linear] List available issue labels in a Linear workspace or team. A retired label carries `retiredAt` and cannot be applied to new issues.",
+    ),
+    mcpDef(
+      "mcp__linear__list_issue_statuses",
+      "[linear] List available issue statuses in a Linear team",
+    ),
+    mcpDef(
+      "mcp__linear__list_issues",
+      "[linear] List issues in the user's Linear workspace, including active Triage Intelligence suggestions for issues in triage.",
+    ),
+    mcpDef(
+      "mcp__linear__list_projects",
+      "[linear] List projects in the user's Linear workspace",
+    ),
+    mcpDef(
+      "mcp__linear__list_teams",
+      "[linear] List teams in the user's Linear workspace, including their parent IDs and hierarchy names",
+    ),
+    mcpDef(
+      "mcp__linear__save_issue",
+      "[linear] Create or update a Linear issue. If `id` is provided, updates the existing issue; otherwise creates a new one.",
+    ),
+  ];
+  const linearIssueIndexes = [
+    createToolIndex(() => linearIssueCatalog),
+    createToolIndex(() => [...linearIssueCatalog].reverse()),
+  ];
+
+  test("a singular query word finds the tool named for its plural", () => {
+    for (const index of linearIssueIndexes) {
+      expect(index.search("issue list")).toContain("mcp__linear__list_issues");
+    }
+  });
+
+  test("a plural query word ranks the tool named for it first", () => {
+    for (const index of linearIssueIndexes) {
+      expect(index.search("list issues")[0]).toBe("mcp__linear__list_issues");
+      expect(index.search("linear issues")[0]).toBe("mcp__linear__list_issues");
+    }
+  });
+
   test("a malformed input schema still scores on name and description", () => {
     const malformedIndex = createToolIndex(() => [
       {
