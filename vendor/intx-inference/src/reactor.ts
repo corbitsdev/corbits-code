@@ -1224,17 +1224,7 @@ export function createReactor(config: ReactorConfig): Reactor {
     // agentic turn to one deferred commit.
     //
     // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
-    if (addToHistory && pendingCompactOutput === null) {
-      const revision = stateManager?.getTurnsRevision();
-      if (
-        stateManager !== null &&
-        revision !== undefined &&
-        revision !== lastWrittenTurnsRevision
-      ) {
-        await contextStore.writeTurns(stateManager.getTurns());
-        lastWrittenTurnsRevision = revision;
-      }
-    }
+    if (addToHistory) await writeTurnsIfChanged();
   }
 
   async function executeCompact(
@@ -1645,11 +1635,20 @@ export function createReactor(config: ReactorConfig): Reactor {
       // Land it in history before the director decides so the tool_result turn
       // closes the dangling tool_use and the re-inference the director returns
       // sees a well-formed sequence. No tool ran, so no tool.done and no
-      // counter change accompany it.
+      // counter change accompany it. Write it to disk now, as an approved
+      // call's tool cycle does: held only in memory until the cycle commits,
+      // a rebuild in between would reload the call as still parked with no
+      // result. The written result closes the approval only in a store that
+      // drops a pending operation whose call is answered on disk, as Corbits'
+      // does; one that keeps pending operations until the commit reloads the
+      // approval beside the result.
+      //
+      // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
       if (event.type === "resume.tool_result") {
         if (stateManager !== null) {
           stateManager.appendTurn(createToolResultTurn([event.result]));
         }
+        await writeTurnsIfChanged();
       }
 
       let actions;
@@ -1868,6 +1867,19 @@ export function createReactor(config: ReactorConfig): Reactor {
   //
   // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-last-written-turns-revision
   let lastWrittenTurnsRevision = 0;
+
+  // Touches the store's on-disk turn segments only; the full cycle commit
+  // waits for a terminal. A staged compact already wrote the new generation,
+  // and memory still holds the old turns, so it is never overwritten here.
+  //
+  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
+  async function writeTurnsIfChanged(): Promise<void> {
+    if (stateManager === null || pendingCompactOutput !== null) return;
+    const revision = stateManager.getTurnsRevision();
+    if (revision === lastWrittenTurnsRevision) return;
+    await contextStore.writeTurns(stateManager.getTurns());
+    lastWrittenTurnsRevision = revision;
+  }
 
   async function initiateShutdown(): Promise<void> {
     if (shutdownStarted) return;
