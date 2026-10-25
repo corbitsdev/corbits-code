@@ -1,7 +1,7 @@
 // Spawned as a subprocess by e2e/exec-signal-finalize.test.ts.
 // Installs process-level signal handlers the way import.meta.main does, then
-// calls production runExec. Does not register the active-run handle itself —
-// that is the product path under test.
+// calls production runExec. The fixture never registers the active-run handle
+// itself, because runExec registering it is the product path under test.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -20,19 +20,30 @@ const runDir = sessionDir(cwd, sessionId);
 const runJsonPath = join(runDir, "run.json");
 const turnsUsed = Number(process.env["SIGNAL_TEST_TURNS_USED"] ?? "5");
 
-async function waitForRunningRunJson(): Promise<void> {
+async function pollUntil<T>(
+  probe: () => T | null,
+  timeoutMs: number,
+  errorMessage: string,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (existsSync(runJsonPath)) {
-      try {
-        const state = JSON.parse(readFileSync(runJsonPath, "utf8")) as {
-          status?: string;
-        };
-        if (state.status === "running") return;
-      } catch {
-        // rename/parse race on the first persist
-      }
-    }
+    const value = probe();
+    if (value !== null) return value;
+    if (Date.now() >= deadline) throw new Error(errorMessage);
     await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+function runJsonIsRunning(): true | null {
+  if (!existsSync(runJsonPath)) return null;
+  try {
+    const state = JSON.parse(readFileSync(runJsonPath, "utf8")) as {
+      status?: string;
+    };
+    return state.status === "running" ? true : null;
+  } catch {
+    // The first persist can be read mid-rename; retry on the next poll.
+    return null;
   }
 }
 
@@ -64,11 +75,18 @@ await withMockedModuleDuring(
       sessionId,
     } as unknown as Config;
     void runExec(config);
-    await waitForRunningRunJson();
-    const handle = getActiveRun();
-    if (handle === null) {
-      throw new Error("runExec did not register an active-run handle");
-    }
+    await pollUntil(
+      runJsonIsRunning,
+      10_000,
+      `run.json at ${runJsonPath} did not reach status "running"`,
+    );
+    // runExec registers the handle after saveState resolves, so run.json can
+    // show "running" on disk before the handle exists.
+    const handle = await pollUntil(
+      getActiveRun,
+      5_000,
+      "runExec did not register an active-run handle",
+    );
     // Advance the live counter the way a mid-run snapshot would, without
     // reading run.json on the signal path under test.
     syncRunStateHandle(handle, {
