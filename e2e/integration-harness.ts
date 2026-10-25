@@ -39,6 +39,7 @@ import { denyLateTools } from "../src/agent/late-tool-authorize.js";
 import {
   createChatDirector,
   type ChatDirector,
+  type DroppedApprovalCalls,
 } from "../src/agent/director.js";
 import { OPERATOR_ORIGINATED_FLAG } from "../src/agent/message-provenance.js";
 import {
@@ -159,6 +160,8 @@ export interface OpenIntegrationSessionOpts {
   depsOverrides?: Partial<Dependencies>;
   /** Reuse an existing session cwd, so the agent loads that session's store. */
   cwd?: string;
+  /** The session's dropped approvals, shared by every build's director as in the TUI. */
+  droppedApprovalCalls?: DroppedApprovalCalls;
 }
 
 export async function openIntegrationSession(
@@ -242,6 +245,7 @@ export async function openIntegrationSession(
         },
       );
       d.setClearDenials(() => opts.permissionGate.clearDenials());
+      d.setDroppedApprovalCalls(opts.droppedApprovalCalls);
       directorHolder.current = d;
       return d;
     },

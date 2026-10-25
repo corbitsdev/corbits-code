@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ConversationTurn, InboundMessage } from "@intx/types/runtime";
+import type {
+  ContextStore,
+  ConversationTurn,
+  InboundMessage,
+} from "@intx/types/runtime";
 
 import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../permission/decline-markers.js";
 import {
@@ -292,6 +296,167 @@ describe("approval resume generation capture", () => {
       outcome: "rejected",
       message: APPROVAL_DROPPED_NOTICE,
     });
+  });
+});
+
+// The store a rebuilt agent loads; `store.parked` flips the dropped call closed.
+function parkedStore() {
+  const store = { parked: true };
+  return {
+    store,
+    storage: {
+      load: async () =>
+        ({
+          pendingOperations: store.parked
+            ? [
+                {
+                  kind: "approval",
+                  correlationId: "corr-1",
+                  suspendedCall: { id: "call-ask" },
+                },
+              ]
+            : [],
+        }) as unknown as Awaited<ReturnType<ContextStore["load"]>>,
+    },
+  };
+}
+
+describe("approval resume dropped approvals", () => {
+  function droppableResume(
+    resolveParkedCallId: () => string | Promise<string>,
+  ) {
+    const parkedCancel = { fn: undefined as (() => void) | undefined };
+    const generation = createDeliveryGeneration(() => parkedCancel.fn?.());
+    const delivered: unknown[] = [];
+    let overlayReady: (() => void) | undefined;
+    const overlayOpened = new Promise<void>((resolve) => {
+      overlayReady = resolve;
+    });
+    const resume = createApprovalResume({
+      resolveParkedCallId,
+      getAgent: () => ({
+        deliver: (message: unknown) => delivered.push(message),
+        history: async () => [userTurn()],
+      }),
+      captureGeneration: generation.capture,
+      registerParkedCancel: (cancel) => {
+        parkedCancel.fn = cancel;
+      },
+      gate: {
+        resolveSuspended: () => {
+          overlayReady?.();
+          return new Promise(() => undefined);
+        },
+      } as unknown as PermissionGate,
+    });
+    return { resume, generation, parkedCancel, delivered, overlayOpened };
+  }
+
+  test("a drop while the prompt is open is rejected once on the rebuilt agent", async () => {
+    const { resume, generation, parkedCancel, overlayOpened } = droppableResume(
+      () => "call-ask",
+    );
+
+    void resume.handle(SUSPENDED);
+    await overlayOpened;
+    const cancel = parkedCancel.fn;
+    generation.bump();
+    cancel?.();
+
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      parkedStore().storage,
+    );
+    expect(rebuilt).toHaveLength(1);
+    expect(rebuilt[0]?.headers.interchangeCorrelationId).toBe("corr-1");
+    expect(firstDeliveredContent(rebuilt)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_DROPPED_NOTICE,
+    });
+    expect(resume.droppedCalls.claim("call-ask")).toBe(true);
+    expect(resume.droppedCalls.claim("call-ask")).toBe(false);
+  });
+
+  test("a drop before the parked call resolves sends the old agent nothing and still registers its call", async () => {
+    let resolveCallId: ((id: string) => void) | undefined;
+    const { resume, generation, delivered } = droppableResume(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveCallId = resolve;
+        }),
+    );
+
+    const handling = resume.handle(SUSPENDED);
+    generation.bump();
+    resolveCallId?.("call-ask");
+
+    expect(await handling).toBe(true);
+    expect(delivered).toEqual([]);
+    // Registered before the rebuilt agent's store is read, so a rehydrated
+    // deadline that fires first still settles without a turn.
+    await resume.prepareRebuild(parkedStore().storage);
+    expect(resume.droppedCalls.claim("call-ask")).toBe(true);
+  });
+
+  test("a drop whose call id never resolved is registered from the outgoing store", async () => {
+    const { resume, generation } = droppableResume(
+      () => new Promise<string>(() => undefined),
+    );
+    void resume.handle(SUSPENDED);
+    generation.bump();
+
+    await resume.prepareRebuild(parkedStore().storage);
+
+    expect(resume.droppedCalls.claim("call-ask")).toBe(true);
+  });
+
+  test("a drop is rejected again on every rebuild until the store shows the call closed", async () => {
+    const { resume, generation, overlayOpened } = droppableResume(
+      () => "call-ask",
+    );
+    void resume.handle(SUSPENDED);
+    await overlayOpened;
+    generation.bump();
+    const { store, storage } = parkedStore();
+    // A reactor closed before it accepts the rejection swallows it, so the
+    // store still shows the call parked.
+    const delivered: InboundMessage[] = [];
+    const agent = {
+      deliver: (message: InboundMessage) => delivered.push(message),
+    };
+
+    await resume.settleOn(agent, storage);
+    expect(delivered).toHaveLength(1);
+    await resume.settleOn(agent, storage);
+    expect(delivered).toHaveLength(2);
+
+    store.parked = false;
+    await resume.settleOn(agent, storage);
+    expect(delivered).toHaveLength(2);
+    store.parked = true;
+    await resume.settleOn(agent, storage);
+    expect(delivered).toHaveLength(2);
+  });
+
+  test("rotation forgets drops and their calls", async () => {
+    const { resume, generation, overlayOpened } = droppableResume(
+      () => "call-ask",
+    );
+    void resume.handle(SUSPENDED);
+    await overlayOpened;
+    generation.bump();
+    await resume.prepareRebuild(parkedStore().storage);
+
+    resume.forgetUnsettled();
+
+    const delivered: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => delivered.push(message) },
+      parkedStore().storage,
+    );
+    expect(delivered).toEqual([]);
+    expect(resume.droppedCalls.claim("call-ask")).toBe(false);
   });
 });
 

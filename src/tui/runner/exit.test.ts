@@ -10,7 +10,11 @@ import {
   readSourceCredentialMaterial,
   registerSourceCredentialRecord,
 } from "../../config/source-credentials.js";
-import { createChatDirector, type ChatDirector } from "../../agent/director.js";
+import {
+  createChatDirector,
+  DROPPED_APPROVAL_SETTLED_EVENT,
+  type ChatDirector,
+} from "../../agent/director.js";
 import * as sessionIndex from "../../session/index.js";
 import {
   createSubAgentSessionStore,
@@ -333,6 +337,11 @@ function stubSendLifecycle(agent: Agent): {
     directorHolder: {},
     subAgentSessions: { cancelAll: async () => [], list: () => [] },
     activeRunHandle: { task: "", startedAt: 0, model: "" },
+    approvalResume: {
+      prepareRebuild: async () => undefined,
+      settleOn: async () => undefined,
+      forgetUnsettled: () => undefined,
+    },
   } as unknown as RunnerServices;
   return { state, services };
 }
@@ -915,6 +924,66 @@ describe("rebuild re-syncs idle-with-fleet", () => {
   });
 });
 
+/**
+ * Records, in order, each agent build and the rebuild hooks the runner calls
+ * on the approval resume. A settle notes whether it got the newest agent and
+ * the session's current store.
+ */
+function recordRebuildHooks(
+  state: RunnerState,
+  services: RunnerServices,
+): string[] {
+  const calls: string[] = [];
+  let newest: unknown;
+  services.buildAgent = (async () => {
+    calls.push("build");
+    newest = recordingAgent([]);
+    return newest;
+  }) as unknown as RunnerServices["buildAgent"];
+  services.approvalResume = {
+    prepareRebuild: async (storage: unknown) => {
+      calls.push(
+        storage === state.currentStorage ? "prepare" : "prepare-elsewhere",
+      );
+    },
+    settleOn: async (agent: unknown, storage: unknown) => {
+      calls.push(
+        agent === newest && storage === state.currentStorage
+          ? "settle"
+          : "settle-elsewhere",
+      );
+    },
+    forgetUnsettled: () => calls.push("forget"),
+  } as unknown as RunnerServices["approvalResume"];
+  state.currentStorage = {} as RunnerState["currentStorage"];
+  return calls;
+}
+
+describe("approvals dropped by a generation bump", () => {
+  test("an interrupt prepares the drops before building, then settles them on the new agent", async () => {
+    const directorHolder: RunnerServices["directorHolder"] = {};
+    const agent = recordingAgent([]);
+    const { state, services } = stubSendLifecycle(agent);
+    wireRebuildServices(services, directorHolder, agent);
+    await createRunLifecycle(state, services);
+    const calls = recordRebuildHooks(state, services);
+
+    defined(state.interrupt, "interrupt")();
+    await services.sessionOps.awaitTail();
+
+    expect(calls).toEqual(["prepare", "build", "settle"]);
+  });
+
+  test("rotation forgets approvals dropped in the old session", () => {
+    const { state, services } = stubSendLifecycle(recordingAgent([]));
+    const calls = recordRebuildHooks(state, services);
+
+    resetSessionForRotation(state, services);
+
+    expect(calls).toEqual(["forget"]);
+  });
+});
+
 describe("reload-if-idle waits for the reactor's message run", () => {
   /**
    * An agent whose stream the test feeds one event at a time; close() ends
@@ -1109,6 +1178,40 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     expect(builds()).toBe(2);
     expect(state.pendingReload).toBe(false);
     expect(state.fatalBuildError).toBeNull();
+  });
+
+  test("a dropped approval settled with no turn releases the hold its correlation set", async () => {
+    const { state, services, push, builds } = await idleLifecycle();
+    push({
+      type: "message.correlated",
+      seq: 3,
+      data: { message: {}, correlationId: "corr-1" },
+    });
+    await drainStream();
+    state.pendingReload = true;
+    defined(state.reloadIfIdle, "reloadIfIdle")();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(1);
+    push({
+      type: DROPPED_APPROVAL_SETTLED_EVENT,
+      seq: 4,
+      data: { callId: "call-ask" },
+    });
+    await drainStream();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(2);
+    expect(state.pendingReload).toBe(false);
+  });
+
+  test("an MCP rebuild prepares the drops before building, then settles them on the new agent", async () => {
+    const { state, services } = await idleLifecycle();
+    const calls = recordRebuildHooks(state, services);
+
+    state.pendingReload = true;
+    defined(state.reloadIfIdle, "reloadIfIdle")();
+    await services.sessionOps.awaitTail();
+
+    expect(calls).toEqual(["prepare", "build", "settle"]);
   });
 
   /** Late MCP connects that mount tools and report the change. */

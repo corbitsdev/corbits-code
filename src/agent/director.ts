@@ -395,6 +395,18 @@ function applyManageTasksToolCall(
 // reserved prefixes (inference., tool., reactor., fork.).
 export const CHAT_TASKS_CHANGED_EVENT = "custom.chat.tasks.changed";
 export const CHAT_TOOLS_ACTIVATE_EVENT = "custom.chat.tools.activate";
+/** Marks a dropped approval settled with no turn, since `wait` announces nothing. */
+export const DROPPED_APPROVAL_SETTLED_EVENT =
+  "custom.chat.approval.dropped-settled";
+
+/**
+ * Calls whose parked approval an interrupt or a worker's expiring ask
+ * dropped. `claim` is true once for each, so its result settles the call
+ * without a turn nobody asked for.
+ */
+export interface DroppedApprovalCalls {
+  claim: (callId: string) => boolean;
+}
 export const COMPACTION_FOLD_NONCONVERGED_EVENT =
   "custom.compaction.fold_nonconverged";
 export const CREDENTIAL_RECOVERY_INTERCHANGE_TYPE =
@@ -486,6 +498,9 @@ class ChatDirectorImpl extends DefaultDirector {
   // Forget cached permission denies on the next inbound user message. Session
   // wiring points this at PermissionGate.clearDenials; unset in unit tests.
   private clearDenials: (() => void) | undefined;
+  // Shared across rebuilds by the session, so the director that loads a
+  // dropped call recognizes its result.
+  private droppedApprovalCalls: DroppedApprovalCalls | undefined;
   // Consecutive tool-call-only turns (reset by any text or fresh user
   // message). Drives the soft check-in nudge at toolOnlyTurnNudgeAt — a
   // nudge, not a stop.
@@ -665,6 +680,10 @@ class ChatDirectorImpl extends DefaultDirector {
     this.clearDenials = clear;
   }
 
+  setDroppedApprovalCalls(calls: DroppedApprovalCalls | undefined): void {
+    this.droppedApprovalCalls = calls;
+  }
+
   armCredentialRecoveryContinuation(generation: number): void {
     this.credentialRecoveryGeneration = generation;
   }
@@ -839,6 +858,21 @@ class ChatDirectorImpl extends DefaultDirector {
     state: ReactorState,
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
+    // Settled before compaction, loop protection and the nudges, any of
+    // which could turn the wait back into a turn the operator never asked
+    // for. No send is waiting on it, so a bare wait cannot hang one.
+    if (
+      event.type === "resume.tool_result" &&
+      this.droppedApprovalCalls?.claim(event.result.callId) === true
+    ) {
+      return [
+        capabilities.checkpoint("dropped-approval"),
+        capabilities.emit(DROPPED_APPROVAL_SETTLED_EVENT, {
+          callId: event.result.callId,
+        }),
+        capabilities.wait(),
+      ];
+    }
     this.coordinatorRethrowNoted = false;
     try {
       const settled = ensureCycleSettlesWithReply(
@@ -1326,6 +1360,7 @@ export interface ChatDirector extends ReactorDirector {
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;
   setAllowIdleWithFleet(value: boolean): void;
   setClearDenials(clear: (() => void) | undefined): void;
+  setDroppedApprovalCalls(calls: DroppedApprovalCalls | undefined): void;
   armCredentialRecoveryContinuation(generation: number): void;
   cancelCredentialRecoveryContinuation(generation: number): void;
   getTasks(): Task[];

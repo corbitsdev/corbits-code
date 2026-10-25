@@ -22,6 +22,7 @@ import { getLogger } from "@intx/log";
 
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import type { DroppedApprovalCalls } from "../agent/director.js";
 import {
   inspectShellSecretReference,
   shellSecretInspectionRequiresApproval,
@@ -67,6 +68,28 @@ export interface ApprovalResume {
    * has been handed over, so a fresh `handle` would open the operator surface.
    */
   status: (correlationId: string) => "idle" | "in-flight" | "handed-over";
+  /** Handed to every director the session builds. */
+  readonly droppedCalls: DroppedApprovalCalls;
+  /**
+   * Before a rebuild that keeps the session: registers each unsettled
+   * approval's call, resolving from `storage` any the drop landed too early
+   * to know, so a rehydrated deadline that fires before `settleOn` reads the
+   * rebuilt store still settles it without a turn.
+   */
+  prepareRebuild: (storage: Pick<ContextStore, "load">) => Promise<void>;
+  /**
+   * After that rebuild: rejects each unsettled approval still parked in
+   * `storage` on `agent`, the agent built from it, and forgets the ones the
+   * store shows closed. One still parked is rejected again on every rebuild
+   * until the store shows it closed, since a reactor closed before accepting
+   * the rejection discards it; a rejection of a settled call is unmatched.
+   */
+  settleOn: (
+    agent: Pick<Agent, "deliver">,
+    storage: Pick<ContextStore, "load">,
+  ) => Promise<void>;
+  /** On rotation: nothing in the new session can settle these. */
+  forgetUnsettled: () => void;
 }
 
 /**
@@ -455,6 +478,24 @@ export function createApprovalResume(args: {
   // concurrent duplicate handle shares the one in-flight outcome instead of
   // opening a second gate, so no waiter is lost and none double-resumes.
   const inflight = new Map<string, Promise<boolean>>();
+  // Approvals a generation bump dropped, keyed by correlation id with the
+  // parked call id once known. The reject a drop sends the old agent can be
+  // discarded by its closing reactor, or never sent when the drop lands
+  // before the parked call resolves, so each stays here until a rebuilt
+  // agent's store shows its call closed.
+  const unsettled = new Map<string, string | undefined>();
+  const markUnsettled = (
+    correlationId: string,
+    callId: string | undefined,
+  ): void => {
+    unsettled.set(correlationId, callId ?? unsettled.get(correlationId));
+  };
+  // Entries leave only by claim or rotation: a store read can show a call
+  // closed between its result being written and the director claiming it.
+  const silentCalls = new Set<string>();
+  const droppedCalls: DroppedApprovalCalls = {
+    claim: (callId) => silentCalls.delete(callId),
+  };
   const settleSuspended = async (
     result: Extract<SendResult, { type: "suspended" }>,
   ): Promise<boolean> => {
@@ -465,10 +506,12 @@ export function createApprovalResume(args: {
     const { correlationId, approvalSnapshot } = result;
     let cancelled = false;
     let canReject = false;
+    let knownCallId: string | undefined;
     const stillCurrent = (): boolean => !cancelled && generationCurrent();
     const cancelParked = (): void => {
       if (cancelled) return;
       cancelled = true;
+      markUnsettled(correlationId, knownCallId);
       if (canReject) {
         parkedAgent.deliver(
           decisionMessage(correlationId, "rejected", APPROVAL_DROPPED_NOTICE),
@@ -478,12 +521,15 @@ export function createApprovalResume(args: {
     const dropParked = (): void => {
       args.onDropped?.(APPROVAL_DROPPED_NOTICE);
       cancelParked();
+      // A bump while the call id was resolving recorded the drop without it.
+      markUnsettled(correlationId, knownCallId);
     };
     args.registerParkedCancel?.(cancelParked);
     let overlayAbort: AbortController | undefined;
     try {
       // The resolver captures the paired store synchronously before its first await.
       const parkedCallId = await args.resolveParkedCallId(correlationId);
+      knownCallId = parkedCallId;
       if (!stillCurrent()) {
         dropParked();
         return true;
@@ -638,6 +684,37 @@ export function createApprovalResume(args: {
         : inflight.has(correlationId)
           ? "in-flight"
           : "idle",
+    droppedCalls,
+    prepareRebuild: async (storage) => {
+      for (const [correlationId, known] of [...unsettled]) {
+        const callId =
+          known ?? (await resolveParkedCallIdFromStore(storage, correlationId));
+        if (callId === undefined) continue;
+        markUnsettled(correlationId, callId);
+        silentCalls.add(callId);
+      }
+    },
+    settleOn: async (agent, storage) => {
+      for (const correlationId of [...unsettled.keys()]) {
+        const callId = await resolveParkedCallIdFromStore(
+          storage,
+          correlationId,
+        );
+        if (callId === undefined) {
+          unsettled.delete(correlationId);
+          continue;
+        }
+        unsettled.set(correlationId, callId);
+        silentCalls.add(callId);
+        agent.deliver(
+          decisionMessage(correlationId, "rejected", APPROVAL_DROPPED_NOTICE),
+        );
+      }
+    },
+    forgetUnsettled: () => {
+      unsettled.clear();
+      silentCalls.clear();
+    },
     handle: (result) => {
       if (result.type !== "suspended") return Promise.resolve(false);
       const { correlationId } = result;

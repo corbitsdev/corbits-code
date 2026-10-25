@@ -9,6 +9,7 @@ import {
   askOperatorDefinition,
   CHAT_TASKS_CHANGED_EVENT,
   CHAT_TOOLS_ACTIVATE_EVENT,
+  DROPPED_APPROVAL_SETTLED_EVENT,
   createChatDirector,
   toolSetDigest,
 } from "./director.js";
@@ -2727,5 +2728,62 @@ describe("tool-discipline rules on the wire", () => {
   test("a family with no rules sends the prompt untouched", async () => {
     expect(await subAgentPromptSentFor("claude-sonnet-4")).toBe("BASE PROMPT");
     expect(await chatPromptSentFor("claude-sonnet-4")).toBe("BASE PROMPT");
+  });
+});
+
+describe("dropped approval results", () => {
+  function resumedResult(callId: string): ReactorInboundEvent {
+    return {
+      type: "resume.tool_result",
+      result: {
+        callId,
+        content: "denied by approver: dropped",
+        isError: true,
+      },
+    } as unknown as ReactorInboundEvent;
+  }
+
+  test("a dropped approval's result is committed once, with no new turn even with open tasks", async () => {
+    const director = createChatDirector("base", [], {});
+    director.restoreTasks([{ id: "t1", title: "open work", status: "doing" }]);
+    const dropped = new Set(["call-dropped"]);
+    director.setDroppedApprovalCalls({
+      claim: (callId) => dropped.delete(callId),
+    });
+
+    const actions = await director.decide(
+      resumedResult("call-dropped"),
+      mockState,
+      stubReactorCapabilities,
+    );
+
+    expect(actions).toEqual([
+      { type: "checkpoint", message: "dropped-approval" },
+      {
+        type: "emit",
+        eventType: DROPPED_APPROVAL_SETTLED_EVENT,
+        data: { callId: "call-dropped" },
+      },
+      { type: "wait" },
+    ]);
+    expect(dropped.size).toBe(0);
+  });
+
+  test("any other resumed result still re-infers", async () => {
+    const director = createChatDirector("base", [], {});
+    const dropped = new Set(["call-dropped"]);
+    director.setDroppedApprovalCalls({
+      claim: (callId) => dropped.delete(callId),
+    });
+
+    const actions = await director.decide(
+      resumedResult("call-other"),
+      mockState,
+      stubReactorCapabilities,
+    );
+
+    const list = Array.isArray(actions) ? actions : [actions];
+    expect(list.some((action) => action.type === "infer")).toBe(true);
+    expect([...dropped]).toEqual(["call-dropped"]);
   });
 });

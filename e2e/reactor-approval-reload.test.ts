@@ -9,16 +9,27 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
 import type { ReactorEmittedEvent } from "@intx/inference";
-import type { ConversationTurn } from "@intx/types/runtime";
+import type { ConversationTurn, InferenceSource } from "@intx/types/runtime";
 
 import type { MCPClient } from "../src/mcp/client.js";
 import { mcpClientTools } from "../src/mcp/plugin.js";
 import { createPermissionGate } from "../src/permission/gate.js";
 import { createReactorAuthorize } from "../src/permission/reactor-authorize.js";
 import {
+  APPROVAL_DROPPED_NOTICE,
   createApprovalResume,
   resolveParkedCallIdFromStore,
+  type ApprovalResume,
 } from "../src/session/approval-resume.js";
+import {
+  DROPPED_APPROVAL_SETTLED_EVENT,
+  type DroppedApprovalCalls,
+} from "../src/agent/director.js";
+import {
+  createDeliveryGeneration,
+  createSessionOperationQueue,
+} from "../src/tui/delivery-queue.js";
+import { startInterruptRebuild } from "../src/tui/runner/exit.js";
 import {
   closeIntegrationSession,
   openIntegrationSession,
@@ -26,6 +37,7 @@ import {
   runUntilDone,
   runUntilSuspended,
   type IntegrationSession,
+  type OpenIntegrationSessionOpts,
 } from "./integration-harness.js";
 
 // Ask-tier, but answered locally: nothing listens on the discard port.
@@ -119,6 +131,10 @@ function holdLongTimers() {
     realClearTimeout(handle);
   }) as typeof clearTimeout);
   return {
+    /** Move the clock to `at` without firing held timers. */
+    shift(at: number): void {
+      offset = at - realNow();
+    },
     /** Move the clock to `at` and fire every held timer due by then. */
     advanceTo(at: number): void {
       offset = at - realNow();
@@ -259,29 +275,37 @@ interface DecideThenReloadOpts {
  */
 async function parkOnAsk(
   call: { name: string; args: Record<string, unknown> },
-  opts: Pick<DecideThenReloadOpts, "replyAfterDecision" | "prepare">,
+  opts: Pick<DecideThenReloadOpts, "replyAfterDecision" | "prepare"> & {
+    adapter?: Adapter;
+    droppedApprovalCalls?: DroppedApprovalCalls;
+  },
 ) {
+  const provider = opts.adapter?.provider ?? "anthropic";
   // Held from before the park so the expire case can fire the original gate
   // timer; the approve and reject cases clear it unfired.
   const clock = holdLongTimers();
   cleanups.push(() => clock.restore());
   const ctx = deferredApprovalGate();
   const sessionOpts = {
+    ...opts.adapter?.sessionOpts,
     permissionGate: ctx.gate,
     authorize: createReactorAuthorize(ctx.gate),
     pinToolSetAtBuild: true,
+    ...(opts.droppedApprovalCalls !== undefined
+      ? { droppedApprovalCalls: opts.droppedApprovalCalls }
+      : {}),
   };
   const live = { session: await openIntegrationSession(sessionOpts) };
   cleanups.push(() => closeIntegrationSession(live.session));
   await opts.prepare?.(live.session);
 
-  live.session.harness.scenario.replyOnce("anthropic", {
+  live.session.harness.scenario.replyOnce(provider, {
     toolCalls: [call],
   });
   if (opts.replyAfterDecision === undefined)
     live.session.harness.scenario.stall();
   else
-    live.session.harness.scenario.replyOnce("anthropic", {
+    live.session.harness.scenario.replyOnce(provider, {
       text: opts.replyAfterDecision,
     });
 
@@ -362,6 +386,154 @@ async function decideThenReload(
     deadline,
     clock,
   };
+}
+
+interface Adapter {
+  name: string;
+  provider: "anthropic" | "openai";
+  sessionOpts: Partial<OpenIntegrationSessionOpts>;
+}
+
+const OPENAI_SOURCE: InferenceSource = {
+  id: "openai:integration",
+  provider: "openai",
+  baseURL: "https://api.openai.com/v1",
+  credentialId: "openai:integration",
+  model: "gpt-integration",
+};
+
+const NATIVE_ANTHROPIC: Adapter = {
+  name: "native Anthropic",
+  provider: "anthropic",
+  sessionOpts: {},
+};
+
+const ADAPTERS: Adapter[] = [
+  NATIVE_ANTHROPIC,
+  {
+    name: "OpenAI-shaped",
+    provider: "openai",
+    sessionOpts: {
+      sources: [OPENAI_SOURCE],
+      credentialRecords: {
+        [OPENAI_SOURCE.credentialId]: {
+          provenance: { kind: "api-key" },
+          material: { secret: "openai-integration-key" },
+        },
+      },
+    },
+  },
+];
+
+interface Dropped extends Reloaded {
+  resume: ApprovalResume;
+}
+
+/**
+ * Parks `call` on an ask, then interrupts while the approval is still
+ * resolving its parked call, so the drop sends the old agent nothing. The
+ * rebuild settles the drop on the rebuilt agent, as the TUI's interrupt does,
+ * and no reply is scripted for it.
+ */
+async function dropThenInterrupt(
+  call: { name: string; args: Record<string, unknown> },
+  adapter: Adapter,
+  opts: {
+    /**
+     * The interrupt lands just before the deadline: it has passed by the
+     * time the rebuilt reactor rehydrates, and the settle's store read is
+     * slower than that reactor's own.
+     */
+    deadlinePassesDuringRebuild?: boolean;
+  } = {},
+): Promise<Dropped> {
+  // Every build's director claims from the resume, which needs the session.
+  let claimFrom: ApprovalResume | undefined;
+  const droppedCalls: DroppedApprovalCalls = {
+    claim: (callId) => claimFrom?.droppedCalls.claim(callId) === true,
+  };
+  const { live, sessionOpts, ctx, clock, suspended, callId, deadline } =
+    await parkOnAsk(call, { adapter, droppedApprovalCalls: droppedCalls });
+  const parkedCancel = { fn: undefined as (() => void) | undefined };
+  const generation = createDeliveryGeneration(() => parkedCancel.fn?.());
+  let releaseCallId: (() => void) | undefined;
+  const callIdResolved = new Promise<void>((resolve) => {
+    releaseCallId = resolve;
+  });
+  const resume = createApprovalResume({
+    getAgent: () => live.session.agent,
+    gate: ctx.gate,
+    captureGeneration: generation.capture,
+    registerParkedCancel: (cancel) => {
+      parkedCancel.fn = cancel;
+    },
+    resolveParkedCallId: () => callIdResolved.then(() => callId),
+  });
+  claimFrom = resume;
+  const handling = resume.handle(suspended);
+
+  const { enqueue, awaitTail } = createSessionOperationQueue();
+  let events: ReactorEmittedEvent[] = [];
+  startInterruptRebuild({
+    deliveryGeneration: generation,
+    markSendAborted: () => undefined,
+    enqueue,
+    rebuild: async () => {
+      if (opts.deadlinePassesDuringRebuild === true) {
+        clock.shift(deadline + 1_000);
+      }
+      await resume.prepareRebuild(live.session.storage);
+      live.session = await rebuildIntegrationSession(live.session, sessionOpts);
+      events = collect(live.session);
+      const storage = live.session.storage;
+      await resume.settleOn(
+        live.session.agent,
+        opts.deadlinePassesDuringRebuild === true
+          ? {
+              load: async () => {
+                await new Promise((resolve) => setTimeout(resolve, 50));
+                return storage.load();
+              },
+            }
+          : storage,
+      );
+    },
+  });
+  releaseCallId?.();
+  expect(await handling).toBe(true);
+  await awaitTail();
+
+  await waitFor(
+    () => events.some((e) => String(e.type) === DROPPED_APPROVAL_SETTLED_EVENT),
+    "dropped approval settled",
+  );
+  // The settle is announced before the wait terminal's cycle commit lands.
+  const settledAt = performance.now();
+  while (
+    toolResultsFor(await committedTurns(live.session), callId).length === 0
+  ) {
+    if (performance.now() - settledAt > 5_000) {
+      throw new Error("timed out: dropped approval committed");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  return {
+    session: live.session,
+    events,
+    callId,
+    deadline,
+    clock,
+    resume,
+  };
+}
+
+/** The turns in the store's newest commit. */
+async function committedTurns(
+  session: IntegrationSession,
+): Promise<ConversationTurn[]> {
+  const [newest] = await session.agent.checkpoints(1);
+  if (newest === undefined) throw new Error("no commits");
+  return session.agent.readAt(newest.hash);
 }
 
 // Past both the original deadline and a full approval window freshly armed
@@ -751,6 +923,77 @@ describe("integration: an ask settled without running, then reloading the agent 
       expect(toolResultsFor(await session.agent.history(), callId)).toEqual(
         settled,
       );
+    },
+    20_000,
+  );
+});
+
+describe("integration: an ask dropped by an interrupt, then settled on the rebuilt agent", () => {
+  for (const adapter of ADAPTERS) {
+    test.serial(
+      `${adapter.name}: the drop settles with no model turn, and the next send carries it once`,
+      async () => {
+        const reloaded = await dropThenInterrupt(
+          { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+          adapter,
+        );
+        const { session, callId, events, resume } = reloaded;
+        const requests = () => session.harness.scenario.matchedRequests();
+
+        expect((await session.storage.load()).pendingOperations).toEqual([]);
+        const settled = toolResultsFor(await session.agent.history(), callId);
+        expect(settled).toHaveLength(1);
+        expect(settled.join("")).toContain(APPROVAL_DROPPED_NOTICE);
+        expect(toolResultsFor(await committedTurns(session), callId)).toEqual(
+          settled,
+        );
+        expect(requests()).toHaveLength(0);
+        expect(events.filter((e) => e.type === "inference.start")).toEqual([]);
+        expect(resume.droppedCalls.claim(callId)).toBe(false);
+
+        await passDeadline(reloaded);
+        expect(toolResultsFor(await session.agent.history(), callId)).toEqual(
+          settled,
+        );
+        expect(requests()).toHaveLength(0);
+
+        session.harness.scenario.replyOnce(adapter.provider, {
+          text: "Noted.",
+        });
+        const followUp = await runUntilDone(session, "Continue.");
+        expect(followUp.reply).toBe("Noted.");
+        const [request] = requests();
+        expect(requests()).toHaveLength(1);
+        if (request === undefined) throw new Error("no request");
+        const body = await (request.clone() as unknown as Request).text();
+        // Once as the tool call, once as its result.
+        expect(body.split(callId).length - 1).toBe(2);
+        expect(body.indexOf(APPROVAL_DROPPED_NOTICE)).toBeGreaterThan(-1);
+        expect(body.indexOf(APPROVAL_DROPPED_NOTICE)).toBeLessThan(
+          body.lastIndexOf("Continue."),
+        );
+        expect(events.filter((e) => e.type === "reactor.error")).toEqual([]);
+      },
+      20_000,
+    );
+  }
+
+  test.serial(
+    "a drop whose deadline passes during the rebuild settles with no model turn",
+    async () => {
+      const reloaded = await dropThenInterrupt(
+        { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+        NATIVE_ANTHROPIC,
+        { deadlinePassesDuringRebuild: true },
+      );
+      const { session, callId, events } = reloaded;
+
+      expect((await session.storage.load()).pendingOperations).toEqual([]);
+      expect(
+        toolResultsFor(await session.agent.history(), callId),
+      ).toHaveLength(1);
+      expect(session.harness.scenario.matchedRequests()).toHaveLength(0);
+      expect(events.filter((e) => e.type === "inference.start")).toEqual([]);
     },
     20_000,
   );
