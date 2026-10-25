@@ -369,4 +369,69 @@ describe("integration — late MCP dispatch", () => {
       });
     },
   );
+
+  test.serial(
+    "padded optional MCP arguments reach the server minus the values its schema rejects",
+    async () => {
+      const received: Record<string, unknown>[] = [];
+      await withSession(async (session) => {
+        session.toolset.dynamicRunner.addTools(
+          mcpClientTools(
+            linearClient({
+              inputSchema: {
+                type: "object",
+                properties: {
+                  customView: { type: "string", minLength: 1 },
+                  cursor: { type: "string" },
+                  query: { type: "string" },
+                  team: { type: "string" },
+                  fields: { type: "array", items: { type: "string" } },
+                  priority: { type: "number" },
+                  assignee: { type: ["string", "null"] },
+                  release: { type: "string" },
+                },
+              },
+              call: async (_toolName, args) => {
+                received.push(args);
+                return "ISSUE-1";
+              },
+            }),
+          ),
+        );
+        // The padding gpt-5.6-terra sent on a real release lookup.
+        replyScript(
+          session,
+          [
+            {
+              name: LATE_MCP,
+              args: {
+                customView: " ",
+                cursor: "",
+                query: "",
+                team: "",
+                fields: [],
+                priority: 0,
+                assignee: null,
+                release: "v0345-ef53e73667fa",
+              },
+            },
+          ],
+          "listed",
+        );
+
+        await runUntilDone(session, "list the issues in this release");
+      });
+      expect(received).toEqual([
+        {
+          cursor: "",
+          query: "",
+          team: "",
+          fields: [],
+          priority: 0,
+          assignee: null,
+          release: "v0345-ef53e73667fa",
+        },
+      ]);
+    },
+  );
 });
