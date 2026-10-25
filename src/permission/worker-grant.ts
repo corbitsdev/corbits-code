@@ -39,6 +39,8 @@ export interface WorkerGrantAuditEvent {
 export interface WorkerDeniedCallEnvelope {
   requestId: string;
   workerSessionId: string;
+  /** The worker's dispatch label, so the operator prompt can name it. */
+  workerLabel?: string;
   turnId?: string;
   deniedCallId: string;
   canonicalTool: string;
@@ -66,6 +68,7 @@ export interface DeniedCallDescriptor {
   args: Record<string, unknown>;
   cwd: string;
   workerSessionId: string;
+  workerLabel?: string;
   turnId?: string;
   workspaceRoot?: string;
   now?: number;
@@ -125,6 +128,9 @@ export function createDeniedCallEnvelope(
   const envelope: WorkerDeniedCallEnvelope = {
     requestId: randomUUID(),
     workerSessionId: descriptor.workerSessionId,
+    ...(descriptor.workerLabel !== undefined
+      ? { workerLabel: descriptor.workerLabel }
+      : {}),
     ...(descriptor.turnId !== undefined ? { turnId: descriptor.turnId } : {}),
     deniedCallId: descriptor.callId,
     canonicalTool,

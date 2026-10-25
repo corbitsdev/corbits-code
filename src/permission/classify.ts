@@ -35,6 +35,7 @@ import {
   READ_ONLY_CONTROL_PLANE_TOOLS,
 } from "../agent/tool-classification.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import { approveWorkerCallRequest } from "./approve-worker-request.js";
 
 // Read-only tools never need approval while they stay off restricted paths —
 // they cannot change the workspace. `lsp` is included despite activating
@@ -570,6 +571,9 @@ function shellApprovalScopes(command: string): ApprovalScope[] {
 // Shell is one request for the full command (security still splits under the
 // gate); file tools key on the target path.
 export function buildRequests(call: ToolCall): PermissionRequest[] {
+  if (call.name === "approve_worker_call") {
+    return [approveWorkerCallRequest(call)];
+  }
   if (call.name === "run_shell") {
     const command = stringArg(call, "command");
     // Pure comments / empty: nothing to approve.

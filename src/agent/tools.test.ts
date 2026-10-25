@@ -173,6 +173,7 @@ const {
 
 const fakePermissionGate: PermissionGate = {
   evaluate: mock(async () => ({ allowed: true as const })),
+  evaluateApprovedWorkerCall: mock(async () => ({ allowed: true as const })),
   authorizeCall: mock(async () => ({ effect: "allow" as const })),
   executionVerdict: mock(async () => ({ effect: "allow" as const })),
   resolveSuspended: mock(async () => undefined),
