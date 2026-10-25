@@ -593,6 +593,92 @@ describe("integration: an ask settled without running, then reloading the agent 
   );
 });
 
+// The loop is busy on a second message's inference when the rejection is
+// accepted, so the close's abort is served first and only the shutdown flush
+// writes the rejection's result. The reactor leaves the approval record
+// behind; the session store must close it on load.
+describe("integration: a rejection the reactor accepted but never ran, then reopening the agent", () => {
+  test.serial(
+    "the reopened agent loads the denial once and no parked call, and the old deadline adds no result",
+    async () => {
+      const clock = holdLongTimers();
+      cleanups.push(() => clock.restore());
+      const ctx = deferredApprovalGate();
+      const sessionOpts = {
+        permissionGate: ctx.gate,
+        authorize: createReactorAuthorize(ctx.gate),
+        pinToolSetAtBuild: true,
+      };
+      const live = { session: await openIntegrationSession(sessionOpts) };
+      cleanups.push(() => closeIntegrationSession(live.session));
+      live.session.harness.scenario.replyOnce("anthropic", {
+        toolCalls: [
+          { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+        ],
+      });
+      live.session.harness.scenario.stall();
+
+      const turn = await runUntilSuspended(
+        live.session,
+        "Probe the local port.",
+      );
+      const suspended = turn.result;
+      if (suspended.type !== "suspended") throw new Error("did not park");
+      const parked = (await live.session.storage.load()).pendingOperations.find(
+        (op) => op.correlationId === suspended.correlationId,
+      );
+      const callId = parked?.suspendedCall?.id;
+      const deadline = parked?.timeoutAt;
+      if (callId === undefined || deadline === undefined) {
+        throw new Error("parked call has no persisted call id or deadline");
+      }
+
+      void live.session.agent.send("Still there?").catch(() => undefined);
+      await waitFor(
+        () => live.session.harness.scenario.matchedRequests().length === 2,
+        "second message's inference",
+      );
+      const resume = createApprovalResume({
+        getAgent: () => live.session.agent,
+        gate: ctx.gate,
+        resolveParkedCallId: (id) =>
+          resolveParkedCallIdFromStore(live.session.storage, id),
+      });
+      const handling = resume.handle(suspended);
+      await waitFor(ctx.asked, "approval prompt");
+      ctx.reject();
+      expect(await handling).toBe(true);
+      await waitFor(
+        () => turn.events.some((e) => e.type === "message.correlated"),
+        "rejection accepted",
+      );
+
+      live.session = await rebuildIntegrationSession(live.session, sessionOpts);
+      const { session } = live;
+      expect((await session.storage.load()).pendingOperations).toEqual([]);
+      const settled = toolResultsFor(await session.agent.history(), callId);
+      expect(settled).toHaveLength(1);
+      expect(settled.join("")).toContain("denied by approver");
+
+      const reloaded = {
+        session,
+        events: collect(session),
+        callId,
+        deadline,
+        clock,
+      };
+      await passDeadline(reloaded, deadline + FRESH_WINDOW_PASSED_MS);
+      expect(reloaded.events.filter((e) => e.type === "reactor.error")).toEqual(
+        [],
+      );
+      expect(toolResultsFor(await session.agent.history(), callId)).toEqual(
+        settled,
+      );
+    },
+    20_000,
+  );
+});
+
 // Reloads at the run's end, where the TUI's deferred reload fires.
 describe("integration: an ask settled without running, then reloading the agent at the run's end", () => {
   const runEnded = (

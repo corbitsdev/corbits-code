@@ -1886,10 +1886,43 @@ export function createReactor(config: ReactorConfig): Reactor {
     shutdownStarted = true;
 
     abortOperations();
+
+    // A rejection or timeout the reactor accepted but had not yet processed
+    // when the abort overtook it has already left the pending set, so its
+    // result line is the only trace of the decision, and closes the approval
+    // on disk only in a store that drops an answered call's pending
+    // operation, as the resume.tool_result write above relies on. Taken before
+    // gates.shutdown(), which clears every gate timer, so no timeout can
+    // enqueue another after it; isLiveApproval refuses decisions from here.
+    //
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-tool-cycle-turns-only
+    const acceptedResults = queue.flatMap((event) =>
+      event.type === "resume.tool_result" ? [event.result] : [],
+    );
+    if (stateManager !== null) {
+      for (const result of acceptedResults) {
+        stateManager.appendTurn(createToolResultTurn([result]));
+      }
+    }
+
     gates.shutdown();
 
     if (stateManager !== null) {
       stateManager.setGatesSnapshot([]);
+    }
+
+    // Shutdown also runs after fatal errors, where the store may be what
+    // failed; a throw here must not skip reactor.done or the lock release.
+    if (acceptedResults.length > 0) {
+      try {
+        await writeTurnsIfChanged();
+      } catch (cause) {
+        logger.error`shutdown turn write failed: ${cause}`;
+        emitError(
+          `shutdown turn write failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+          false,
+        );
+      }
     }
 
     if (inFlight.size > 0) {

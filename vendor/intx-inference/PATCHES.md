@@ -522,12 +522,23 @@ Upstream needs no equivalent while it commits every tool cycle. A staged
 compact skips the write in both places; a parked approval cannot coincide
 with one, since the suspend terminal commits and clears it.
 
+`initiateShutdown` appends any `resume.tool_result` still queued behind the
+abort (a decision the reactor accepted and removed from its pending set, but
+never processed, since the loop serves `abort` first), before
+`gates.shutdown()` clears the gate timers. It then writes turns once, only
+when it appended something, inside a `try/catch` that reports a non-fatal
+`reactor.error`, so a failing store cannot skip `reactor.done` or leak the
+workdir lock. Approved calls (`resume.execute_tools`) are not flushed: one
+that never ran stays parked on disk rather than gaining a result for a
+tool that did not run. A flushed result closes the approval under the same
+store dependency as the `resume.tool_result` write.
+
 **Disposition:** Promotion candidate. Performance coalescing — collapses K
 git commits per agentic turn to one deferred commit while preserving
-rebuild-from-disk durability. The `resume.tool_result` write relies on the
-store closing an answered call's approval, which upstream stores do not do,
-so promoting it also needs the reactor to clear that pending operation when
-it writes the result.
+rebuild-from-disk durability. The `resume.tool_result` write and the
+shutdown flush rely on the store closing an answered call's approval, which
+upstream stores do not do, so promoting them also needs the reactor to clear
+that pending operation when it writes the result.
 **Removal path:** Upstream PR replacing the `executeTools` checkpoint with a
 writeTurns-only segments touch and deferring the cycle commit to cycle
 terminals.
