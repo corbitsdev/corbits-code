@@ -442,12 +442,18 @@ function decisionMessage(
   } satisfies InboundMessage;
 }
 
+/**
+ * What a host deliverer did with a decision: `skipped` when `stillCurrent()`
+ * was false by the time it would have sent, so nothing reached the reactor.
+ */
+export type ApprovalDeliveryOutcome = "delivered" | "skipped";
+
 export function createApprovalResume(args: {
   getAgent: () => Pick<Agent, "deliver" | "history"> | undefined;
   deliver?: (
     message: InboundMessage,
     stillCurrent: () => boolean,
-  ) => void | Promise<void>;
+  ) => ApprovalDeliveryOutcome | Promise<ApprovalDeliveryOutcome>;
   captureGeneration?: () => () => boolean;
   onDropped?: (text: string) => void;
   registerParkedCancel?: (cancel: (() => void) | undefined) => void;
@@ -543,12 +549,22 @@ export function createApprovalResume(args: {
       if (timeoutResult(initialHistory, parkedCallId)) return true;
       canReject = true;
 
+      // The parked cancel is unregistered before a decision is delivered,
+      // so a bump from here on drops it without cancelParked. Record that
+      // drop the moment the delivery is skipped: a rebuild queued behind the
+      // delivery must find it.
+      const currentOrDropped = (): boolean => {
+        if (stillCurrent()) return true;
+        markUnsettled(correlationId, parkedCallId);
+        return false;
+      };
       const deliverDecision = async (
         message: InboundMessage,
       ): Promise<boolean> => {
-        if (!stillCurrent()) return false;
+        if (!currentOrDropped()) return false;
         if (args.deliver !== undefined) {
-          await args.deliver(message, stillCurrent);
+          const outcome = await args.deliver(message, currentOrDropped);
+          if (outcome === "skipped") return false;
         } else {
           parkedAgent.deliver(message);
         }
