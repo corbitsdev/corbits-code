@@ -5,7 +5,10 @@
  * box's growth and over the overlay's own context text.
  */
 import { describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
 import { defined } from "../../testkit/defined.js";
+import { PRIMARY_ASK_OPERATOR_SOURCE } from "./gate-events.js";
+import { wireGates } from "./gate-wire.js";
 import { makePermissionItems, withTestRenderer } from "./harness.js";
 import { appendStreamRow } from "./shell/chrome.js";
 import { createAppShell } from "./shell/index.js";
@@ -177,4 +180,111 @@ describe("approval overlay keeps the prompt box on screen (CL-5750)", () => {
       { width: WIDTH, height: 24 },
     );
   });
+});
+
+// A long multi-line command makes the permission body taller than the host.
+// Only the first choice was guaranteed rows, so the prompt showed Reject alone
+// and Accept once sat scrolled out of view (CL-11362).
+const LONG_COMMAND = [
+  "set +e",
+  "TARGET=/Users/operator/code/worktrees/corbits-code/stack-1559-1561-1562-1563-cl-10768",
+  'FIXTURE="$(mktemp -d /tmp/corbits-linear-release.XXXXXX)"',
+  ...Array.from(
+    { length: 28 },
+    (_, i) =>
+      `echo "probe step ${i}: checking the release issue list" >> "$FIXTURE/log"`,
+  ),
+].join("\n");
+
+const FIXED_CHOICES = ["Reject", "Reject and stop", "Accept once"] as const;
+
+const TALL_QUESTION = [
+  "Which release branch should the probe target?",
+  ...Array.from(
+    { length: 30 },
+    (_, i) => `context line ${i}: the probe found a candidate branch`,
+  ),
+].join("\n");
+
+const OPERATOR_CHOICES = [
+  "Use the current branch",
+  "Use the release branch",
+  "Skip the probe",
+  "Stop and ask later",
+] as const;
+
+describe("a tall approval body never hides a choice (CL-11362)", () => {
+  for (const [columns, rows] of [
+    [80, 24],
+    [100, 30],
+  ] as const) {
+    test(`every choice is painted for a long command at ${columns}x${rows}`, async () => {
+      await withTestRenderer(
+        async (h) => {
+          const shell = createAppShell(h.renderer, {
+            terminal: { columns, rows },
+            run: "idle",
+          });
+          const emitter = new EventEmitter();
+          const dispose = wireGates(emitter, shell);
+          try {
+            primeSession(shell);
+            emitter.emit("permission.gate", {
+              id: "gate-1",
+              request: {
+                tool: "run_shell",
+                action: "Run shell command",
+                subject: LONG_COMMAND,
+                scopes: [],
+              },
+              resolve: () => undefined,
+            });
+            await h.renderOnce();
+            await h.renderOnce();
+            const frame = h.captureCharFrame();
+            for (const choice of FIXED_CHOICES) expect(frame).toContain(choice);
+          } finally {
+            dispose();
+            shell.dispose();
+          }
+        },
+        { width: columns, height: rows },
+      );
+    });
+
+    // The operator ask is the other decision overlay: its choices are
+    // caller-supplied, so a tall question must not push any of them out.
+    test(`every operator choice is painted for a tall question at ${columns}x${rows}`, async () => {
+      await withTestRenderer(
+        async (h) => {
+          const shell = createAppShell(h.renderer, {
+            terminal: { columns, rows },
+            run: "idle",
+          });
+          const emitter = new EventEmitter();
+          const dispose = wireGates(emitter, shell);
+          try {
+            primeSession(shell);
+            emitter.emit("operator.gate", {
+              id: "ask-1",
+              question: TALL_QUESTION,
+              options: [...OPERATOR_CHOICES],
+              resolve: () => undefined,
+              source: PRIMARY_ASK_OPERATOR_SOURCE,
+            });
+            await h.renderOnce();
+            await h.renderOnce();
+            const frame = h.captureCharFrame();
+            for (const choice of OPERATOR_CHOICES) {
+              expect(frame).toContain(choice);
+            }
+          } finally {
+            dispose();
+            shell.dispose();
+          }
+        },
+        { width: columns, height: rows },
+      );
+    });
+  }
 });
