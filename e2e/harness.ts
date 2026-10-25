@@ -14,6 +14,11 @@ import { dirname, join } from "node:path";
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { InboundMessage } from "@intx/types/runtime";
+import {
+  wire,
+  type HarnessRequest,
+  type RequestPredicate,
+} from "@intx/inference-testing";
 
 import { OPERATOR_ORIGINATED_FLAG } from "../src/agent/message-provenance.js";
 import {
@@ -152,6 +157,83 @@ export async function sendOperatorTurn(
 export interface ScriptedReply {
   text?: string;
   toolCalls?: { name: string; args: Record<string, unknown> }[];
+}
+
+export interface RuntimeReplyRequest {
+  body: string;
+  request: HarnessRequest;
+}
+
+export interface RuntimeReplies {
+  /**
+   * Register one response whose payload is built when its matching request
+   * arrives. This keeps correlation values discovered during a scenario out
+   * of eagerly serialized `replyOnce` fixtures.
+   */
+  replyOnce: (
+    provider: Parameters<typeof wire.completeResponse>[0],
+    predicate: RequestPredicate,
+    reply: (request: RuntimeReplyRequest) => ScriptedReply | undefined,
+  ) => void;
+  /**
+   * Rejects with the first error a reply builder or its clock run raises.
+   * Race the scenario against it: the harness would otherwise park the error
+   * for whichever `harness.run` checks next, and a background run that takes
+   * it first loses it, leaving only the test timeout.
+   */
+  failed: Promise<never>;
+}
+
+export function createRuntimeReplies(session: E2ESession): RuntimeReplies {
+  let fail: (error: unknown) => void = () => undefined;
+  const failed = new Promise<never>((_, reject) => {
+    fail = reject;
+  });
+  // A failure that lands after the race settled must not surface as an
+  // unhandled rejection.
+  failed.catch(() => undefined);
+  const replyOnce: RuntimeReplies["replyOnce"] = (provider, predicate, reply) =>
+    registerRuntimeReply(session, provider, predicate, reply, fail);
+  return { replyOnce, failed };
+}
+
+function registerRuntimeReply(
+  session: E2ESession,
+  provider: Parameters<typeof wire.completeResponse>[0],
+  predicate: RequestPredicate,
+  reply: (request: RuntimeReplyRequest) => ScriptedReply | undefined,
+  fail: (error: unknown) => void,
+): void {
+  const stream = session.harness.scenario.createStream();
+  session.harness.scenario.whenRequestBodyMatches((body, request) => {
+    if (!predicate(request)) return false;
+    let response: ScriptedReply | undefined;
+    try {
+      response = reply({ body, request });
+    } catch (error) {
+      fail(error);
+      return false;
+    }
+    if (response === undefined) return false;
+    const chunks = wire.completeResponse(provider, {
+      text: response.text ?? "",
+      ...(response.toolCalls === undefined
+        ? {}
+        : {
+            toolCalls: response.toolCalls.map((call, index) => ({
+              callId: `runtime_call_${crypto.randomUUID()}_${index}`,
+              name: call.name,
+              argsJSON: JSON.stringify(call.args),
+            })),
+          }),
+    });
+    stream.enqueueAll(chunks, { startAt: session.harness.clock.now() + 1 });
+    // A request-time reply can land after runUntilDone's harness.run has
+    // gone quiescent (e.g. a worker request while the parent waits on the
+    // wall clock), so drive the clock for the chunks just scheduled.
+    void session.harness.run({ wallClockBudgetMs: Infinity }).catch(fail);
+    return true;
+  }, stream);
 }
 
 /**
