@@ -20,6 +20,21 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
+## [0.3.46] - 2026-10-25
+
+### What's Changed
+* chore(build): ignore leftover bun compile artifacts by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1565
+* test(exec): wait for the active-run handle in the signal fixture by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1563
+* fix(tui): keep every approval choice on screen under a tall body by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1566
+* fix(mcp): drop placeholder arguments the tool schema would reject by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1568
+* test(e2e): cover a denied worker write approved once and retried by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1559
+* test(e2e): cover approval outcomes across an agent reload by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1561
+* fix(permission): ask once when approving a worker's frozen call by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1567
+* fix(subagent): deliver send_input plainly when no escalation is pending by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1562
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.45...v0.3.46
+
 ## [0.3.45] - 2026-10-24
 
 ### What's Changed
