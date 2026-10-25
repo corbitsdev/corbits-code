@@ -1031,6 +1031,32 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     expect(state.fatalBuildError).toBeNull();
   });
 
+  test("an MCP change requested while its approval is live defers rebuild until the resumed run ends", async () => {
+    const { state, services, push, builds } = await lifecycleWithOpenRun();
+    const mcp = wireLateMcp(state, services);
+    // `runWhileAgentBusy` is the approval surface's occupancy bracket: the
+    // operator has a live ask while the parked reactor run remains open.
+    await runWhileAgentBusy(state, async () => {
+      mcp.connectLateMCPServer({
+        name: "linear",
+        url: "https://l.test/mcp",
+      });
+      await drainStream();
+      await services.sessionOps.awaitTail();
+      expect(state.pendingReload).toBe(true);
+      expect(builds()).toBe(1);
+    });
+
+    // The resumed MCP tool and its next model turn remain inside run-1, so
+    // reload cannot close the agent until the reactor reports this boundary.
+    push(runEnded("run-1"));
+    await drainStream();
+    await services.sessionOps.awaitTail();
+    expect(builds()).toBe(2);
+    expect(state.pendingReload).toBe(false);
+    expect(state.fatalBuildError).toBeNull();
+  });
+
   test("a run that ends into an immediately following run rebuilds only after the successor ends", async () => {
     const { state, services, push, builds } = await lifecycleWithOpenRun();
     state.pendingReload = true;

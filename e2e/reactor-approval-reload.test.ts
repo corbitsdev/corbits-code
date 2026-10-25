@@ -1,6 +1,7 @@
 /**
- * An approved ask whose agent is rebuilt from the same store before the next
- * cycle commit (the TUI's deferred reload) must not leave the parked call's
+ * A settled ask (approved, rejected, or timed out) whose agent is rebuilt
+ * from the same store, before the next cycle commit or at the run's end
+ * where the TUI's deferred reload fires, must not leave the parked call's
  * pending operation behind: the rebuilt reactor would re-arm its gate and, at
  * the original deadline, answer an already-answered call with "approval timed
  * out".
@@ -10,6 +11,8 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { ConversationTurn } from "@intx/types/runtime";
 
+import type { MCPClient } from "../src/mcp/client.js";
+import { mcpClientTools } from "../src/mcp/plugin.js";
 import { createPermissionGate } from "../src/permission/gate.js";
 import { createReactorAuthorize } from "../src/permission/reactor-authorize.js";
 import {
@@ -27,6 +30,50 @@ import {
 
 // Ask-tier, but answered locally: nothing listens on the discard port.
 const CLOSED_PORT_PROBE = "curl -sS --max-time 1 http://127.0.0.1:9/";
+const SAVE_ISSUE = "mcp__linear__save_issue";
+const CREATE_LABEL = "mcp__linear__create_label";
+
+function linearClient(calls: Record<string, unknown>[]): MCPClient {
+  return {
+    serverName: "linear",
+    tools: [
+      {
+        name: "save_issue",
+        description: "create or update a linear issue",
+        inputSchema: {
+          type: "object",
+          properties: { title: { type: "string" } },
+        },
+      },
+    ],
+    async callResult(_toolName, args) {
+      calls.push(args);
+      return { blocks: [{ type: "text", text: "SAVED-1" }], isError: false };
+    },
+    async close() {
+      return undefined;
+    },
+  };
+}
+
+function labelClient(): MCPClient {
+  return {
+    serverName: "linear",
+    tools: [
+      {
+        name: "create_label",
+        description: "create a linear label",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ],
+    async callResult() {
+      return { blocks: [], isError: false };
+    },
+    async close() {
+      return undefined;
+    },
+  };
+}
 
 // Reactor gates run on the real clock (setTimeout + Date.now), not the
 // inference harness clock, so the approval deadline is driven here. Only
@@ -105,6 +152,7 @@ function deferredApprovalGate() {
         }),
     }),
     approve: () => release?.({ allow: true }),
+    reject: () => release?.({ allow: false }),
   };
 }
 
@@ -155,31 +203,66 @@ interface Reloaded {
   clock: ReturnType<typeof holdLongTimers>;
 }
 
+interface DecideThenReloadOpts {
+  /**
+   * How the parked call is settled. `expire` never opens the approval
+   * prompt; the reactor's own deadline answers the call.
+   */
+  decision?: "approve" | "reject" | "expire";
+  /**
+   * The model's reply after the settled call. Without it the next model
+   * turn stays open, so the reload lands before the cycle commits; with it
+   * the run can end, which is where the TUI's deferred reload fires.
+   */
+  replyAfterDecision?: string;
+  /** Runs on the opened session before the call is scripted. */
+  prepare?: (session: IntegrationSession) => Promise<void>;
+  /** Runs while the approval prompt is live, before it is decided. */
+  afterApprovalOpened?: (session: IntegrationSession) => void;
+  /**
+   * Rebuild over the same toolset, as the TUI does for an MCP tool-set
+   * change. Reopening from the store builds a fresh toolset, which would
+   * drop tools mounted on the old one.
+   */
+  rebuildInPlace?: boolean;
+}
+
 /**
- * Parks `command` on an ask, approves it, and once `reloadWhen` holds for
- * the approved run, rebuilds the agent on the same store. The model turn
- * after the approved result stays open, so the reload always lands before
- * the reply terminal commits the cycle.
+ * Parks `call` on an ask, settles it per `opts.decision` (approve by
+ * default), and once `reloadWhen` holds for the settled run, rebuilds the
+ * agent on the same store. `reloadWhen` sees only events from after the
+ * decision.
  */
-async function approveThenReload(
-  command: string,
+async function decideThenReload(
+  call: { name: string; args: Record<string, unknown> },
   reloadWhen: (
     session: IntegrationSession,
     events: ReactorEmittedEvent[],
   ) => boolean,
+  opts: DecideThenReloadOpts = {},
 ): Promise<Reloaded> {
+  // Held from before the park so the expire case can fire the original gate
+  // timer; the approve and reject cases clear it unfired.
+  const clock = holdLongTimers();
+  cleanups.push(() => clock.restore());
   const ctx = deferredApprovalGate();
   const sessionOpts = {
     permissionGate: ctx.gate,
     authorize: createReactorAuthorize(ctx.gate),
+    pinToolSetAtBuild: true,
   };
   let session = await openIntegrationSession(sessionOpts);
   cleanups.push(() => closeIntegrationSession(session));
+  await opts.prepare?.(session);
 
   session.harness.scenario.replyOnce("anthropic", {
-    toolCalls: [{ name: "run_shell", args: { command } }],
+    toolCalls: [call],
   });
-  session.harness.scenario.stall();
+  if (opts.replyAfterDecision === undefined) session.harness.scenario.stall();
+  else
+    session.harness.scenario.replyOnce("anthropic", {
+      text: opts.replyAfterDecision,
+    });
 
   const turn = await runUntilSuspended(session, "Probe the local port.");
   if (turn.result.type !== "suspended") throw new Error("did not park");
@@ -193,31 +276,48 @@ async function approveThenReload(
     throw new Error("parked call has no persisted call id or deadline");
   }
 
-  const resume = createApprovalResume({
-    getAgent: () => session.agent,
-    gate: ctx.gate,
-    resolveParkedCallId: (id) =>
-      resolveParkedCallIdFromStore(session.storage, id),
-  });
-  const handling = resume.handle(turn.result);
-  await waitFor(ctx.asked, "approval prompt");
-  ctx.approve();
-  expect(await handling).toBe(true);
+  const decision = opts.decision ?? "approve";
+  const decidedAt = turn.events.length;
+  if (decision === "expire") {
+    clock.advanceTo(deadline + 1_000);
+  } else {
+    const resume = createApprovalResume({
+      getAgent: () => session.agent,
+      gate: ctx.gate,
+      resolveParkedCallId: (id) =>
+        resolveParkedCallIdFromStore(session.storage, id),
+    });
+    const handling = resume.handle(turn.result);
+    await waitFor(ctx.asked, "approval prompt");
+    opts.afterApprovalOpened?.(session);
+    if (decision === "approve") ctx.approve();
+    else ctx.reject();
+    expect(await handling).toBe(true);
+  }
   void session.harness
     .run({ wallClockBudgetMs: 30_000 })
     .catch(() => undefined);
   const before = session;
-  await waitFor(() => reloadWhen(before, turn.events), "reload point");
+  await waitFor(
+    () => reloadWhen(before, turn.events.slice(decidedAt)),
+    "reload point",
+  );
 
-  const clock = holdLongTimers();
-  cleanups.push(() => clock.restore());
-  session = await rebuildIntegrationSession(session, sessionOpts);
+  if (opts.rebuildInPlace === true) await session.rebuild();
+  else session = await rebuildIntegrationSession(session, sessionOpts);
   return { session, events: collect(session), callId, deadline, clock };
 }
 
+// Past both the original deadline and a full approval window freshly armed
+// at the reload, so either re-arm would have fired.
+const FRESH_WINDOW_PASSED_MS = 2 * 60 * 60_000;
+
 /** Moves past the original approval deadline and lets the reactor react. */
-async function passDeadline(reloaded: Reloaded): Promise<void> {
-  reloaded.clock.advanceTo(reloaded.deadline + 1_000);
+async function passDeadline(
+  reloaded: Reloaded,
+  at = reloaded.deadline + 1_000,
+): Promise<void> {
+  reloaded.clock.advanceTo(at);
   await reloaded.session.harness
     .run({ wallClockBudgetMs: 2_000 })
     .catch(() => undefined);
@@ -228,8 +328,8 @@ describe("integration: approving an ask, then reloading the agent", () => {
   test.serial(
     "after the approved result: the rebuilt agent continues, and the old deadline adds no result",
     async () => {
-      const reloaded = await approveThenReload(
-        CLOSED_PORT_PROBE,
+      const reloaded = await decideThenReload(
+        { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
         (session) => session.harness.scenario.matchedRequests().length === 2,
       );
       const { session, callId } = reloaded;
@@ -252,14 +352,70 @@ describe("integration: approving an ask, then reloading the agent", () => {
     20_000,
   );
 
+  test.serial(
+    "an approved parked MCP call remains settled across a pending tool-set change, reopen, and original deadline",
+    async () => {
+      const calls: Record<string, unknown>[] = [];
+      const reloaded = await decideThenReload(
+        { name: SAVE_ISSUE, args: { title: "late approval" } },
+        (session) => session.harness.scenario.matchedRequests().length === 2,
+        {
+          prepare: async (session) => {
+            session.toolset.dynamicRunner.addTools(
+              mcpClientTools(linearClient(calls)),
+            );
+            await session.rebuild();
+          },
+          afterApprovalOpened: (session) => {
+            // The prompt is live before this MCP change requests its reload.
+            session.toolset.dynamicRunner.addTools(
+              mcpClientTools(labelClient()),
+            );
+            expect(
+              session.toolset.dynamicRunner.agentToolSetDrift().added,
+            ).toContain(CREATE_LABEL);
+          },
+          rebuildInPlace: true,
+        },
+      );
+      const { session, callId } = reloaded;
+      const rebuiltTools = session.toolset.dynamicRunner
+        .agentDefinitions()
+        .map((definition) => definition.name);
+      expect(rebuiltTools).toContain(SAVE_ISSUE);
+      expect(rebuiltTools).toContain(CREATE_LABEL);
+      expect(calls).toEqual([{ title: "late approval" }]);
+      expect(
+        toolResultsFor(await session.agent.history(), callId),
+      ).toHaveLength(1);
+
+      session.harness.scenario.replyOnce("anthropic", { text: "Saved." });
+      const followUp = await runUntilDone(session, "Continue.");
+      expect(followUp.reply).toBe("Saved.");
+
+      await passDeadline(reloaded);
+      expect(reloaded.events.filter((e) => e.type === "reactor.error")).toEqual(
+        [],
+      );
+      const results = toolResultsFor(await session.agent.history(), callId);
+      expect(calls).toEqual([{ title: "late approval" }]);
+      expect(results).toHaveLength(1);
+      expect(results.join("")).not.toContain("approval timed out");
+    },
+    20_000,
+  );
+
   // The reload interrupts the approved call, which the closing reactor
   // answers itself. What an interrupted call should report is not pinned
   // here; only that the old deadline cannot add a second result.
   test.serial(
     "during the approved call: the old deadline adds no second result",
     async () => {
-      const reloaded = await approveThenReload(
-        `sleep 20; ${CLOSED_PORT_PROBE}`,
+      const reloaded = await decideThenReload(
+        {
+          name: "run_shell",
+          args: { command: `sleep 20; ${CLOSED_PORT_PROBE}` },
+        },
         (_session, events) => events.some((e) => e.type === "tool.start"),
       );
       const { session, callId } = reloaded;
@@ -274,6 +430,133 @@ describe("integration: approving an ask, then reloading the agent", () => {
       expect(
         toolResultsFor(await session.agent.history(), callId),
       ).toHaveLength(1);
+    },
+    20_000,
+  );
+
+  // The TUI defers an MCP tool-set rebuild until the approval-resumed run
+  // ends (reloadIfIdle in src/tui/runner/exit.ts, covered by its runner
+  // tests). The harness has no TUI runner, so this rebuilds in place at that
+  // same boundary, gated on an added tool, one of the drifts reloadIfIdle
+  // rebuilds for.
+  test.serial(
+    "an approved MCP call stays settled when the deferred tool-set rebuild fires at the run's end",
+    async () => {
+      const calls: Record<string, unknown>[] = [];
+      const reloaded = await decideThenReload(
+        { name: SAVE_ISSUE, args: { title: "late approval" } },
+        (session, events) =>
+          events.some((e) => e.type === "message.run.ended") &&
+          session.toolset.dynamicRunner.agentToolSetDrift().added.length > 0,
+        {
+          replyAfterDecision: "Saved.",
+          prepare: async (session) => {
+            session.toolset.dynamicRunner.addTools(
+              mcpClientTools(linearClient(calls)),
+            );
+            await session.rebuild();
+          },
+          afterApprovalOpened: (session) => {
+            session.toolset.dynamicRunner.addTools(
+              mcpClientTools(labelClient()),
+            );
+          },
+          rebuildInPlace: true,
+        },
+      );
+      const { session, callId } = reloaded;
+      expect(session.toolset.dynamicRunner.agentToolSetDrift().added).toEqual(
+        [],
+      );
+      expect(
+        session.toolset.dynamicRunner
+          .agentDefinitions()
+          .map((definition) => definition.name),
+      ).toContain(CREATE_LABEL);
+      expect(calls).toEqual([{ title: "late approval" }]);
+      expect(
+        toolResultsFor(await session.agent.history(), callId),
+      ).toHaveLength(1);
+
+      session.harness.scenario.replyOnce("anthropic", { text: "Done." });
+      const followUp = await runUntilDone(session, "Continue.");
+      expect(followUp.reply).toBe("Done.");
+
+      await passDeadline(reloaded);
+      expect(reloaded.events.filter((e) => e.type === "reactor.error")).toEqual(
+        [],
+      );
+      const results = toolResultsFor(await session.agent.history(), callId);
+      expect(calls).toEqual([{ title: "late approval" }]);
+      expect(results).toHaveLength(1);
+      expect(results.join("")).not.toContain("approval timed out");
+    },
+    20_000,
+  );
+});
+
+// Reloads at the run's end, where the TUI's deferred reload fires. A reload
+// after the decision but before the cycle commits is not covered here: the
+// rejected or timed-out result is not yet persisted, so the rebuilt agent
+// loads the parked call with no result at all.
+describe("integration: an ask settled without running, then reloading the agent at the run's end", () => {
+  const runEnded = (
+    _session: IntegrationSession,
+    events: ReactorEmittedEvent[],
+  ): boolean => events.some((e) => e.type === "message.run.ended");
+
+  test.serial(
+    "after a rejection: the rebuilt agent continues, and the old deadline adds no result",
+    async () => {
+      const reloaded = await decideThenReload(
+        { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+        runEnded,
+        { decision: "reject", replyAfterDecision: "Skipped." },
+      );
+      const { session, callId } = reloaded;
+      const settled = toolResultsFor(await session.agent.history(), callId);
+      expect(settled).toHaveLength(1);
+      expect(settled.join("")).toContain("denied by approver");
+
+      session.harness.scenario.replyOnce("anthropic", { text: "Done." });
+      const followUp = await runUntilDone(session, "Continue.");
+      expect(followUp.reply).toBe("Done.");
+
+      await passDeadline(reloaded);
+      expect(reloaded.events.filter((e) => e.type === "reactor.error")).toEqual(
+        [],
+      );
+      const results = toolResultsFor(await session.agent.history(), callId);
+      expect(results).toEqual(settled);
+      expect(results.join("")).not.toContain("approval timed out");
+    },
+    20_000,
+  );
+
+  test.serial(
+    "after the deadline answers it: the rebuilt agent continues, and no later deadline adds a second result",
+    async () => {
+      const reloaded = await decideThenReload(
+        { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+        runEnded,
+        { decision: "expire", replyAfterDecision: "Timed out." },
+      );
+      const { session, callId } = reloaded;
+      const settled = toolResultsFor(await session.agent.history(), callId);
+      expect(settled).toHaveLength(1);
+      expect(settled.join("")).toContain("approval timed out");
+
+      session.harness.scenario.replyOnce("anthropic", { text: "Done." });
+      const followUp = await runUntilDone(session, "Continue.");
+      expect(followUp.reply).toBe("Done.");
+
+      await passDeadline(reloaded, reloaded.deadline + FRESH_WINDOW_PASSED_MS);
+      expect(reloaded.events.filter((e) => e.type === "reactor.error")).toEqual(
+        [],
+      );
+      expect(toolResultsFor(await session.agent.history(), callId)).toEqual(
+        settled,
+      );
     },
     20_000,
   );
