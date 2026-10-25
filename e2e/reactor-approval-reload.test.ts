@@ -253,6 +253,62 @@ interface DecideThenReloadOpts {
 }
 
 /**
+ * Opens a session and parks `call` on an ask. `live.session` is the agent's
+ * current session; a rebuild replaces it, and cleanup closes whichever is
+ * current.
+ */
+async function parkOnAsk(
+  call: { name: string; args: Record<string, unknown> },
+  opts: Pick<DecideThenReloadOpts, "replyAfterDecision" | "prepare">,
+) {
+  // Held from before the park so the expire case can fire the original gate
+  // timer; the approve and reject cases clear it unfired.
+  const clock = holdLongTimers();
+  cleanups.push(() => clock.restore());
+  const ctx = deferredApprovalGate();
+  const sessionOpts = {
+    permissionGate: ctx.gate,
+    authorize: createReactorAuthorize(ctx.gate),
+    pinToolSetAtBuild: true,
+  };
+  const live = { session: await openIntegrationSession(sessionOpts) };
+  cleanups.push(() => closeIntegrationSession(live.session));
+  await opts.prepare?.(live.session);
+
+  live.session.harness.scenario.replyOnce("anthropic", {
+    toolCalls: [call],
+  });
+  if (opts.replyAfterDecision === undefined)
+    live.session.harness.scenario.stall();
+  else
+    live.session.harness.scenario.replyOnce("anthropic", {
+      text: opts.replyAfterDecision,
+    });
+
+  const turn = await runUntilSuspended(live.session, "Probe the local port.");
+  const suspended = turn.result;
+  if (suspended.type !== "suspended") throw new Error("did not park");
+  const parked = (await live.session.storage.load()).pendingOperations.find(
+    (op) => op.correlationId === suspended.correlationId,
+  );
+  const callId = parked?.suspendedCall?.id;
+  const deadline = parked?.timeoutAt;
+  if (callId === undefined || deadline === undefined) {
+    throw new Error("parked call has no persisted call id or deadline");
+  }
+  return {
+    live,
+    sessionOpts,
+    ctx,
+    clock,
+    suspended,
+    events: turn.events,
+    callId,
+    deadline,
+  };
+}
+
+/**
  * Parks `call` on an ask, settles it per `opts.decision` (approve by
  * default), and once `reloadWhen` holds for the settled run, rebuilds the
  * agent on the same store. `reloadWhen` sees only events from after the
@@ -266,71 +322,46 @@ async function decideThenReload(
   ) => boolean,
   opts: DecideThenReloadOpts = {},
 ): Promise<Reloaded> {
-  // Held from before the park so the expire case can fire the original gate
-  // timer; the approve and reject cases clear it unfired.
-  const clock = holdLongTimers();
-  cleanups.push(() => clock.restore());
-  const ctx = deferredApprovalGate();
-  const sessionOpts = {
-    permissionGate: ctx.gate,
-    authorize: createReactorAuthorize(ctx.gate),
-    pinToolSetAtBuild: true,
-  };
-  let session = await openIntegrationSession(sessionOpts);
-  cleanups.push(() => closeIntegrationSession(session));
-  await opts.prepare?.(session);
-
-  session.harness.scenario.replyOnce("anthropic", {
-    toolCalls: [call],
-  });
-  if (opts.replyAfterDecision === undefined) session.harness.scenario.stall();
-  else
-    session.harness.scenario.replyOnce("anthropic", {
-      text: opts.replyAfterDecision,
-    });
-
-  const turn = await runUntilSuspended(session, "Probe the local port.");
-  if (turn.result.type !== "suspended") throw new Error("did not park");
-  const { correlationId } = turn.result;
-  const parked = (await session.storage.load()).pendingOperations.find(
-    (op) => op.correlationId === correlationId,
-  );
-  const callId = parked?.suspendedCall?.id;
-  const deadline = parked?.timeoutAt;
-  if (callId === undefined || deadline === undefined) {
-    throw new Error("parked call has no persisted call id or deadline");
-  }
+  const { live, sessionOpts, ctx, clock, suspended, events, callId, deadline } =
+    await parkOnAsk(call, opts);
 
   const decision = opts.decision ?? "approve";
-  const decidedAt = turn.events.length;
+  const decidedAt = events.length;
   if (decision === "expire") {
     clock.advanceTo(deadline + 1_000);
   } else {
     const resume = createApprovalResume({
-      getAgent: () => session.agent,
+      getAgent: () => live.session.agent,
       gate: ctx.gate,
       resolveParkedCallId: (id) =>
-        resolveParkedCallIdFromStore(session.storage, id),
+        resolveParkedCallIdFromStore(live.session.storage, id),
     });
-    const handling = resume.handle(turn.result);
+    const handling = resume.handle(suspended);
     await waitFor(ctx.asked, "approval prompt");
-    opts.afterApprovalOpened?.(session);
+    opts.afterApprovalOpened?.(live.session);
     if (decision === "approve") ctx.approve();
     else ctx.reject();
     expect(await handling).toBe(true);
   }
-  void session.harness
+  void live.session.harness
     .run({ wallClockBudgetMs: 30_000 })
     .catch(() => undefined);
-  const before = session;
+  const before = live.session;
   await waitFor(
-    () => reloadWhen(before, turn.events.slice(decidedAt)),
+    () => reloadWhen(before, events.slice(decidedAt)),
     "reload point",
   );
 
-  if (opts.rebuildInPlace === true) await session.rebuild();
-  else session = await rebuildIntegrationSession(session, sessionOpts);
-  return { session, events: collect(session), callId, deadline, clock };
+  if (opts.rebuildInPlace === true) await live.session.rebuild();
+  else
+    live.session = await rebuildIntegrationSession(live.session, sessionOpts);
+  return {
+    session: live.session,
+    events: collect(live.session),
+    callId,
+    deadline,
+    clock,
+  };
 }
 
 // Past both the original deadline and a full approval window freshly armed
@@ -601,37 +632,19 @@ describe("integration: a rejection the reactor accepted but never ran, then reop
   test.serial(
     "the reopened agent loads the denial once and no parked call, and the old deadline adds no result",
     async () => {
-      const clock = holdLongTimers();
-      cleanups.push(() => clock.restore());
-      const ctx = deferredApprovalGate();
-      const sessionOpts = {
-        permissionGate: ctx.gate,
-        authorize: createReactorAuthorize(ctx.gate),
-        pinToolSetAtBuild: true,
-      };
-      const live = { session: await openIntegrationSession(sessionOpts) };
-      cleanups.push(() => closeIntegrationSession(live.session));
-      live.session.harness.scenario.replyOnce("anthropic", {
-        toolCalls: [
-          { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
-        ],
-      });
-      live.session.harness.scenario.stall();
-
-      const turn = await runUntilSuspended(
-        live.session,
-        "Probe the local port.",
+      const {
+        live,
+        sessionOpts,
+        ctx,
+        clock,
+        suspended,
+        events,
+        callId,
+        deadline,
+      } = await parkOnAsk(
+        { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+        {},
       );
-      const suspended = turn.result;
-      if (suspended.type !== "suspended") throw new Error("did not park");
-      const parked = (await live.session.storage.load()).pendingOperations.find(
-        (op) => op.correlationId === suspended.correlationId,
-      );
-      const callId = parked?.suspendedCall?.id;
-      const deadline = parked?.timeoutAt;
-      if (callId === undefined || deadline === undefined) {
-        throw new Error("parked call has no persisted call id or deadline");
-      }
 
       void live.session.agent.send("Still there?").catch(() => undefined);
       await waitFor(
@@ -649,7 +662,7 @@ describe("integration: a rejection the reactor accepted but never ran, then reop
       ctx.reject();
       expect(await handling).toBe(true);
       await waitFor(
-        () => turn.events.some((e) => e.type === "message.correlated"),
+        () => events.some((e) => e.type === "message.correlated"),
         "rejection accepted",
       );
 
