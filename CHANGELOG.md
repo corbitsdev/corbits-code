@@ -20,6 +20,14 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
+## [0.3.47] - 2026-10-26
+
+### What's Changed
+* chore(deps): pin xai-provider to npm 0.1.4 by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1570
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.46...v0.3.47
+
 ## [0.3.46] - 2026-10-25
 
 ### What's Changed
