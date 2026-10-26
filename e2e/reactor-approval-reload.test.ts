@@ -440,7 +440,9 @@ type InterruptPoint =
   /** Before the prompt opens, while the approval resolves its parked call. */
   | "resolving-call"
   /** After an approval, while it waits behind a busy session queue. */
-  | "decision-queued";
+  | "decision-queued"
+  /** After the reactor accepted an approval, while its loop is busy. */
+  | "decision-accepted";
 
 /**
  * Parks `call` on an ask, then interrupts at `opts.interruptWhile` (while
@@ -528,6 +530,22 @@ async function dropThenInterrupt(
     ctx.approve();
     await queued;
   }
+  if (interruptWhile === "decision-accepted") {
+    // A second message's held inference keeps the loop busy, so the close's
+    // abort is served ahead of the accepted approval.
+    void live.session.agent.send("Still there?").catch(() => undefined);
+    await waitFor(
+      () => live.session.harness.scenario.matchedRequests().length === 2,
+      "second message's inference",
+    );
+    ctx.approve();
+    expect(await handling).toBe(true);
+    await waitFor(
+      () => parkedEvents.some((e) => e.type === "message.correlated"),
+      "approval accepted",
+    );
+  }
+
   let events: ReactorEmittedEvent[] = [];
   let parkedAtRebuild: (string | undefined)[] = [];
   startInterruptRebuild({
@@ -538,6 +556,8 @@ async function dropThenInterrupt(
       if (opts.deadlinePassesDuringRebuild === true) {
         clock.shift(deadline + 1_000);
       }
+      // As the TUI does: prepared from the closed agent's store.
+      await live.session.agent.close();
       parkedAtRebuild = (
         await live.session.storage.load()
       ).pendingOperations.map((op) => op.suspendedCall?.id);
@@ -1093,6 +1113,20 @@ describe("integration: an ask dropped by an interrupt, then settled on the rebui
       expect(reloaded.resume.status(reloaded.correlationId)).not.toBe(
         "handed-over",
       );
+    },
+    20_000,
+  );
+
+  test.serial(
+    "an approval a closing reactor accepted but never ran settles with no model turn",
+    async () => {
+      const reloaded = await dropThenInterrupt(
+        { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+        NATIVE_ANTHROPIC,
+        { interruptWhile: "decision-accepted" },
+      );
+
+      await expectSettledWithoutRunning(reloaded);
     },
     20_000,
   );

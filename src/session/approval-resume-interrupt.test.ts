@@ -464,6 +464,83 @@ describe("approval resume dropped approvals", () => {
   });
 });
 
+describe("approval resume decisions a closing reactor never ran", () => {
+  function handedOverResume() {
+    const oldAgentDelivered: InboundMessage[] = [];
+    const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
+      getAgent: () => ({
+        deliver: (message: InboundMessage) => oldAgentDelivered.push(message),
+        history: async () => [userTurn()],
+      }),
+      gate: {
+        resolveSuspended: async () => ({ allow: true }),
+      } as unknown as PermissionGate,
+    });
+    return { resume, oldAgentDelivered };
+  }
+
+  test("an approval handed over but still parked in the rebuilt store is rejected there with no turn", async () => {
+    const { resume, oldAgentDelivered } = handedOverResume();
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+    expect(firstDeliveredContent(oldAgentDelivered)).toEqual({
+      outcome: "approved",
+    });
+
+    await resume.prepareRebuild(parkedStore().storage);
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      parkedStore().storage,
+    );
+
+    expect(firstDeliveredContent(rebuilt)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_DROPPED_NOTICE,
+    });
+    expect(resume.droppedCalls.claim("call-ask")).toBe(true);
+  });
+
+  test("an approval handed over and closed on disk is forgotten before the rebuild, claim and all", async () => {
+    const { resume } = handedOverResume();
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+    const { store, storage } = parkedStore();
+    await resume.prepareRebuild(storage);
+    store.parked = false;
+
+    await resume.prepareRebuild(storage);
+
+    expect(resume.droppedCalls.claim("call-ask")).toBe(false);
+    store.parked = true;
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      storage,
+    );
+    expect(rebuilt).toEqual([]);
+  });
+
+  test("an approval handed over and closed on disk is forgotten", async () => {
+    const { resume } = handedOverResume();
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+    const { store, storage } = parkedStore();
+    store.parked = false;
+
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      storage,
+    );
+    store.parked = true;
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      storage,
+    );
+
+    expect(rebuilt).toEqual([]);
+  });
+});
+
 describe("interrupt while the operator's decision waits for delivery", () => {
   test("the skipped decision is recorded as a drop and settled on the rebuilt agent", async () => {
     const parkedCancel = { fn: undefined as (() => void) | undefined };

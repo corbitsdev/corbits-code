@@ -395,14 +395,15 @@ function applyManageTasksToolCall(
 // reserved prefixes (inference., tool., reactor., fork.).
 export const CHAT_TASKS_CHANGED_EVENT = "custom.chat.tasks.changed";
 export const CHAT_TOOLS_ACTIVATE_EVENT = "custom.chat.tools.activate";
-/** Marks a dropped approval settled with no turn, since `wait` announces nothing. */
+/** Marks an approval a rebuilt agent settled with no turn, since `wait` announces nothing. */
 export const DROPPED_APPROVAL_SETTLED_EVENT =
   "custom.chat.approval.dropped-settled";
 
 /**
- * Calls whose parked approval an interrupt or a worker's expiring ask
- * dropped. `claim` is true once for each, so its result settles the call
- * without a turn nobody asked for.
+ * Calls whose parked approval the reactor that parked them may never
+ * settle: dropped by an interrupt or a worker's expiring ask, or handed to a
+ * reactor that closed before acting on the decision. `claim` is true once
+ * for each, so its result settles the call without a turn nobody asked for.
  */
 export interface DroppedApprovalCalls {
   claim: (callId: string) => boolean;
@@ -498,8 +499,8 @@ class ChatDirectorImpl extends DefaultDirector {
   // Forget cached permission denies on the next inbound user message. Session
   // wiring points this at PermissionGate.clearDenials; unset in unit tests.
   private clearDenials: (() => void) | undefined;
-  // Shared across rebuilds by the session, so the director that loads a
-  // dropped call recognizes its result.
+  // Shared across rebuilds by the session, so the director that loads one of
+  // these calls recognizes its result.
   private droppedApprovalCalls: DroppedApprovalCalls | undefined;
   // Consecutive tool-call-only turns (reset by any text or fresh user
   // message). Drives the soft check-in nudge at toolOnlyTurnNudgeAt — a

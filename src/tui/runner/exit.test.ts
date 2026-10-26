@@ -940,6 +940,14 @@ function recordRebuildHooks(
     newest = recordingAgent([]);
     return newest;
   }) as unknown as RunnerServices["buildAgent"];
+  const outgoing = state.currentAgent;
+  if (outgoing !== undefined) {
+    const close = outgoing.close.bind(outgoing);
+    outgoing.close = async () => {
+      calls.push("close");
+      await close();
+    };
+  }
   services.approvalResume = {
     prepareRebuild: async (storage: unknown) => {
       calls.push(
@@ -960,7 +968,7 @@ function recordRebuildHooks(
 }
 
 describe("approvals dropped by a generation bump", () => {
-  test("an interrupt prepares the drops before building, then settles them on the new agent", async () => {
+  test("an interrupt prepares the drops once the old agent closes, then settles them on the new agent", async () => {
     const directorHolder: RunnerServices["directorHolder"] = {};
     const agent = recordingAgent([]);
     const { state, services } = stubSendLifecycle(agent);
@@ -971,7 +979,7 @@ describe("approvals dropped by a generation bump", () => {
     defined(state.interrupt, "interrupt")();
     await services.sessionOps.awaitTail();
 
-    expect(calls).toEqual(["prepare", "build", "settle"]);
+    expect(calls).toEqual(["close", "prepare", "build", "settle"]);
   });
 
   test("rotation forgets approvals dropped in the old session", () => {
@@ -1203,7 +1211,7 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     expect(state.pendingReload).toBe(false);
   });
 
-  test("an MCP rebuild prepares the drops before building, then settles them on the new agent", async () => {
+  test("an MCP rebuild prepares the drops once the old agent closes, then settles them on the new agent", async () => {
     const { state, services } = await idleLifecycle();
     const calls = recordRebuildHooks(state, services);
 
@@ -1211,7 +1219,7 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     defined(state.reloadIfIdle, "reloadIfIdle")();
     await services.sessionOps.awaitTail();
 
-    expect(calls).toEqual(["prepare", "build", "settle"]);
+    expect(calls).toEqual(["close", "prepare", "build", "settle"]);
   });
 
   /** Late MCP connects that mount tools and report the change. */
