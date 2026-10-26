@@ -92,7 +92,7 @@
     "@corbits/meta-provider": "0.1.1",
     "@corbits/oauth-core": "0.3.2",
     "@corbits/openai-responses": "0.2.2",
-    "@corbits/xai-provider": "0.1.3",
+    "@corbits/xai-provider": "0.1.4",
     "@intx/agent": "workspace:*",
     "@intx/authz": "workspace:*",
     "@intx/crypto": "0.5.0",
