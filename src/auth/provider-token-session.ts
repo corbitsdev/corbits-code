@@ -1,6 +1,7 @@
 import {
   createTokenSession,
   isTokenExpired,
+  OAuthMissingRefreshTokenError,
   OAuthProfileNotFoundError,
   OAuthRefreshFailedError,
   type AuthProfile,
@@ -195,11 +196,15 @@ export function createProviderTokenSession<TTokens extends BaseTokens, TAccess>(
     },
     refreshStaged: async (tokens, now = Date.now()) => {
       if (!isExpired(tokens, now)) return tokens;
+      const refreshToken = tokens.refresh;
+      if (refreshToken === undefined || refreshToken.trim().length === 0) {
+        throw new OAuthMissingRefreshTokenError();
+      }
       let refreshed: TTokens;
       try {
-        refreshed = await spec.refreshTokens(tokens.refresh, now, tokens);
+        refreshed = await spec.refreshTokens(refreshToken, now, tokens);
       } catch (error) {
-        throw sanitizedRefreshFailure(error, tokens.refresh);
+        throw sanitizedRefreshFailure(error, refreshToken);
       }
       replaceMutableTokens(tokens, refreshed);
       return tokens;
