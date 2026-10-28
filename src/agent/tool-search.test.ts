@@ -529,6 +529,18 @@ describe("createToolIndex", () => {
     }
   });
 
+  test("a one-word plural query keeps the tools named for its singular", () => {
+    const nameOnlyIndex = createToolIndex(() => [
+      mcpDef("mcp__linear__list_issues", ""),
+      mcpDef("mcp__linear__get_issue", ""),
+      mcpDef("mcp__linear__save_issue", ""),
+    ]);
+    const ranked = nameOnlyIndex.search("issues", 20);
+    expect(ranked[0]).toBe("mcp__linear__list_issues");
+    expect(ranked).toContain("mcp__linear__get_issue");
+    expect(ranked).toContain("mcp__linear__save_issue");
+  });
+
   test("a malformed input schema still scores on name and description", () => {
     const malformedIndex = createToolIndex(() => [
       {

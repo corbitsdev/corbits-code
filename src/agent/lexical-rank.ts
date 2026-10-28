@@ -96,7 +96,16 @@ export function scoreLexical(
 ): number {
   const name = fields.name.toLowerCase();
   const blob = fields.blob.toLowerCase();
-  let matched = name.includes(rawQuery) ? 1 : 0;
+  // The whole-query bonus lifts a one-word query buried inside a longer name
+  // token ("granola" in mygranolahoard) above a description hit. A word that
+  // is already a name token, exact or folded, was scored by the token pass;
+  // a second point for it would cut its folded matches at the score ratio.
+  const single = new Set(queryTokens).size === 1 ? queryTokens[0] : undefined;
+  const nameHit =
+    single !== undefined &&
+    (fields.nameTokens.includes(single) ||
+      fields.foldedNameTokens.includes(foldPlural(single)));
+  let matched = !nameHit && name.includes(rawQuery) ? 1 : 0;
   let total = matched;
   // A model repeats a word because its sentence needs it ("release ID or
   // release slug"), not to weight it; counting each copy multiplies the
