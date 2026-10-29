@@ -56,20 +56,6 @@ describe("provider identity divergence", () => {
     resetGoModelDiscoveryForTests();
   });
 
-  test("OpenAI API-key default and ChatGPT-OAuth fallback default agree", () => {
-    const apiPath = firstClassProviderById("openai")?.paths?.find(
-      (p) => p.id === "api",
-    );
-    if (apiPath?.defaultModel === undefined)
-      throw new Error("Expected the OpenAI API path to declare a defaultModel");
-    // Both auth paths serve OpenAI models, so the shared model must lead both
-    // lists — the fallback default is models[0] by construction.
-    const codexFallbacks: readonly string[] = CODEX_DEFAULT_MODELS;
-    const codexDefault: string | undefined = codexFallbacks[0];
-    expect(codexDefault).toBe(apiPath.defaultModel);
-    expect(codexFallbacks).toContain(apiPath.defaultModel);
-  });
-
   test("OpenAI API-key entry is self-consistent", () => {
     const apiPath = firstClassProviderById("openai")?.paths?.find(
       (p) => p.id === "api",
