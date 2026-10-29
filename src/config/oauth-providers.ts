@@ -26,8 +26,9 @@ export interface OAuthProviderProjectionOptions<P extends OAuthProfileLike> {
   // Provider namespace including the trailing slash (e.g. "codex/").
   prefix: string;
   baseURL: string;
-  // Non-empty: the first entry doubles as the default model.
-  defaultModels: readonly [string, ...string[]];
+  // Models a profile can select. Non-empty: the first entry doubles as the
+  // default model.
+  models: (profile: P) => readonly [string, ...string[]];
   // Provider-specific catalog fields (profile marker, account id, …) merged
   // into each catalog entry so the runtime can route it to the right adapter.
   catalogExtras: (profile: P) => Partial<ProviderCatalogEntry>;
@@ -60,12 +61,13 @@ export function createOAuthProviderProjection<P extends OAuthProfileLike>(
     ): Record<string, ProviderSettings> {
       const entries: Record<string, ProviderSettings> = {};
       for (const profile of profiles) {
+        const models = options.models(profile);
         entries[providerName(profile.name)] = {
           name: providerName(profile.name),
           baseURL: options.baseURL,
           apiKey: profile.tokens.access,
-          models: [...options.defaultModels],
-          defaultModel: options.defaultModels[0],
+          models: [...models],
+          defaultModel: models[0],
         };
       }
       return entries;
@@ -74,14 +76,17 @@ export function createOAuthProviderProjection<P extends OAuthProfileLike>(
     // these carry the provider's marker fields (via catalogExtras) so the
     // runtime can route them to the matching adapter and headers.
     profilesToCatalogEntries(profiles: readonly P[]): ProviderCatalogEntry[] {
-      return profiles.map((profile) => ({
-        name: providerName(profile.name),
-        baseURL: options.baseURL,
-        apiKey: profile.tokens.access,
-        models: [...options.defaultModels],
-        defaultModel: options.defaultModels[0],
-        ...options.catalogExtras(profile),
-      }));
+      return profiles.map((profile) => {
+        const models = options.models(profile);
+        return {
+          name: providerName(profile.name),
+          baseURL: options.baseURL,
+          apiKey: profile.tokens.access,
+          models: [...models],
+          defaultModel: models[0],
+          ...options.catalogExtras(profile),
+        };
+      });
     },
   };
 }
