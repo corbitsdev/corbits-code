@@ -72,23 +72,38 @@ function isRejectedPlaceholder(value: unknown, property: unknown): boolean {
   return value === null && !admits(property, null);
 }
 
+export interface StripPlaceholderOpts {
+  // A read tool's server takes a `null` filter literally (Linear's
+  // list_issues reads `assignee: null` as "unassigned"), so padding narrows
+  // the results; a write tool's `null` clears the field and must survive.
+  // The cost: a deliberate JSON-null filter on a read tool is dropped for
+  // every model, so asking for an unset field takes the string form a server
+  // documents (Linear's `"null"`).
+  nullMeansUnset: boolean;
+}
+
 /**
  * Drops optional arguments a model filled with an empty placeholder (`""`,
  * whitespace, `[]`, or `null`) that the property's own schema would reject,
- * so one padded field does not fail the whole call. Empty values the schema
- * permits, required arguments, and any other value are forwarded unchanged.
+ * so one padded field does not fail the whole call. With `nullMeansUnset`,
+ * `null` on any declared optional property is dropped even where the schema
+ * permits it. Other empty values the schema permits, required arguments,
+ * undeclared keys, and any other value are forwarded unchanged.
  */
 export function stripPlaceholderArguments(
   args: Record<string, unknown>,
   inputSchema: Record<string, unknown>,
+  opts: StripPlaceholderOpts,
 ): Record<string, unknown>;
 export function stripPlaceholderArguments(
   args: unknown,
   inputSchema: Record<string, unknown>,
+  opts: StripPlaceholderOpts,
 ): unknown;
 export function stripPlaceholderArguments(
   args: unknown,
   inputSchema: Record<string, unknown>,
+  opts: StripPlaceholderOpts,
 ): unknown {
   const parsedArgs = Arguments(args);
   if (parsedArgs instanceof type.errors || Array.isArray(parsedArgs))
@@ -96,11 +111,17 @@ export function stripPlaceholderArguments(
   const schema = ObjectSchema(inputSchema);
   if (schema instanceof type.errors) return args;
   const required = new Set(schema.required ?? []);
+  const properties = schema.properties ?? {};
   return Object.fromEntries(
-    Object.entries(parsedArgs).filter(
-      ([key, value]) =>
-        required.has(key) ||
-        !isRejectedPlaceholder(value, schema.properties?.[key]),
-    ),
+    Object.entries(parsedArgs).filter(([key, value]) => {
+      if (required.has(key)) return true;
+      if (
+        opts.nullMeansUnset &&
+        value === null &&
+        Object.hasOwn(properties, key)
+      )
+        return false;
+      return !isRejectedPlaceholder(value, properties[key]);
+    }),
   );
 }
