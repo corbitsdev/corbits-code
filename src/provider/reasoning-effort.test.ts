@@ -1,4 +1,5 @@
 import { afterEach, describe, test, expect } from "bun:test";
+import { CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
 import {
   isReasoningEffort,
   normalizeProviderEfforts,
@@ -54,15 +55,8 @@ describe("supportedEfforts", () => {
     ]);
   });
 
-  test("gpt-6-astra takes low through max on both API and Codex paths", () => {
+  test("gpt-6-astra takes low through max on the API path", () => {
     expect(supportedEfforts("gpt-6-astra")).toEqual([
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max",
-    ]);
-    expect(supportedEfforts("gpt-6-astra", undefined, true)).toEqual([
       "low",
       "medium",
       "high",
@@ -71,15 +65,43 @@ describe("supportedEfforts", () => {
     ]);
   });
 
-  test("gpt-5.6 family additionally takes max and ultra on the codex backend", () => {
-    expect(supportedEfforts("gpt-5.6-sol", undefined, true)).toEqual([
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max",
-      "ultra",
-    ]);
+  test("ChatGPT models the backend serves up to ultra offer max and ultra", () => {
+    for (const model of [
+      "gpt-6.1-sol",
+      "gpt-6-astra",
+      "gpt-6.1-terra",
+      "gpt-6-sol",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+    ]) {
+      expect(supportedEfforts(model, undefined, true)).toEqual([
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra",
+      ]);
+    }
+  });
+
+  test("ChatGPT Luna models stop at max", () => {
+    for (const model of ["gpt-6-luna", "gpt-5.6-luna"]) {
+      const efforts = supportedEfforts(model, undefined, true);
+      expect(efforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
+      expect(efforts).not.toContain("ultra");
+    }
+  });
+
+  test("every built-in ChatGPT model has an assigned effort ladder", () => {
+    // A model added to the fallback list without a ladder would silently
+    // stop at xhigh. A model the backend really serves only up to xhigh
+    // belongs here, so adding one is a decision rather than an accident.
+    const servedOnlyUpToXhigh: readonly string[] = [];
+    for (const model of CODEX_DEFAULT_MODELS) {
+      if (servedOnlyUpToXhigh.includes(model)) continue;
+      expect(supportedEfforts(model, undefined, true)).toContain("max");
+    }
   });
 
   test("the model name alone does not imply codex levels", () => {
