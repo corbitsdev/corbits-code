@@ -1,8 +1,6 @@
 import {
   endpointErrorMessage,
-  parseModelsData,
   type ModelsEndpointDiscoveryState,
-  requestModelsEndpoint,
 } from "./models-endpoint.js";
 
 export type CatalogDiscoveryState = ModelsEndpointDiscoveryState;
@@ -65,25 +63,39 @@ async function readBoundedCatalogText(
   }
 }
 
-export function createBoundedModelCatalog(args: {
-  baseURL: string;
-  seedIds: readonly string[];
+type DiscoveredModels = Extract<
+  CatalogDiscoveryState,
+  { status: "models" }
+>["models"];
+
+export function createBoundedModelCatalog<
+  Seed extends readonly string[],
+>(args: {
+  request: (opts: {
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  }) => Promise<Response>;
+  parse: (
+    raw: unknown,
+    cap: { readonly maxModels: number; readonly oversizeMessage: string },
+  ) => CatalogDiscoveryState;
+  seedIds: Seed;
   catalogLabel: string;
   maxBytes: number;
   maxModels: number;
 }): {
-  discoverModels: (args?: {
+  discoverModels: (opts?: {
     timeoutMs?: number;
     signal?: AbortSignal;
   }) => Promise<CatalogDiscoveryState>;
-  selectableModelIds: () => readonly string[];
-  prefetchModels: () => Promise<readonly string[]>;
+  selectableModelIds: () => Seed | DiscoveredModels;
+  prefetchModels: () => Promise<Seed | DiscoveredModels>;
   resetDiscoveryForTests: () => void;
 } {
-  const { baseURL, seedIds, catalogLabel, maxBytes, maxModels } = args;
+  const { request, parse, seedIds, catalogLabel, maxBytes, maxModels } = args;
 
-  let inflight: Promise<readonly string[]> | undefined;
-  let snapshot: readonly string[] | undefined;
+  let inflight: Promise<Seed | DiscoveredModels> | undefined;
+  let snapshot: DiscoveredModels | undefined;
 
   function oversizeMessage(kind: "bytes" | "models"): string {
     if (kind === "bytes") {
@@ -111,16 +123,17 @@ export function createBoundedModelCatalog(args: {
     }
   }
 
-  async function discoverModels(args?: {
+  async function discoverModels(opts?: {
     timeoutMs?: number;
     signal?: AbortSignal;
   }): Promise<CatalogDiscoveryState> {
     let response: Response;
     try {
-      response = await requestModelsEndpoint({
-        baseURL,
-        ...(args?.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
-        ...(args?.signal !== undefined ? { signal: args.signal } : {}),
+      // Forward only the transport knobs so a caller's extra keys can never
+      // reach the request and override its URL or headers.
+      response = await request({
+        ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+        ...(opts?.signal !== undefined ? { signal: opts.signal } : {}),
       });
     } catch (error) {
       return {
@@ -140,17 +153,17 @@ export function createBoundedModelCatalog(args: {
     if (!body.ok) {
       return { status: "malformed", message: body.message };
     }
-    return parseModelsData(body.value, {
+    return parse(body.value, {
       maxModels,
       oversizeMessage: oversizeMessage("models"),
     });
   }
 
-  function selectableModelIds(): readonly string[] {
+  function selectableModelIds(): Seed | DiscoveredModels {
     return snapshot ?? seedIds;
   }
 
-  async function runPrefetch(): Promise<readonly string[]> {
+  async function runPrefetch(): Promise<Seed | DiscoveredModels> {
     const state = await discoverModels();
     // Empty/unavailable/malformed leave the successful snapshot in place:
     // stale-but-live beats empty; a cold failure falls back to the seed.
@@ -160,7 +173,7 @@ export function createBoundedModelCatalog(args: {
     return selectableModelIds();
   }
 
-  function prefetchModels(): Promise<readonly string[]> {
+  function prefetchModels(): Promise<Seed | DiscoveredModels> {
     if (inflight !== undefined) return inflight;
 
     const pending = runPrefetch();

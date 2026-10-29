@@ -255,6 +255,27 @@ for (const harness of harnesses) {
       expect(state.message).toContain(String(maxModels));
       expect(selectable()).toEqual(seedIds);
     });
+
+    test("counts raw entries against the model-count cap before dedupe", async () => {
+      const data = Array.from({ length: maxModels + 1 }, () => ({
+        id: sampleId,
+      }));
+      globalThis.fetch = (async () =>
+        Response.json({ data })) as unknown as typeof fetch;
+
+      expect((await discover()).status).toBe("malformed");
+    });
+
+    test("aborts the request when timeoutMs elapses", async () => {
+      globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason);
+          });
+        })) as unknown as typeof fetch;
+
+      expect((await discover({ timeoutMs: 20 })).status).toBe("unavailable");
+    });
   });
 
   describe(prefetchName, () => {
