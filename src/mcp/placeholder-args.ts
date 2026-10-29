@@ -125,3 +125,121 @@ export function stripPlaceholderArguments(
     }),
   );
 }
+
+const SchemaObject = type("Record<string, unknown>");
+
+// Keywords that constrain only non-null values or only annotate, so adding
+// null to `type`, `enum`, and the branch lists is enough for a JSON Schema
+// validator to accept it. Anything else ($ref, allOf, not, if, ...)
+// can still reject null, and `admits` cannot see that.
+const NULL_NEUTRAL_KEYWORDS = new Set([
+  "type",
+  "enum",
+  "anyOf",
+  "oneOf",
+  "title",
+  "description",
+  "default",
+  "examples",
+  "deprecated",
+  "readOnly",
+  "writeOnly",
+  "$comment",
+  "format",
+  "minLength",
+  "maxLength",
+  "pattern",
+  "contentEncoding",
+  "contentMediaType",
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "multipleOf",
+  "items",
+  "prefixItems",
+  "minItems",
+  "maxItems",
+  "uniqueItems",
+  "properties",
+  "patternProperties",
+  "additionalProperties",
+  "required",
+  "minProperties",
+  "maxProperties",
+  "propertyNames",
+]);
+
+const NULL_BRANCH = { type: "null" };
+
+// oneOf admits null only when exactly one branch does, so every existing
+// branch must reject it on its own declared values.
+function rejectsNull(branch: unknown): boolean {
+  const schema = PropertySchema(branch);
+  if (schema instanceof type.errors || schema.nullable === true) return false;
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+  return (
+    (schema.type !== undefined && !types.includes("null")) ||
+    (schema.enum !== undefined && !schema.enum.includes(null)) ||
+    (schema.const !== undefined && schema.const !== null)
+  );
+}
+
+function isNullBranch(branch: unknown): boolean {
+  const object = SchemaObject(branch);
+  if (object instanceof type.errors) return false;
+  const keys = Object.keys(object);
+  return keys.length === 1 && object["type"] === "null";
+}
+
+function admittingNull(property: unknown): unknown {
+  if (admits(property, null) || Array.isArray(property)) return property;
+  const schema = PropertySchema(property);
+  const object = SchemaObject(property);
+  if (schema instanceof type.errors || object instanceof type.errors)
+    return property;
+  if (
+    !Object.keys(object).every((key) => NULL_NEUTRAL_KEYWORDS.has(key)) ||
+    !(schema.oneOf ?? []).every(rejectsNull)
+  )
+    return property;
+  const next: Record<string, unknown> = { ...object };
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+  if (schema.type !== undefined && !types.includes("null"))
+    next["type"] = [...types, "null"];
+  if (schema.enum !== undefined && !schema.enum.includes(null))
+    next["enum"] = [...schema.enum, null];
+  if (schema.anyOf !== undefined && !schema.anyOf.some(isNullBranch))
+    next["anyOf"] = [...schema.anyOf, NULL_BRANCH];
+  if (schema.oneOf !== undefined)
+    next["oneOf"] = [...schema.oneOf, NULL_BRANCH];
+  return next;
+}
+
+/**
+ * Makes optional top-level properties of a tool's input schema also admit
+ * `null`, for models that write `null` to mean "not set" and otherwise pick
+ * a real value. A property gains `null` only where `admits` rejects it,
+ * which is where `stripPlaceholderArguments` drops a `null` again, and only
+ * when the result still validates `null` under JSON Schema; other
+ * properties (`const`, `$ref`, `allOf`, ...) stay as they are.
+ * Returns the same object when no property changes.
+ */
+export function advertiseNullForOptionalProperties(
+  inputSchema: Record<string, unknown>,
+): Record<string, unknown> {
+  const schema = ObjectSchema(inputSchema);
+  if (schema instanceof type.errors || schema.properties === undefined)
+    return inputSchema;
+  const required = new Set(schema.required ?? []);
+  let changed = false;
+  const properties = Object.fromEntries(
+    Object.entries(schema.properties).map(([key, property]) => {
+      if (required.has(key)) return [key, property];
+      const next = admittingNull(property);
+      if (next !== property) changed = true;
+      return [key, next];
+    }),
+  );
+  return changed ? { ...inputSchema, properties } : inputSchema;
+}

@@ -1,5 +1,8 @@
 import type { ToolDefinition } from "@intx/types/runtime";
+import { advertiseNullForOptionalProperties } from "../mcp/placeholder-args.js";
+import { isMcpToolName } from "../mcp/tool-name.js";
 import {
+  isGptProvider,
   isKimiLeafProvider,
   isMuseSparkLeafProvider,
   isXaiGrokLeafProvider,
@@ -317,6 +320,14 @@ function sanitizeToolDefForGrok(def: ToolDefinition): ToolDefinition {
   };
 }
 
+// GPT pads optional arguments with real values ("priority: 0") where it
+// cannot write null; the MCP handler drops the null it writes instead.
+function advertiseNullForMcpTool(def: ToolDefinition): ToolDefinition {
+  if (!isMcpToolName(def.name)) return def;
+  const inputSchema = advertiseNullForOptionalProperties(def.inputSchema);
+  return inputSchema === def.inputSchema ? def : { ...def, inputSchema };
+}
+
 function needsAcyclicPresentSchema(ctx: NormalizeToolDefsContext): boolean {
   return isKimiLeafProvider(ctx) || isMuseSparkLeafProvider(ctx);
 }
@@ -324,11 +335,14 @@ function needsAcyclicPresentSchema(ctx: NormalizeToolDefsContext): boolean {
 /**
  * Family-gated wire rewrite of tool defs before they reach the
  * director / provider. Moonshot/kimi and Muse Spark get a non-recursive
- * `present` schema; Grok/xAI get schema sanitization; others pass through.
- * Does not alter runtime validation or the canonical `presentDefinition`.
+ * `present` schema; Grok/xAI get schema sanitization; GPT gets `null` on
+ * optional MCP properties; others pass through. Does not alter runtime
+ * validation or the canonical `presentDefinition`. Returns `defs` itself
+ * when no def changes, so an unchanged toolset keeps its cache identity.
  *
- * Call at every advertise path that may include `present`; sub-agent
- * toolsets omit it, so rewriting is a no-op unless one appears.
+ * Call wherever a tools array is built for the provider. Text that quotes
+ * a schema back to the model (tool_search cards) keeps the canonical
+ * definition.
  */
 export function normalizeToolDefinitionsForProvider(
   defs: readonly ToolDefinition[],
@@ -336,14 +350,19 @@ export function normalizeToolDefinitionsForProvider(
 ): ToolDefinition[] {
   const acyclicPresent = needsAcyclicPresentSchema(ctx);
   const grok = isXaiGrokLeafProvider(ctx);
-  if (!acyclicPresent && !grok) {
+  const gpt = isGptProvider(ctx);
+  if (!acyclicPresent && !grok && !gpt) {
     return defs as ToolDefinition[];
   }
-  return defs.map((def) => {
+  const out = defs.map((def) => {
     let next = def;
     if (acyclicPresent && def.name === "present")
       next = rewritePresentAcyclic(next);
     if (grok) next = sanitizeToolDefForGrok(next);
+    if (gpt) next = advertiseNullForMcpTool(next);
     return next;
   });
+  return out.every((def, i) => def === defs[i])
+    ? (defs as ToolDefinition[])
+    : out;
 }

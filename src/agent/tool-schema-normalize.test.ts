@@ -163,6 +163,78 @@ describe("normalizeToolDefinitionsForProvider", () => {
     }
   });
 
+  describe("optional MCP properties", () => {
+    const listIssues: ToolDefinition = {
+      name: "mcp__linear__list_issues",
+      description: "[linear] list issues",
+      inputSchema: {
+        type: "object",
+        properties: {
+          release: { type: "string" },
+          priority: { type: "number" },
+        },
+        required: ["release"],
+      },
+    };
+    const builtin: ToolDefinition = {
+      ...listIssues,
+      name: "list_issues",
+    };
+
+    test.each([
+      { providerName: "codex/plus", model: "gpt-5.6-terra" },
+      { providerName: "opencode-go", model: "gpt-5.1" },
+      { providerName: "codex", model: "codex-mini-latest" },
+    ])("$providerName $model advertises null on MCP tools only", (ctx) => {
+      const [mcp, own] = normalizeToolDefinitionsForProvider(
+        [listIssues, builtin],
+        ctx,
+      );
+      expect(mcp?.inputSchema).toEqual({
+        type: "object",
+        properties: {
+          release: { type: "string" },
+          priority: { type: ["number", "null"] },
+        },
+        required: ["release"],
+      });
+      expect(own).toBe(builtin);
+    });
+
+    test.each([
+      { providerName: "anthropic", model: "claude-sonnet-5-5" },
+      { providerName: "moonshot", model: "kimi-k2" },
+    ])("$providerName leaves MCP tools as they are", (ctx) => {
+      const defs = [listIssues];
+      expect(normalizeToolDefinitionsForProvider(defs, ctx)).toBe(defs);
+    });
+
+    test("grok sanitizes MCP tools without advertising null", () => {
+      const [out] = normalizeToolDefinitionsForProvider([listIssues], {
+        providerName: "xai/default-2",
+        model: "grok-4.6",
+      });
+      expect(out?.inputSchema).toEqual(listIssues.inputSchema);
+    });
+
+    test("returns the same array when no MCP property changes", () => {
+      const nullable: ToolDefinition = {
+        ...listIssues,
+        inputSchema: {
+          type: "object",
+          properties: { assignee: { type: ["string", "null"] } },
+        },
+      };
+      const defs = [nullable, builtin];
+      expect(
+        normalizeToolDefinitionsForProvider(defs, {
+          providerName: "openai",
+          model: "gpt-5.6",
+        }),
+      ).toBe(defs);
+    });
+  });
+
   test("grok sanitizes untyped properties and strips $schema", () => {
     const untyped: ToolDefinition = {
       name: "submit_result",
