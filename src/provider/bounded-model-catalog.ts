@@ -1,9 +1,11 @@
+import { getLogger } from "@intx/log";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import {
   endpointErrorMessage,
-  parseModelsData,
   type ModelsEndpointDiscoveryState,
-  requestModelsEndpoint,
 } from "./models-endpoint.js";
+
+const catalogLogger = getLogger([LOG_NAMESPACE_ROOT, "provider", "catalog"]);
 
 export type CatalogDiscoveryState = ModelsEndpointDiscoveryState;
 
@@ -20,12 +22,16 @@ async function readBoundedCatalogText(
   args: { readonly maxBytes: number; readonly oversizeMessage: string },
 ): Promise<
   | { readonly ok: true; readonly text: string }
-  | { readonly ok: false; readonly message: string }
+  | {
+      readonly ok: false;
+      readonly message: string;
+      readonly transport: boolean;
+    }
 > {
   const declared = declaredCatalogBytes(response);
   if (declared !== undefined && declared > args.maxBytes) {
     await response.body?.cancel().catch(() => undefined);
-    return { ok: false, message: args.oversizeMessage };
+    return { ok: false, message: args.oversizeMessage, transport: false };
   }
 
   try {
@@ -33,7 +39,7 @@ async function readBoundedCatalogText(
     if (body === null) {
       const text = await response.text();
       if (new TextEncoder().encode(text).byteLength > args.maxBytes) {
-        return { ok: false, message: args.oversizeMessage };
+        return { ok: false, message: args.oversizeMessage, transport: false };
       }
       return { ok: true, text };
     }
@@ -48,7 +54,7 @@ async function readBoundedCatalogText(
       total += value.byteLength;
       if (total > args.maxBytes) {
         await reader.cancel().catch(() => undefined);
-        return { ok: false, message: args.oversizeMessage };
+        return { ok: false, message: args.oversizeMessage, transport: false };
       }
       chunks.push(value);
     }
@@ -61,29 +67,47 @@ async function readBoundedCatalogText(
     }
     return { ok: true, text: new TextDecoder().decode(buffer) };
   } catch (error) {
-    return { ok: false, message: endpointErrorMessage(error) };
+    return {
+      ok: false,
+      message: endpointErrorMessage(error),
+      transport: true,
+    };
   }
 }
 
-export function createBoundedModelCatalog(args: {
-  baseURL: string;
-  seedIds: readonly string[];
+type DiscoveredModels = Extract<
+  CatalogDiscoveryState,
+  { status: "models" }
+>["models"];
+
+export function createBoundedModelCatalog<
+  Seed extends readonly string[],
+>(args: {
+  request: (opts: {
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  }) => Promise<Response>;
+  parse: (
+    raw: unknown,
+    cap: { readonly maxModels: number; readonly oversizeMessage: string },
+  ) => CatalogDiscoveryState;
+  seedIds: Seed;
   catalogLabel: string;
   maxBytes: number;
   maxModels: number;
 }): {
-  discoverModels: (args?: {
+  discoverModels: (opts?: {
     timeoutMs?: number;
     signal?: AbortSignal;
   }) => Promise<CatalogDiscoveryState>;
-  selectableModelIds: () => readonly string[];
-  prefetchModels: () => Promise<readonly string[]>;
+  selectableModelIds: () => Seed | DiscoveredModels;
+  prefetchModels: () => Promise<Seed | DiscoveredModels>;
   resetDiscoveryForTests: () => void;
 } {
-  const { baseURL, seedIds, catalogLabel, maxBytes, maxModels } = args;
+  const { request, parse, seedIds, catalogLabel, maxBytes, maxModels } = args;
 
-  let inflight: Promise<readonly string[]> | undefined;
-  let snapshot: readonly string[] | undefined;
+  let inflight: Promise<Seed | DiscoveredModels> | undefined;
+  let snapshot: DiscoveredModels | undefined;
 
   function oversizeMessage(kind: "bytes" | "models"): string {
     if (kind === "bytes") {
@@ -92,11 +116,13 @@ export function createBoundedModelCatalog(args: {
     return `${catalogLabel} catalog exceeds ${String(maxModels)} models`;
   }
 
-  async function readCatalogJson(
-    response: Response,
-  ): Promise<
+  async function readCatalogJson(response: Response): Promise<
     | { readonly ok: true; readonly value: unknown }
-    | { readonly ok: false; readonly message: string }
+    | {
+        readonly ok: false;
+        readonly message: string;
+        readonly transport: boolean;
+      }
   > {
     const text = await readBoundedCatalogText(response, {
       maxBytes,
@@ -107,20 +133,25 @@ export function createBoundedModelCatalog(args: {
       const value: unknown = JSON.parse(text.text);
       return { ok: true, value };
     } catch (error) {
-      return { ok: false, message: endpointErrorMessage(error) };
+      return {
+        ok: false,
+        message: endpointErrorMessage(error),
+        transport: false,
+      };
     }
   }
 
-  async function discoverModels(args?: {
+  async function discoverModels(opts?: {
     timeoutMs?: number;
     signal?: AbortSignal;
   }): Promise<CatalogDiscoveryState> {
     let response: Response;
     try {
-      response = await requestModelsEndpoint({
-        baseURL,
-        ...(args?.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
-        ...(args?.signal !== undefined ? { signal: args.signal } : {}),
+      // Forward only the transport knobs so a caller's extra keys can never
+      // reach the request and override its URL or headers.
+      response = await request({
+        ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+        ...(opts?.signal !== undefined ? { signal: opts.signal } : {}),
       });
     } catch (error) {
       return {
@@ -138,29 +169,72 @@ export function createBoundedModelCatalog(args: {
 
     const body = await readCatalogJson(response);
     if (!body.ok) {
-      return { status: "malformed", message: body.message };
+      // A connection that drops or times out mid-body never delivered an
+      // answer; only a body that arrived and fails the contract is malformed.
+      return {
+        status: body.transport ? "unavailable" : "malformed",
+        message: body.message,
+      };
     }
-    return parseModelsData(body.value, {
+    return parse(body.value, {
       maxModels,
       oversizeMessage: oversizeMessage("models"),
     });
   }
 
-  function selectableModelIds(): readonly string[] {
+  function selectableModelIds(): Seed | DiscoveredModels {
     return snapshot ?? seedIds;
   }
 
-  async function runPrefetch(): Promise<readonly string[]> {
+  async function runPrefetch(): Promise<Seed | DiscoveredModels> {
     const state = await discoverModels();
     // Empty/unavailable/malformed leave the successful snapshot in place:
     // stale-but-live beats empty; a cold failure falls back to the seed.
     if (state.status === "models") {
       snapshot = state.models;
+    } else {
+      logFallback(state);
     }
     return selectableModelIds();
   }
 
-  function prefetchModels(): Promise<readonly string[]> {
+  // An unreachable catalog is routine (offline, transient outage), so it
+  // stays at debug. An empty or malformed answer means the endpoint's
+  // contract moved, which only shows up here, so it warns.
+  function logFallback(
+    state: Exclude<CatalogDiscoveryState, { status: "models" }>,
+  ): void {
+    const fallback =
+      snapshot === undefined ? "the built-in list" : "the last live list";
+    // HTTP and size failures already name the catalog; transport and parse
+    // errors do not, so the catalog is named exactly once either way.
+    const reason = (message: string): string =>
+      message.startsWith(catalogLabel)
+        ? message
+        : `${catalogLabel}: ${message}`;
+    switch (state.status) {
+      case "unavailable":
+        catalogLogger.debug(
+          "Model catalog unavailable ({reason}); keeping {fallback}",
+          { reason: reason(state.message), fallback },
+        );
+        return;
+      case "empty":
+        catalogLogger.warn(
+          "Model catalog listed no models ({catalog}); keeping {fallback}",
+          { catalog: catalogLabel, fallback },
+        );
+        return;
+      case "malformed":
+        catalogLogger.warn(
+          "Model catalog response rejected ({reason}); keeping {fallback}",
+          { reason: reason(state.message), fallback },
+        );
+        return;
+    }
+  }
+
+  function prefetchModels(): Promise<Seed | DiscoveredModels> {
     if (inflight !== undefined) return inflight;
 
     const pending = runPrefetch();
