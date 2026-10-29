@@ -12,6 +12,7 @@ import type * as CodexSession from "../auth/codex/session.js";
 import type * as OAuthStores from "../config/oauth-stores.js";
 import { codexProfilesToCatalogEntries } from "../config/codex-providers.js";
 import {
+  discoverStagedCodexModels,
   prefetchCodexModels,
   resetCodexModelDiscoveryForTests,
   selectableCodexModelIds,
@@ -434,5 +435,56 @@ describe("contract drift", () => {
     const misses = records.filter((text) => text.includes("ChatGPT profile"));
     expect(misses).toHaveLength(1);
     expect(defined(misses[0])).toContain("response rejected");
+  });
+});
+
+describe("a sign-in not yet saved as a profile", () => {
+  const staged = () => ({
+    access: "staged-access",
+    refresh: "staged-refresh",
+    expiresAt: Date.now() + 3_600_000,
+    accountId: "acct-new",
+  });
+
+  test("asks with the staged token and account and returns the listed models", async () => {
+    const seen: Headers[] = [];
+    serve((_url, headers) => {
+      seen.push(headers);
+      return Response.json({
+        models: [
+          { slug: "gpt-6-sol", visibility: "list", priority: 2 },
+          { slug: "gpt-5.6-luna", visibility: "list", priority: 1 },
+        ],
+      });
+    });
+
+    expect(await discoverStagedCodexModels(staged())).toEqual({
+      status: "models",
+      models: ["gpt-5.6-luna", "gpt-6-sol"],
+    });
+    expect(seen[0]?.get("authorization")).toBe("Bearer staged-access");
+    expect(seen[0]?.get("chatgpt-account-id")).toBe("acct-new");
+  });
+
+  test("reports an HTTP failure as unavailable instead of rejecting", async () => {
+    serve(() => new Response("no", { status: 500 }));
+
+    expect((await discoverStagedCodexModels(staged())).status).toBe(
+      "unavailable",
+    );
+  });
+
+  test("never fills a stored profile's list", async () => {
+    serveModels([{ slug: "gpt-6-sol", visibility: "list", priority: 1 }]);
+
+    await discoverStagedCodexModels(staged());
+
+    expect(
+      selectableCodexModelIds({
+        name: "default",
+        createdAt: 0,
+        tokens: staged(),
+      }),
+    ).toEqual(CODEX_DEFAULT_MODELS);
   });
 });

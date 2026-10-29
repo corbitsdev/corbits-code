@@ -5,8 +5,12 @@ import {
   CODEX_DEFAULT_MODELS,
   CODEX_MODELS_URL,
 } from "../auth/codex/constants.js";
-import { type CodexAccess, getValidCodexToken } from "../auth/codex/session.js";
-import type { CodexProfile } from "../auth/codex/store.js";
+import {
+  type CodexAccess,
+  getValidCodexToken,
+  refreshStagedCodexTokens,
+} from "../auth/codex/session.js";
+import type { CodexProfile, CodexTokens } from "../auth/codex/store.js";
 import { COMMAND_NAME } from "../branding.js";
 import { listCodexProfiles } from "../config/oauth-stores.js";
 import {
@@ -130,6 +134,15 @@ async function prefetchProfileModels(profile: CodexProfile): Promise<void> {
 export async function prefetchCodexModels(): Promise<void> {
   const profiles = await listCodexProfiles();
   await Promise.all(profiles.map(prefetchProfileModels));
+}
+
+/** One fetch for a sign-in not yet saved as a profile. Never rejects; a failure is a non-`models` state. */
+export function discoverStagedCodexModels(
+  tokens: CodexTokens,
+): Promise<CatalogDiscoveryState> {
+  return createCodexModelCatalog("ChatGPT sign-in", () =>
+    refreshStagedCodexTokens(tokens),
+  ).discoverModels();
 }
 
 export function resetCodexModelDiscoveryForTests(): void {
