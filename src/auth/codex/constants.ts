@@ -21,19 +21,17 @@ export const CODEX_CLIENT_VERSION = "0.50.0";
 // the public Codex CLI originator.
 export const CODEX_ORIGINATOR = "codex_cli_rs";
 
-// Fallback model list, used only when the live catalog (GET /codex/models) is
-// unavailable — rate-limited it returns an empty list. The backend rotates its
-// serving set, so the live fetch is authoritative and these are just a
-// current-generation default so the picker is never empty. The first entry
-// doubles as the ChatGPT-OAuth default: it must stay the model shared with the
-// OpenAI API-key path's default in FIRST_CLASS_PROVIDERS (gpt-5.4) so both
-// auth paths serving OpenAI agree. identity-divergence.test.ts pins this.
+// The models a ChatGPT sign-in can select, in the Codex backend's priority
+// order (GET /codex/models); the first entry is the ChatGPT default. OpenAI
+// retires models for ChatGPT sign-in on its own schedule, independently of the
+// OpenAI API, so this list and its default do not follow the API-key path.
 export const CODEX_DEFAULT_MODELS = [
-  "gpt-5.4",
-  "gpt-5.5",
+  "gpt-6.1-sol",
   "gpt-6-astra",
+  "gpt-6.1-terra",
+  "gpt-6-sol",
+  "gpt-6-luna",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
-  "gpt-5.4-mini",
 ] as const;

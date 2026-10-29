@@ -56,7 +56,8 @@ const FULL_EFFORT_MODELS: readonly string[] = [
   "gpt-5.1-codex-max",
 ];
 
-// Codex backend models take low/medium/high/xhigh — no `minimal`, no `none`.
+// ChatGPT (Codex backend) models not listed below: low/medium/high/xhigh,
+// no `minimal`, no `none`.
 const CODEX_EFFORTS: readonly ReasoningEffort[] = [
   "low",
   "medium",
@@ -64,11 +65,21 @@ const CODEX_EFFORTS: readonly ReasoningEffort[] = [
   "xhigh",
 ];
 
-// gpt-5.6 family adds `max` and `ultra`; older Codex models do not support
-// them.
-const MAX_EFFORT_CODEX_MODELS: readonly string[] = [
+// Per-model levels the Codex backend lists (`supported_reasoning_levels` in
+// GET /codex/models, client_version 0.165.0, 2026-10-28). Exact ids rather
+// than a name rule: an id not seen yet gets the conservative fallback above
+// instead of a guessed tier, because the adapter does not clamp and a level
+// the backend does not serve breaks the turn.
+const ULTRA_EFFORT_CODEX_MODELS: readonly string[] = [
+  "gpt-6.1-sol",
+  "gpt-6-astra",
+  "gpt-6.1-terra",
+  "gpt-6-sol",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
+];
+const MAX_EFFORT_CODEX_MODELS: readonly string[] = [
+  "gpt-6-luna",
   "gpt-5.6-luna",
 ];
 
@@ -96,8 +107,8 @@ function isMuseSparkModel(model: string): boolean {
 const GROK_46_AND_47_EFFORTS: readonly ReasoningEffort[] = CODEX_EFFORTS;
 const GROK_46_AND_47_MODELS: readonly string[] = ["grok-4.6", "grok-4.7"];
 
-// GPT-6 Astra accepts low–max on both surfaces; not ultra (gpt-5.6
-// Codex-only), minimal, or none.
+// GPT-6 Astra on the API path accepts low–max; not ultra, minimal, or none.
+// On ChatGPT sign-in it follows the served-levels lists above.
 const GPT6_ASTRA_EFFORTS: readonly ReasoningEffort[] = [
   "low",
   "medium",
@@ -152,13 +163,16 @@ export function supportedEfforts(
   if (providerEfforts.length > 0) {
     return [...providerEfforts];
   }
+  if (isCodex) {
+    if (ULTRA_EFFORT_CODEX_MODELS.includes(model)) {
+      return [...CODEX_EFFORTS, "max", "ultra"];
+    }
+    return MAX_EFFORT_CODEX_MODELS.includes(model)
+      ? [...CODEX_EFFORTS, "max"]
+      : [...CODEX_EFFORTS];
+  }
   if (model === "gpt-6-astra") {
     return [...GPT6_ASTRA_EFFORTS];
-  }
-  if (isCodex) {
-    return MAX_EFFORT_CODEX_MODELS.includes(model)
-      ? [...CODEX_EFFORTS, "max", "ultra"]
-      : [...CODEX_EFFORTS];
   }
   if (FULL_EFFORT_MODELS.includes(model)) {
     return ["none", ...DEFAULT_EFFORTS, "xhigh"];
