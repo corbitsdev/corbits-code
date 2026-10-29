@@ -13,6 +13,7 @@ import {
 import { getLogger } from "@intx/log";
 import { consumeStream } from "../../session/stream-consumer.js";
 import { COMPACTION_CONTINUATION_EVENT } from "../../agent/compaction.js";
+import { DROPPED_APPROVAL_SETTLED_EVENT } from "../../agent/director.js";
 import {
   buildCompactionContinuationMessage,
   createContinuationGate,
@@ -38,6 +39,7 @@ import {
   truncateSessionLabel,
 } from "../../session/session-label.js";
 import { printResumeHint } from "../../session/resume-hint.js";
+import type { ApprovalResume } from "../../session/approval-resume.js";
 import { clearActiveDisposeHost } from "../../session/active-host.js";
 import { syncRunStateHandle } from "../../session/active-run.js";
 import { startRunHeartbeat } from "../../session/run-liveness.js";
@@ -73,11 +75,14 @@ export function resetSessionForRotation(
   services: Pick<
     RunnerServices,
     "deliveryGeneration" | "emitter" | "subAgentSessions"
-  >,
+  > & { approvalResume: Pick<ApprovalResume, "forgetUnsettled"> },
 ): Promise<string[]> {
   let cancelledWorkers: Promise<string[]> = Promise.resolve([]);
   const reset = (): void => {
     services.deliveryGeneration.bump();
+    // Nothing in the new session can settle the old one's parked call; it
+    // stays parked on disk, exactly as a quit leaves it.
+    services.approvalResume.forgetUnsettled();
     cancelFeedbackCapture();
     services.emitter.emit("session.clear");
     cancelledWorkers = services.subAgentSessions.cancelAll("Session cleared");
@@ -377,8 +382,9 @@ export async function createRunLifecycle(
   // correlated decision without opening a message run, so no bracket covers
   // the re-dispatched tool or the inference after it. Hold rebuilds from
   // that correlation until the reactor reaches a terminal it announces: a
-  // reply, a run end, a fatal error, or shutdown. A bare `wait` terminal
-  // emits nothing, so the hold then lasts until the next run ends.
+  // reply, a run end, a dropped approval's silent settle, a fatal error, or
+  // shutdown. Any other bare `wait` terminal emits nothing, so the hold then
+  // lasts until the next run ends.
   let resumingOutsideRun = false;
   const streamSink = (
     event: Parameters<typeof services.runSink.sink>[0],
@@ -477,6 +483,7 @@ export async function createRunLifecycle(
     }
     if (
       event.type === "connector.reply" ||
+      event.type === DROPPED_APPROVAL_SETTLED_EVENT ||
       event.type === "reactor.done" ||
       (event.type === "reactor.error" && event.data.fatal)
     ) {
@@ -507,6 +514,24 @@ export async function createRunLifecycle(
       state.pendingReload = false;
     }
     state.currentAgent = await services.buildAgent();
+  };
+  // Every rebuild that keeps the session reloads a dropped approval that is
+  // still parked, so each one settles it on the new agent: prepared from the
+  // outgoing store before teardown, settled once the stream is attached so
+  // the settle event reaches the sink.
+  const prepareDrops = async (): Promise<void> => {
+    const storage = state.currentStorage;
+    if (storage === null) return;
+    await services.approvalResume
+      .prepareRebuild(storage)
+      .catch(caughtDebug(tuiLogger, "preparing dropped approvals failed"));
+  };
+  const settleDrops = async (): Promise<void> => {
+    const storage = state.currentStorage;
+    if (storage === null) return;
+    await services.approvalResume
+      .settleOn(liveAgent(state), storage)
+      .catch(caughtDebug(tuiLogger, "settling dropped approvals failed"));
   };
   const agentBusy = (): boolean =>
     state.inFlight > 0 || openMessageRuns.size > 0 || resumingOutsideRun;
@@ -560,6 +585,7 @@ export async function createRunLifecycle(
         { ...drift, sessionId: state.sessionId },
       );
       try {
+        await prepareDrops();
         const old = liveAgent(state);
         const closedCleanly = await closeAgentForRebuild(old, "reload");
         await state.streamPromise?.catch(
@@ -576,6 +602,7 @@ export async function createRunLifecycle(
         );
         // The rebuild made a fresh director; re-attach the active workflow.
         services.workflowHost.reattach();
+        await settleDrops();
       } catch (err) {
         recordRunError(state, err);
         state.fatalBuildError = agentRebuildFailure(err);
@@ -711,6 +738,7 @@ export async function createRunLifecycle(
           // inference.error is delivered, so the recorder never sees a
           // terminal event. Dispose before that teardown salvages the buffer
           // so it is never lost or misattributed to the next cycle.
+          await prepareDrops();
           await services.cycleRecorder.dispose("interrupted");
           const closedCleanly = await closeAgentForRebuild(
             liveAgent(state),
@@ -733,6 +761,7 @@ export async function createRunLifecycle(
             streamSink,
           );
           services.workflowHost.reattach();
+          await settleDrops();
           state.fatalBuildError = null;
         } catch (err) {
           recordRunError(state, err);

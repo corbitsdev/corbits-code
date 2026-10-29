@@ -55,7 +55,11 @@ import {
   stickyExtraInstructionsFromRecords,
   lastCycleSourceFromRunModel,
 } from "../agent/compaction.js";
-import { createChatDirector, type ChatDirector } from "../agent/director.js";
+import {
+  createChatDirector,
+  type ChatDirector,
+  type DroppedApprovalCalls,
+} from "../agent/director.js";
 import { createDoomLoopCorrectiveNote } from "../agent/doom-loop-note.js";
 import type { AgentToolset } from "../agent/tools.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
@@ -555,6 +559,8 @@ export interface ChatAgentWiring {
    * declined this turn. Same-turn reactor retries still short-circuit.
    */
   clearDenials?: () => void;
+  /** The session's dropped approvals; every build's director claims from it. */
+  droppedApprovalCalls?: DroppedApprovalCalls;
   getProvider: () => { providerName: string; model: string };
   /** Pre-created holder so the workflow controller can close over it first. */
   directorHolder?: { instance?: ChatDirector };
@@ -672,6 +678,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
       if (tasksFromPrev !== undefined) d.restoreTasks(tasksFromPrev);
       if (wiring.clearDenials !== undefined)
         d.setClearDenials(wiring.clearDenials);
+      d.setDroppedApprovalCalls(wiring.droppedApprovalCalls);
       directorHolder.instance = d;
       return d;
     },

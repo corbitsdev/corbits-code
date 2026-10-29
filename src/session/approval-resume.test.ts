@@ -791,6 +791,10 @@ describe("suspended approval recovery", () => {
           throw new Error("deliver failed: transport closed");
         },
         status: t.resume.status,
+        droppedCalls: t.resume.droppedCalls,
+        prepareRebuild: t.resume.prepareRebuild,
+        settleOn: t.resume.settleOn,
+        forgetUnsettled: t.resume.forgetUnsettled,
       },
     });
     failing.capture(result, () => true);

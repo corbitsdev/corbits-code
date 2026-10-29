@@ -723,6 +723,7 @@ export async function assembleTUISession(
     // before any worker ever spawns.
     allowIdleWithFleet: false,
     clearDenials: () => permissionGate.clearDenials(),
+    droppedApprovalCalls: approvalResume.droppedCalls,
     getProvider: () => state.config,
     directorHolder,
     getWorkdir: () => state.workdir,
