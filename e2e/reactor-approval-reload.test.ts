@@ -25,7 +25,11 @@ import {
   DROPPED_APPROVAL_SETTLED_EVENT,
   type DroppedApprovalCalls,
 } from "../src/agent/director.js";
-import { createQueuedApprovalDeliver } from "../src/tui/approval-delivery.js";
+import {
+  ApprovalDeliveryTimeoutError,
+  createApprovalDeliverer,
+  createQueuedApprovalDeliver,
+} from "../src/tui/approval-delivery.js";
 import {
   createDeliveryGeneration,
   createSessionOperationQueue,
@@ -442,7 +446,12 @@ type InterruptPoint =
   /** After an approval, while it waits behind a busy session queue. */
   | "decision-queued"
   /** After the reactor accepted an approval, while its loop is busy. */
-  | "decision-accepted";
+  | "decision-accepted"
+  /**
+   * After an approval reached a busy loop but the deliverer gave up waiting
+   * to observe its acceptance.
+   */
+  | "acceptance-timed-out";
 
 /**
  * Parks `call` on an ask, then interrupts at `opts.interruptWhile` (while
@@ -506,9 +515,20 @@ async function dropThenInterrupt(
         return queuedOp;
       },
       fatalBuildError: () => null,
-      deliverer: {
-        deliver: async (message) => live.session.agent.deliver(message),
-      },
+      deliverer:
+        interruptWhile === "acceptance-timed-out"
+          ? createApprovalDeliverer({
+              deliverToAgent: (message) => live.session.agent.deliver(message),
+              acceptance: {
+                wait: () => new Promise<void>(() => undefined),
+                settle: () => undefined,
+                abandon: () => undefined,
+              },
+              timeoutMs: 50,
+            })
+          : {
+              deliver: async (message) => live.session.agent.deliver(message),
+            },
     }),
   });
   claimFrom = resume;
@@ -530,7 +550,10 @@ async function dropThenInterrupt(
     ctx.approve();
     await queued;
   }
-  if (interruptWhile === "decision-accepted") {
+  if (
+    interruptWhile === "decision-accepted" ||
+    interruptWhile === "acceptance-timed-out"
+  ) {
     // A second message's held inference keeps the loop busy, so the close's
     // abort is served ahead of the accepted approval.
     void live.session.agent.send("Still there?").catch(() => undefined);
@@ -539,7 +562,12 @@ async function dropThenInterrupt(
       "second message's inference",
     );
     ctx.approve();
-    expect(await handling).toBe(true);
+    if (interruptWhile === "decision-accepted")
+      expect(await handling).toBe(true);
+    else
+      await expect(handling).rejects.toBeInstanceOf(
+        ApprovalDeliveryTimeoutError,
+      );
     await waitFor(
       () => parkedEvents.some((e) => e.type === "message.correlated"),
       "approval accepted",
@@ -580,7 +608,8 @@ async function dropThenInterrupt(
   });
   releaseCallId?.();
   releaseBusy?.();
-  expect(await handling).toBe(true);
+  if (interruptWhile !== "acceptance-timed-out")
+    expect(await handling).toBe(true);
   await awaitTail();
 
   await waitFor(
@@ -1124,6 +1153,20 @@ describe("integration: an ask dropped by an interrupt, then settled on the rebui
         { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
         NATIVE_ANTHROPIC,
         { interruptWhile: "decision-accepted" },
+      );
+
+      await expectSettledWithoutRunning(reloaded);
+    },
+    20_000,
+  );
+
+  test.serial(
+    "an approval whose acceptance was never observed settles with no model turn",
+    async () => {
+      const reloaded = await dropThenInterrupt(
+        { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+        NATIVE_ANTHROPIC,
+        { interruptWhile: "acceptance-timed-out" },
       );
 
       await expectSettledWithoutRunning(reloaded);

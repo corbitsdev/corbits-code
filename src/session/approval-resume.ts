@@ -511,13 +511,14 @@ export function createApprovalResume(args: {
   // concurrent duplicate handle shares the one in-flight outcome instead of
   // opening a second gate, so no waiter is lost and none double-resumes.
   const inflight = new Map<string, Promise<boolean>>();
-  // Approvals a generation bump dropped or that were handed to a reactor,
-  // keyed by correlation id with the parked call id once known. The reject a
-  // drop sends the old agent can be discarded by its closing reactor, or
-  // never sent when the drop lands before the parked call resolves; a
-  // reactor closed after accepting a decision but before running it leaves
-  // the call parked on disk. Each stays here until a rebuilt agent's store
-  // shows its call closed.
+  // Approvals a generation bump dropped or whose decision was handed to a
+  // reactor or failed to deliver, keyed by correlation id with the parked
+  // call id once known. The reject a drop sends the old agent can be
+  // discarded by its closing reactor, or never sent when the drop lands
+  // before the parked call resolves; a reactor closed after accepting a
+  // decision but before running it, or a delivery that failed, leaves the
+  // call parked on disk. Each stays here until a rebuilt agent's store shows
+  // its call closed.
   const unsettled = new Map<string, string | undefined>();
   const markUnsettled = (
     correlationId: string,
@@ -593,11 +594,20 @@ export function createApprovalResume(args: {
         message: InboundMessage,
       ): Promise<boolean> => {
         if (!currentOrDropped()) return false;
-        if (args.deliver !== undefined) {
-          const outcome = await args.deliver(message, currentOrDropped);
-          if (outcome === "skipped") return false;
-        } else {
-          parkedAgent.deliver(message);
+        try {
+          if (args.deliver !== undefined) {
+            const outcome = await args.deliver(message, currentOrDropped);
+            if (outcome === "skipped") return false;
+          } else {
+            parkedAgent.deliver(message);
+          }
+        } catch (err) {
+          // A deliverer can throw after the hand-over, when it gives up
+          // observing the acceptance, so the reactor may still hold the
+          // decision; one that throws before it leaves the call just as
+          // parked. Either way a rebuild must find it.
+          markUnsettled(correlationId, parkedCallId);
+          throw err;
         }
         handedOver.add(correlationId);
         markUnsettled(correlationId, parkedCallId);

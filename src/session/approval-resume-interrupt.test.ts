@@ -480,6 +480,39 @@ describe("approval resume decisions a closing reactor never ran", () => {
     return { resume, oldAgentDelivered };
   }
 
+  test("an approval whose delivery failed before the hand-over is rejected on the rebuilt agent with no turn", async () => {
+    const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
+      getAgent: () => ({
+        deliver: () => undefined,
+        history: async () => [userTurn()],
+      }),
+      deliver: async () => {
+        throw new Error("agent build failed");
+      },
+      gate: {
+        resolveSuspended: async () => ({ allow: true }),
+      } as unknown as PermissionGate,
+    });
+    await expect(resume.handle(SUSPENDED)).rejects.toThrow(
+      "agent build failed",
+    );
+    expect(resume.status("corr-1")).toBe("idle");
+
+    await resume.prepareRebuild(parkedStore().storage);
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      parkedStore().storage,
+    );
+
+    expect(firstDeliveredContent(rebuilt)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_DROPPED_NOTICE,
+    });
+    expect(resume.droppedCalls.claim("call-ask")).toBe(true);
+  });
+
   test("an approval handed over but still parked in the rebuilt store is rejected there with no turn", async () => {
     const { resume, oldAgentDelivered } = handedOverResume();
     expect(await resume.handle(SUSPENDED)).toBe(true);
