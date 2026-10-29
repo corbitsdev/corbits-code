@@ -99,3 +99,98 @@ describe("scoreLexical", () => {
     }
   });
 });
+
+describe("scoreLexical tool names across a trailing plural s", () => {
+  // No fixture name contains this raw query whole, so only the per-token
+  // tiers differ between the scores compared.
+  const rawQuery = "linear issue";
+
+  function nameScore(name: string, query: string): number {
+    return scoreLexical(
+      lexicalFields(name, "", NO_LEXICAL_PARAMS),
+      tokenizeLexical(query),
+      rawQuery,
+    );
+  }
+
+  // `substring` holds the query word only inside a longer name token.
+  function expectFoldedBetween(
+    query: string,
+    names: { substring: string; folded: string; exact: string },
+  ) {
+    const folded = nameScore(names.folded, query);
+    expect(folded).toBeGreaterThan(nameScore(names.substring, query));
+    expect(folded).toBeLessThan(nameScore(names.exact, query));
+  }
+
+  test("a singular query word matches its plural in a name", () => {
+    expectFoldedBetween("issue", {
+      substring: "mcp__acme__issuetracker",
+      folded: "mcp__linear__list_issues",
+      exact: "mcp__linear__list_issue",
+    });
+  });
+
+  test("a plural query word matches its singular in a name", () => {
+    expectFoldedBetween("issues", {
+      substring: "mcp__acme__issuestracker",
+      folded: "mcp__linear__get_issue",
+      exact: "mcp__linear__get_issues",
+    });
+  });
+
+  test("a word given in both forms counts once, as its better spelling", () => {
+    const fields = lexicalFields(
+      "mcp__linear__list_issues",
+      "List issues in Linear",
+      NO_LEXICAL_PARAMS,
+    );
+    expect(
+      scoreLexical(fields, tokenizeLexical("linear issue issues"), rawQuery),
+    ).toBe(scoreLexical(fields, tokenizeLexical("linear issues"), rawQuery));
+  });
+
+  test("a word given in both forms scores the same in either order", () => {
+    // "issue" sits only inside "issuetracker", so only a substring tier
+    // matches, and it matches the singular but not the plural.
+    const fields = lexicalFields(
+      "mcp__acme__issuetracker",
+      "",
+      NO_LEXICAL_PARAMS,
+    );
+    const pluralFirst = scoreLexical(
+      fields,
+      tokenizeLexical("issues issue"),
+      rawQuery,
+    );
+    expect(pluralFirst).toBeGreaterThan(0);
+    expect(pluralFirst).toBe(
+      scoreLexical(fields, tokenizeLexical("issue issues"), rawQuery),
+    );
+  });
+
+  test("a word of three letters keeps its trailing s", () => {
+    const fields = lexicalFields("mcp__acme__get_it", "", NO_LEXICAL_PARAMS);
+    expect(scoreLexical(fields, tokenizeLexical("its"), "its")).toBe(0);
+  });
+
+  test("a plural query word earns no substring credit for its singular", () => {
+    // "users" folds to "user", which sits inside "username"; the substring
+    // tier still looks for "users".
+    const fields = lexicalFields(
+      "mcp__acme__username_lookup",
+      "",
+      NO_LEXICAL_PARAMS,
+    );
+    expect(scoreLexical(fields, tokenizeLexical("users"), "users")).toBe(0);
+  });
+
+  test("a description word does not match a query word that folds to it", () => {
+    const fields = lexicalFields(
+      "mcp__linear__save_issue",
+      "Create a new issue",
+      NO_LEXICAL_PARAMS,
+    );
+    expect(scoreLexical(fields, tokenizeLexical("news"), "news")).toBe(0);
+  });
+});

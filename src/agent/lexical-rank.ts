@@ -1,5 +1,7 @@
 // One shared dependency-free lexical ranker behind tool_search,
 // search_agents, and skill_search. Exact name-token hits weigh most, then
+// name tokens that match across a trailing plural "s" (so "issue" finds
+// list_issues while the spelling the query uses still wins ties), then
 // blob-token hits, then a raw name substring (so "linear" finds
 // mcp__linear__* even though it is not a whole token there), then a raw blob
 // substring. Parameter name and description tokens (tool_search only) weigh
@@ -11,10 +13,21 @@ export function tokenizeLexical(text: string): string[] {
   return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
 }
 
+// Folding also merges real word pairs such as "news" and "new", so it stays
+// on names: in descriptions, a common word like "new" would turn a miss into
+// a false hit. Three-letter words keep their "s", so "its" never becomes "it".
+function foldPlural(token: string): string {
+  return token.length > 3 && token.endsWith("s") ? token.slice(0, -1) : token;
+}
+
+// Under exact (3); 3 + this clears TOOL_SEARCH_SCORE_RATIO * 6 ("issue list").
+const FOLDED_NAME_TOKEN_SCORE = 2.5;
+
 export interface LexicalFields {
   readonly name: string;
   readonly blob: string;
   readonly nameTokens: readonly string[];
+  readonly foldedNameTokens: readonly string[];
   readonly blobTokens: ReadonlySet<string>;
   readonly paramNameTokens: ReadonlySet<string>;
   readonly paramBlobTokens: ReadonlySet<string>;
@@ -40,10 +53,12 @@ export function lexicalFields(
   blob: string,
   params: LexicalParams,
 ): LexicalFields {
+  const nameTokens = tokenizeLexical(name);
   return {
     name,
     blob,
-    nameTokens: tokenizeLexical(name),
+    nameTokens,
+    foldedNameTokens: nameTokens.map(foldPlural),
     blobTokens: new Set(tokenizeLexical(blob)),
     paramNameTokens: new Set(
       tokenizeLexical(params.names.map(splitCamelCase).join(" ")),
@@ -59,6 +74,9 @@ function directTokenScore(
   token: string,
 ): number {
   if (fields.nameTokens.includes(token)) return 3;
+  if (fields.foldedNameTokens.includes(foldPlural(token))) {
+    return FOLDED_NAME_TOKEN_SCORE;
+  }
   if (fields.blobTokens.has(token)) return 1;
   if (name.includes(token)) return 0.75;
   if (blob.includes(token)) return 0.25;
@@ -78,15 +96,39 @@ export function scoreLexical(
 ): number {
   const name = fields.name.toLowerCase();
   const blob = fields.blob.toLowerCase();
-  let matched = name.includes(rawQuery) ? 1 : 0;
+  // The whole-query bonus lifts a one-word query buried inside a longer name
+  // token ("granola" in mygranolahoard) above a description hit. A word that
+  // is already a name token, exact or folded, was scored by the token pass;
+  // a second point for it would cut its folded matches at the score ratio.
+  const single = new Set(queryTokens).size === 1 ? queryTokens[0] : undefined;
+  const nameHit =
+    single !== undefined &&
+    (fields.nameTokens.includes(single) ||
+      fields.foldedNameTokens.includes(foldPlural(single)));
+  let matched = !nameHit && name.includes(rawQuery) ? 1 : 0;
   let total = matched;
   // A model repeats a word because its sentence needs it ("release ID or
   // release slug"), not to weight it; counting each copy multiplies the
-  // bonus for every tool that matches that one word.
+  // bonus for every tool that matches that one word. "issue" and "issues"
+  // are one word, scored as whichever spelling matches better. The merge
+  // applies on every tier, so an unrelated pair like "new" and "news" also
+  // counts once against a description; that is accepted.
+  const words = new Map<string, string[]>();
   for (const token of new Set(queryTokens)) {
-    const direct = directTokenScore(fields, name, blob, token);
+    const folded = foldPlural(token);
+    const spellings = words.get(folded);
+    if (spellings === undefined) words.set(folded, [token]);
+    else spellings.push(token);
+  }
+  for (const spellings of words.values()) {
+    const direct = Math.max(
+      ...spellings.map((token) => directTokenScore(fields, name, blob, token)),
+    );
+    const param = Math.max(
+      ...spellings.map((token) => paramTokenScore(fields, token)),
+    );
     matched += direct;
-    total += Math.max(direct, paramTokenScore(fields, token));
+    total += Math.max(direct, param);
   }
   return matched > 0 ? total : 0;
 }
