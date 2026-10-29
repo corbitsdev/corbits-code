@@ -5374,6 +5374,229 @@ describe("createReactor — approval resume error result", () => {
     await waitFor("reactor.done");
     expect(cleared).toBe(true);
   });
+
+  // Every inference after the first holds until released, so the run cannot
+  // reach a terminal (and its cycle commit) while the test reads the store.
+  function heldContinuationRunner() {
+    let call = 0;
+    let markStarted = (): void => {};
+    const continuationStarted = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let release = (): void => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    async function* runner(
+      opts: InferenceHarnessOptions,
+    ): AsyncGenerator<InferenceEvent> {
+      call += 1;
+      if (call > 1) {
+        markStarted();
+        await released;
+      }
+      const turn: AssistantTurn =
+        call === 1
+          ? suspendToolCallTurn
+          : {
+              role: "assistant",
+              content: [{ type: "text", text: "acknowledged" }],
+              model: "test-model",
+              timestamp: 2000,
+            };
+      yield {
+        type: "inference.done",
+        seq: opts.nextSeq(),
+        data: { turn, usage: emptyUsage(), source: TEST_SOURCE },
+      };
+    }
+    return { runner, continuationStarted, release };
+  }
+
+  function parkedCallResultTexts(turns: ConversationTurn[]): string[] {
+    return turns
+      .flatMap((t) => t.content)
+      .flatMap((b) =>
+        b.type === "tool_result" && b.callId === "call-ask"
+          ? [
+              b.content
+                .filter((c) => c.type === "text")
+                .map((c) => c.text)
+                .join(""),
+            ]
+          : [],
+      );
+  }
+
+  function rejection(correlationId: string): InboundMessage {
+    return createInboundMessage({
+      from: "signal@local",
+      to: "agent@example.com",
+      content: JSON.stringify({ outcome: "rejected", message: "too risky" }),
+      correlationId,
+    });
+  }
+
+  test("a rejected parked call's result reaches the store before the cycle commits", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+    const held = heldContinuationRunner();
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: held.runner,
+      beforeToolExtensions: [askExtension()],
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+
+    reactor.deliver(rejection(correlationId));
+    await held.continuationStarted;
+
+    expect(parkedCallResultTexts(cell.turns)).toEqual([
+      "denied by approver: too risky",
+    ]);
+
+    held.release();
+    await waitForEvent(events, (e) => e.type === "connector.reply");
+    expect(parkedCallResultTexts(cell.turns)).toHaveLength(1);
+  });
+
+  test("a timed-out parked call's result reaches the store before the cycle commits", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+    const held = heldContinuationRunner();
+    const { reactor, events } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: held.runner,
+      beforeToolExtensions: [askExtension(80)],
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await held.continuationStarted;
+
+    expect(parkedCallResultTexts(cell.turns)).toEqual(["approval timed out"]);
+
+    held.release();
+    await waitForEvent(events, (e) => e.type === "connector.reply");
+    expect(parkedCallResultTexts(cell.turns)).toHaveLength(1);
+  });
+
+  // The loop must be busy when the decision is accepted, or it acts on it
+  // on the next turn of the loop before an abort can be queued. A second
+  // message's held inference keeps it busy; the abort queued behind that
+  // inference is dequeued ahead of the accepted decision.
+  async function decideThenAbortBehindHeldInference(
+    contextStore: ContextStore,
+    beforeAbort: () => void = () => {},
+    decision: (correlationId: string) => InboundMessage = rejection,
+  ) {
+    const held = heldContinuationRunner();
+    const handle = createTestReactor({
+      contextStore,
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: held.runner,
+      beforeToolExtensions: [askExtension()],
+    });
+    const { reactor, events, waitFor } = handle;
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+
+    reactor.deliver(makeInboundMessage());
+    await held.continuationStarted;
+    reactor.deliver(decision(correlationId));
+    await waitForEvent(events, (e) => e.type === "message.correlated");
+
+    beforeAbort();
+    reactor.abort("user_disconnect");
+    held.release();
+    await waitFor("reactor.done");
+    return handle;
+  }
+
+  test("an accepted rejection still queued at shutdown reaches the store", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+
+    await decideThenAbortBehindHeldInference(makePersistingContextStore(cell));
+
+    expect(parkedCallResultTexts(cell.turns)).toEqual([
+      "denied by approver: too risky",
+    ]);
+  });
+
+  test("an accepted approval still queued at shutdown stays parked with no result", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+
+    await decideThenAbortBehindHeldInference(
+      makePersistingContextStore(cell),
+      undefined,
+      (correlationId) => makeApprovalMessage(correlationId),
+    );
+
+    // The host handed the approval over and the reactor accepted it, but the
+    // call never ran: only a rebuilt agent's host can settle it now.
+    expect(parkedCallResultTexts(cell.turns)).toEqual([]);
+    expect(cell.pendingOperations.map((op) => op.suspendedCall?.id)).toEqual([
+      "call-ask",
+    ]);
+  });
+
+  test("a store that fails the shutdown write is reported without blocking shutdown", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+    const persisting = makePersistingContextStore(cell);
+    let failWrites = false;
+    const contextStore: ContextStore = {
+      ...persisting,
+      async writeTurns(turns) {
+        if (failWrites) throw new Error("disk full");
+        await persisting.writeTurns(turns);
+      },
+    };
+
+    const { events } = await decideThenAbortBehindHeldInference(
+      contextStore,
+      () => {
+        failWrites = true;
+      },
+    );
+
+    const errors = events.flatMap((e) =>
+      e.type === "reactor.error" ? [e.data] : [],
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.fatal).toBe(false);
+    expect(errors[0]?.error).toContain("disk full");
+  });
 });
 
 // ---------------------------------------------------------------------------

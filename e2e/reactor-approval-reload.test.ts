@@ -181,6 +181,31 @@ function toolResultsFor(
     );
 }
 
+interface RequestMessage {
+  content: string | { type: string; id?: string; tool_use_id?: string }[];
+}
+
+/** The block types naming `callId` in the last model request, in order. */
+async function lastRequestBlocksFor(
+  session: IntegrationSession,
+  callId: string,
+): Promise<string[]> {
+  const request = session.harness.scenario.matchedRequests().at(-1);
+  if (request === undefined) throw new Error("no routed requests");
+  const body = JSON.parse(
+    await (request.clone() as unknown as Request).text(),
+  ) as { messages: RequestMessage[] };
+  return body.messages.flatMap((message) =>
+    typeof message.content === "string"
+      ? []
+      : message.content.flatMap((block) =>
+          block.id === callId || block.tool_use_id === callId
+            ? [block.type]
+            : [],
+        ),
+  );
+}
+
 function collect(session: IntegrationSession): ReactorEmittedEvent[] {
   const events: ReactorEmittedEvent[] = [];
   void (async () => {
@@ -495,10 +520,166 @@ describe("integration: approving an ask, then reloading the agent", () => {
   );
 });
 
-// Reloads at the run's end, where the TUI's deferred reload fires. A reload
-// after the decision but before the cycle commits is not covered here: the
-// rejected or timed-out result is not yet persisted, so the rebuilt agent
-// loads the parked call with no result at all.
+// Reloads once the model's next turn has started, before the cycle commits:
+// where an interrupt or session rotation lands mid-run.
+describe("integration: an ask settled without running, then reloading the agent before the cycle commits", () => {
+  const continuationStarted = (session: IntegrationSession): boolean =>
+    session.harness.scenario.matchedRequests().length === 2;
+
+  test.serial(
+    "after a rejection: the rebuilt agent sends the denial once, and the old deadline adds no result",
+    async () => {
+      const reloaded = await decideThenReload(
+        { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+        continuationStarted,
+        { decision: "reject" },
+      );
+      const { session, callId } = reloaded;
+      expect((await session.storage.load()).pendingOperations).toEqual([]);
+      const settled = toolResultsFor(await session.agent.history(), callId);
+      expect(settled).toHaveLength(1);
+      expect(settled.join("")).toContain("denied by approver");
+
+      await passDeadline(reloaded);
+      expect(toolResultsFor(await session.agent.history(), callId)).toEqual(
+        settled,
+      );
+
+      session.harness.scenario.replyOnce("anthropic", { text: "Done." });
+      const followUp = await runUntilDone(session, "Continue.");
+      expect(followUp.reply).toBe("Done.");
+      expect(await lastRequestBlocksFor(session, callId)).toEqual([
+        "tool_use",
+        "tool_result",
+      ]);
+      expect(reloaded.events.filter((e) => e.type === "reactor.error")).toEqual(
+        [],
+      );
+    },
+    20_000,
+  );
+
+  test.serial(
+    "after the deadline answers it: the rebuilt agent loads the timeout result and no parked call",
+    async () => {
+      const reloaded = await decideThenReload(
+        { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+        continuationStarted,
+        { decision: "expire" },
+      );
+      const { session, callId } = reloaded;
+      // Read before the rebuilt agent runs: a parked call it loaded would be
+      // re-armed at the already-past deadline and answered by the rebuilt
+      // reactor itself, which would hide the lost result.
+      expect((await session.storage.load()).pendingOperations).toEqual([]);
+      const settled = toolResultsFor(await session.agent.history(), callId);
+      expect(settled).toHaveLength(1);
+      expect(settled.join("")).toContain("approval timed out");
+
+      await passDeadline(reloaded, reloaded.deadline + FRESH_WINDOW_PASSED_MS);
+      expect(toolResultsFor(await session.agent.history(), callId)).toEqual(
+        settled,
+      );
+
+      session.harness.scenario.replyOnce("anthropic", { text: "Done." });
+      const followUp = await runUntilDone(session, "Continue.");
+      expect(followUp.reply).toBe("Done.");
+      expect(await lastRequestBlocksFor(session, callId)).toEqual([
+        "tool_use",
+        "tool_result",
+      ]);
+    },
+    20_000,
+  );
+});
+
+// The loop is busy on a second message's inference when the rejection is
+// accepted, so the close's abort is served first and only the shutdown flush
+// writes the rejection's result. The reactor leaves the approval record
+// behind; the session store must close it on load.
+describe("integration: a rejection the reactor accepted but never ran, then reopening the agent", () => {
+  test.serial(
+    "the reopened agent loads the denial once and no parked call, and the old deadline adds no result",
+    async () => {
+      const clock = holdLongTimers();
+      cleanups.push(() => clock.restore());
+      const ctx = deferredApprovalGate();
+      const sessionOpts = {
+        permissionGate: ctx.gate,
+        authorize: createReactorAuthorize(ctx.gate),
+        pinToolSetAtBuild: true,
+      };
+      const live = { session: await openIntegrationSession(sessionOpts) };
+      cleanups.push(() => closeIntegrationSession(live.session));
+      live.session.harness.scenario.replyOnce("anthropic", {
+        toolCalls: [
+          { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+        ],
+      });
+      live.session.harness.scenario.stall();
+
+      const turn = await runUntilSuspended(
+        live.session,
+        "Probe the local port.",
+      );
+      const suspended = turn.result;
+      if (suspended.type !== "suspended") throw new Error("did not park");
+      const parked = (await live.session.storage.load()).pendingOperations.find(
+        (op) => op.correlationId === suspended.correlationId,
+      );
+      const callId = parked?.suspendedCall?.id;
+      const deadline = parked?.timeoutAt;
+      if (callId === undefined || deadline === undefined) {
+        throw new Error("parked call has no persisted call id or deadline");
+      }
+
+      void live.session.agent.send("Still there?").catch(() => undefined);
+      await waitFor(
+        () => live.session.harness.scenario.matchedRequests().length === 2,
+        "second message's inference",
+      );
+      const resume = createApprovalResume({
+        getAgent: () => live.session.agent,
+        gate: ctx.gate,
+        resolveParkedCallId: (id) =>
+          resolveParkedCallIdFromStore(live.session.storage, id),
+      });
+      const handling = resume.handle(suspended);
+      await waitFor(ctx.asked, "approval prompt");
+      ctx.reject();
+      expect(await handling).toBe(true);
+      await waitFor(
+        () => turn.events.some((e) => e.type === "message.correlated"),
+        "rejection accepted",
+      );
+
+      live.session = await rebuildIntegrationSession(live.session, sessionOpts);
+      const { session } = live;
+      expect((await session.storage.load()).pendingOperations).toEqual([]);
+      const settled = toolResultsFor(await session.agent.history(), callId);
+      expect(settled).toHaveLength(1);
+      expect(settled.join("")).toContain("denied by approver");
+
+      const reloaded = {
+        session,
+        events: collect(session),
+        callId,
+        deadline,
+        clock,
+      };
+      await passDeadline(reloaded, deadline + FRESH_WINDOW_PASSED_MS);
+      expect(reloaded.events.filter((e) => e.type === "reactor.error")).toEqual(
+        [],
+      );
+      expect(toolResultsFor(await session.agent.history(), callId)).toEqual(
+        settled,
+      );
+    },
+    20_000,
+  );
+});
+
+// Reloads at the run's end, where the TUI's deferred reload fires.
 describe("integration: an ask settled without running, then reloading the agent at the run's end", () => {
   const runEnded = (
     _session: IntegrationSession,
