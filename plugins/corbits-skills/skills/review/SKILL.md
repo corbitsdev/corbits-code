@@ -52,9 +52,10 @@ Deeper work (file-by-file behavior, architecture, coherence) can go to sub-agent
 
 Raise what helps the author. Flag real defects and architecture that would constrain future work. Skip hypothetical problems in cases the code need not handle, stylistic nits, and vague remarks like "could be cleaner".
 
-- Every finding has a `path:line` and a concrete failure mode. Severity is the review action, not adjectives.
+- Every finding is one of **blocking** (breaks the contract or the behavior), **should-fix** (a real defect that should change in this diff), or **informational** (true, but not something this diff has to change; the same rank as file-for-later). Severity is the review action, not an adjective.
+- Cite a line range, `path:start-end`, not a single line unless the failure is one line. A range is the lines a reader opens to see the failure.
 - Describe the branch as it stands now, in present tense, from `git diff <base>...HEAD`, not the journey or the PR description.
-- Write to a colleague: propose rather than command, say why, describe consequences instead of "wrong" or "broken", and suggest the one-liner when the fix is small.
+- Write the description for a person: what goes wrong, and the consequence. No finder jargon, no pass names.
 - **Cite the check.** Every affirmative claim ("tests pass", "no regressions") names the command or file range that proved it. Otherwise run the check, strike the claim, or narrow it to what you examined ("read `lock.go:42-68`, no acquire-while-holding cycle there").
 
 ## 6. Report and post
@@ -69,16 +70,18 @@ Then post exactly one review with `gh pr review`. One verdict for the whole diff
 gh pr review <number-or-url> --comment --body-file <file>
 ```
 
-The body is for a person first. Open with what the branch does now, in plain language. Then what goes wrong, in plain language. Do not name the passes. Do not use finder jargon (no "trust check", "lens", "nullMeansUnset", "injected parser").
+The body is one short paragraph of what the branch does now, then a bullet list. Nothing else. Do not name the passes. Do not use finder jargon.
 
-Under that, each finding is one bullet an agent can act on: `path:line`, then the concrete failure mode. A clean review says "No findings." after the plain summary. No throat-clearing, praise to soften a finding, emoji, or "nit:" taste.
+Each bullet is the severity, then the description, then the line range:
 
 ```markdown
 <what the branch does now, in plain language>
 
-<what goes wrong, in plain language>
-
-- `path/to/file.ts:12` — concrete failure mode
+- **blocking** — <what goes wrong> `path/to/file.ts:12-18`
+- **should-fix** — <what goes wrong> `path/to/file.ts:40-44`
+- **informational** — <what is true, and why this diff need not change it> `path/to/file.ts:7`
 ```
+
+Request changes when any bullet is blocking or should-fix. Comment when every bullet is informational. Approve when there are no bullets, and say "No findings." after the paragraph. No throat-clearing, praise, emoji, or "nit:".
 
 The note back to the operator is that same body plus the review URL. Do not write a second, more technical summary in chat. Posting does not change Linear state. Remove the PR worktree afterward.
