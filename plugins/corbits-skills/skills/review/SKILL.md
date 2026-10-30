@@ -59,22 +59,26 @@ Raise what helps the author. Flag real defects and architecture that would const
 
 ## 6. Report and post
 
-Summarize with the findings. When the target has an open GitHub PR, post the finished review on it; a review that only lives in chat is not done. Post when the operator asked for a PR review, when `/implement`'s whole-branch gate runs on a branch with an open PR, or when a record on the PR is the purpose. Do not post a private local read, and do not reopen the analysis while writing the body.
+Summarize with the findings. When the target has an open GitHub PR, post the finished review on it; a review that only lives in chat is not done. Post when the operator asked for a PR review, when `/implement`'s whole-branch gate runs on a branch with an open PR, or when a record on the PR is the purpose. Do not post a private local read. Do not implement fixes. Do not reopen the analysis while writing the body.
+
+Wait until every pass Dispatch started has reported. Passes do not post to GitHub and do not approve, comment, or request changes.
+
+Then post exactly one review with `gh pr review`. One verdict for the whole diff. Use one of `--approve`, `--comment`, or `--request-changes`, and swap that flag to match the verdict:
 
 ```bash
 gh pr review <number-or-url> --comment --body-file <file>
 ```
 
-Use `--approve` or `--request-changes` for the verdict. Shape:
+The body is for a person first. Open with what the branch does now, in plain language. Then what goes wrong, in plain language. Do not name the passes. Do not use finder jargon (no "trust check", "lens", "nullMeansUnset", "injected parser").
+
+Under that, each finding is one bullet an agent can act on: `path:line`, then the concrete failure mode. A clean review says "No findings." after the plain summary. No throat-clearing, praise to soften a finding, emoji, or "nit:" taste.
 
 ```markdown
-## Review · <Approve | Comment | Request changes>
+<what the branch does now, in plain language>
 
-<one line: what the branch does>
+<what goes wrong, in plain language>
 
-### Findings
-
-- `path/to/file.ts:12` — concrete problem and why it matters
+- `path/to/file.ts:12` — concrete failure mode
 ```
 
-A clean review says "No findings." after the one line. No throat-clearing, praise to soften a finding, emoji, or "nit:" taste. When more than one lens produced a distinct judgment (reviewer, planner waiver, warden), each posts its own labelled review, and only the lens that owns the merge verdict may approve. Paste the review URL back to the operator. Posting does not change Linear state. Remove the PR worktree afterward.
+The note back to the operator is that same body plus the review URL. Do not write a second, more technical summary in chat. Posting does not change Linear state. Remove the PR worktree afterward.
