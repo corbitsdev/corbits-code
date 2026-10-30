@@ -371,7 +371,7 @@ describe("integration — late MCP dispatch", () => {
   );
 
   test.serial(
-    "padded optional MCP arguments reach the server minus the values its schema rejects",
+    "padded optional arguments to a read MCP tool reach the server without rejected placeholders or null",
     async () => {
       const received: Record<string, unknown>[] = [];
       await withSession(async (session) => {
@@ -428,7 +428,6 @@ describe("integration — late MCP dispatch", () => {
           team: "",
           fields: [],
           priority: 0,
-          assignee: null,
           release: "v0345-ef53e73667fa",
         },
       ]);
