@@ -52,29 +52,36 @@ Deeper work (file-by-file behavior, architecture, coherence) can go to sub-agent
 
 Raise what helps the author. Flag real defects and architecture that would constrain future work. Skip hypothetical problems in cases the code need not handle, stylistic nits, and vague remarks like "could be cleaner".
 
-- Every finding has a `path:line` and a concrete failure mode. Severity is the review action, not adjectives.
+- Every finding is one of **blocking** (breaks the contract or the behavior), **should-fix** (a real defect that should change in this diff), or **informational** (true, but not something this diff has to change; the same rank as file-for-later). Severity is the review action, not an adjective.
+- Cite a line range, `path:start-end`, not a single line unless the failure is one line. A range is the lines a reader opens to see the failure.
 - Describe the branch as it stands now, in present tense, from `git diff <base>...HEAD`, not the journey or the PR description.
-- Write to a colleague: propose rather than command, say why, describe consequences instead of "wrong" or "broken", and suggest the one-liner when the fix is small.
+- Write the description for a person: what goes wrong, and the consequence. No finder jargon, no pass names.
 - **Cite the check.** Every affirmative claim ("tests pass", "no regressions") names the command or file range that proved it. Otherwise run the check, strike the claim, or narrow it to what you examined ("read `lock.go:42-68`, no acquire-while-holding cycle there").
 
 ## 6. Report and post
 
-Summarize with the findings. When the target has an open GitHub PR, post the finished review on it; a review that only lives in chat is not done. Post when the operator asked for a PR review, when `/implement`'s whole-branch gate runs on a branch with an open PR, or when a record on the PR is the purpose. Do not post a private local read, and do not reopen the analysis while writing the body.
+Summarize with the findings. When the target has an open GitHub PR, post the finished review on it; a review that only lives in chat is not done. Post when the operator asked for a PR review, when `/implement`'s whole-branch gate runs on a branch with an open PR, or when a record on the PR is the purpose. Do not post a private local read. Do not implement fixes. Do not reopen the analysis while writing the body.
+
+Wait until every pass Dispatch started has reported. Passes do not post to GitHub and do not approve, comment, or request changes.
+
+Then post exactly one review with `gh pr review`. One verdict for the whole diff. Use one of `--approve`, `--comment`, or `--request-changes`, and swap that flag to match the verdict:
 
 ```bash
 gh pr review <number-or-url> --comment --body-file <file>
 ```
 
-Use `--approve` or `--request-changes` for the verdict. Shape:
+The body is one short paragraph of what the branch does now, then a bullet list. Nothing else. Do not name the passes. Do not use finder jargon.
+
+Each bullet is the severity, then the description, then the line range:
 
 ```markdown
-## Review · <Approve | Comment | Request changes>
+<what the branch does now, in plain language>
 
-<one line: what the branch does>
-
-### Findings
-
-- `path/to/file.ts:12` — concrete problem and why it matters
+- **blocking** — <what goes wrong> `path/to/file.ts:12-18`
+- **should-fix** — <what goes wrong> `path/to/file.ts:40-44`
+- **informational** — <what is true, and why this diff need not change it> `path/to/file.ts:7`
 ```
 
-A clean review says "No findings." after the one line. No throat-clearing, praise to soften a finding, emoji, or "nit:" taste. When more than one lens produced a distinct judgment (reviewer, planner waiver, warden), each posts its own labelled review, and only the lens that owns the merge verdict may approve. Paste the review URL back to the operator. Posting does not change Linear state. Remove the PR worktree afterward.
+Request changes when any bullet is blocking or should-fix. Comment when every bullet is informational. Approve when there are no bullets, and say "No findings." after the paragraph. No throat-clearing, praise, emoji, or "nit:".
+
+The note back to the operator is that same body plus the review URL. Do not write a second, more technical summary in chat. Posting does not change Linear state. Remove the PR worktree afterward.
