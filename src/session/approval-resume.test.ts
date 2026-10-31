@@ -257,10 +257,12 @@ describe("approval decision intent headers", () => {
         getAgent: () => agent,
         gate,
         resolveParkedCallId: () => "typed-call",
-        deliver: (message) =>
-          queue.enqueue(async () => {
+        deliver: async (message) => {
+          await queue.enqueue(async () => {
             agent.deliver(message);
-          }),
+          });
+          return "delivered" as const;
+        },
       });
       const handling = resume.handle(
         suspension("typed-correlation", "echo alpha"),
@@ -1413,6 +1415,7 @@ describe("parked overlay registration after the operator answers", () => {
       deliver: async (message) => {
         promptSignal = binding.identitySignal(identity.signal);
         agent.deliver(message);
+        return "delivered" as const;
       },
     });
     expect(

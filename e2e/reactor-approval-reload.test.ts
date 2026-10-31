@@ -26,6 +26,11 @@ import {
   type DroppedApprovalCalls,
 } from "../src/agent/director.js";
 import {
+  ApprovalDeliveryTimeoutError,
+  createApprovalDeliverer,
+  createQueuedApprovalDeliver,
+} from "../src/tui/approval-delivery.js";
+import {
   createDeliveryGeneration,
   createSessionOperationQueue,
 } from "../src/tui/delivery-queue.js";
@@ -427,13 +432,32 @@ const ADAPTERS: Adapter[] = [
 
 interface Dropped extends Reloaded {
   resume: ApprovalResume;
+  correlationId: string;
+  /** Events from the parked agent, up to its close. */
+  parkedEvents: ReactorEmittedEvent[];
+  /** The calls the closed agent's store still showed parked at the rebuild. */
+  parkedAtRebuild: (string | undefined)[];
 }
 
+/** Where the interrupt lands relative to the operator's decision. */
+type InterruptPoint =
+  /** Before the prompt opens, while the approval resolves its parked call. */
+  | "resolving-call"
+  /** After an approval, while it waits behind a busy session queue. */
+  | "decision-queued"
+  /** After the reactor accepted an approval, while its loop is busy. */
+  | "decision-accepted"
+  /**
+   * After an approval reached a busy loop but the deliverer gave up waiting
+   * to observe its acceptance.
+   */
+  | "acceptance-timed-out";
+
 /**
- * Parks `call` on an ask, then interrupts while the approval is still
- * resolving its parked call, so the drop sends the old agent nothing. The
- * rebuild settles the drop on the rebuilt agent, as the TUI's interrupt does,
- * and no reply is scripted for it.
+ * Parks `call` on an ask, then interrupts at `opts.interruptWhile` (while
+ * the approval resolves its parked call, by default), so no decision reaches
+ * a reactor that runs it. The rebuild settles the drop on the rebuilt agent,
+ * as the TUI's interrupt does, and no reply is scripted for it.
  */
 async function dropThenInterrupt(
   call: { name: string; args: Record<string, unknown> },
@@ -445,20 +469,35 @@ async function dropThenInterrupt(
      * slower than that reactor's own.
      */
     deadlinePassesDuringRebuild?: boolean;
+    interruptWhile?: InterruptPoint;
   } = {},
 ): Promise<Dropped> {
+  const interruptWhile = opts.interruptWhile ?? "resolving-call";
   // Every build's director claims from the resume, which needs the session.
   let claimFrom: ApprovalResume | undefined;
   const droppedCalls: DroppedApprovalCalls = {
     claim: (callId) => claimFrom?.droppedCalls.claim(callId) === true,
   };
-  const { live, sessionOpts, ctx, clock, suspended, callId, deadline } =
-    await parkOnAsk(call, { adapter, droppedApprovalCalls: droppedCalls });
+  const {
+    live,
+    sessionOpts,
+    ctx,
+    clock,
+    suspended,
+    events: parkedEvents,
+    callId,
+    deadline,
+  } = await parkOnAsk(call, { adapter, droppedApprovalCalls: droppedCalls });
   const parkedCancel = { fn: undefined as (() => void) | undefined };
   const generation = createDeliveryGeneration(() => parkedCancel.fn?.());
   let releaseCallId: (() => void) | undefined;
   const callIdResolved = new Promise<void>((resolve) => {
     releaseCallId = resolve;
+  });
+  const { enqueue, awaitTail } = createSessionOperationQueue();
+  let decisionQueued: (() => void) | undefined;
+  const queued = new Promise<void>((resolve) => {
+    decisionQueued = resolve;
   });
   const resume = createApprovalResume({
     getAgent: () => live.session.agent,
@@ -468,12 +507,75 @@ async function dropThenInterrupt(
       parkedCancel.fn = cancel;
     },
     resolveParkedCallId: () => callIdResolved.then(() => callId),
+    // As the TUI does: behind the session's other operations.
+    deliver: createQueuedApprovalDeliver({
+      enqueue: (op) => {
+        const queuedOp = enqueue(op);
+        decisionQueued?.();
+        return queuedOp;
+      },
+      fatalBuildError: () => null,
+      deliverer:
+        interruptWhile === "acceptance-timed-out"
+          ? createApprovalDeliverer({
+              deliverToAgent: (message) => live.session.agent.deliver(message),
+              acceptance: {
+                wait: () => new Promise<void>(() => undefined),
+                settle: () => undefined,
+                abandon: () => undefined,
+              },
+              timeoutMs: 50,
+            })
+          : {
+              deliver: async (message) => live.session.agent.deliver(message),
+            },
+    }),
   });
   claimFrom = resume;
   const handling = resume.handle(suspended);
 
-  const { enqueue, awaitTail } = createSessionOperationQueue();
+  let releaseBusy: (() => void) | undefined;
+  if (interruptWhile !== "resolving-call") {
+    releaseCallId?.();
+    await waitFor(ctx.asked, "approval prompt");
+  }
+  if (interruptWhile === "decision-queued") {
+    // Any earlier operation holds the queue, as a send or another deliver would.
+    void enqueue(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseBusy = resolve;
+        }),
+    );
+    ctx.approve();
+    await queued;
+  }
+  if (
+    interruptWhile === "decision-accepted" ||
+    interruptWhile === "acceptance-timed-out"
+  ) {
+    // A second message's held inference keeps the loop busy, so the close's
+    // abort is served ahead of the accepted approval.
+    void live.session.agent.send("Still there?").catch(() => undefined);
+    await waitFor(
+      () => live.session.harness.scenario.matchedRequests().length === 2,
+      "second message's inference",
+    );
+    ctx.approve();
+    if (interruptWhile === "decision-accepted")
+      expect(await handling).toBe(true);
+    else
+      await expect(handling).rejects.toBeInstanceOf(
+        ApprovalDeliveryTimeoutError,
+      );
+    await waitFor(
+      () => parkedEvents.some((e) => e.type === "message.correlated"),
+      "approval accepted",
+    );
+  }
+
   let events: ReactorEmittedEvent[] = [];
+  let parkedAtRebuild: (string | undefined)[] = [];
   startInterruptRebuild({
     deliveryGeneration: generation,
     markSendAborted: () => undefined,
@@ -482,6 +584,11 @@ async function dropThenInterrupt(
       if (opts.deadlinePassesDuringRebuild === true) {
         clock.shift(deadline + 1_000);
       }
+      // As the TUI does: prepared from the closed agent's store.
+      await live.session.agent.close();
+      parkedAtRebuild = (
+        await live.session.storage.load()
+      ).pendingOperations.map((op) => op.suspendedCall?.id);
       await resume.prepareRebuild(live.session.storage);
       live.session = await rebuildIntegrationSession(live.session, sessionOpts);
       events = collect(live.session);
@@ -500,7 +607,9 @@ async function dropThenInterrupt(
     },
   });
   releaseCallId?.();
-  expect(await handling).toBe(true);
+  releaseBusy?.();
+  if (interruptWhile !== "acceptance-timed-out")
+    expect(await handling).toBe(true);
   await awaitTail();
 
   await waitFor(
@@ -524,6 +633,9 @@ async function dropThenInterrupt(
     deadline,
     clock,
     resume,
+    correlationId: suspended.correlationId,
+    parkedEvents,
+    parkedAtRebuild,
   };
 }
 
@@ -994,6 +1106,70 @@ describe("integration: an ask dropped by an interrupt, then settled on the rebui
       ).toHaveLength(1);
       expect(session.harness.scenario.matchedRequests()).toHaveLength(0);
       expect(events.filter((e) => e.type === "inference.start")).toEqual([]);
+    },
+    20_000,
+  );
+
+  /** The approved call never ran, and the rebuilt agent settled it once. */
+  async function expectSettledWithoutRunning(reloaded: Dropped): Promise<void> {
+    const { session, callId, events, parkedEvents } = reloaded;
+    expect(reloaded.parkedAtRebuild).toEqual([callId]);
+    expect(parkedEvents.filter((e) => e.type === "tool.start")).toEqual([]);
+    expect((await session.storage.load()).pendingOperations).toEqual([]);
+    const settled = toolResultsFor(await session.agent.history(), callId);
+    expect(settled).toHaveLength(1);
+    expect(settled.join("")).toContain(APPROVAL_DROPPED_NOTICE);
+    expect(session.harness.scenario.matchedRequests()).toHaveLength(0);
+    expect(events.filter((e) => e.type === "inference.start")).toEqual([]);
+
+    await passDeadline(reloaded, reloaded.deadline + FRESH_WINDOW_PASSED_MS);
+    expect(toolResultsFor(await session.agent.history(), callId)).toEqual(
+      settled,
+    );
+    expect(events.filter((e) => e.type === "reactor.error")).toEqual([]);
+  }
+
+  test.serial(
+    "an approval the interrupt skips while it waits for delivery settles with no model turn",
+    async () => {
+      const reloaded = await dropThenInterrupt(
+        { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+        NATIVE_ANTHROPIC,
+        { interruptWhile: "decision-queued" },
+      );
+
+      await expectSettledWithoutRunning(reloaded);
+      expect(reloaded.resume.status(reloaded.correlationId)).not.toBe(
+        "handed-over",
+      );
+    },
+    20_000,
+  );
+
+  test.serial(
+    "an approval a closing reactor accepted but never ran settles with no model turn",
+    async () => {
+      const reloaded = await dropThenInterrupt(
+        { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+        NATIVE_ANTHROPIC,
+        { interruptWhile: "decision-accepted" },
+      );
+
+      await expectSettledWithoutRunning(reloaded);
+    },
+    20_000,
+  );
+
+  test.serial(
+    "an approval whose acceptance was never observed settles with no model turn",
+    async () => {
+      const reloaded = await dropThenInterrupt(
+        { name: "run_shell", args: { command: CLOSED_PORT_PROBE } },
+        NATIVE_ANTHROPIC,
+        { interruptWhile: "acceptance-timed-out" },
+      );
+
+      await expectSettledWithoutRunning(reloaded);
     },
     20_000,
   );

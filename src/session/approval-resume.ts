@@ -71,10 +71,12 @@ export interface ApprovalResume {
   /** Handed to every director the session builds. */
   readonly droppedCalls: DroppedApprovalCalls;
   /**
-   * Before a rebuild that keeps the session: registers each unsettled
-   * approval's call, resolving from `storage` any the drop landed too early
-   * to know, so a rehydrated deadline that fires before `settleOn` reads the
-   * rebuilt store still settles it without a turn.
+   * Between the outgoing agent's close and the next build, for a rebuild
+   * that keeps the session: registers the call of each unsettled approval
+   * `storage` still shows parked, so a rehydrated deadline that fires before
+   * `settleOn` reads the rebuilt store still settles it without a turn, and
+   * forgets the ones it shows closed. No reactor holds the store then, so a
+   * closed call can never produce another result.
    */
   prepareRebuild: (storage: Pick<ContextStore, "load">) => Promise<void>;
   /**
@@ -283,13 +285,38 @@ export async function resolveParkedCallIdFromStore(
   storage: Pick<ContextStore, "load">,
   correlationId: string,
 ): Promise<string | undefined> {
+  return (await parkedCallIds(storage)).get(correlationId);
+}
+
+/**
+ * Each approval's parked call id from one load. A correlation with more than
+ * one approval resolves to none, so the gate's identity check and the
+ * rebuild settle never pick different calls.
+ */
+async function parkedCallIds(
+  storage: Pick<ContextStore, "load">,
+): Promise<Map<string, string>> {
   const { pendingOperations } = await storage.load();
-  const matches = pendingOperations.filter(
-    (operation) =>
+  const counts = new Map<string, number>();
+  for (const operation of pendingOperations) {
+    if (operation.kind !== "approval") continue;
+    counts.set(
+      operation.correlationId,
+      (counts.get(operation.correlationId) ?? 0) + 1,
+    );
+  }
+  const ids = new Map<string, string>();
+  for (const operation of pendingOperations) {
+    const callId = operation.suspendedCall?.id;
+    if (
       operation.kind === "approval" &&
-      operation.correlationId === correlationId,
-  );
-  return matches.length === 1 ? matches[0]?.suspendedCall?.id : undefined;
+      counts.get(operation.correlationId) === 1 &&
+      callId !== undefined
+    ) {
+      ids.set(operation.correlationId, callId);
+    }
+  }
+  return ids;
 }
 
 export type SuspendedApprovalResolution =
@@ -442,12 +469,18 @@ function decisionMessage(
   } satisfies InboundMessage;
 }
 
+/**
+ * What a host deliverer did with a decision: `skipped` when `stillCurrent()`
+ * was false by the time it would have sent, so nothing reached the reactor.
+ */
+export type ApprovalDeliveryOutcome = "delivered" | "skipped";
+
 export function createApprovalResume(args: {
   getAgent: () => Pick<Agent, "deliver" | "history"> | undefined;
   deliver?: (
     message: InboundMessage,
     stillCurrent: () => boolean,
-  ) => void | Promise<void>;
+  ) => ApprovalDeliveryOutcome | Promise<ApprovalDeliveryOutcome>;
   captureGeneration?: () => () => boolean;
   onDropped?: (text: string) => void;
   registerParkedCancel?: (cancel: (() => void) | undefined) => void;
@@ -478,11 +511,14 @@ export function createApprovalResume(args: {
   // concurrent duplicate handle shares the one in-flight outcome instead of
   // opening a second gate, so no waiter is lost and none double-resumes.
   const inflight = new Map<string, Promise<boolean>>();
-  // Approvals a generation bump dropped, keyed by correlation id with the
-  // parked call id once known. The reject a drop sends the old agent can be
+  // Approvals a generation bump dropped or whose decision was handed to a
+  // reactor or failed to deliver, keyed by correlation id with the parked
+  // call id once known. The reject a drop sends the old agent can be
   // discarded by its closing reactor, or never sent when the drop lands
-  // before the parked call resolves, so each stays here until a rebuilt
-  // agent's store shows its call closed.
+  // before the parked call resolves; a reactor closed after accepting a
+  // decision but before running it, or a delivery that failed, leaves the
+  // call parked on disk. Each stays here until a rebuilt agent's store shows
+  // its call closed.
   const unsettled = new Map<string, string | undefined>();
   const markUnsettled = (
     correlationId: string,
@@ -490,8 +526,10 @@ export function createApprovalResume(args: {
   ): void => {
     unsettled.set(correlationId, callId ?? unsettled.get(correlationId));
   };
-  // Entries leave only by claim or rotation: a store read can show a call
-  // closed between its result being written and the director claiming it.
+  // settleOn never removes an entry: with the rebuilt reactor running, its
+  // store read can show a call closed between the result being written and
+  // the director claiming it. Entries leave by claim, by rotation, or when
+  // prepareRebuild finds the call closed with no reactor on the store.
   const silentCalls = new Set<string>();
   const droppedCalls: DroppedApprovalCalls = {
     claim: (callId) => silentCalls.delete(callId),
@@ -543,16 +581,36 @@ export function createApprovalResume(args: {
       if (timeoutResult(initialHistory, parkedCallId)) return true;
       canReject = true;
 
+      // The parked cancel is unregistered before a decision is delivered,
+      // so a bump from here on drops it without cancelParked. Record that
+      // drop the moment the delivery is skipped: a rebuild queued behind the
+      // delivery must find it.
+      const currentOrDropped = (): boolean => {
+        if (stillCurrent()) return true;
+        markUnsettled(correlationId, parkedCallId);
+        return false;
+      };
       const deliverDecision = async (
         message: InboundMessage,
       ): Promise<boolean> => {
-        if (!stillCurrent()) return false;
-        if (args.deliver !== undefined) {
-          await args.deliver(message, stillCurrent);
-        } else {
-          parkedAgent.deliver(message);
+        if (!currentOrDropped()) return false;
+        try {
+          if (args.deliver !== undefined) {
+            const outcome = await args.deliver(message, currentOrDropped);
+            if (outcome === "skipped") return false;
+          } else {
+            parkedAgent.deliver(message);
+          }
+        } catch (err) {
+          // A deliverer can throw after the hand-over, when it gives up
+          // observing the acceptance, so the reactor may still hold the
+          // decision; one that throws before it leaves the call just as
+          // parked. Either way a rebuild must find it.
+          markUnsettled(correlationId, parkedCallId);
+          throw err;
         }
         handedOver.add(correlationId);
+        markUnsettled(correlationId, parkedCallId);
         return true;
       };
       const request =
@@ -686,20 +744,24 @@ export function createApprovalResume(args: {
           : "idle",
     droppedCalls,
     prepareRebuild: async (storage) => {
+      if (unsettled.size === 0) return;
+      const parked = await parkedCallIds(storage);
       for (const [correlationId, known] of [...unsettled]) {
-        const callId =
-          known ?? (await resolveParkedCallIdFromStore(storage, correlationId));
-        if (callId === undefined) continue;
-        markUnsettled(correlationId, callId);
+        const callId = parked.get(correlationId);
+        if (callId === undefined) {
+          unsettled.delete(correlationId);
+          if (known !== undefined) silentCalls.delete(known);
+          continue;
+        }
+        unsettled.set(correlationId, callId);
         silentCalls.add(callId);
       }
     },
     settleOn: async (agent, storage) => {
+      if (unsettled.size === 0) return;
+      const parked = await parkedCallIds(storage);
       for (const correlationId of [...unsettled.keys()]) {
-        const callId = await resolveParkedCallIdFromStore(
-          storage,
-          correlationId,
-        );
+        const callId = parked.get(correlationId);
         if (callId === undefined) {
           unsettled.delete(correlationId);
           continue;
