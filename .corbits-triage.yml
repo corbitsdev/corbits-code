@@ -1,0 +1,141 @@
+# Corbits Triage policy.
+rules:
+  - check: max-files-changed
+    text: Flag pull requests over 30 files changed.
+    max: 30
+    onFail: label
+    reason: A large change is a risk signal, not a hold.
+    evidence:
+      - maintainer-stated
+  - check: max-lines-changed
+    text: Flag pull requests over 5,000 lines changed.
+    max: 5000
+    onFail: label
+    reason: A large change is a risk signal, not a hold.
+    evidence:
+      - maintainer-stated
+  - check: no-merge-conflicts
+    text: Flag merge conflicts with the base branch.
+    reason: A pull request with conflicts cannot be merged as it is.
+    evidence:
+      - maintainer-stated
+  - check: ci-green
+    text: CI must pass before merge.
+    reason: A change is not ready until CI passes.
+    evidence:
+      - maintainer-stated
+  - check: conventional-commits
+    text: Titles and commits follow Conventional Commits.
+    reason: Titles and commits use the conventional form.
+    evidence:
+      - maintainer-stated
+  - check: hidden-content
+    text: Flag text hidden in the pull request.
+    reason: Hidden text can steer a review.
+    evidence:
+      - maintainer-stated
+  - check: no-duplicate
+    text: Flag a pull request whose diff or commits match another open one.
+    reason: Two pull requests for the same change waste a review.
+    evidence:
+      - maintainer-stated
+  - check: sensitive-paths
+    text: Route schema, auth, CI and lockfile changes to a person.
+    reason: Those changes reach beyond what the diff shows.
+    evidence:
+      - maintainer-stated
+  - check: no-forbidden-paths
+    text: Never accept changes to node_modules/**.
+    paths:
+      - node_modules/**
+    reason: Dependencies are not edited by hand.
+    evidence:
+      - maintainer-stated
+  - id: no-ai-attribution
+    check: text
+    text: Titles, descriptions and commits carry no AI attribution.
+    fields: [title, description, commits]
+    failWhen: contains
+    phrases:
+      - "Co-Authored-By:"
+      - "Claude-Session:"
+      - "claude.ai/code/session"
+      - "noreply@anthropic.com"
+      - "Generated with Claude"
+      - "Generated with [Claude"
+    onFail: label
+    reason: No AI co-author lines, session trailers, or generated-with footers.
+    evidence:
+      - maintainer-stated
+  - id: conventions
+    check: code-patterns
+    text: Added code follows the repository's conventions.
+    presets:
+      - convention
+    onFail: label
+    reason: No invented fallbacks, nested ternaries, immediately invoked functions, promise chains, empty catches, or suppression comments.
+    evidence:
+      - maintainer-stated
+  - id: no-process-env-in-tests
+    check: code-patterns
+    text: Tests do not read process.env.
+    onFail: label
+    reason: A test must not depend on the environment.
+    evidence:
+      - maintainer-stated
+    patterns:
+      - id: no-process-env-in-tests
+        language: typescript
+        message: Reads process.env in a test.
+        files:
+          [
+            "**/*.test.ts",
+            "**/*.test.tsx",
+            "**/*.test.js",
+            "**/*.test.jsx",
+            "**/*.test.mjs",
+            "**/*.test.cjs",
+          ]
+        rule:
+          pattern: process.env
+      - id: no-process-env-in-tests
+        language: javascript
+        message: Reads process.env in a test.
+        files:
+          [
+            "**/*.test.ts",
+            "**/*.test.tsx",
+            "**/*.test.js",
+            "**/*.test.jsx",
+            "**/*.test.mjs",
+            "**/*.test.cjs",
+          ]
+        rule:
+          pattern: process.env
+actions:
+  pass:
+    - do: approve
+      when:
+        author:
+          - users:
+              - thegreataxios
+              - brianjfox
+    - do: request-review
+      target:
+        to: users
+        users:
+          - thegreataxios
+      when:
+        author:
+          - external
+  fail:
+    - do: request-changes
+  unsure:
+    - do: assign
+      target:
+        to: users
+        users:
+          - thegreataxios
+      when:
+        author:
+          - maintainers
