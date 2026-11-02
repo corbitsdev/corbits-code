@@ -21,17 +21,19 @@ export const CODEX_CLIENT_VERSION = "0.50.0";
 // the public Codex CLI originator.
 export const CODEX_ORIGINATOR = "codex_cli_rs";
 
-// The models a ChatGPT sign-in can select, in the Codex backend's priority
-// order (GET /codex/models); the first entry is the ChatGPT default. OpenAI
-// retires models for ChatGPT sign-in on its own schedule, independently of the
-// OpenAI API, so this list and its default do not follow the API-key path.
+// The models a ChatGPT sign-in offers, in the order the Codex backend lists
+// them (GET /codex/models); the first entry is the ChatGPT default. gpt-5.4,
+// gpt-5.4-mini and gpt-5.5 are left out because OpenAI's documentation lists
+// them as retired for ChatGPT, whether or not the backend still returns them.
+// The OpenAI API-key path has its own list and default and does not follow
+// this one.
 export const CODEX_DEFAULT_MODELS = [
   "gpt-6.1-sol",
   "gpt-6-astra",
-  "gpt-6.1-terra",
   "gpt-6-sol",
   "gpt-6-luna",
   "gpt-5.6-sol",
+  "gpt-6.1-terra",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
 ] as const;
