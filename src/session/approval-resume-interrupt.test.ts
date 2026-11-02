@@ -18,6 +18,7 @@ import type {
 } from "../permission/types.js";
 import {
   APPROVAL_DROPPED_NOTICE,
+  APPROVAL_INTERRUPTED_NOTICE,
   createApprovalResume,
 } from "./approval-resume.js";
 import { createCorrelationAcceptance } from "../tui/correlation-acceptance.js";
@@ -27,6 +28,7 @@ import {
   createSessionOperationQueue,
   SESSION_IDENTITY_ABORT_REASON,
 } from "../tui/delivery-queue.js";
+import { createQueuedApprovalDeliver } from "../tui/approval-delivery.js";
 import { createGateRequestApproval } from "../tui/request-approval.js";
 import { startInterruptRebuild } from "../tui/runner/exit.js";
 import { runWhileAgentBusy } from "../tui/runner/state.js";
@@ -135,8 +137,9 @@ describe("approval resume generation capture", () => {
       getAgent: () => agent,
       captureGeneration: generation.capture,
       deliver: (message, stillCurrent) => {
-        if (!stillCurrent()) return;
+        if (!stillCurrent()) return "skipped";
         delivered.push(message);
+        return "delivered";
       },
       gate: {
         resolveSuspended: async () => {
@@ -166,8 +169,9 @@ describe("approval resume generation capture", () => {
       getAgent: () => agent,
       captureGeneration: generation.capture,
       deliver: (message, stillCurrent) => {
-        if (!stillCurrent()) return;
+        if (!stillCurrent()) return "skipped";
         delivered.push(message);
+        return "delivered";
       },
       gate: {
         resolveSuspended: async () => ({ allow: true }),
@@ -202,8 +206,9 @@ describe("approval resume generation capture", () => {
       getAgent: () => current,
       captureGeneration: generation.capture,
       deliver: (message, stillCurrent) => {
-        if (!stillCurrent()) return;
+        if (!stillCurrent()) return "skipped";
         current.deliver(message);
+        return "delivered";
       },
       gate: {
         resolveSuspended: async () => {
@@ -460,6 +465,279 @@ describe("approval resume dropped approvals", () => {
   });
 });
 
+describe("approval resume decisions a closing reactor never ran", () => {
+  function handedOverResume() {
+    const oldAgentDelivered: InboundMessage[] = [];
+    const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
+      getAgent: () => ({
+        deliver: (message: InboundMessage) => oldAgentDelivered.push(message),
+        history: async () => [userTurn()],
+      }),
+      gate: {
+        resolveSuspended: async () => ({ allow: true }),
+      } as unknown as PermissionGate,
+    });
+    return { resume, oldAgentDelivered };
+  }
+
+  test("an approval whose delivery failed before the hand-over is rejected on the rebuilt agent with no turn", async () => {
+    const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
+      getAgent: () => ({
+        deliver: () => undefined,
+        history: async () => [userTurn()],
+      }),
+      deliver: async () => {
+        throw new Error("agent build failed");
+      },
+      gate: {
+        resolveSuspended: async () => ({ allow: true }),
+      } as unknown as PermissionGate,
+    });
+    await expect(resume.handle(SUSPENDED)).rejects.toThrow(
+      "agent build failed",
+    );
+    expect(resume.status("corr-1")).toBe("idle");
+
+    await resume.prepareRebuild(parkedStore().storage);
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      parkedStore().storage,
+    );
+
+    expect(firstDeliveredContent(rebuilt)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_DROPPED_NOTICE,
+    });
+    expect(resume.droppedCalls.claim("call-ask")).toBe(true);
+  });
+
+  test("an approval handed over but still parked in the rebuilt store is rejected there with no turn", async () => {
+    const { resume, oldAgentDelivered } = handedOverResume();
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+    expect(firstDeliveredContent(oldAgentDelivered)).toEqual({
+      outcome: "approved",
+    });
+
+    await resume.prepareRebuild(parkedStore().storage);
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      parkedStore().storage,
+    );
+
+    expect(firstDeliveredContent(rebuilt)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_DROPPED_NOTICE,
+    });
+    expect(resume.droppedCalls.claim("call-ask")).toBe(true);
+  });
+
+  test("an approval whose tool started is told it was interrupted, not dropped, on the rebuilt agent", async () => {
+    // The start is announced while the delivery waits for it, before the
+    // delivery resolves.
+    const resumeRef: { current?: ReturnType<typeof createApprovalResume> } = {};
+    const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
+      getAgent: () => ({
+        deliver: () => undefined,
+        history: async () => [userTurn()],
+      }),
+      deliver: async () => {
+        resumeRef.current?.toolStarted("call-ask");
+        return "delivered" as const;
+      },
+      gate: {
+        resolveSuspended: async () => ({ allow: true }),
+      } as unknown as PermissionGate,
+    });
+    resumeRef.current = resume;
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+
+    await resume.prepareRebuild(parkedStore().storage);
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      parkedStore().storage,
+    );
+
+    expect(firstDeliveredContent(rebuilt)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_INTERRUPTED_NOTICE,
+    });
+    expect(resume.droppedCalls.claim("call-ask")).toBe(true);
+  });
+
+  test("a tool start announced after the hand-over still tells the rebuilt agent the call was interrupted", async () => {
+    const { resume } = handedOverResume();
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+    resume.toolStarted("call-ask");
+
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      parkedStore().storage,
+    );
+
+    expect(firstDeliveredContent(rebuilt)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_INTERRUPTED_NOTICE,
+    });
+  });
+
+  test("a tool start for a call no decision was offered for is ignored", async () => {
+    const { resume } = handedOverResume();
+    resume.toolStarted("call-ask");
+    resume.toolStarted("call-elsewhere");
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      parkedStore().storage,
+    );
+
+    expect(firstDeliveredContent(rebuilt)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_DROPPED_NOTICE,
+    });
+  });
+
+  test("an approval whose tool started and closed on disk is forgotten", async () => {
+    const { resume } = handedOverResume();
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+    resume.toolStarted("call-ask");
+    const { store, storage } = parkedStore();
+    store.parked = false;
+    await resume.prepareRebuild(storage);
+
+    expect(resume.droppedCalls.claim("call-ask")).toBe(false);
+    store.parked = true;
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      storage,
+    );
+    expect(rebuilt).toEqual([]);
+  });
+
+  test("an approval handed over and closed on disk is forgotten before the rebuild, claim and all", async () => {
+    const { resume } = handedOverResume();
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+    const { store, storage } = parkedStore();
+    await resume.prepareRebuild(storage);
+    store.parked = false;
+
+    await resume.prepareRebuild(storage);
+
+    expect(resume.droppedCalls.claim("call-ask")).toBe(false);
+    store.parked = true;
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      storage,
+    );
+    expect(rebuilt).toEqual([]);
+  });
+
+  test("an approval handed over and closed on disk is forgotten", async () => {
+    const { resume } = handedOverResume();
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+    const { store, storage } = parkedStore();
+    store.parked = false;
+
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      storage,
+    );
+    store.parked = true;
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      storage,
+    );
+
+    expect(rebuilt).toEqual([]);
+  });
+});
+
+describe("interrupt while the operator's decision waits for delivery", () => {
+  test("the skipped decision is recorded as a drop and settled on the rebuilt agent", async () => {
+    const parkedCancel = { fn: undefined as (() => void) | undefined };
+    const generation = createDeliveryGeneration(() => parkedCancel.fn?.());
+    const sessionOps = createSessionOperationQueue();
+    const oldAgentDelivered: InboundMessage[] = [];
+
+    // Holds the session queue busy, as any earlier deliver or op would.
+    let releaseBusy: (() => void) | undefined;
+    void sessionOps.enqueue(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseBusy = resolve;
+        }),
+    );
+
+    let decisionQueued: (() => void) | undefined;
+    const queued = new Promise<void>((resolve) => {
+      decisionQueued = resolve;
+    });
+    const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
+      getAgent: () => ({
+        deliver: (message: InboundMessage) => oldAgentDelivered.push(message),
+        history: async () => [userTurn()],
+      }),
+      captureGeneration: generation.capture,
+      registerParkedCancel: (cancel) => {
+        parkedCancel.fn = cancel;
+      },
+      deliver: createQueuedApprovalDeliver({
+        enqueue: (op) => {
+          const queuedOp = sessionOps.enqueue(op);
+          decisionQueued?.();
+          return queuedOp;
+        },
+        fatalBuildError: () => null,
+        deliverer: {
+          deliver: async (message) => {
+            oldAgentDelivered.push(message);
+          },
+        },
+      }),
+      gate: {
+        resolveSuspended: async () => ({ allow: false, message: "no" }),
+      } as unknown as PermissionGate,
+    });
+
+    const handling = resume.handle(SUSPENDED);
+    await queued;
+
+    const rebuilt: InboundMessage[] = [];
+    startInterruptRebuild({
+      deliveryGeneration: generation,
+      markSendAborted: () => undefined,
+      enqueue: sessionOps.enqueue,
+      rebuild: async () => {
+        await resume.settleOn(
+          { deliver: (message) => rebuilt.push(message) },
+          parkedStore().storage,
+        );
+      },
+    });
+    releaseBusy?.();
+    expect(await handling).toBe(true);
+    await sessionOps.awaitTail();
+
+    expect(oldAgentDelivered).toEqual([]);
+    expect(
+      rebuilt.map((message) => message.headers.interchangeCorrelationId),
+    ).toEqual(["corr-1"]);
+    expect(resume.status("corr-1")).not.toBe("handed-over");
+  });
+});
+
 const persistAllow: ApprovalScope = {
   id: "project-curl",
   label: "Allow curl *",
@@ -659,8 +937,8 @@ describe("approval resume occupancy until correlation", () => {
     const resume = createApprovalResume({
       resolveParkedCallId: () => "call-ask",
       getAgent: () => agent,
-      deliver: (message) =>
-        enqueue(async () => {
+      deliver: async (message) => {
+        await enqueue(async () => {
           const correlationId = message.headers.interchangeCorrelationId;
           const accepted =
             correlationId === undefined
@@ -669,7 +947,9 @@ describe("approval resume occupancy until correlation", () => {
           agent.deliver(message);
           delivered?.();
           await accepted;
-        }),
+        });
+        return "delivered" as const;
+      },
       gate: {
         resolveSuspended: async () => {
           state.pendingReload = true;
@@ -778,12 +1058,13 @@ describe("approval resume occupancy until correlation", () => {
         history: async () => [userTurn()],
       }),
       captureGeneration: generation.capture,
-      deliver: (message) => {
+      deliver: async (message) => {
         const correlationId = message.headers.interchangeCorrelationId;
-        if (correlationId === undefined) return;
+        if (correlationId === undefined) return "skipped";
         const accepted = correlationAcceptance.wait(correlationId);
         waiting?.();
-        return accepted;
+        await accepted;
+        return "delivered";
       },
       gate: {
         resolveSuspended: async () => ({ allow: true }),
