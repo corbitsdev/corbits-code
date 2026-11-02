@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { configureSync, getConfig, resetSync } from "@intx/log";
 
 import { defined } from "../../testkit/defined.js";
 
+import { CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
 import { OAuthProviderScopeError } from "../auth/oauth-scope-check.js";
 import { resetGoModelDiscoveryForTests } from "../provider/model-catalogs.js";
 import type { OllamaDiscoveryState } from "../provider/ollama.js";
@@ -544,6 +546,10 @@ async function mountConfig(
     onSubmit: async () => undefined,
     showTelemetryNotice: false,
     createRenderer: async () => harness.renderer,
+    discoverCodexModels: async () => ({
+      status: "unavailable",
+      message: "no network in tests",
+    }),
     ...config,
   });
   await harness.renderOnce();
@@ -677,6 +683,8 @@ async function mountLogin(opts: {
   loginTimeoutMs?: number;
   listOAuthProfiles?: OAuthProfileLister;
   clipboard?: ProviderSetupConfig["clipboard"];
+  discoverCodexModels?: ProviderSetupConfig["discoverCodexModels"];
+  rememberCodexModels?: ProviderSetupConfig["rememberCodexModels"];
 }): Promise<{ done: Promise<boolean>; harness: Harness }> {
   return mountConfig({
     onSubmit: opts.onSubmit ?? (async () => undefined),
@@ -686,7 +694,65 @@ async function mountLogin(opts: {
       ? { loginTimeoutMs: opts.loginTimeoutMs }
       : {}),
     ...(opts.clipboard !== undefined ? { clipboard: opts.clipboard } : {}),
+    ...(opts.discoverCodexModels !== undefined
+      ? { discoverCodexModels: opts.discoverCodexModels }
+      : {}),
+    ...(opts.rememberCodexModels !== undefined
+      ? { rememberCodexModels: opts.rememberCodexModels }
+      : {}),
   });
+}
+
+type CodexDiscovery = Awaited<
+  ReturnType<NonNullable<ProviderSetupConfig["discoverCodexModels"]>>
+>;
+
+/** ChatGPT catalog stub whose fetches stay pending until a test lands them. */
+function deferredCodexDiscovery(): {
+  discover: NonNullable<ProviderSetupConfig["discoverCodexModels"]>;
+  land: (fetch: number, models: readonly [string, ...string[]]) => void;
+} {
+  const pending: ((result: CodexDiscovery) => void)[] = [];
+  return {
+    discover: () =>
+      new Promise((resolve) => {
+        pending.push(resolve);
+      }),
+    land: (fetch, models) =>
+      defined(
+        pending[fetch],
+        `fetch ${String(fetch)}`,
+      )({
+        status: "models",
+        models,
+      }),
+  };
+}
+
+/** Pick ChatGPT, accept the suggested account name, finish the staged sign-in. */
+async function signInToChatGPT(
+  harness: Harness,
+  events: ReturnType<typeof stagedLoginStarter>["events"],
+): Promise<void> {
+  await pickRow(harness, PROVIDER_IDS, "codex");
+  await nameOAuthAccount(harness);
+  events.complete(stagedLogin("default"));
+  await flush(harness);
+}
+
+/** Esc back to the finished sign-in step, then Enter into the model step again. */
+async function returnToModelStep(harness: Harness): Promise<void> {
+  harness.pressKey("Escape");
+  // ESC needs a disambiguation delay on the mock stdin path.
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  await flush(harness);
+  harness.pressKey("Enter");
+  await flush(harness);
+}
+
+/** Move past every listed ChatGPT model to the trailing type-a-model row. */
+function focusTypeModelRow(harness: Harness): void {
+  for (const _model of CODEX_DEFAULT_MODELS) harness.pressKey("ARROW_DOWN");
 }
 
 /** Clear the prefilled OAuth name suggestion (typing over it would append). */
@@ -1023,6 +1089,337 @@ describe("runProviderSetup sign-in", () => {
       },
     });
     expect(opts[0]?.oauth?.commit).toBeFunction();
+  });
+
+  test("a ChatGPT sign-in lists the account's models and preselects its first", async () => {
+    const seen: ProviderFormValues[] = [];
+    const asked: string[] = [];
+    const { start, events } = stagedLoginStarter();
+    const { done, harness } = await mountLogin({
+      start,
+      onSubmit: async (values) => {
+        seen.push({ ...values });
+      },
+      discoverCodexModels: async (tokens) => {
+        asked.push(tokens.access);
+        return { status: "models", models: ["gpt-5.6-luna", "gpt-6-sol"] };
+      },
+    });
+    await signInToChatGPT(harness, events);
+
+    expect(asked).toEqual(["test-access"]);
+    expect(harness.captureCharFrame()).not.toContain(CODEX_DEFAULT_MODELS[0]);
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    expect(await done).toBe(true);
+    expect(seen[0]?.model).toBe("gpt-5.6-luna");
+  });
+
+  describe("the list a sign-in showed", () => {
+    function rememberRecorder() {
+      const remembered: { name: string; models: readonly string[] }[] = [];
+      const rememberCodexModels: NonNullable<
+        ProviderSetupConfig["rememberCodexModels"]
+      > = (profile, models) => {
+        remembered.push({ name: profile.name, models });
+      };
+      return { remembered, rememberCodexModels };
+    }
+
+    test("is kept once the submit saves the profile, before setup returns", async () => {
+      const { remembered, rememberCodexModels } = rememberRecorder();
+      const { start, events } = stagedLoginStarter();
+      const { done, harness } = await mountLogin({
+        start,
+        rememberCodexModels,
+        discoverCodexModels: async () => ({
+          status: "models",
+          models: ["gpt-5.6-luna", "gpt-6-sol"],
+        }),
+      });
+      await signInToChatGPT(harness, events);
+
+      harness.pressKey("Enter");
+      await harness.renderOnce();
+      expect(await done).toBe(true);
+      expect(remembered).toEqual([
+        { name: "default", models: ["gpt-5.6-luna", "gpt-6-sol"] },
+      ]);
+    });
+
+    test("is not kept when the submit fails", async () => {
+      const { remembered, rememberCodexModels } = rememberRecorder();
+      const { start, events } = stagedLoginStarter();
+      const { done, harness } = await mountLogin({
+        start,
+        rememberCodexModels,
+        onSubmit: async () => {
+          throw new Error("connection test failed");
+        },
+        discoverCodexModels: async () => ({
+          status: "models",
+          models: ["gpt-5.6-luna", "gpt-6-sol"],
+        }),
+      });
+      await signInToChatGPT(harness, events);
+
+      harness.pressKey("Enter");
+      await flush(harness);
+      expect(remembered).toEqual([]);
+
+      harness.pressKey("Ctrl+C");
+      expect(await done).toBe(false);
+    });
+
+    test("is not kept when it is only the built-in list", async () => {
+      const { remembered, rememberCodexModels } = rememberRecorder();
+      const { start, events } = stagedLoginStarter();
+      const { done, harness } = await mountLogin({
+        start,
+        rememberCodexModels,
+      });
+      await signInToChatGPT(harness, events);
+
+      harness.pressKey("Enter");
+      await harness.renderOnce();
+      expect(await done).toBe(true);
+      expect(remembered).toEqual([]);
+    });
+  });
+
+  test("a model the operator moved to survives the account's list arriving", async () => {
+    const seen: ProviderFormValues[] = [];
+    const discovery = deferredCodexDiscovery();
+    const { start, events } = stagedLoginStarter();
+    const { done, harness } = await mountLogin({
+      start,
+      onSubmit: async (values) => {
+        seen.push({ ...values });
+      },
+      discoverCodexModels: discovery.discover,
+    });
+    await signInToChatGPT(harness, events);
+    const moved = defined(CODEX_DEFAULT_MODELS[1]);
+    harness.pressKey("ARROW_DOWN");
+    await flush(harness);
+
+    discovery.land(0, ["gpt-5.6-luna", moved]);
+    await flush(harness);
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    expect(await done).toBe(true);
+    expect(seen[0]?.model).toBe(moved);
+  });
+
+  test("moving away from the prefilled model and back still takes the account's first", async () => {
+    const seen: ProviderFormValues[] = [];
+    const discovery = deferredCodexDiscovery();
+    const { start, events } = stagedLoginStarter();
+    const { done, harness } = await mountLogin({
+      start,
+      onSubmit: async (values) => {
+        seen.push({ ...values });
+      },
+      discoverCodexModels: discovery.discover,
+    });
+    await signInToChatGPT(harness, events);
+    harness.pressKey("ARROW_DOWN");
+    harness.pressKey("ARROW_UP");
+    await flush(harness);
+
+    discovery.land(0, ["gpt-5.6-luna", defined(CODEX_DEFAULT_MODELS[0])]);
+    await flush(harness);
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    expect(await done).toBe(true);
+    expect(seen[0]?.model).toBe("gpt-5.6-luna");
+  });
+
+  test("focus on the type-a-model row survives the account's list arriving", async () => {
+    const seen: ProviderFormValues[] = [];
+    const discovery = deferredCodexDiscovery();
+    const { start, events } = stagedLoginStarter();
+    const { done, harness } = await mountLogin({
+      start,
+      onSubmit: async (values) => {
+        seen.push({ ...values });
+      },
+      discoverCodexModels: discovery.discover,
+    });
+    await signInToChatGPT(harness, events);
+    focusTypeModelRow(harness);
+    await flush(harness);
+
+    discovery.land(0, ["gpt-5.6-luna", "gpt-6-sol"]);
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+    for (const ch of "my-model") harness.pressKey(ch);
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    expect(await done).toBe(true);
+    expect(seen[0]?.model).toBe("my-model");
+  });
+
+  test("a typed model entered before the account's list arrives is kept", async () => {
+    const seen: ProviderFormValues[] = [];
+    const discovery = deferredCodexDiscovery();
+    const { start, events } = stagedLoginStarter();
+    const { done, harness } = await mountLogin({
+      start,
+      onSubmit: async (values) => {
+        seen.push({ ...values });
+      },
+      discoverCodexModels: discovery.discover,
+    });
+    await signInToChatGPT(harness, events);
+    focusTypeModelRow(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    discovery.land(0, ["gpt-5.6-luna", "gpt-6-sol"]);
+    await flush(harness);
+    for (const ch of "my-model") harness.pressKey(ch);
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    expect(await done).toBe(true);
+    expect(seen[0]?.model).toBe("my-model");
+  });
+
+  test("a failed fetch on returning to the model step keeps the account's list", async () => {
+    const seen: ProviderFormValues[] = [];
+    const results: CodexDiscovery[] = [
+      { status: "models", models: ["gpt-5.6-luna", "gpt-6-sol"] },
+      { status: "unavailable", message: "offline" },
+    ];
+    let calls = 0;
+    const { start, events } = stagedLoginStarter();
+    const { done, harness } = await mountLogin({
+      start,
+      onSubmit: async (values) => {
+        seen.push({ ...values });
+      },
+      discoverCodexModels: async () => {
+        const result = defined(results[calls]);
+        calls += 1;
+        return result;
+      },
+    });
+    await signInToChatGPT(harness, events);
+
+    await returnToModelStep(harness);
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    expect(await done).toBe(true);
+    expect(calls).toBe(2);
+    expect(seen[0]?.model).toBe("gpt-5.6-luna");
+  });
+
+  test("an empty sign-in catalog warns and keeps the listed models", async () => {
+    const seen: ProviderFormValues[] = [];
+    const records: { level: string; text: string }[] = [];
+    const previous = getConfig();
+    configureSync({
+      reset: true,
+      sinks: {
+        test: (record) => {
+          records.push({
+            level: record.level,
+            text: record.message.map(String).join(""),
+          });
+        },
+      },
+      loggers: [{ category: [], lowestLevel: "debug", sinks: ["test"] }],
+    });
+    try {
+      const { start, events } = stagedLoginStarter();
+      const { done, harness } = await mountLogin({
+        start,
+        onSubmit: async (values) => {
+          seen.push({ ...values });
+        },
+        discoverCodexModels: async () => ({ status: "empty" }),
+      });
+      await signInToChatGPT(harness, events);
+      harness.pressKey("Enter");
+      await harness.renderOnce();
+      expect(await done).toBe(true);
+    } finally {
+      if (previous === null) resetSync();
+      else configureSync({ ...previous, reset: true });
+    }
+
+    expect(seen[0]?.model).toBe(CODEX_DEFAULT_MODELS[0]);
+    const misses = records.filter((r) => r.text.includes("ChatGPT sign-in"));
+    expect(misses.map((r) => r.level)).toEqual(["warning"]);
+  });
+
+  test("signing in to another account whose fetch fails is not offered the first account's list", async () => {
+    const seen: ProviderFormValues[] = [];
+    const results: CodexDiscovery[] = [
+      { status: "models", models: ["account-a-only", "gpt-6-sol"] },
+      { status: "unavailable", message: "offline" },
+    ];
+    let calls = 0;
+    const { start, events } = stagedLoginStarter();
+    const { done, harness } = await mountLogin({
+      start,
+      onSubmit: async (values) => {
+        seen.push({ ...values });
+      },
+      discoverCodexModels: async () => {
+        const result = defined(results[calls]);
+        calls += 1;
+        return result;
+      },
+    });
+    await signInToChatGPT(harness, events);
+    expect(harness.captureCharFrame()).toContain("account-a-only");
+
+    for (const _step of ["login", "name"]) {
+      harness.pressKey("Escape");
+      // ESC needs a disambiguation delay on the mock stdin path.
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      await flush(harness);
+    }
+    await clearOAuthNameField(harness);
+    type(harness, "other");
+    harness.pressKey("Enter");
+    await flush(harness);
+    events.complete(stagedLogin("other"));
+    await flush(harness);
+
+    expect(harness.captureCharFrame()).not.toContain("account-a-only");
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    expect(await done).toBe(true);
+    expect(calls).toBe(2);
+    expect(seen[0]?.name).toBe("codex/other");
+    expect(seen[0]?.model).toBe(CODEX_DEFAULT_MODELS[0]);
+  });
+
+  test("a superseded fetch that lands late is ignored", async () => {
+    const seen: ProviderFormValues[] = [];
+    const discovery = deferredCodexDiscovery();
+    const { start, events } = stagedLoginStarter();
+    const { done, harness } = await mountLogin({
+      start,
+      onSubmit: async (values) => {
+        seen.push({ ...values });
+      },
+      discoverCodexModels: discovery.discover,
+    });
+    await signInToChatGPT(harness, events);
+    await returnToModelStep(harness);
+
+    discovery.land(1, ["gpt-6-sol", "gpt-5.6-luna"]);
+    await flush(harness);
+    discovery.land(0, ["gpt-5.6-luna"]);
+    await flush(harness);
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    expect(await done).toBe(true);
+    expect(seen[0]?.model).toBe("gpt-6-sol");
   });
 
   test("definitive OAuth scope failure cannot be saved anyway", async () => {

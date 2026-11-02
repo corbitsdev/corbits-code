@@ -11,11 +11,7 @@
 
 import { isOAuthTokenEndpointError } from "./token-session-boundary.js";
 
-import {
-  CODEX_BASE_URL,
-  CODEX_MODELS_PATH,
-  CODEX_CLIENT_VERSION,
-} from "./codex/constants.js";
+import { CODEX_MODELS_URL } from "./codex/constants.js";
 import { refreshStagedCodexTokens } from "./codex/session.js";
 import type { CodexTokens } from "./codex/store.js";
 import { codexAuthHeadersForToken } from "./codex/auth-headers.js";
@@ -151,10 +147,10 @@ async function checkCodexScope(
         commandName,
       ),
     (headers) =>
-      fetch(
-        `${CODEX_BASE_URL}${CODEX_MODELS_PATH}?client_version=${encodeURIComponent(CODEX_CLIENT_VERSION)}`,
-        { headers, signal: AbortSignal.timeout(SCOPE_CHECK_TIMEOUT_MS) },
-      ),
+      fetch(CODEX_MODELS_URL, {
+        headers,
+        signal: AbortSignal.timeout(SCOPE_CHECK_TIMEOUT_MS),
+      }),
   );
 }
 

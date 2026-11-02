@@ -24,6 +24,10 @@ import type {
   prefetchGoModels as prefetchGoModelsRequest,
   prefetchZenModels as prefetchZenModelsRequest,
 } from "../../provider/model-catalogs.js";
+import type {
+  discoverStagedCodexModels as discoverCodexModelsRequest,
+  rememberConnectedCodexModels as rememberCodexModelsRequest,
+} from "../../provider/codex-model-catalog.js";
 import type { ResidualCatalogEntry } from "../residuals.js";
 import type { OverlayList } from "../shell/internals.js";
 import type { SetupStep } from "./steps.js";
@@ -92,6 +96,8 @@ export interface OAuthResult {
   readonly commit: () => Promise<void>;
   /** Settings/catalog name the stored profile projects to. */
   readonly providerName: string;
+  /** The profile `commit` saves. */
+  readonly profile: AuthProfile<CodexTokens | XaiTokens | MetaOAuthTokens>;
 }
 
 export interface ProviderPreset {
@@ -162,6 +168,10 @@ export interface ProviderSetupConfig {
   readonly prefetchGoModels?: typeof prefetchGoModelsRequest;
   /** Zen catalog prefetch override so setup tests stay off the network. */
   readonly prefetchZenModels?: typeof prefetchZenModelsRequest;
+  /** ChatGPT sign-in catalog override so setup tests stay off the network. */
+  readonly discoverCodexModels?: typeof discoverCodexModelsRequest;
+  /** Where a saved ChatGPT sign-in's live list goes; a test double in setup tests. */
+  readonly rememberCodexModels?: typeof rememberCodexModelsRequest;
   /** Start on the given provider's first form step, skipping the pick-list. */
   readonly initialProviderId?: string;
   /** Prefill the OAuth account-name step with the profile slug being re-keyed. */
@@ -225,6 +235,12 @@ export interface SetupState {
   goPrefetchAttempt: number;
   readonly prefetchZenModels: typeof prefetchZenModelsRequest;
   zenPrefetchAttempt: number;
+  readonly discoverCodexModels: typeof discoverCodexModelsRequest;
+  readonly rememberCodexModels: typeof rememberCodexModelsRequest;
+  codexPrefetchAttempt: number;
+  // The sign-in whose live list the ChatGPT model step shows; null while it
+  // shows the built-in list.
+  codexListLogin: OAuthResult | null;
   listRows: readonly ResidualCatalogEntry[];
   list: OverlayList;
   settled: boolean;
@@ -255,6 +271,8 @@ export interface DiscoveryFlows {
   abandonGoPrefetch(): void;
   beginZenPrefetch(): void;
   abandonZenPrefetch(): void;
+  beginCodexPrefetch(): void;
+  abandonCodexPrefetch(): void;
 }
 
 /** Multi-instance "name" step (OAuth accounts and API-key instances). */
@@ -281,4 +299,5 @@ export interface SetupSelectors {
   isAccountNameStep(): boolean;
   isGoModelListStep(): boolean;
   isZenModelListStep(): boolean;
+  isCodexModelListStep(): boolean;
 }
