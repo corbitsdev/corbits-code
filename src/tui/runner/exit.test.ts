@@ -340,6 +340,7 @@ function stubSendLifecycle(agent: Agent): {
     approvalResume: {
       prepareRebuild: async () => undefined,
       settleOn: async () => undefined,
+      toolStarted: () => undefined,
       forgetUnsettled: () => undefined,
     },
   } as unknown as RunnerServices;
@@ -426,6 +427,10 @@ describe("stream sink routes parked approvals", () => {
   async function runWith(events: readonly unknown[]) {
     const { state, services } = stubSendLifecycle(agentStreaming(events));
     const observed: { gate: unknown; stillCurrent: () => boolean }[] = [];
+    const started: string[] = [];
+    Object.assign(services.approvalResume, {
+      toolStarted: (callId: string) => started.push(callId),
+    });
     Object.assign(services, {
       providerFailureAttempts: {
         current: () => undefined,
@@ -440,7 +445,7 @@ describe("stream sink routes parked approvals", () => {
     });
     await createRunLifecycle(state, services);
     await state.streamPromise;
-    return { observed, services };
+    return { observed, started, services };
   }
 
   test("hands a gate-blocked event to the approval recovery with the current generation", async () => {
@@ -463,6 +468,15 @@ describe("stream sink routes parked approvals", () => {
     // A session rotation after the park drops it as stale.
     services.deliveryGeneration.bump();
     expect(observed[0]?.stillCurrent()).toBe(false);
+  });
+
+  test("tells the approval resume which call's tool started", async () => {
+    const { started } = await runWith([
+      { type: "tool.start", seq: 1, data: { call: { id: "call-ask" } } },
+      { type: "reactor.start", seq: 2, data: {} },
+    ]);
+
+    expect(started).toEqual(["call-ask"]);
   });
 
   test("ignores events that are not a parked gate", async () => {
@@ -961,6 +975,7 @@ function recordRebuildHooks(
           : "settle-elsewhere",
       );
     },
+    toolStarted: () => undefined,
     forgetUnsettled: () => calls.push("forget"),
   } as unknown as RunnerServices["approvalResume"];
   state.currentStorage = {} as RunnerState["currentStorage"];

@@ -18,6 +18,7 @@ import type {
 } from "../permission/types.js";
 import {
   APPROVAL_DROPPED_NOTICE,
+  APPROVAL_INTERRUPTED_NOTICE,
   createApprovalResume,
 } from "./approval-resume.js";
 import { createCorrelationAcceptance } from "../tui/correlation-acceptance.js";
@@ -532,6 +533,94 @@ describe("approval resume decisions a closing reactor never ran", () => {
       message: APPROVAL_DROPPED_NOTICE,
     });
     expect(resume.droppedCalls.claim("call-ask")).toBe(true);
+  });
+
+  test("an approval whose tool started is told it was interrupted, not dropped, on the rebuilt agent", async () => {
+    // The start is announced while the delivery waits for it, before the
+    // delivery resolves.
+    const resumeRef: { current?: ReturnType<typeof createApprovalResume> } = {};
+    const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
+      getAgent: () => ({
+        deliver: () => undefined,
+        history: async () => [userTurn()],
+      }),
+      deliver: async () => {
+        resumeRef.current?.toolStarted("call-ask");
+        return "delivered" as const;
+      },
+      gate: {
+        resolveSuspended: async () => ({ allow: true }),
+      } as unknown as PermissionGate,
+    });
+    resumeRef.current = resume;
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+
+    await resume.prepareRebuild(parkedStore().storage);
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      parkedStore().storage,
+    );
+
+    expect(firstDeliveredContent(rebuilt)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_INTERRUPTED_NOTICE,
+    });
+    expect(resume.droppedCalls.claim("call-ask")).toBe(true);
+  });
+
+  test("a tool start announced after the hand-over still tells the rebuilt agent the call was interrupted", async () => {
+    const { resume } = handedOverResume();
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+    resume.toolStarted("call-ask");
+
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      parkedStore().storage,
+    );
+
+    expect(firstDeliveredContent(rebuilt)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_INTERRUPTED_NOTICE,
+    });
+  });
+
+  test("a tool start for a call no decision was offered for is ignored", async () => {
+    const { resume } = handedOverResume();
+    resume.toolStarted("call-ask");
+    resume.toolStarted("call-elsewhere");
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      parkedStore().storage,
+    );
+
+    expect(firstDeliveredContent(rebuilt)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_DROPPED_NOTICE,
+    });
+  });
+
+  test("an approval whose tool started and closed on disk is forgotten", async () => {
+    const { resume } = handedOverResume();
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+    resume.toolStarted("call-ask");
+    const { store, storage } = parkedStore();
+    store.parked = false;
+    await resume.prepareRebuild(storage);
+
+    expect(resume.droppedCalls.claim("call-ask")).toBe(false);
+    store.parked = true;
+    const rebuilt: InboundMessage[] = [];
+    await resume.settleOn(
+      { deliver: (message) => rebuilt.push(message) },
+      storage,
+    );
+    expect(rebuilt).toEqual([]);
   });
 
   test("an approval handed over and closed on disk is forgotten before the rebuild, claim and all", async () => {

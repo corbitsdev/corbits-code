@@ -400,6 +400,9 @@ export async function createRunLifecycle(
       providerFailureAttempts.advanceToNextMessage();
     }
     services.correlationAcceptance.observe(event);
+    if (event.type === "tool.start") {
+      services.approvalResume.toolStarted(event.data.call.id);
+    }
     if (event.type === "reactor.gate.blocked") {
       // A gate that parks outside a send() has no caller to hand the
       // suspension to the operator; route it through the approval path here.

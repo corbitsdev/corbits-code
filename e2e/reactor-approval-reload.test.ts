@@ -17,6 +17,7 @@ import { createPermissionGate } from "../src/permission/gate.js";
 import { createReactorAuthorize } from "../src/permission/reactor-authorize.js";
 import {
   APPROVAL_DROPPED_NOTICE,
+  APPROVAL_INTERRUPTED_NOTICE,
   createApprovalResume,
   resolveParkedCallIdFromStore,
   type ApprovalResume,
@@ -71,6 +72,23 @@ function linearClient(calls: Record<string, unknown>[]): MCPClient {
       return undefined;
     },
   };
+}
+
+/** A save that stays in flight until released, whatever the abort signal. */
+function stuckLinearClient(calls: Record<string, unknown>[]) {
+  let release: (() => void) | undefined;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const client: MCPClient = {
+    ...linearClient(calls),
+    async callResult(_toolName, args) {
+      calls.push(args);
+      await released;
+      return { blocks: [{ type: "text", text: "SAVED-1" }], isError: false };
+    },
+  };
+  return { client, release: () => release?.() };
 }
 
 function labelClient(): MCPClient {
@@ -451,7 +469,9 @@ type InterruptPoint =
    * After an approval reached a busy loop but the deliverer gave up waiting
    * to observe its acceptance.
    */
-  | "acceptance-timed-out";
+  | "acceptance-timed-out"
+  /** After an approved call's tool started, before its result is saved. */
+  | "tool-running";
 
 /**
  * Parks `call` on an ask, then interrupts at `opts.interruptWhile` (while
@@ -470,6 +490,7 @@ async function dropThenInterrupt(
      */
     deadlinePassesDuringRebuild?: boolean;
     interruptWhile?: InterruptPoint;
+    prepare?: (session: IntegrationSession) => Promise<void>;
   } = {},
 ): Promise<Dropped> {
   const interruptWhile = opts.interruptWhile ?? "resolving-call";
@@ -487,7 +508,11 @@ async function dropThenInterrupt(
     events: parkedEvents,
     callId,
     deadline,
-  } = await parkOnAsk(call, { adapter, droppedApprovalCalls: droppedCalls });
+  } = await parkOnAsk(call, {
+    adapter,
+    droppedApprovalCalls: droppedCalls,
+    ...(opts.prepare !== undefined ? { prepare: opts.prepare } : {}),
+  });
   const parkedCancel = { fn: undefined as (() => void) | undefined };
   const generation = createDeliveryGeneration(() => parkedCancel.fn?.());
   let releaseCallId: (() => void) | undefined;
@@ -532,6 +557,12 @@ async function dropThenInterrupt(
     }),
   });
   claimFrom = resume;
+  // As the TUI's stream sink does for every event it sees.
+  void (async () => {
+    for await (const event of live.session.agent.stream()) {
+      if (event.type === "tool.start") resume.toolStarted(event.data.call.id);
+    }
+  })().catch(() => undefined);
   const handling = resume.handle(suspended);
 
   let releaseBusy: (() => void) | undefined;
@@ -549,6 +580,14 @@ async function dropThenInterrupt(
     );
     ctx.approve();
     await queued;
+  }
+  if (interruptWhile === "tool-running") {
+    ctx.approve();
+    expect(await handling).toBe(true);
+    await waitFor(
+      () => parkedEvents.some((e) => e.type === "tool.start"),
+      "tool start",
+    );
   }
   if (
     interruptWhile === "decision-accepted" ||
@@ -1156,6 +1195,39 @@ describe("integration: an ask dropped by an interrupt, then settled on the rebui
       );
 
       await expectSettledWithoutRunning(reloaded);
+    },
+    20_000,
+  );
+
+  test.serial(
+    "an approved call whose tool is still running is not rejected as dropped",
+    async () => {
+      const calls: Record<string, unknown>[] = [];
+      const stuck = stuckLinearClient(calls);
+      cleanups.push(() => stuck.release());
+      const reloaded = await dropThenInterrupt(
+        { name: SAVE_ISSUE, args: { title: "in flight" } },
+        NATIVE_ANTHROPIC,
+        {
+          interruptWhile: "tool-running",
+          prepare: async (session) => {
+            session.toolset.dynamicRunner.addTools(
+              mcpClientTools(stuck.client),
+            );
+            await session.rebuild();
+          },
+        },
+      );
+      const { session, callId, parkedEvents } = reloaded;
+
+      expect(calls).toEqual([{ title: "in flight" }]);
+      expect(parkedEvents.filter((e) => e.type === "tool.start")).toHaveLength(
+        1,
+      );
+      const settled = toolResultsFor(await session.agent.history(), callId);
+      expect(settled).toHaveLength(1);
+      expect(settled.join("")).not.toContain(APPROVAL_DROPPED_NOTICE);
+      expect(settled.join("")).toContain(APPROVAL_INTERRUPTED_NOTICE);
     },
     20_000,
   );

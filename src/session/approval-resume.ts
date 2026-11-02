@@ -48,6 +48,16 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "approval-resume"]);
 export const APPROVAL_DROPPED_NOTICE =
   "Approval dropped because the session changed.";
 
+/**
+ * The result of an approved call whose tool had started when the session
+ * rebuilt and whose result was never saved. The reactor puts "denied by
+ * approver: " in front of a rejection's message, so this says it is not one.
+ * The operator did approve the call and it may have finished, so the model
+ * checks before it retries.
+ */
+export const APPROVAL_INTERRUPTED_NOTICE =
+  "Not a denial: the operator approved this call, but the session changed while the tool was running. It may have completed; check before retrying.";
+
 const ApprovalSnapshotShape = type({
   name: "string",
   "arguments?": "Record<string, unknown>",
@@ -85,11 +95,17 @@ export interface ApprovalResume {
    * store shows closed. One still parked is rejected again on every rebuild
    * until the store shows it closed, since a reactor closed before accepting
    * the rejection discards it; a rejection of a settled call is unmatched.
+   * One whose tool started is told it was interrupted, not dropped.
    */
   settleOn: (
     agent: Pick<Agent, "deliver">,
     storage: Pick<ContextStore, "load">,
   ) => Promise<void>;
+  /**
+   * The tool of `callId` started. A decision handed over for it is then
+   * settled as interrupted, not dropped: the call may have run.
+   */
+  toolStarted: (callId: string) => void;
   /** On rotation: nothing in the new session can settle these. */
   forgetUnsettled: () => void;
 }
@@ -526,6 +542,19 @@ export function createApprovalResume(args: {
   ): void => {
     unsettled.set(correlationId, callId ?? unsettled.get(correlationId));
   };
+  // Calls a decision was offered for, with whether their tool started. The
+  // store shows a started call parked until its result is saved, the same as
+  // one the closing reactor never ran, so the start is the only way to tell
+  // them apart. The start is announced before the delivery that waits for
+  // it settles, so a call is watched before its decision is delivered.
+  const watchedCalls = new Map<string, boolean>();
+  const forgetWatched = (callId: string | undefined): void => {
+    if (callId !== undefined) watchedCalls.delete(callId);
+  };
+  const settleNotice = (callId: string): string =>
+    watchedCalls.get(callId) === true
+      ? APPROVAL_INTERRUPTED_NOTICE
+      : APPROVAL_DROPPED_NOTICE;
   // settleOn never removes an entry: with the rebuilt reactor running, its
   // store read can show a call closed between the result being written and
   // the director claiming it. Entries leave by claim, by rotation, or when
@@ -594,6 +623,8 @@ export function createApprovalResume(args: {
         message: InboundMessage,
       ): Promise<boolean> => {
         if (!currentOrDropped()) return false;
+        if (!watchedCalls.has(parkedCallId))
+          watchedCalls.set(parkedCallId, false);
         try {
           if (args.deliver !== undefined) {
             const outcome = await args.deliver(message, currentOrDropped);
@@ -751,6 +782,7 @@ export function createApprovalResume(args: {
         if (callId === undefined) {
           unsettled.delete(correlationId);
           if (known !== undefined) silentCalls.delete(known);
+          forgetWatched(known);
           continue;
         }
         unsettled.set(correlationId, callId);
@@ -763,19 +795,24 @@ export function createApprovalResume(args: {
       for (const correlationId of [...unsettled.keys()]) {
         const callId = parked.get(correlationId);
         if (callId === undefined) {
+          forgetWatched(unsettled.get(correlationId));
           unsettled.delete(correlationId);
           continue;
         }
         unsettled.set(correlationId, callId);
         silentCalls.add(callId);
         agent.deliver(
-          decisionMessage(correlationId, "rejected", APPROVAL_DROPPED_NOTICE),
+          decisionMessage(correlationId, "rejected", settleNotice(callId)),
         );
       }
+    },
+    toolStarted: (callId) => {
+      if (watchedCalls.has(callId)) watchedCalls.set(callId, true);
     },
     forgetUnsettled: () => {
       unsettled.clear();
       silentCalls.clear();
+      watchedCalls.clear();
     },
     handle: (result) => {
       if (result.type !== "suspended") return Promise.resolve(false);

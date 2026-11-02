@@ -796,6 +796,7 @@ describe("suspended approval recovery", () => {
         droppedCalls: t.resume.droppedCalls,
         prepareRebuild: t.resume.prepareRebuild,
         settleOn: t.resume.settleOn,
+        toolStarted: t.resume.toolStarted,
         forgetUnsettled: t.resume.forgetUnsettled,
       },
     });
