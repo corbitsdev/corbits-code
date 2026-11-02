@@ -21,10 +21,13 @@ export const CODEX_CLIENT_VERSION = "0.50.0";
 // the public Codex CLI originator.
 export const CODEX_ORIGINATOR = "codex_cli_rs";
 
-// The models a ChatGPT sign-in can select, in the Codex backend's priority
-// order (GET /codex/models); the first entry is the ChatGPT default. OpenAI
-// retires models for ChatGPT sign-in on its own schedule, independently of the
-// OpenAI API, so this list and its default do not follow the API-key path.
+// The models a ChatGPT sign-in offers, in the order GET /codex/models listed
+// them for a ChatGPT Plus account (client_version 0.165.0, 2026-11-01); the
+// first entry is the ChatGPT default. Availability varies by plan and rollout,
+// so other accounts may be served a different set. gpt-5.4, gpt-5.4-mini and
+// gpt-5.5 are left out because OpenAI retired them from Codex with ChatGPT
+// sign-in. API-key sessions are not affected, so the API-key path keeps its
+// own list and default.
 export const CODEX_DEFAULT_MODELS = [
   "gpt-6.1-sol",
   "gpt-6-astra",
