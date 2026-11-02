@@ -7,6 +7,7 @@ import {
   ZEN_MODEL_IDS,
 } from "../../packages/zen/src/index.js";
 import { createBoundedModelCatalog } from "./bounded-model-catalog.js";
+import { parseModelsData, requestModelsEndpoint } from "./models-endpoint.js";
 
 // Bound live /models so a huge or hostile catalog cannot blow process memory.
 // One shared bound for both catalogs; the per-catalog names stay as aliases.
@@ -32,14 +33,26 @@ const MODEL_CATALOG_CONFIGS = {
   },
 } as const;
 
-const goCatalog = createBoundedModelCatalog({
-  ...MODEL_CATALOG_CONFIGS.go,
+// Public OpenAI-compatible /models catalogs: unauthenticated GET, `{ data }` body.
+function createPublicModelCatalog(
+  config: (typeof MODEL_CATALOG_CONFIGS)[keyof typeof MODEL_CATALOG_CONFIGS],
+  limits: { maxBytes: number; maxModels: number },
+) {
+  const { baseURL, ...rest } = config;
+  return createBoundedModelCatalog({
+    ...rest,
+    ...limits,
+    request: (opts) => requestModelsEndpoint({ baseURL, ...opts }),
+    parse: parseModelsData,
+  });
+}
+
+const goCatalog = createPublicModelCatalog(MODEL_CATALOG_CONFIGS.go, {
   maxBytes: MAX_GO_CATALOG_BYTES,
   maxModels: MAX_GO_CATALOG_MODELS,
 });
 
-const zenCatalog = createBoundedModelCatalog({
-  ...MODEL_CATALOG_CONFIGS.zen,
+const zenCatalog = createPublicModelCatalog(MODEL_CATALOG_CONFIGS.zen, {
   maxBytes: MAX_ZEN_CATALOG_BYTES,
   maxModels: MAX_ZEN_CATALOG_MODELS,
 });

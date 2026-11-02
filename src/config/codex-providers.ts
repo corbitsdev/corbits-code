@@ -13,7 +13,7 @@ export const CODEX_PROVIDER_PREFIX = "codex/";
 const projection = createOAuthProviderProjection<CodexProfile>({
   prefix: CODEX_PROVIDER_PREFIX,
   baseURL: CODEX_BASE_URL,
-  defaultModels: CODEX_DEFAULT_MODELS,
+  models: () => CODEX_DEFAULT_MODELS,
   catalogExtras: (profile) => ({
     codexProfile: profile.name,
     ...(profile.tokens.accountId !== undefined

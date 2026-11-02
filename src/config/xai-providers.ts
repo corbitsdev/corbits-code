@@ -7,7 +7,7 @@ export const XAI_PROVIDER_PREFIX = "xai/";
 const projection = createOAuthProviderProjection<XaiProfile>({
   prefix: XAI_PROVIDER_PREFIX,
   baseURL: XAI_BASE_URL,
-  defaultModels: XAI_DEFAULT_MODELS,
+  models: () => XAI_DEFAULT_MODELS,
   catalogExtras: (profile) => ({ xaiProfile: profile.name }),
 });
 
