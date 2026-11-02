@@ -14,6 +14,7 @@ import { codexProfilesToCatalogEntries } from "../config/codex-providers.js";
 import {
   discoverStagedCodexModels,
   prefetchCodexModels,
+  rememberConnectedCodexModels,
   resetCodexModelDiscoveryForTests,
   selectableCodexModelIds,
 } from "./codex-model-catalog.js";
@@ -111,10 +112,14 @@ const RECORDED_LISTED_IDS = [
   "gpt-5.6-luna",
 ];
 
-function profile(name: string, accountId?: string): CodexProfile {
+function profile(
+  name: string,
+  accountId?: string,
+  createdAt = 0,
+): CodexProfile {
   return {
     name,
-    createdAt: 0,
+    createdAt,
     tokens: {
       access: `stored-${name}`,
       refresh: "r",
@@ -126,6 +131,8 @@ function profile(name: string, accountId?: string): CodexProfile {
 
 let storedProfiles: CodexProfile[] = [];
 let tokenFailure: Error | undefined;
+// Token reads that fail before they start succeeding.
+let tokenFailuresLeft = 0;
 // Simulates a token refresh that learns the account id and writes it back to
 // the stored profile.
 let accountLearnedOnRefresh: string | undefined;
@@ -143,6 +150,10 @@ await withMockedModule(
     ...real,
     getValidCodexToken: async (name: string) => {
       if (tokenFailure !== undefined) throw tokenFailure;
+      if (tokenFailuresLeft > 0) {
+        tokenFailuresLeft -= 1;
+        throw new Error("token read failed");
+      }
       const stored = storedProfiles.find((p) => p.name === name);
       if (stored === undefined) throw new Error(`no profile ${name}`);
       const learned = accountLearnedOnRefresh;
@@ -165,6 +176,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
   storedProfiles = [];
   tokenFailure = undefined;
+  tokenFailuresLeft = 0;
   accountLearnedOnRefresh = undefined;
   resetCodexModelDiscoveryForTests();
 });
@@ -327,6 +339,109 @@ describe("ChatGPT model catalog", () => {
     const reread = defined(storedProfiles[0]);
     expect(reread.tokens.accountId).toBe("acct-legacy");
     expect(selectableCodexModelIds(reread)).toEqual(["gpt-6-sol"]);
+  });
+
+  test("a fetch after a failed token read keeps its list for the account it fetched as", async () => {
+    storedProfiles = [profile("legacy")];
+    tokenFailuresLeft = 1;
+    accountLearnedOnRefresh = "acct-legacy";
+    serveModels([{ slug: "gpt-6-sol", visibility: "list", priority: 1 }]);
+
+    await prefetchCodexModels();
+
+    expect(selectableCodexModelIds(defined(storedProfiles[0]))).toEqual([
+      "gpt-6-sol",
+    ]);
+  });
+
+  describe("a login with no account id", () => {
+    const list = [{ slug: "gpt-6-sol", visibility: "list", priority: 1 }];
+
+    async function reconnectThenServe(response: () => Response) {
+      storedProfiles = [profile("work", undefined, 1)];
+      serveModels(list);
+      await prefetchCodexModels();
+      expect(selectableCodexModelIds(profile("work", undefined, 1))).toEqual([
+        "gpt-6-sol",
+      ]);
+
+      const reconnected = profile("work", undefined, 2);
+      storedProfiles = [reconnected];
+      serve(response);
+      await prefetchCodexModels();
+      return reconnected;
+    }
+
+    test("does not inherit the list of the login it replaced when its fetch fails", async () => {
+      const reconnected = await reconnectThenServe(
+        () => new Response("no", { status: 503 }),
+      );
+      expect(selectableCodexModelIds(reconnected)).toEqual(
+        CODEX_DEFAULT_MODELS,
+      );
+    });
+
+    test("does not inherit the list of the login it replaced when its catalog is empty", async () => {
+      const reconnected = await reconnectThenServe(() =>
+        Response.json({ models: [] }),
+      );
+      expect(selectableCodexModelIds(reconnected)).toEqual(
+        CODEX_DEFAULT_MODELS,
+      );
+    });
+
+    test("keeps its list across a token refresh, which keeps its creation time", async () => {
+      storedProfiles = [profile("work", undefined, 1)];
+      serveModels(list);
+      await prefetchCodexModels();
+
+      const refreshed = profile("work", undefined, 1);
+      refreshed.tokens = { ...refreshed.tokens, refresh: "rotated" };
+      expect(selectableCodexModelIds(refreshed)).toEqual(["gpt-6-sol"]);
+    });
+  });
+
+  describe("the models shown while connecting", () => {
+    const shown: [string, ...string[]] = ["gpt-6-sol", "gpt-5.6-luna"];
+
+    test("stay the profile's list when the fetch after connecting fails", async () => {
+      const connected = profile("work", "acct-new", 5);
+      rememberConnectedCodexModels(connected, shown);
+      storedProfiles = [connected];
+      serve(() => new Response("no", { status: 503 }));
+
+      await prefetchCodexModels();
+
+      expect(selectableCodexModelIds(connected)).toEqual(shown);
+    });
+
+    test("cover a login with no account id", () => {
+      const connected = profile("work", undefined, 5);
+      rememberConnectedCodexModels(connected, shown);
+
+      expect(selectableCodexModelIds(connected)).toEqual(shown);
+      expect(selectableCodexModelIds(profile("work", undefined, 6))).toEqual(
+        CODEX_DEFAULT_MODELS,
+      );
+    });
+
+    test("give way to a later successful fetch", async () => {
+      const connected = profile("work", "acct-new", 5);
+      rememberConnectedCodexModels(connected, shown);
+      storedProfiles = [connected];
+      serveModels([{ slug: "gpt-6.1-sol", visibility: "list", priority: 1 }]);
+
+      await prefetchCodexModels();
+
+      expect(selectableCodexModelIds(connected)).toEqual(["gpt-6.1-sol"]);
+    });
+
+    test("an empty list is not remembered", () => {
+      const connected = profile("work", "acct-new", 5);
+      rememberConnectedCodexModels(connected, []);
+
+      expect(selectableCodexModelIds(connected)).toEqual(CODEX_DEFAULT_MODELS);
+    });
   });
 
   test("a reconnect whose first fetch fails does not show the previous account's list", async () => {

@@ -684,6 +684,7 @@ async function mountLogin(opts: {
   listOAuthProfiles?: OAuthProfileLister;
   clipboard?: ProviderSetupConfig["clipboard"];
   discoverCodexModels?: ProviderSetupConfig["discoverCodexModels"];
+  rememberCodexModels?: ProviderSetupConfig["rememberCodexModels"];
 }): Promise<{ done: Promise<boolean>; harness: Harness }> {
   return mountConfig({
     onSubmit: opts.onSubmit ?? (async () => undefined),
@@ -695,6 +696,9 @@ async function mountLogin(opts: {
     ...(opts.clipboard !== undefined ? { clipboard: opts.clipboard } : {}),
     ...(opts.discoverCodexModels !== undefined
       ? { discoverCodexModels: opts.discoverCodexModels }
+      : {}),
+    ...(opts.rememberCodexModels !== undefined
+      ? { rememberCodexModels: opts.rememberCodexModels }
       : {}),
   });
 }
@@ -1109,6 +1113,78 @@ describe("runProviderSetup sign-in", () => {
     await harness.renderOnce();
     expect(await done).toBe(true);
     expect(seen[0]?.model).toBe("gpt-5.6-luna");
+  });
+
+  describe("the list a sign-in showed", () => {
+    function rememberRecorder() {
+      const remembered: { name: string; models: readonly string[] }[] = [];
+      const rememberCodexModels: NonNullable<
+        ProviderSetupConfig["rememberCodexModels"]
+      > = (profile, models) => {
+        remembered.push({ name: profile.name, models });
+      };
+      return { remembered, rememberCodexModels };
+    }
+
+    test("is kept once the submit saves the profile, before setup returns", async () => {
+      const { remembered, rememberCodexModels } = rememberRecorder();
+      const { start, events } = stagedLoginStarter();
+      const { done, harness } = await mountLogin({
+        start,
+        rememberCodexModels,
+        discoverCodexModels: async () => ({
+          status: "models",
+          models: ["gpt-5.6-luna", "gpt-6-sol"],
+        }),
+      });
+      await signInToChatGPT(harness, events);
+
+      harness.pressKey("Enter");
+      await harness.renderOnce();
+      expect(await done).toBe(true);
+      expect(remembered).toEqual([
+        { name: "default", models: ["gpt-5.6-luna", "gpt-6-sol"] },
+      ]);
+    });
+
+    test("is not kept when the submit fails", async () => {
+      const { remembered, rememberCodexModels } = rememberRecorder();
+      const { start, events } = stagedLoginStarter();
+      const { done, harness } = await mountLogin({
+        start,
+        rememberCodexModels,
+        onSubmit: async () => {
+          throw new Error("connection test failed");
+        },
+        discoverCodexModels: async () => ({
+          status: "models",
+          models: ["gpt-5.6-luna", "gpt-6-sol"],
+        }),
+      });
+      await signInToChatGPT(harness, events);
+
+      harness.pressKey("Enter");
+      await flush(harness);
+      expect(remembered).toEqual([]);
+
+      harness.pressKey("Ctrl+C");
+      expect(await done).toBe(false);
+    });
+
+    test("is not kept when it is only the built-in list", async () => {
+      const { remembered, rememberCodexModels } = rememberRecorder();
+      const { start, events } = stagedLoginStarter();
+      const { done, harness } = await mountLogin({
+        start,
+        rememberCodexModels,
+      });
+      await signInToChatGPT(harness, events);
+
+      harness.pressKey("Enter");
+      await harness.renderOnce();
+      expect(await done).toBe(true);
+      expect(remembered).toEqual([]);
+    });
   });
 
   test("a model the operator moved to survives the account's list arriving", async () => {

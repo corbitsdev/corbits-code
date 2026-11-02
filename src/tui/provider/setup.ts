@@ -26,7 +26,10 @@ import {
   prefetchGoModels as prefetchGoModelsRequest,
   prefetchZenModels as prefetchZenModelsRequest,
 } from "../../provider/model-catalogs.js";
-import { discoverStagedCodexModels as discoverCodexModelsRequest } from "../../provider/codex-model-catalog.js";
+import {
+  discoverStagedCodexModels as discoverCodexModelsRequest,
+  rememberConnectedCodexModels as rememberCodexModelsRequest,
+} from "../../provider/codex-model-catalog.js";
 import { isZenProviderId } from "../../../packages/zen/src/index.js";
 import { resolveSideMargin } from "../geometry/zones.js";
 import { createSystemClipboard } from "../system-clipboard.js";
@@ -169,6 +172,8 @@ export async function runProviderSetup(
     zenPrefetchAttempt: 0,
     discoverCodexModels:
       config.discoverCodexModels ?? discoverCodexModelsRequest,
+    rememberCodexModels:
+      config.rememberCodexModels ?? rememberCodexModelsRequest,
     codexPrefetchAttempt: 0,
     codexListLogin: null,
     listRows: initialRows,
@@ -364,7 +369,18 @@ export async function runProviderSetup(
         ...(state.loginResult !== null ? { oauth: state.loginResult } : {}),
       })
       .then(
-        () => settle(true),
+        () => {
+          // Before settling: the picker reads the list as soon as setup returns.
+          const login = state.loginResult;
+          if (
+            login?.kind === "codex" &&
+            state.codexListLogin === login &&
+            state.choice !== null
+          ) {
+            state.rememberCodexModels(login.profile, state.choice.models);
+          }
+          settle(true);
+        },
         (err: unknown) => {
           stopRamp(state);
           state.submitting = false;

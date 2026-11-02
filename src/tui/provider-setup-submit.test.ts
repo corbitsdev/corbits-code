@@ -65,6 +65,7 @@ function stagedCodexOAuth(
     providerName: "codex/work",
     tokens: stagedCodexTokens,
     commit,
+    profile: { name: "work", createdAt: 0, tokens: stagedCodexTokens },
   };
 }
 

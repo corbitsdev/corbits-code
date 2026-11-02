@@ -16,6 +16,7 @@ import { listCodexProfiles } from "../config/oauth-stores.js";
 import {
   type CatalogDiscoveryState,
   createBoundedModelCatalog,
+  logCatalogFallback,
 } from "./bounded-model-catalog.js";
 import { DEFAULT_MODELS_REQUEST_TIMEOUT_MS } from "./models-endpoint.js";
 
@@ -92,42 +93,54 @@ function createCodexModelCatalog(
   });
 }
 
-// One catalog per profile and account, so a list is only ever read back for
-// the account that served it and a reconnected profile never shows the
-// previous account's list.
-const catalogs = new Map<string, ReturnType<typeof createCodexModelCatalog>>();
+// The last live list per login, so a list is only ever read back for the login
+// that served it and a reconnected profile never shows the previous account's
+// list. A login with no account id is told apart by its creation time: a token
+// refresh keeps that, and a new sign-in changes it.
+const liveLists = new Map<string, readonly [string, ...string[]]>();
 
-function catalogKey(profileName: string, accountId: string | undefined) {
-  return JSON.stringify([profileName, accountId ?? null]);
+function listKey(
+  profile: Pick<CodexProfile, "name" | "createdAt">,
+  accountId: string | undefined,
+) {
+  return JSON.stringify([profile.name, accountId ?? profile.createdAt]);
 }
 
-/** Sync picker ids for a ChatGPT profile: its account's last live list, else the built-in list. Never empty. */
+/** Sync picker ids for a ChatGPT profile: its login's last live list, else the built-in list. Never empty. */
 export function selectableCodexModelIds(
   profile: CodexProfile,
 ): readonly [string, ...string[]] {
   return (
-    catalogs
-      .get(catalogKey(profile.name, profile.tokens.accountId))
-      ?.selectableModelIds() ?? CODEX_DEFAULT_MODELS
+    liveLists.get(listKey(profile, profile.tokens.accountId)) ??
+    CODEX_DEFAULT_MODELS
   );
 }
 
 async function prefetchProfileModels(profile: CodexProfile): Promise<void> {
-  // A token refresh can name an account the stored profile does not have
-  // yet, so the refreshed token picks the catalog. When the refresh fails,
-  // the catalog's own request fails the same way and logs why.
-  const accountId = await getValidCodexToken(profile.name).then(
-    (access) => access.accountId,
-    () => profile.tokens.accountId,
-  );
-  const key = catalogKey(profile.name, accountId);
-  const catalog =
-    catalogs.get(key) ??
-    createCodexModelCatalog(`ChatGPT profile ${profile.name}`, () =>
+  const catalogLabel = `ChatGPT profile ${profile.name}`;
+  // A token refresh can name an account the stored profile does not have yet,
+  // so the token that made the request picks where its list is kept. A token
+  // read that fails gets one more try before the fetch counts as failed.
+  let accountId = profile.tokens.accountId;
+  const state = await createCodexModelCatalog(catalogLabel, async () => {
+    const access = await getValidCodexToken(profile.name).catch(() =>
       getValidCodexToken(profile.name),
     );
-  catalogs.set(key, catalog);
-  await catalog.prefetchModels();
+    accountId = access.accountId;
+    return access;
+  }).discoverModels();
+  const key = listKey(profile, accountId);
+  if (state.status === "models") {
+    liveLists.set(key, state.models);
+    return;
+  }
+  // Empty and failed fetches leave a live list in place: stale-but-live beats
+  // the built-in list.
+  logCatalogFallback(
+    catalogLabel,
+    state,
+    liveLists.has(key) ? "the last live list" : "the built-in list",
+  );
 }
 
 /** Fetch every stored ChatGPT profile's live catalog; failures keep the fallback and log why. */
@@ -145,6 +158,20 @@ export function discoverStagedCodexModels(
   ).discoverModels();
 }
 
+/**
+ * Keep the list a sign-in showed once its profile is saved, so the fetch after
+ * connecting failing leaves the models the operator just saw, not the built-in
+ * list.
+ */
+export function rememberConnectedCodexModels(
+  profile: CodexProfile,
+  models: readonly string[],
+): void {
+  const [first, ...rest] = models;
+  if (first === undefined) return;
+  liveLists.set(listKey(profile, profile.tokens.accountId), [first, ...rest]);
+}
+
 export function resetCodexModelDiscoveryForTests(): void {
-  catalogs.clear();
+  liveLists.clear();
 }
