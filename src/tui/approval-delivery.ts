@@ -19,6 +19,7 @@ import type { InboundMessage } from "@intx/types/runtime";
 import { getLogger } from "@intx/log";
 
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import type { ApprovalDeliveryOutcome } from "../session/approval-resume.js";
 import { redactedCorrelationId } from "../session/redacted-correlation.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "approval-delivery"]);
@@ -157,5 +158,31 @@ export function createApprovalDeliverer(
       delivered.add(correlationId);
       await awaitAcceptance(correlationId, accepted, decisionOutcome(message));
     },
+  };
+}
+
+/**
+ * Serializes a decision behind the session's other operations and reports
+ * whether it reached the deliverer. `skipped` means the session changed
+ * while it waited, so nothing reached the reactor.
+ */
+export function createQueuedApprovalDeliver(deps: {
+  enqueue: (op: () => Promise<void>) => Promise<void>;
+  fatalBuildError: () => Error | null;
+  deliverer: ApprovalDeliverer;
+}): (
+  message: InboundMessage,
+  stillCurrent: () => boolean,
+) => Promise<ApprovalDeliveryOutcome> {
+  return async (message, stillCurrent) => {
+    let outcome: ApprovalDeliveryOutcome = "skipped";
+    await deps.enqueue(async () => {
+      if (!stillCurrent()) return;
+      const fatal = deps.fatalBuildError();
+      if (fatal !== null) throw fatal;
+      await deps.deliverer.deliver(message);
+      outcome = "delivered";
+    });
+    return outcome;
   };
 }

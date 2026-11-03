@@ -340,6 +340,7 @@ function stubSendLifecycle(agent: Agent): {
     approvalResume: {
       prepareRebuild: async () => undefined,
       settleOn: async () => undefined,
+      toolStarted: () => undefined,
       forgetUnsettled: () => undefined,
     },
   } as unknown as RunnerServices;
@@ -426,6 +427,10 @@ describe("stream sink routes parked approvals", () => {
   async function runWith(events: readonly unknown[]) {
     const { state, services } = stubSendLifecycle(agentStreaming(events));
     const observed: { gate: unknown; stillCurrent: () => boolean }[] = [];
+    const started: string[] = [];
+    Object.assign(services.approvalResume, {
+      toolStarted: (callId: string) => started.push(callId),
+    });
     Object.assign(services, {
       providerFailureAttempts: {
         current: () => undefined,
@@ -440,7 +445,7 @@ describe("stream sink routes parked approvals", () => {
     });
     await createRunLifecycle(state, services);
     await state.streamPromise;
-    return { observed, services };
+    return { observed, started, services };
   }
 
   test("hands a gate-blocked event to the approval recovery with the current generation", async () => {
@@ -463,6 +468,15 @@ describe("stream sink routes parked approvals", () => {
     // A session rotation after the park drops it as stale.
     services.deliveryGeneration.bump();
     expect(observed[0]?.stillCurrent()).toBe(false);
+  });
+
+  test("tells the approval resume which call's tool started", async () => {
+    const { started } = await runWith([
+      { type: "tool.start", seq: 1, data: { call: { id: "call-ask" } } },
+      { type: "reactor.start", seq: 2, data: {} },
+    ]);
+
+    expect(started).toEqual(["call-ask"]);
   });
 
   test("ignores events that are not a parked gate", async () => {
@@ -940,6 +954,14 @@ function recordRebuildHooks(
     newest = recordingAgent([]);
     return newest;
   }) as unknown as RunnerServices["buildAgent"];
+  const outgoing = state.currentAgent;
+  if (outgoing !== undefined) {
+    const close = outgoing.close.bind(outgoing);
+    outgoing.close = async () => {
+      calls.push("close");
+      await close();
+    };
+  }
   services.approvalResume = {
     prepareRebuild: async (storage: unknown) => {
       calls.push(
@@ -953,6 +975,7 @@ function recordRebuildHooks(
           : "settle-elsewhere",
       );
     },
+    toolStarted: () => undefined,
     forgetUnsettled: () => calls.push("forget"),
   } as unknown as RunnerServices["approvalResume"];
   state.currentStorage = {} as RunnerState["currentStorage"];
@@ -960,7 +983,7 @@ function recordRebuildHooks(
 }
 
 describe("approvals dropped by a generation bump", () => {
-  test("an interrupt prepares the drops before building, then settles them on the new agent", async () => {
+  test("an interrupt prepares the drops once the old agent closes, then settles them on the new agent", async () => {
     const directorHolder: RunnerServices["directorHolder"] = {};
     const agent = recordingAgent([]);
     const { state, services } = stubSendLifecycle(agent);
@@ -971,7 +994,7 @@ describe("approvals dropped by a generation bump", () => {
     defined(state.interrupt, "interrupt")();
     await services.sessionOps.awaitTail();
 
-    expect(calls).toEqual(["prepare", "build", "settle"]);
+    expect(calls).toEqual(["close", "prepare", "build", "settle"]);
   });
 
   test("rotation forgets approvals dropped in the old session", () => {
@@ -1203,7 +1226,7 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     expect(state.pendingReload).toBe(false);
   });
 
-  test("an MCP rebuild prepares the drops before building, then settles them on the new agent", async () => {
+  test("an MCP rebuild prepares the drops once the old agent closes, then settles them on the new agent", async () => {
     const { state, services } = await idleLifecycle();
     const calls = recordRebuildHooks(state, services);
 
@@ -1211,7 +1234,7 @@ describe("reload-if-idle waits for the reactor's message run", () => {
     defined(state.reloadIfIdle, "reloadIfIdle")();
     await services.sessionOps.awaitTail();
 
-    expect(calls).toEqual(["prepare", "build", "settle"]);
+    expect(calls).toEqual(["close", "prepare", "build", "settle"]);
   });
 
   /** Late MCP connects that mount tools and report the change. */

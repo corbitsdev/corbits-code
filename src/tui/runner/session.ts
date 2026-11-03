@@ -98,7 +98,10 @@ import {
   type AgentDeliveryResult,
 } from "../delivery-queue.js";
 import { createCorrelationAcceptance } from "../correlation-acceptance.js";
-import { createApprovalDeliverer } from "../approval-delivery.js";
+import {
+  createApprovalDeliverer,
+  createQueuedApprovalDeliver,
+} from "../approval-delivery.js";
 import {
   createAgentToolset,
   type MCPServerState,
@@ -573,13 +576,11 @@ export async function assembleTUISession(
       parkedApprovalCancel.fn = cancel;
     },
     registerOverlayAbort: parkedOverlay.registerOverlayAbort,
-    deliver: (message, stillCurrent) => {
-      return sessionOps.enqueue(async () => {
-        if (!stillCurrent()) return;
-        if (state.fatalBuildError !== null) throw state.fatalBuildError;
-        await approvalDeliverer.deliver(message);
-      });
-    },
+    deliver: createQueuedApprovalDeliver({
+      enqueue: sessionOps.enqueue,
+      fatalBuildError: () => state.fatalBuildError,
+      deliverer: approvalDeliverer,
+    }),
     gate: permissionGate,
     cwd: config.cwd,
     extraDeniedPaths: [config.globalSettingsPath],
