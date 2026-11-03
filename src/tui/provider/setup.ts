@@ -26,6 +26,10 @@ import {
   prefetchGoModels as prefetchGoModelsRequest,
   prefetchZenModels as prefetchZenModelsRequest,
 } from "../../provider/model-catalogs.js";
+import {
+  discoverStagedCodexModels as discoverCodexModelsRequest,
+  rememberConnectedCodexModels as rememberCodexModelsRequest,
+} from "../../provider/codex-model-catalog.js";
 import { isZenProviderId } from "../../../packages/zen/src/index.js";
 import { resolveSideMargin } from "../geometry/zones.js";
 import { createSystemClipboard } from "../system-clipboard.js";
@@ -166,6 +170,13 @@ export async function runProviderSetup(
     goPrefetchAttempt: 0,
     prefetchZenModels: config.prefetchZenModels ?? prefetchZenModelsRequest,
     zenPrefetchAttempt: 0,
+    discoverCodexModels:
+      config.discoverCodexModels ?? discoverCodexModelsRequest,
+    rememberCodexModels:
+      config.rememberCodexModels ?? rememberCodexModelsRequest,
+    codexPrefetchAttempt: 0,
+    codexListPending: null,
+    codexListLogin: null,
     listRows: initialRows,
     list: createOverlayList(renderer as CliRenderer, {
       count: initialRows.length,
@@ -244,6 +255,11 @@ export async function runProviderSetup(
     isZenProviderId(state.choice.id) &&
     !state.choice.custom &&
     !state.typedModel;
+  const isCodexModelListStep = (): boolean =>
+    currentStep() === "model" &&
+    state.choice !== null &&
+    state.choice.oauth === "codex" &&
+    !state.typedModel;
   const selectors: SetupSelectors = {
     steps,
     currentStep,
@@ -252,6 +268,7 @@ export async function runProviderSetup(
     isAccountNameStep,
     isGoModelListStep,
     isZenModelListStep,
+    isCodexModelListStep,
   };
   const isLoginStep = (): boolean => currentStep() === "login";
 
@@ -315,6 +332,27 @@ export async function runProviderSetup(
   }
 
   function submit(skipValidation: boolean): void {
+    // Confirming before the account's list arrives would save the built-in
+    // default and drop the list. Wait for the fetch (bounded by its own
+    // timeout) so the pick is made against the list the account is served.
+    const pendingList = state.codexListPending;
+    if (pendingList === null) {
+      submitNow(skipValidation);
+      return;
+    }
+    state.submitting = true;
+    state.submitPhase = "testing";
+    clearError();
+    surface.paint();
+    stopRamp(state);
+    startRamp(state, () => surface.paintStatus());
+    void pendingList.then(() => {
+      if (state.settled) return;
+      submitNow(skipValidation);
+    });
+  }
+
+  function submitNow(skipValidation: boolean): void {
     state.submitting = true;
     state.submitPhase = "testing";
     clearError();
@@ -353,7 +391,18 @@ export async function runProviderSetup(
         ...(state.loginResult !== null ? { oauth: state.loginResult } : {}),
       })
       .then(
-        () => settle(true),
+        () => {
+          // Before settling: the picker reads the list as soon as setup returns.
+          const login = state.loginResult;
+          if (
+            login?.kind === "codex" &&
+            state.codexListLogin === login &&
+            state.choice !== null
+          ) {
+            state.rememberCodexModels(login.profile, state.choice.models);
+          }
+          settle(true);
+        },
         (err: unknown) => {
           stopRamp(state);
           state.submitting = false;
@@ -490,6 +539,7 @@ export async function runProviderSetup(
     }
     if (isGoModelListStep()) discovery.abandonGoPrefetch();
     if (isZenModelListStep()) discovery.abandonZenPrefetch();
+    if (isCodexModelListStep()) discovery.abandonCodexPrefetch();
     state.stepIndex = previousSamplingStepIndex(
       steps(),
       state.stepIndex,
