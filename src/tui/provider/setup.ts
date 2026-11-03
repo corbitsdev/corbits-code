@@ -175,6 +175,7 @@ export async function runProviderSetup(
     rememberCodexModels:
       config.rememberCodexModels ?? rememberCodexModelsRequest,
     codexPrefetchAttempt: 0,
+    codexListPending: null,
     codexListLogin: null,
     listRows: initialRows,
     list: createOverlayList(renderer as CliRenderer, {
@@ -331,6 +332,27 @@ export async function runProviderSetup(
   }
 
   function submit(skipValidation: boolean): void {
+    // Confirming before the account's list arrives would save the built-in
+    // default and drop the list. Wait for the fetch (bounded by its own
+    // timeout) so the pick is made against the list the account is served.
+    const pendingList = state.codexListPending;
+    if (pendingList === null) {
+      submitNow(skipValidation);
+      return;
+    }
+    state.submitting = true;
+    state.submitPhase = "testing";
+    clearError();
+    surface.paint();
+    stopRamp(state);
+    startRamp(state, () => surface.paintStatus());
+    void pendingList.then(() => {
+      if (state.settled) return;
+      submitNow(skipValidation);
+    });
+  }
+
+  function submitNow(skipValidation: boolean): void {
     state.submitting = true;
     state.submitPhase = "testing";
     clearError();

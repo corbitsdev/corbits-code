@@ -49,6 +49,7 @@ export function createDiscoveryFlows(
 
   const abandonCodexPrefetch = (): void => {
     state.codexPrefetchAttempt += 1;
+    state.codexListPending = null;
   };
 
   const beginOllamaDiscovery = (): void => {
@@ -225,7 +226,7 @@ export function createDiscoveryFlows(
     }
     const attempt = state.codexPrefetchAttempt;
     const prefill = state.choice.defaultModel;
-    void state
+    const pending = state
       .discoverCodexModels(login.tokens)
       .then((discovered) => {
         if (
@@ -285,7 +286,11 @@ export function createDiscoveryFlows(
         // discoverCodexModels never rejects, so only a failure while swapping
         // the list in lands here; the list already on screen stays usable.
         logger.warn`ChatGPT sign-in model list update failed error=${err instanceof Error ? err.message : String(err)}`;
+      })
+      .finally(() => {
+        if (state.codexListPending === pending) state.codexListPending = null;
       });
+    state.codexListPending = pending;
   };
 
   return {

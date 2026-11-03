@@ -93,45 +93,60 @@ function createCodexModelCatalog(
   });
 }
 
-// The last live list per login, so a list is only ever read back for the login
-// that served it and a reconnected profile never shows the previous account's
-// list. A login with no account id is told apart by its creation time: a token
-// refresh keeps that, and a new sign-in changes it.
-const liveLists = new Map<string, readonly [string, ...string[]]>();
-
-function listKey(
-  profile: Pick<CodexProfile, "name" | "createdAt">,
-  accountId: string | undefined,
-) {
-  return JSON.stringify([profile.name, accountId ?? profile.createdAt]);
+// The last live list per sign-in, so a list is only ever read back for the
+// sign-in that served it and a reconnected profile never shows the previous
+// login's list. A sign-in is its profile name and creation time: a token
+// refresh keeps the creation time, even when it teaches the profile its
+// account id, and a new sign-in changes it. The account id is not part of the
+// key because the token that served a fetch and the stored profile can name it
+// differently, or not at all.
+interface LiveList {
+  readonly models: readonly [string, ...string[]];
+  /** When the request that produced it started; a later one replaces it. */
+  readonly ticket: number;
 }
 
-/** Sync picker ids for a ChatGPT profile: its login's last live list, else the built-in list. Never empty. */
+const liveLists = new Map<string, LiveList>();
+let lastTicket = 0;
+
+function listKey(profile: Pick<CodexProfile, "name" | "createdAt">) {
+  return JSON.stringify([profile.name, profile.createdAt]);
+}
+
+/** Replaces the key's list unless a later request's answer is already there. */
+function storeLiveList(
+  key: string,
+  models: readonly [string, ...string[]],
+  ticket: number,
+): void {
+  const current = liveLists.get(key);
+  if (current === undefined || current.ticket < ticket) {
+    liveLists.set(key, { models, ticket });
+  }
+}
+
+/** Sync picker ids for a ChatGPT profile: its sign-in's last live list, else the built-in list. Never empty. */
 export function selectableCodexModelIds(
   profile: CodexProfile,
 ): readonly [string, ...string[]] {
-  return (
-    liveLists.get(listKey(profile, profile.tokens.accountId)) ??
-    CODEX_DEFAULT_MODELS
-  );
+  return liveLists.get(listKey(profile))?.models ?? CODEX_DEFAULT_MODELS;
 }
 
 async function prefetchProfileModels(profile: CodexProfile): Promise<void> {
   const catalogLabel = `ChatGPT profile ${profile.name}`;
-  // A token refresh can name an account the stored profile does not have yet,
-  // so the token that made the request picks where its list is kept. A token
-  // read that fails gets one more try before the fetch counts as failed.
-  let accountId = profile.tokens.accountId;
-  const state = await createCodexModelCatalog(catalogLabel, async () => {
-    const access = await getValidCodexToken(profile.name).catch(() =>
+  // Requests are ordered by when they start: overlapping fetches for one
+  // sign-in can answer in any order, and the older answer must not win. A
+  // token read that fails gets one more try before the fetch counts as failed.
+  lastTicket += 1;
+  const ticket = lastTicket;
+  const state = await createCodexModelCatalog(catalogLabel, () =>
+    getValidCodexToken(profile.name).catch(() =>
       getValidCodexToken(profile.name),
-    );
-    accountId = access.accountId;
-    return access;
-  }).discoverModels();
-  const key = listKey(profile, accountId);
+    ),
+  ).discoverModels();
+  const key = listKey(profile);
   if (state.status === "models") {
-    liveLists.set(key, state.models);
+    storeLiveList(key, state.models, ticket);
     return;
   }
   // Empty and failed fetches leave a live list in place: stale-but-live beats
@@ -169,7 +184,10 @@ export function rememberConnectedCodexModels(
 ): void {
   const [first, ...rest] = models;
   if (first === undefined) return;
-  liveLists.set(listKey(profile, profile.tokens.accountId), [first, ...rest]);
+  // Newer than every fetch started so far: one still in flight answers with
+  // an older view and must not replace the list the operator just chose from.
+  lastTicket += 1;
+  storeLiveList(listKey(profile), [first, ...rest], lastTicket);
 }
 
 export function resetCodexModelDiscoveryForTests(): void {

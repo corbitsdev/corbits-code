@@ -1115,6 +1115,109 @@ describe("runProviderSetup sign-in", () => {
     expect(seen[0]?.model).toBe("gpt-5.6-luna");
   });
 
+  describe("confirming the model step before the account's list arrives", () => {
+    test("waits for the list and saves its first model", async () => {
+      const seen: ProviderFormValues[] = [];
+      const remembered: (readonly string[])[] = [];
+      const discovery = deferredCodexDiscovery();
+      const { start, events } = stagedLoginStarter();
+      const { done, harness } = await mountLogin({
+        start,
+        onSubmit: async (values) => {
+          seen.push({ ...values });
+        },
+        rememberCodexModels: (_profile, models) => {
+          remembered.push(models);
+        },
+        discoverCodexModels: discovery.discover,
+      });
+      await signInToChatGPT(harness, events);
+
+      harness.pressKey("Enter");
+      await flush(harness);
+      expect(seen).toEqual([]);
+
+      discovery.land(0, ["gpt-5.6-luna", "gpt-6-sol"]);
+      await flush(harness);
+      expect(await done).toBe(true);
+      expect(seen[0]?.model).toBe("gpt-5.6-luna");
+      expect(remembered).toEqual([["gpt-5.6-luna", "gpt-6-sol"]]);
+    });
+
+    test("saves a model the operator moved to when the list has it", async () => {
+      const seen: ProviderFormValues[] = [];
+      const discovery = deferredCodexDiscovery();
+      const { start, events } = stagedLoginStarter();
+      const { done, harness } = await mountLogin({
+        start,
+        onSubmit: async (values) => {
+          seen.push({ ...values });
+        },
+        discoverCodexModels: discovery.discover,
+      });
+      await signInToChatGPT(harness, events);
+      const moved = defined(CODEX_DEFAULT_MODELS[1]);
+      harness.pressKey("ARROW_DOWN");
+      harness.pressKey("Enter");
+      await flush(harness);
+      expect(seen).toEqual([]);
+
+      discovery.land(0, ["gpt-5.6-luna", moved]);
+      await flush(harness);
+      expect(await done).toBe(true);
+      expect(seen[0]?.model).toBe(moved);
+    });
+
+    test("saves the built-in default when the fetch fails", async () => {
+      const seen: ProviderFormValues[] = [];
+      let fail: (() => void) | undefined;
+      const { start, events } = stagedLoginStarter();
+      const { done, harness } = await mountLogin({
+        start,
+        onSubmit: async (values) => {
+          seen.push({ ...values });
+        },
+        discoverCodexModels: () =>
+          new Promise((resolve) => {
+            fail = () => resolve({ status: "unavailable", message: "offline" });
+          }),
+      });
+      await signInToChatGPT(harness, events);
+
+      harness.pressKey("Enter");
+      await flush(harness);
+      expect(seen).toEqual([]);
+
+      defined(fail, "fetch")();
+      await flush(harness);
+      expect(await done).toBe(true);
+      expect(seen[0]?.model).toBe(CODEX_DEFAULT_MODELS[0]);
+    });
+
+    test("saves nothing when the operator cancels while it waits", async () => {
+      const seen: ProviderFormValues[] = [];
+      const discovery = deferredCodexDiscovery();
+      const { start, events } = stagedLoginStarter();
+      const { done, harness } = await mountLogin({
+        start,
+        onSubmit: async (values) => {
+          seen.push({ ...values });
+        },
+        discoverCodexModels: discovery.discover,
+      });
+      await signInToChatGPT(harness, events);
+
+      harness.pressKey("Enter");
+      await flush(harness);
+      harness.pressKey("Ctrl+C");
+      expect(await done).toBe(false);
+
+      discovery.land(0, ["gpt-5.6-luna"]);
+      await flush(harness);
+      expect(seen).toEqual([]);
+    });
+  });
+
   describe("the list a sign-in showed", () => {
     function rememberRecorder() {
       const remembered: { name: string; models: readonly string[] }[] = [];

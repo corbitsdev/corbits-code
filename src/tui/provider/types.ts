@@ -238,6 +238,9 @@ export interface SetupState {
   readonly discoverCodexModels: typeof discoverCodexModelsRequest;
   readonly rememberCodexModels: typeof rememberCodexModelsRequest;
   codexPrefetchAttempt: number;
+  // The ChatGPT list fetch in flight for the model step, settled once its
+  // result is on screen; null when none is.
+  codexListPending: Promise<void> | null;
   // The sign-in whose live list the ChatGPT model step shows; null while it
   // shows the built-in list.
   codexListLogin: OAuthResult | null;

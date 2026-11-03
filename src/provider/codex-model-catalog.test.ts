@@ -277,11 +277,11 @@ describe("ChatGPT model catalog", () => {
   });
 
   test("a profile name reconnected to another account does not inherit the old list", async () => {
-    storedProfiles = [profile("work", "acct-old")];
+    storedProfiles = [profile("work", "acct-old", 1)];
     serveModels([{ slug: "gpt-6-sol", visibility: "list", priority: 1 }]);
     await prefetchCodexModels();
 
-    expect(selectableCodexModelIds(profile("work", "acct-new"))).toEqual(
+    expect(selectableCodexModelIds(profile("work", "acct-new", 2))).toEqual(
       CODEX_DEFAULT_MODELS,
     );
   });
@@ -341,7 +341,108 @@ describe("ChatGPT model catalog", () => {
     expect(selectableCodexModelIds(reread)).toEqual(["gpt-6-sol"]);
   });
 
-  test("a fetch after a failed token read keeps its list for the account it fetched as", async () => {
+  test("a list stays with its sign-in when a refresh learns the account id and the next fetch fails", async () => {
+    storedProfiles = [profile("legacy")];
+    serveModels([{ slug: "gpt-6-sol", visibility: "list", priority: 1 }]);
+    await prefetchCodexModels();
+
+    // A later refresh names the account and writes it back to the profile.
+    const learned = profile("legacy", "acct-late");
+    storedProfiles = [learned];
+    serve(() => new Response("no", { status: 503 }));
+    await prefetchCodexModels();
+
+    expect(selectableCodexModelIds(learned)).toEqual(["gpt-6-sol"]);
+  });
+
+  test("a blank account id does not make two sign-ins of one profile name share a list", async () => {
+    storedProfiles = [profile("work", "", 1)];
+    serveModels([{ slug: "gpt-6-sol", visibility: "list", priority: 1 }]);
+    await prefetchCodexModels();
+
+    expect(selectableCodexModelIds(profile("work", "", 1))).toEqual([
+      "gpt-6-sol",
+    ]);
+    expect(selectableCodexModelIds(profile("work", "", 2))).toEqual(
+      CODEX_DEFAULT_MODELS,
+    );
+  });
+
+  describe("overlapping fetches", () => {
+    const older = [{ slug: "gpt-5.6-luna", visibility: "list", priority: 1 }];
+    const newer = [{ slug: "gpt-6-sol", visibility: "list", priority: 1 }];
+
+    /** A fetch that stays pending until `release` answers it with `models`. */
+    function heldFetch() {
+      let release: ((models: unknown) => void) | undefined;
+      const held = new Promise<Response>((resolve) => {
+        release = (models) => resolve(Response.json({ models }));
+      });
+      return {
+        held,
+        release: (models: unknown) => defined(release, "release")(models),
+      };
+    }
+
+    test("a startup fetch that returns after the connect list was kept does not replace it", async () => {
+      const connected = profile("work", "acct-new", 5);
+      storedProfiles = [connected];
+      const slow = heldFetch();
+      let requests = 0;
+      serve(() => {
+        requests += 1;
+        return slow.held;
+      });
+      const startup = prefetchCodexModels();
+      while (requests === 0)
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+      rememberConnectedCodexModels(connected, ["gpt-6-sol", "gpt-5.6-luna"]);
+      slow.release(older);
+      await startup;
+
+      expect(selectableCodexModelIds(connected)).toEqual([
+        "gpt-6-sol",
+        "gpt-5.6-luna",
+      ]);
+    });
+
+    test("an earlier request's answer does not replace a later one's", async () => {
+      const work = profile("work", "acct-work", 1);
+      storedProfiles = [work];
+      const slow = heldFetch();
+      let requests = 0;
+      serve(() => {
+        requests += 1;
+        return requests === 1
+          ? slow.held
+          : Promise.resolve(Response.json({ models: newer }));
+      });
+      const first = prefetchCodexModels();
+      while (requests === 0)
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      await prefetchCodexModels();
+      expect(selectableCodexModelIds(work)).toEqual(["gpt-6-sol"]);
+
+      slow.release(older);
+      await first;
+
+      expect(selectableCodexModelIds(work)).toEqual(["gpt-6-sol"]);
+    });
+
+    test("a later request's answer replaces an earlier one's", async () => {
+      const work = profile("work", "acct-work", 1);
+      storedProfiles = [work];
+      serveModels(older);
+      await prefetchCodexModels();
+      serveModels(newer);
+      await prefetchCodexModels();
+
+      expect(selectableCodexModelIds(work)).toEqual(["gpt-6-sol"]);
+    });
+  });
+
+  test("a fetch after a failed token read keeps its list", async () => {
     storedProfiles = [profile("legacy")];
     tokenFailuresLeft = 1;
     accountLearnedOnRefresh = "acct-legacy";
@@ -445,19 +546,17 @@ describe("ChatGPT model catalog", () => {
   });
 
   test("a reconnect whose first fetch fails does not show the previous account's list", async () => {
-    storedProfiles = [profile("work", "acct-old")];
+    storedProfiles = [profile("work", "acct-old", 1)];
     serveModels([{ slug: "gpt-6-sol", visibility: "list", priority: 1 }]);
     await prefetchCodexModels();
 
-    // The profile is listed under the old account, but by the time its token
-    // is read the reconnect has stored the new one.
-    accountLearnedOnRefresh = "acct-new";
+    // The reconnect stored a new sign-in under the same profile name.
+    const reconnected = profile("work", "acct-new", 2);
+    storedProfiles = [reconnected];
     serve(() => new Response("no", { status: 503 }));
     await prefetchCodexModels();
 
-    expect(selectableCodexModelIds(profile("work", "acct-new"))).toEqual(
-      CODEX_DEFAULT_MODELS,
-    );
+    expect(selectableCodexModelIds(reconnected)).toEqual(CODEX_DEFAULT_MODELS);
   });
 
   describe("falls back to the built-in list", () => {
