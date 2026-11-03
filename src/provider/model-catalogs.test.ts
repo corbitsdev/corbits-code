@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { configureSync, getConfig, resetSync } from "@intx/log";
+
+import { defined } from "../../testkit/defined.js";
 
 import { OPENCODE_GO_MODEL_IDS } from "../../packages/opencode-go/src/index.js";
 import { ZEN_MODEL_IDS } from "../../packages/zen/src/index.js";
@@ -91,6 +94,35 @@ afterEach(() => {
   resetGoModelDiscoveryForTests();
   resetZenModelDiscoveryForTests();
 });
+
+// Records the catalog's own log lines; restores the previous log config even
+// when `run` throws so other files keep their sinks.
+async function captureCatalogLogs(
+  catalogLabel: string,
+  run: () => Promise<void>,
+): Promise<{ level: string; text: string }[]> {
+  const records: { level: string; text: string }[] = [];
+  const previous = getConfig();
+  configureSync({
+    reset: true,
+    sinks: {
+      test: (record) => {
+        records.push({
+          level: record.level,
+          text: record.message.map(String).join(""),
+        });
+      },
+    },
+    loggers: [{ category: [], lowestLevel: "debug", sinks: ["test"] }],
+  });
+  try {
+    await run();
+  } finally {
+    if (previous === null) resetSync();
+    else configureSync({ ...previous, reset: true });
+  }
+  return records.filter((r) => r.text.includes(catalogLabel));
+}
 
 function oversizedCatalogResponse(byteLength: number): Response {
   const chunk = new Uint8Array(64 * 1024).fill(0x61);
@@ -255,6 +287,27 @@ for (const harness of harnesses) {
       expect(state.message).toContain(String(maxModels));
       expect(selectable()).toEqual(seedIds);
     });
+
+    test("counts raw entries against the model-count cap before dedupe", async () => {
+      const data = Array.from({ length: maxModels + 1 }, () => ({
+        id: sampleId,
+      }));
+      globalThis.fetch = (async () =>
+        Response.json({ data })) as unknown as typeof fetch;
+
+      expect((await discover()).status).toBe("malformed");
+    });
+
+    test("aborts the request when timeoutMs elapses", async () => {
+      globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason);
+          });
+        })) as unknown as typeof fetch;
+
+      expect((await discover({ timeoutMs: 20 })).status).toBe("unavailable");
+    });
   });
 
   describe(prefetchName, () => {
@@ -301,6 +354,80 @@ for (const harness of harnesses) {
       expect(ids).toEqual(seedIds);
       expect(ids.length).toBeGreaterThan(0);
       expect(selectable()).toEqual(seedIds);
+    });
+
+    test("logs why a prefetch kept the fallback, warning only when the catalog answered badly", async () => {
+      const records = await captureCatalogLogs(catalogLabel, async () => {
+        globalThis.fetch = (async () =>
+          new Response("no", { status: 503 })) as unknown as typeof fetch;
+        await prefetch();
+        globalThis.fetch = (async () =>
+          Response.json({ data: [] })) as unknown as typeof fetch;
+        await prefetch();
+        globalThis.fetch = (async () =>
+          Response.json({ models: [] })) as unknown as typeof fetch;
+        await prefetch();
+      });
+
+      expect(records.map((r) => r.level)).toEqual([
+        "debug",
+        "warning",
+        "warning",
+      ]);
+      for (const record of records) {
+        expect(record.text).toContain("keeping the built-in list");
+        expect(record.text.split(catalogLabel)).toHaveLength(2);
+      }
+    });
+
+    test("a connection that drops mid-body logs as unavailable, not as a contract change", async () => {
+      const records = await captureCatalogLogs(catalogLabel, async () => {
+        globalThis.fetch = (async () => {
+          let sent = false;
+          const stream = new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (!sent) {
+                sent = true;
+                controller.enqueue(new TextEncoder().encode('{"data":['));
+                return;
+              }
+              controller.error(new Error("socket connection was closed"));
+            },
+          });
+          return new Response(stream, { status: 200 });
+        }) as unknown as typeof fetch;
+        await prefetch();
+      });
+
+      expect(records.map((r) => r.level)).toEqual(["debug"]);
+      expect(defined(records[0]).text).toContain("unavailable");
+    });
+
+    test("a failed refresh after a live list says it kept the last live list", async () => {
+      globalThis.fetch = (async () =>
+        Response.json({
+          data: [{ id: liveOnlyId }],
+        })) as unknown as typeof fetch;
+      await prefetch();
+
+      const records = await captureCatalogLogs(catalogLabel, async () => {
+        globalThis.fetch = (async () =>
+          Response.json({ data: [] })) as unknown as typeof fetch;
+        await prefetch();
+      });
+
+      expect(records).toHaveLength(1);
+      expect(defined(records[0]).text).toContain("keeping the last live list");
+    });
+
+    test("concurrent callers of one prefetch run produce one fallback record", async () => {
+      const records = await captureCatalogLogs(catalogLabel, async () => {
+        globalThis.fetch = (async () =>
+          Response.json({ data: [] })) as unknown as typeof fetch;
+        await Promise.all([prefetch(), prefetch(), prefetch()]);
+      });
+
+      expect(records).toHaveLength(1);
     });
 
     test("oversized live catalog does not replace the seed with a truncated prefix", async () => {

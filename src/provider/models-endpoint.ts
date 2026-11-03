@@ -11,13 +11,16 @@ export function modelsEndpointURL(baseURL: string): string {
 }
 
 // One /models `{ data: [{ id }] }` shape shared by every discovery importer
-// (bounded-model-catalog, ollama) so the parsers cannot drift.
+// (model-catalogs, ollama) so the parsers cannot drift.
 export const ModelsEndpointResponse = type({
   data: type({ id: "string" }).array(),
 });
 
 export type ModelsEndpointDiscoveryState =
-  | { readonly status: "models"; readonly models: readonly string[] }
+  | {
+      readonly status: "models";
+      readonly models: readonly [string, ...string[]];
+    }
   | { readonly status: "empty" }
   | { readonly status: "unavailable"; readonly message: string }
   | { readonly status: "malformed"; readonly message: string };
@@ -44,12 +47,12 @@ export function parseModelsData(
   if (cap !== undefined && parsed.data.length > cap.maxModels) {
     return { status: "malformed", message: cap.oversizeMessage };
   }
-  const models = [
-    ...new Set(
-      parsed.data.map(({ id }) => id.trim()).filter((id) => id.length > 0),
-    ),
-  ];
-  return models.length > 0 ? { status: "models", models } : { status: "empty" };
+  const [first, ...rest] = new Set(
+    parsed.data.map(({ id }) => id.trim()).filter((id) => id.length > 0),
+  );
+  return first === undefined
+    ? { status: "empty" }
+    : { status: "models", models: [first, ...rest] };
 }
 
 // Single GET against an OpenAI-compatible /models endpoint, so URL

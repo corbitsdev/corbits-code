@@ -6,13 +6,6 @@
 
 import { getLogger } from "@intx/log";
 import {
-  loadSettings,
-  listFavoriteModels,
-  listRecentModels,
-} from "../../config/settings.js";
-import { refreshLiveProviderCatalog } from "../../config/index.js";
-import type { ResolvedProvider } from "../../config/settings.js";
-import {
   prefetchGoModels,
   prefetchZenModels,
 } from "../../provider/model-catalogs.js";
@@ -85,6 +78,7 @@ import {
   buildFleetDryContinuationMessage,
   buildMailboxMailMessage,
 } from "../../session/runtime-assembly.js";
+import { refreshCatalogAfterPrefetch } from "./catalog-refresh.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -246,74 +240,10 @@ export function wirePostStartup(
   mcpConnectCallbacks: MCPConnectCallbacks,
 ): void {
   if (state.config.providers.some((p) => isOpenCodeGoProvider(p))) {
-    void prefetchGoModels()
-      .then(async () => {
-        if (services.hostHolder.instance === undefined) return;
-        const onDisk = await loadSettings(state.trueGlobalSettingsPath);
-        const resolvedForCatalog: ResolvedProvider = {
-          apiKey: state.config.apiKey,
-          baseURL: state.config.baseURL,
-          model: state.config.model,
-          providerName: state.config.providerName,
-          ...(state.config.keyless !== undefined
-            ? { keyless: state.config.keyless }
-            : {}),
-        };
-        const providers = await refreshLiveProviderCatalog(
-          onDisk,
-          resolvedForCatalog,
-        );
-        state.config = {
-          ...state.config,
-          providers,
-          ...(onDisk !== null ? { settings: onDisk } : {}),
-        };
-        services.hostHolder.instance.refreshModels(
-          listRecentModels(state.config.settings ?? { providers: {} }),
-          listFavoriteModels(state.config.settings ?? { providers: {} }),
-          providers,
-        );
-      })
-      .catch((err: unknown) => {
-        tuiLogger.debug("go model prefetch failed: {error}", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
+    refreshCatalogAfterPrefetch(state, services, "go", prefetchGoModels);
   }
   if (state.config.providers.some((p) => isZenProvider(p))) {
-    void prefetchZenModels()
-      .then(async () => {
-        if (services.hostHolder.instance === undefined) return;
-        const onDisk = await loadSettings(state.trueGlobalSettingsPath);
-        const resolvedForCatalog: ResolvedProvider = {
-          apiKey: state.config.apiKey,
-          baseURL: state.config.baseURL,
-          model: state.config.model,
-          providerName: state.config.providerName,
-          ...(state.config.keyless !== undefined
-            ? { keyless: state.config.keyless }
-            : {}),
-        };
-        const providers = await refreshLiveProviderCatalog(
-          onDisk,
-          resolvedForCatalog,
-        );
-        state.config = {
-          ...state.config,
-          providers,
-          ...(onDisk !== null ? { settings: onDisk } : {}),
-        };
-        services.hostHolder.instance.refreshModels(
-          listRecentModels(state.config.settings ?? { providers: {} }),
-          listFavoriteModels(state.config.settings ?? { providers: {} }),
-          providers,
-        );
-      })
-      .catch((err: unknown) => {
-        tuiLogger.debug("zen model prefetch failed: {error}", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
+    refreshCatalogAfterPrefetch(state, services, "zen", prefetchZenModels);
   }
 
   const shutdownRuntime = createRuntimeShutdown({

@@ -7,7 +7,7 @@ export const META_PROVIDER_PREFIX = "meta/";
 const projection = createOAuthProviderProjection<MetaProfile>({
   prefix: META_PROVIDER_PREFIX,
   baseURL: META_BASE_URL,
-  defaultModels: META_DEFAULT_MODELS,
+  models: () => META_DEFAULT_MODELS,
   catalogExtras: (profile) => ({ metaProfile: profile.name }),
 });
 

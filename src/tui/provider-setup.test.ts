@@ -7,6 +7,7 @@ import { defined } from "../../testkit/defined.js";
 
 import { OAuthProviderScopeError } from "../auth/oauth-scope-check.js";
 import { resetGoModelDiscoveryForTests } from "../provider/model-catalogs.js";
+import type { OllamaDiscoveryState } from "../provider/ollama.js";
 import {
   loadLocalSettings,
   loadSettings,
@@ -752,13 +753,7 @@ describe("runProviderSetup Ollama discovery", () => {
   });
 
   test("distinguishes empty, unavailable, and malformed states and ignores stale retries", async () => {
-    const pending: ((
-      state:
-        | { status: "empty" }
-        | { status: "unavailable"; message: string }
-        | { status: "malformed"; message: string }
-        | { status: "models"; models: string[] },
-    ) => void)[] = [];
+    const pending: ((state: OllamaDiscoveryState) => void)[] = [];
     const { done, harness } = await mountConfig({
       initialProviderId: "ollama",
       discoverOllamaModels: async () =>

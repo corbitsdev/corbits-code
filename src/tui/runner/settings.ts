@@ -65,6 +65,7 @@ import { resolveWaitForApproval } from "../../agent/tool-execution-watchdog.js";
 import { hostOf, type RunnerServices, type RunnerState } from "./state.js";
 import type { ProductHostConnectRequest } from "../product-host.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
+import { refreshCatalogAfterPrefetch } from "./catalog-refresh.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -378,50 +379,10 @@ export async function wireSettings(
         `Connected ${connectedName}. Open /model to pick a model.`,
       );
       if (isOpenCodeGoProvider({ name: providerName })) {
-        void prefetchGoModels()
-          .then(async () => {
-            if (services.hostHolder.instance === undefined) return;
-            const nextDisk = await loadSettings(trueGlobalSettingsPath);
-            const nextProviders = await refreshLiveProviderCatalog(
-              nextDisk,
-              resolvedForCatalog,
-              () => state.config,
-            );
-            state.config = {
-              ...state.config,
-              providers: nextProviders,
-              ...(nextDisk !== null ? { settings: nextDisk } : {}),
-            };
-            services.hostHolder.instance.refreshModels(
-              listRecentModels(state.config.settings ?? { providers: {} }),
-              listFavoriteModels(state.config.settings ?? { providers: {} }),
-              nextProviders,
-            );
-          })
-          .catch(caughtDebug(tuiLogger, "go model prefetch failed"));
+        refreshCatalogAfterPrefetch(state, services, "go", prefetchGoModels);
       }
       if (isZenProvider({ name: providerName })) {
-        void prefetchZenModels()
-          .then(async () => {
-            if (services.hostHolder.instance === undefined) return;
-            const nextDisk = await loadSettings(trueGlobalSettingsPath);
-            const nextProviders = await refreshLiveProviderCatalog(
-              nextDisk,
-              resolvedForCatalog,
-              () => state.config,
-            );
-            state.config = {
-              ...state.config,
-              providers: nextProviders,
-              ...(nextDisk !== null ? { settings: nextDisk } : {}),
-            };
-            services.hostHolder.instance.refreshModels(
-              listRecentModels(state.config.settings ?? { providers: {} }),
-              listFavoriteModels(state.config.settings ?? { providers: {} }),
-              nextProviders,
-            );
-          })
-          .catch(caughtDebug(tuiLogger, "zen model prefetch failed"));
+        refreshCatalogAfterPrefetch(state, services, "zen", prefetchZenModels);
       }
     })().catch(caughtDebug(tuiLogger, "provider connect failed"));
   };
