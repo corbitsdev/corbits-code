@@ -22,8 +22,8 @@ describe("codex provider naming", () => {
   });
 });
 
-// The default-model agreement is pinned without literals in
-// provider/identity-divergence.test.ts — no second literal re-pin here.
+// The projected models and default are pinned against CODEX_DEFAULT_MODELS in
+// provider/identity-divergence.test.ts; no literal re-pin here.
 describe("codexProvidersAsSettings", () => {
   test("projects profiles into provider settings seeded with the access token", () => {
     const profiles: CodexProfile[] = [
