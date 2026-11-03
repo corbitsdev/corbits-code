@@ -20,6 +20,20 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
+## [0.3.48] - 2026-10-30
+
+### What's Changed
+* fix(agent): match tool_search queries against tool parameters by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1573
+* fix(agent): match tool names across a trailing plural s by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1574
+* fix(reactor): keep rejected and timed-out approval results across a rebuild by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1575
+* fix(session): settle a dropped approval on the rebuilt agent without a new turn by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1576
+* chore(deps): bump @corbits/oauth-core to 0.3.3 (CL-11513) by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1572
+* fix(mcp): keep padded optional arguments from filtering MCP reads by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1578
+* feat(review): post one plain-language review by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1582
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.47...v0.3.48
+
 ## [0.3.47] - 2026-10-26
 
 ### What's Changed

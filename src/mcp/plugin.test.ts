@@ -734,6 +734,63 @@ describe("mcpClientToAgentTools (production gated path)", () => {
     expect(result.isError).toBeUndefined();
   });
 
+  test.each([
+    { name: "list_issues", annotations: undefined, forwarded: {} },
+    {
+      name: "save_issue",
+      annotations: undefined,
+      forwarded: { assignee: null },
+    },
+    { name: "lookup", annotations: { readOnlyHint: true }, forwarded: {} },
+    {
+      name: "list_issues",
+      annotations: { readOnlyHint: false },
+      forwarded: { assignee: null },
+    },
+  ])(
+    "$name with annotations $annotations forwards $forwarded for an optional null",
+    async ({ name, annotations, forwarded }) => {
+      let capturedArgs: Record<string, unknown> | undefined;
+      const client: MCPClient = {
+        serverName: "linear",
+        tools: [
+          {
+            name,
+            description: "issues",
+            inputSchema: {
+              type: "object",
+              properties: { assignee: { type: ["string", "null"] } },
+            },
+            ...(annotations === undefined ? {} : { annotations }),
+          },
+        ],
+        async callResult(_toolName, args) {
+          capturedArgs = args;
+          return { blocks: [{ type: "text", text: "done" }], isError: false };
+        },
+        async close() {
+          return undefined;
+        },
+      };
+      const gate = createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: true,
+        reactorGated: false,
+      });
+      const tool = defined(mcpClientToAgentTools(client, gate)[0], "mcp tool");
+      await tool.handler(
+        {
+          id: "c1",
+          name: `mcp__linear__${name}`,
+          arguments: { assignee: null },
+        },
+        new AbortController().signal,
+      );
+      expect(capturedArgs).toEqual(forwarded);
+    },
+  );
+
   test("permission gate blocks mutating MCP when not skipped", async () => {
     let asked = 0;
     const gate = createPermissionGate({

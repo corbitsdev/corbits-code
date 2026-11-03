@@ -20,6 +20,7 @@ import {
 } from "./client.js";
 import { stripPlaceholderArguments } from "./placeholder-args.js";
 import { mcpToolName } from "./tool-name.js";
+import { isReadOnlyMcpToolDefinition } from "./tool-permissions.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 export const MCP_RECONNECTING_TOOL_ERROR =
@@ -108,11 +109,18 @@ export function mcpClientTools(
         signal: AbortSignal,
       ): Promise<ToolResult> => {
         try {
-          // Some models pad every optional field with empty values; one the
-          // property schema rejects (customView minLength) fails the call.
+          // Some models pad every optional field with empty values: one the
+          // property schema rejects (customView minLength) fails the call,
+          // and a null on a read tool silently filters the results.
           const envelope = await client.callResult(
             tool.name,
-            stripPlaceholderArguments(call.arguments, tool.inputSchema),
+            stripPlaceholderArguments(call.arguments, tool.inputSchema, {
+              nullMeansUnset: isReadOnlyMcpToolDefinition(
+                tool.annotations,
+                client.serverName,
+                tool.name,
+              ),
+            }),
             signal,
           );
           const authorizedBlocks = applyPolicyToBlocks(envelope.blocks);

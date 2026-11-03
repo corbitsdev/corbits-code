@@ -96,10 +96,10 @@ describe("codexTokensFromResponse", () => {
     expect(tokens.refresh).toBe("old-refresh");
   });
 
-  test("throws when no refresh token is available anywhere", () => {
-    expect(() => codexTokensFromResponse({ access_token: "a" }, 0)).toThrow(
-      /refresh_token/,
-    );
+  test("omits refresh when no refresh token is available anywhere", () => {
+    const tokens = codexTokensFromResponse({ access_token: "a" }, 0);
+    expect(tokens.access).toBe("a");
+    expect(tokens.refresh).toBeUndefined();
   });
 
   test("falls back to a default lifetime when expires_in is absent", () => {

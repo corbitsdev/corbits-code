@@ -1,6 +1,7 @@
 import {
   createTokenSession,
   isTokenExpired,
+  OAuthMissingRefreshTokenError,
   OAuthProfileNotFoundError,
   OAuthRefreshFailedError,
   type TokenSession,
@@ -145,11 +146,15 @@ export async function refreshStagedMetaTokens(
   now: number = Date.now(),
 ): Promise<MetaOAuthTokens> {
   if (!isMetaTokenExpired(tokens, now)) return tokens;
+  const refreshToken = tokens.refresh;
+  if (refreshToken === undefined || refreshToken.trim().length === 0) {
+    throw new OAuthMissingRefreshTokenError();
+  }
   let refreshed: MetaOAuthTokens;
   try {
-    refreshed = await refreshMetaTokens(tokens.refresh, now);
+    refreshed = await refreshMetaTokens(refreshToken, now);
   } catch (error) {
-    throw sanitizedRefreshFailure(error, tokens.refresh);
+    throw sanitizedRefreshFailure(error, refreshToken);
   }
   replaceMutableTokens(tokens, refreshed);
   return tokens;

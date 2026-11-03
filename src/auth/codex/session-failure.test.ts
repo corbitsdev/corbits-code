@@ -106,7 +106,7 @@ describe("codex auth failure surface", () => {
       const auth = failure as CodexAuthError;
       const surfaced = authFailureSurface(auth);
       expect(surfaced).not.toContain(refresh);
-      expect(surfaced).toContain("grant rejected");
+      expect(surfaced).toContain("OAuth token endpoint returned 400");
       expect(surfaced).toContain("Re-authenticate");
     } finally {
       globalThis.fetch = originalFetch;

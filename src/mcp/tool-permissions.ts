@@ -51,17 +51,27 @@ function hasAnnotationHints(
   );
 }
 
-// With annotation hints, readOnlyHint drives allow vs ask; empty {} or
-// title-only objects fall back to name-prefix heuristics (list_/get_/save_).
+// With annotation hints, readOnlyHint decides; empty {} or title-only objects
+// fall back to name-prefix heuristics (list_/get_/save_).
+export function isReadOnlyMcpToolDefinition(
+  annotations: McpToolAnnotations | undefined,
+  serverName: string,
+  toolName: string,
+): boolean {
+  if (annotations !== undefined && hasAnnotationHints(annotations)) {
+    return annotations.readOnlyHint === true;
+  }
+  return isReadOnlyMcpTool(mcpToolName(serverName, toolName));
+}
+
 export function tierFromMcpTool(
   annotations: McpToolAnnotations | undefined,
   serverName: string,
   toolName: string,
 ): Tier {
-  if (annotations !== undefined && hasAnnotationHints(annotations)) {
-    return annotations.readOnlyHint === true ? "allow" : "ask";
-  }
-  return isReadOnlyMcpTool(mcpToolName(serverName, toolName)) ? "allow" : "ask";
+  return isReadOnlyMcpToolDefinition(annotations, serverName, toolName)
+    ? "allow"
+    : "ask";
 }
 
 export function registerMcpClientTools(

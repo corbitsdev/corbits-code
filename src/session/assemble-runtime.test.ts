@@ -108,6 +108,36 @@ describe("createAdvertisedToolset", () => {
     expect(flushPromotions()).toBe(false);
   });
 
+  test.each([
+    { model: "gpt-5", priority: { type: ["number", "null"] } },
+    { model: "claude-sonnet-5-5", priority: { type: "number" } },
+  ])(
+    "a promoted MCP tool reaches the $model wire with priority $priority",
+    ({ model, priority }) => {
+      const { activated, computeAdvertised, flushPromotions } =
+        createAdvertisedToolset(
+          wiring({ getProvider: () => ({ providerName: "test", model }) }),
+        );
+      const listIssues: ToolDefinition = {
+        name: "mcp__linear__list_issues",
+        description: "list issues",
+        inputSchema: {
+          type: "object",
+          properties: { priority: { type: "number" } },
+        },
+      };
+      activated.activate([listIssues.name]);
+      flushPromotions();
+      const advertised = computeAdvertised([def("read_file"), listIssues]).find(
+        (d) => d.name === listIssues.name,
+      );
+      expect(advertised?.inputSchema).toEqual({
+        type: "object",
+        properties: { priority },
+      });
+    },
+  );
+
   test("flushPromotions commits pending activations in order and resume re-arms them", () => {
     const { activated, computeAdvertised, flushPromotions } =
       createAdvertisedToolset(wiring());
