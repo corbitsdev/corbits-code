@@ -5,6 +5,7 @@ import { createSessionOperationQueue } from "./delivery-queue.js";
 import {
   ApprovalDeliveryTimeoutError,
   createApprovalDeliverer,
+  createQueuedApprovalDeliver,
 } from "./approval-delivery.js";
 import { redactedCorrelationId } from "../session/redacted-correlation.js";
 
@@ -187,5 +188,47 @@ describe("approval delivery acceptance bound", () => {
     expect(err.outcome).toBe("rejected");
     expect(err.mayStillApply).toBe(true);
     expect(err.message).toContain("rejected");
+  });
+});
+
+describe("queued approval deliver", () => {
+  function queuedDeliver(fatal: Error | null = null) {
+    const delivered: InboundMessage[] = [];
+    const deliver = createQueuedApprovalDeliver({
+      enqueue: createSessionOperationQueue().enqueue,
+      fatalBuildError: () => fatal,
+      deliverer: {
+        deliver: async (message) => {
+          delivered.push(message);
+        },
+      },
+    });
+    return { deliver, delivered };
+  }
+
+  test("reports a decision the session still wants as delivered", async () => {
+    const { deliver, delivered } = queuedDeliver();
+    const message = decisionMessage("corr-1", "rejected");
+
+    expect(await deliver(message, () => true)).toBe("delivered");
+    expect(delivered).toEqual([message]);
+  });
+
+  test("reports a decision the session moved past while it waited as skipped", async () => {
+    const { deliver, delivered } = queuedDeliver();
+
+    expect(
+      await deliver(decisionMessage("corr-1", "rejected"), () => false),
+    ).toBe("skipped");
+    expect(delivered).toEqual([]);
+  });
+
+  test("throws the build error instead of delivering to a failed agent", async () => {
+    const { deliver, delivered } = queuedDeliver(new Error("build failed"));
+
+    await expect(
+      deliver(decisionMessage("corr-1", "rejected"), () => true),
+    ).rejects.toThrow("build failed");
+    expect(delivered).toEqual([]);
   });
 });

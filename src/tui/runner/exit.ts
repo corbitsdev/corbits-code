@@ -400,6 +400,9 @@ export async function createRunLifecycle(
       providerFailureAttempts.advanceToNextMessage();
     }
     services.correlationAcceptance.observe(event);
+    if (event.type === "tool.start") {
+      services.approvalResume.toolStarted(event.data.call.id);
+    }
     if (event.type === "reactor.gate.blocked") {
       // A gate that parks outside a send() has no caller to hand the
       // suspension to the operator; route it through the approval path here.
@@ -515,10 +518,11 @@ export async function createRunLifecycle(
     }
     state.currentAgent = await services.buildAgent();
   };
-  // Every rebuild that keeps the session reloads a dropped approval that is
-  // still parked, so each one settles it on the new agent: prepared from the
-  // outgoing store before teardown, settled once the stream is attached so
-  // the settle event reaches the sink.
+  // Every rebuild that keeps the session reloads any approval still parked
+  // that this session dropped or handed to a reactor that closed before
+  // acting on it, so each one settles it on the new agent: prepared from the
+  // closed agent's store before the build, settled once the stream is
+  // attached so the settle event reaches the sink.
   const prepareDrops = async (): Promise<void> => {
     const storage = state.currentStorage;
     if (storage === null) return;
@@ -585,7 +589,6 @@ export async function createRunLifecycle(
         { ...drift, sessionId: state.sessionId },
       );
       try {
-        await prepareDrops();
         const old = liveAgent(state);
         const closedCleanly = await closeAgentForRebuild(old, "reload");
         await state.streamPromise?.catch(
@@ -594,6 +597,7 @@ export async function createRunLifecycle(
         if (!closedCleanly) {
           throw new AgentContextLockError(state.workdir);
         }
+        await prepareDrops();
         await buildLiveAgent("mcp-tools-changed");
         resyncIdleWithFleetFlag(services);
         state.streamPromise = consumeStream(
@@ -738,7 +742,6 @@ export async function createRunLifecycle(
           // inference.error is delivered, so the recorder never sees a
           // terminal event. Dispose before that teardown salvages the buffer
           // so it is never lost or misattributed to the next cycle.
-          await prepareDrops();
           await services.cycleRecorder.dispose("interrupted");
           const closedCleanly = await closeAgentForRebuild(
             liveAgent(state),
@@ -753,6 +756,7 @@ export async function createRunLifecycle(
           if (!closedCleanly) {
             throw new AgentContextLockError(state.workdir);
           }
+          await prepareDrops();
           await buildLiveAgent("interrupt");
           resyncIdleWithFleetFlag(services);
           services.cycleRecorder.reset();

@@ -12,8 +12,8 @@
 //
 // Uses the real createDeliverRouting + createSubmitPath (submit.ts), the real
 // session queue / generation, the real createApprovalResume, and the real
-// createApprovalDeliverer. The approvalResume `deliver` closure is copied
-// verbatim from src/tui/runner/session.ts (createApprovalResume wiring).
+// createApprovalDeliverer behind createQueuedApprovalDeliver, as
+// src/tui/runner/session.ts wires them.
 
 import { expect, test } from "bun:test";
 import type { Agent, SendResult } from "@intx/agent";
@@ -23,7 +23,10 @@ import {
   createDeliveryGeneration,
   createSessionOperationQueue,
 } from "../delivery-queue.js";
-import { createApprovalDeliverer } from "../approval-delivery.js";
+import {
+  createApprovalDeliverer,
+  createQueuedApprovalDeliver,
+} from "../approval-delivery.js";
 import {
   createApprovalResume,
   createSuspendedApprovalRecovery,
@@ -134,14 +137,11 @@ function harness(opts: HarnessOptions = {}) {
     resolveParkedCallId: () => PARKED_CALL,
     captureGeneration: deliveryGeneration.capture,
     parkedTimeoutPollMs: 5,
-    // Verbatim from src/tui/runner/session.ts.
-    deliver: (message, stillCurrent) => {
-      return sessionOps.enqueue(async () => {
-        if (!stillCurrent()) return;
-        if (state.fatalBuildError !== null) throw state.fatalBuildError;
-        await approvalDeliverer.deliver(message);
-      });
-    },
+    deliver: createQueuedApprovalDeliver({
+      enqueue: sessionOps.enqueue,
+      fatalBuildError: () => state.fatalBuildError,
+      deliverer: approvalDeliverer,
+    }),
     gate,
   });
   const suspendedApprovalRecovery = createSuspendedApprovalRecovery({

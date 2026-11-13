@@ -1214,8 +1214,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
         cwd: config.cwd,
         extraDeniedPaths: [config.globalSettingsPath],
         deliver: async (message, stillCurrent) => {
-          if (!stillCurrent()) return;
+          if (!stillCurrent()) return "skipped";
           await approvalDeliverer.deliver(message);
+          return "delivered";
         },
       }).handle(sendResult);
       sendCompleted = true;
