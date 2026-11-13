@@ -416,7 +416,7 @@ export function chooseProviderRow(
   state.stepIndex += 1;
 }
 
-/** Rebuild the pick-list rows for the model step, then prefetch the Go catalog. */
+/** Rebuild the pick-list rows for the model step, then prefetch its live catalog. */
 export function enterModelListRows(
   state: SetupState,
   renderer: CliRenderer,
@@ -438,6 +438,7 @@ export function enterModelListRows(
   });
   discovery.beginGoPrefetch();
   discovery.beginZenPrefetch();
+  discovery.beginCodexPrefetch();
 }
 
 /** Rebuild the pick-list rows for the provider step, keeping the prior pick focused. */

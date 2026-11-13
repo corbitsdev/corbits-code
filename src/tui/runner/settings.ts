@@ -65,6 +65,8 @@ import { resolveWaitForApproval } from "../../agent/tool-execution-watchdog.js";
 import { hostOf, type RunnerServices, type RunnerState } from "./state.js";
 import type { ProductHostConnectRequest } from "../product-host.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
+import { isCodexProviderName } from "../../config/codex-providers.js";
+import { prefetchCodexModels } from "../../provider/codex-model-catalog.js";
 import { refreshCatalogAfterPrefetch } from "./catalog-refresh.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
@@ -383,6 +385,14 @@ export async function wireSettings(
       }
       if (isZenProvider({ name: providerName })) {
         refreshCatalogAfterPrefetch(state, services, "zen", prefetchZenModels);
+      }
+      if (isCodexProviderName(connectedName)) {
+        refreshCatalogAfterPrefetch(
+          state,
+          services,
+          "chatgpt",
+          prefetchCodexModels,
+        );
       }
     })().catch(caughtDebug(tuiLogger, "provider connect failed"));
   };

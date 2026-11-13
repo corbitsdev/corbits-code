@@ -78,6 +78,7 @@ import {
   buildFleetDryContinuationMessage,
   buildMailboxMailMessage,
 } from "../../session/runtime-assembly.js";
+import { prefetchCodexModels } from "../../provider/codex-model-catalog.js";
 import { refreshCatalogAfterPrefetch } from "./catalog-refresh.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
@@ -244,6 +245,14 @@ export function wirePostStartup(
   }
   if (state.config.providers.some((p) => isZenProvider(p))) {
     refreshCatalogAfterPrefetch(state, services, "zen", prefetchZenModels);
+  }
+  if (state.config.providers.some((p) => p.codexProfile !== undefined)) {
+    refreshCatalogAfterPrefetch(
+      state,
+      services,
+      "chatgpt",
+      prefetchCodexModels,
+    );
   }
 
   const shutdownRuntime = createRuntimeShutdown({

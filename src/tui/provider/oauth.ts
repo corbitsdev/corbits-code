@@ -288,6 +288,7 @@ export function createLoginFlow(
       tokens: staged.profile.tokens,
       commit: staged.commit,
       providerName: oauthProviderName(kind, staged.profile.name),
+      profile: staged.profile,
     };
     state.loginResult = result;
     state.values.name = result.providerName;

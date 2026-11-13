@@ -267,6 +267,15 @@ describe("runOnboarding settings source", () => {
               expiresAt: 0,
             },
             commit: () => writeXAIAuthProfile(testHome, "work"),
+            profile: {
+              name: "work",
+              createdAt: 0,
+              tokens: {
+                access: "work-access-token",
+                refresh: "work-refresh-token",
+                expiresAt: 0,
+              },
+            },
           },
         },
       );

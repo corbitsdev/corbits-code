@@ -80,6 +80,43 @@ type DiscoveredModels = Extract<
   { status: "models" }
 >["models"];
 
+/**
+ * Log why a live catalog fetch kept `keeping` instead of a fresh list. An
+ * unreachable catalog is routine (offline, transient outage), so it stays at
+ * debug; an empty or malformed answer means the endpoint's contract moved,
+ * which only shows up here, so it warns.
+ */
+export function logCatalogFallback(
+  catalogLabel: string,
+  state: Exclude<CatalogDiscoveryState, { status: "models" }>,
+  keeping: string,
+): void {
+  // HTTP and size failures already name the catalog; transport and parse
+  // errors do not, so the catalog is named exactly once either way.
+  const reason = (message: string): string =>
+    message.startsWith(catalogLabel) ? message : `${catalogLabel}: ${message}`;
+  switch (state.status) {
+    case "unavailable":
+      catalogLogger.debug(
+        "Model catalog unavailable ({reason}); keeping {fallback}",
+        { reason: reason(state.message), fallback: keeping },
+      );
+      return;
+    case "empty":
+      catalogLogger.warn(
+        "Model catalog listed no models ({catalog}); keeping {fallback}",
+        { catalog: catalogLabel, fallback: keeping },
+      );
+      return;
+    case "malformed":
+      catalogLogger.warn(
+        "Model catalog response rejected ({reason}); keeping {fallback}",
+        { reason: reason(state.message), fallback: keeping },
+      );
+      return;
+  }
+}
+
 export function createBoundedModelCatalog<
   Seed extends readonly string[],
 >(args: {
@@ -198,40 +235,14 @@ export function createBoundedModelCatalog<
     return selectableModelIds();
   }
 
-  // An unreachable catalog is routine (offline, transient outage), so it
-  // stays at debug. An empty or malformed answer means the endpoint's
-  // contract moved, which only shows up here, so it warns.
   function logFallback(
     state: Exclude<CatalogDiscoveryState, { status: "models" }>,
   ): void {
-    const fallback =
-      snapshot === undefined ? "the built-in list" : "the last live list";
-    // HTTP and size failures already name the catalog; transport and parse
-    // errors do not, so the catalog is named exactly once either way.
-    const reason = (message: string): string =>
-      message.startsWith(catalogLabel)
-        ? message
-        : `${catalogLabel}: ${message}`;
-    switch (state.status) {
-      case "unavailable":
-        catalogLogger.debug(
-          "Model catalog unavailable ({reason}); keeping {fallback}",
-          { reason: reason(state.message), fallback },
-        );
-        return;
-      case "empty":
-        catalogLogger.warn(
-          "Model catalog listed no models ({catalog}); keeping {fallback}",
-          { catalog: catalogLabel, fallback },
-        );
-        return;
-      case "malformed":
-        catalogLogger.warn(
-          "Model catalog response rejected ({reason}); keeping {fallback}",
-          { reason: reason(state.message), fallback },
-        );
-        return;
-    }
+    logCatalogFallback(
+      catalogLabel,
+      state,
+      snapshot === undefined ? "the built-in list" : "the last live list",
+    );
   }
 
   function prefetchModels(): Promise<Seed | DiscoveredModels> {
